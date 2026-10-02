@@ -1,0 +1,43 @@
+# Gradle, Kotlin, and generated build output
+.gradle/
+.kotlin/
+build/
+
+# Local IDE and Android SDK configuration
+.idea/
+.vscode/
+local.properties
+*.iml
+
+# Installed JavaScript dependencies and Python bytecode
+node_modules/
+__pycache__/
+*.py[co]
+
+# OS metadata and runtime logs
+.DS_Store
+*.log
+npm-debug.log*
+
+# Local environment files; sanitized templates may be committed
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Credentials and signing material; keep real secrets outside Git repositories
+/.secrets/
+client secret.md
+github-client-secret
+*.pem
+*.key
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Packaged Android artifacts and private Stage 0 note snapshots
+*.apk
+*.aab
+stage0-note.*
+reader-proof.html
