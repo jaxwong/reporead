@@ -55,7 +55,7 @@ Rules throughout:
 | 5 | Meaningful changes since the version actually read | F-11 | Version reconciliation from Stage 4 |
 | 6 | Search, data controls, release, and MVP evidence | F-12, F-13; full acceptance review | Stages 1–5 |
 
-Stage 0 is partially verified. Stage 1 backend and Android code is implemented and passes automated tests (2026-10-06); its real-phone acceptance is pending. Stages 2–6 are planned, not implemented.
+Stage 0 is partially verified. Stage 1's exit gate passed on 2026-10-06: a real note opened on the phone through the real backend from the connected private repository (see the [Stage 1 record](reporead-stage1-record.md), including what is verified only by automated tests). Stages 2–6 are planned, not implemented.
 
 ## Stage 0 — Finish proving the risky boundaries
 
