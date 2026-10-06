@@ -20,6 +20,8 @@ Evidence for the [build plan](reporead-build-plan.md)'s Stage 3 gates. Contracts
 
 - **User-reported (2026-10-06):** reopening the note redrew the highlights in place with the note available under Notes; a selection spanning two paragraphs was refused with a message; a highlight created offline still showed "waiting to sync" after a force-stop and reopen.
 
+- **Force-stop survival, then sync:** after reconnecting, the phone's Room row for mutation `21866531-2102-4a7b-af34-e583b57b6954` (created 18:27:47) was still pending with no server id. After the user's Sync, the server held exactly one mutation record and one annotation for it (annotation 5, created 18:29:44), and the phone's row was acknowledged (server id 5, not pending).
+
 ## Gates
 
 - **3A passed:** a real highlight and note were created, recovered in context after reopening, and edited online; source Markdown is untouched.
@@ -27,6 +29,5 @@ Evidence for the [build plan](reporead-build-plan.md)'s Stage 3 gates. Contracts
 
 ## Not yet verified on the real system
 
-- The highlight created offline in the force-stop check had not reached the server when this was recorded (the phone was off adb after airplane mode; the server still held annotations 2–4). Its sync after reconnecting is still to be confirmed.
 - A server refusal of a real offline creation (covered by automated tests only).
 - Concurrent duplicate requests and interrupted replay against the real phone (covered by automated tests only).
