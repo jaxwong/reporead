@@ -1,0 +1,11 @@
+body { margin: 16px; color: #202124; font: 18px/1.6 sans-serif; overflow-wrap: anywhere; }
+.source-label, #render-status { font-size: 13px; color: #555; }
+[data-block-id] { white-space: pre-wrap; }
+pre { padding: 12px; border-radius: 8px; background: #f4f5f6; overflow-x: auto; }
+pre, pre code { white-space: pre; overflow-wrap: normal; }
+code { font-size: 14px; }
+table { display: block; border-collapse: collapse; overflow-x: auto; }
+td, th { padding: 8px; border: 1px solid #bbb; min-width: 80px; }
+img, .diagram svg { max-width: 100%; height: auto; }
+.image-blocked, .diagram-error { color: #9b2424; }
+details { margin: 12px 0; }
