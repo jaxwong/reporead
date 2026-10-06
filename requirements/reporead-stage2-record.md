@@ -34,6 +34,10 @@ Airplane mode turned off Wi-Fi, which ended wireless adb debugging and its `adb 
 
 Passed on 2026-10-06: cached technical notes are readable offline, progress and bookmarks survive restart and synchronize once after reconnecting, and the library offers a working Continue reading action.
 
+## Defect found after the gate (2026-10-06)
+
+While testing Stage 3 the user reported that reopening a note no longer resumed. Reader logs on the Pixel showed `mode=exact` restores of block 141 followed by a save at block 0. Block 141 is a Mermaid source collapsed under its rendered diagram; WebView DevTools showed `scrollIntoView` silently does nothing for exactly the four collapsed sources among the note's 200 blocks. The Stage 2 resume check passed only because the saved position was not at a diagram. Fixed in `bd7f4e7` (anchors measured and restored through the rendered diagram, explicit scrolling, a restore only claims a mode when its target is on screen); the device check `android/reader-web/check-restore.mjs` restored all 200 blocks with 0 wrong and 0 approximate, and process death online and with the backend unreachable resumed exactly at block 141.
+
 ## Not yet verified on the real system
 
 - Repository images, online then offline (no real note contains one).
