@@ -48,17 +48,20 @@ class DocumentContentTest {
 
     @Autowired MockMvc mvc;
     @Autowired @Qualifier("githubUserApi") RestTemplate githubUserApi;
+    @Autowired @Qualifier("githubImageApi") RestTemplate githubImageApi;
     @Autowired OAuth2AuthorizedClientService clients;
     @Autowired ClientRegistrationRepository registrations;
     @Autowired AppSessions sessions;
     @Autowired JdbcClient db;
     @Autowired JsonMapper json;
     MockRestServiceServer server;
+    MockRestServiceServer images;
     String alice;
 
     @BeforeEach void setup() {
         TestEnvironment.reset(db);
         server = MockRestServiceServer.bindTo(githubUserApi).ignoreExpectOrder(true).build();
+        images = MockRestServiceServer.bindTo(githubImageApi).ignoreExpectOrder(true).build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, TOKEN);
         db.sql("""
                 insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch, last_synced_commit_sha)
@@ -67,6 +70,7 @@ class DocumentContentTest {
 
     @AfterEach void verifyNoExtraCalls() {
         server.verify();
+        images.verify();
         clients.removeAuthorizedClient("github", "42");
         clients.removeAuthorizedClient("github", "84");
     }
@@ -172,5 +176,41 @@ class DocumentContentTest {
         long id = document("a.md", MarkdownRenderer.blobSha(NOTE), false);
         clients.removeAuthorizedClient("github", "42");
         read(alice, id).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("SIGN_IN_REQUIRED"));
+    }
+
+    private ResultActions image(String bearer, long id, String path) throws Exception {
+        return mvc.perform(get("/api/documents/" + id + "/image").param("path", path).header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+    }
+
+    @Test void repositoryImageIsServedAtTheNotesCommitWithItsType() throws Exception {
+        long id = document("notes/a.md", MarkdownRenderer.blobSha(NOTE), false);
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G'};
+        images.expect(requestTo("https://api.github.com/repos/test-only/notes/contents/notes/images/flow%20chart.png?ref=" + "c".repeat(40)))
+            .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN))
+            .andExpect(header(HttpHeaders.ACCEPT, "application/vnd.github.raw+json"))
+            .andRespond(withSuccess(png, MediaType.APPLICATION_OCTET_STREAM));
+        var response = image(alice, id, "notes/images/flow chart.png").andExpect(status().isOk())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string(HttpHeaders.CONTENT_TYPE, "image/png"))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("X-Content-Type-Options", "nosniff")).andReturn().getResponse();
+        assertArrayEquals(png, response.getContentAsByteArray());
+    }
+
+    @Test void imagePathOwnershipAndDeletionAreCheckedBeforeGitHub() throws Exception {
+        long id = document("a.md", MarkdownRenderer.blobSha(NOTE), false);
+        for (String path : new String[] {"../a.png", "/a.png", "a.md", "a//b.png", ""}) {
+            image(alice, id, path).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_IMAGE_PATH"));
+        }
+        String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
+        image(bob, id, "a.png").andExpect(status().isNotFound());
+        image(alice, document("gone.md", MarkdownRenderer.blobSha(NOTE), true), "a.png").andExpect(status().isGone());
+    }
+
+    @Test void missingAndOversizedImagesAreDistinctFailures() throws Exception {
+        long id = document("a.md", MarkdownRenderer.blobSha(NOTE), false);
+        images.expect(requestTo("https://api.github.com/repos/test-only/notes/contents/missing.png?ref=" + "c".repeat(40))).andRespond(withResourceNotFound());
+        images.expect(requestTo("https://api.github.com/repos/test-only/notes/contents/huge.png?ref=" + "c".repeat(40)))
+            .andRespond(withSuccess(new byte[GitHubSecurity.MAX_IMAGE_RESPONSE_BYTES + 1], MediaType.APPLICATION_OCTET_STREAM));
+        image(alice, id, "missing.png").andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("IMAGE_NOT_FOUND"));
+        image(alice, id, "huge.png").andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
     }
 }

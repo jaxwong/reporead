@@ -11,6 +11,7 @@ import org.jsoup.nodes.Element;
 import org.jsoup.nodes.TextNode;
 import org.jsoup.safety.Cleaner;
 import org.jsoup.safety.Safelist;
+import org.springframework.web.util.UriUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -19,13 +20,22 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 public final class MarkdownRenderer {
     public static final int MAX_NOTE_BYTES = 1_048_576;
     public static final int MAX_DIAGRAM_CHARS = 20_000;
     public static final int MAX_DIAGRAMS = 16;
     public static final int MAX_EDGES = 200;
+    public static final int MAX_IMAGES = 64;
+    /** Image types the reader displays; also the only paths the image endpoint serves. */
+    public static final Map<String, String> IMAGE_TYPES = Map.of("png", "image/png", "jpg", "image/jpeg", "jpeg", "image/jpeg",
+            "gif", "image/gif", "webp", "image/webp", "svg", "image/svg+xml");
+    /** Same-origin path that the Android reader serves from its cache or the authenticated image endpoint. */
+    public static final String IMAGE_PREFIX = "/repo-image/";
     private static final int MAX_BLOCKS = 4_096;
     private static final String BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,pre,td,th,li";
     private static final String ORIGIN = "https://appassets.androidplatform.net";
@@ -65,9 +75,10 @@ public final class MarkdownRenderer {
         }
     }
 
-    public static RenderedNote render(String markdown, String sourceBlobSha, String sourceLabel) {
+    /** {@code documentPath} is the note's repository path: shown as its source label and used to resolve relative images. */
+    public static RenderedNote render(String markdown, String sourceBlobSha, String documentPath) {
         Objects.requireNonNull(markdown, "MarkdownRenderer markdown");
-        Objects.requireNonNull(sourceLabel, "MarkdownRenderer source label");
+        Objects.requireNonNull(documentPath, "MarkdownRenderer document path");
         if (sourceBlobSha == null || !sourceBlobSha.matches("[0-9a-f]{40}")) {
             throw new IllegalArgumentException("MarkdownRenderer sourceBlobSha must be a lowercase Git SHA-1");
         }
@@ -78,8 +89,23 @@ public final class MarkdownRenderer {
         var dirty = Jsoup.parseBodyFragment(HTML.render(PARSER.parse(markdown)), ORIGIN);
         dirty.outputSettings().prettyPrint(false);
         var clean = CLEANER.clean(dirty);
+        int images = 0;
         for (var image : clean.select("img")) {
-            image.replaceWith(new Element("span").addClass("image-blocked").text("[Image blocked: " + image.attr("alt") + "]"));
+            String alt = image.attr("alt");
+            String src = image.attr("src");
+            if (src.startsWith("//") || src.matches("^[A-Za-z][A-Za-z0-9+.-]*:.*")) {
+                image.replaceWith(blockedImage("Remote image blocked", alt));
+                continue;
+            }
+            var path = repositoryImagePath(documentPath, src);
+            if (path.isEmpty()) {
+                image.replaceWith(blockedImage("Unsupported image", alt));
+            } else if (++images > MAX_IMAGES) {
+                image.replaceWith(blockedImage("Image limit reached", alt));
+            } else {
+                image.attributes().remove("title");
+                image.attr("src", IMAGE_PREFIX + UriUtils.encodePath(path.get(), StandardCharsets.UTF_8)).attr("loading", "eager");
+            }
         }
         for (var input : clean.select("input")) {
             if (!input.attr("type").equals("checkbox")) throw new IllegalStateException("Parser emitted a non-checkbox input");
@@ -129,11 +155,56 @@ public final class MarkdownRenderer {
         document.body().attr("data-source-blob-sha", sourceBlobSha)
                 .attr("data-max-diagram-chars", Integer.toString(MAX_DIAGRAM_CHARS))
                 .attr("data-max-edges", Integer.toString(MAX_EDGES));
-        document.body().appendElement("p").addClass("source-label").text(sourceLabel);
+        document.body().appendElement("p").addClass("source-label").text(documentPath);
         document.body().appendElement("p").id("render-status").text("Rendering diagrams…");
         var note = document.body().appendElement("main").id("note").html(clean.body().html());
         if (blocks.isEmpty()) note.appendElement("p").text("This note is empty.");
         return new RenderedNote("<!doctype html>\n" + document.outerHtml(), List.copyOf(blocks), diagrams);
+    }
+
+    private static Element blockedImage(String reason, String alt) {
+        return new Element("span").addClass("image-blocked").text("[" + reason + ": " + alt + "]");
+    }
+
+    /**
+     * Resolves a relative or root-relative Markdown image against the note's directory, as GitHub does.
+     * Empty when the reference escapes the repository, is malformed, or is not a supported image type.
+     */
+    static Optional<String> repositoryImagePath(String documentPath, String src) {
+        String reference = src.split("[?#]", 2)[0];
+        if (reference.isEmpty()) return Optional.empty();
+        try {
+            reference = UriUtils.decode(reference, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException malformed) {
+            return Optional.empty();
+        }
+        var segments = new ArrayList<String>();
+        if (!reference.startsWith("/")) {
+            String[] directory = documentPath.split("/");
+            segments.addAll(Arrays.asList(directory).subList(0, directory.length - 1));
+        }
+        for (String segment : reference.split("/")) {
+            if (segment.isEmpty() || segment.equals(".")) continue;
+            if (segment.equals("..")) {
+                if (segments.isEmpty()) return Optional.empty();
+                segments.removeLast();
+            } else {
+                segments.add(segment);
+            }
+        }
+        if (segments.isEmpty()) return Optional.empty();
+        String path = String.join("/", segments);
+        return isImagePath(path) ? Optional.of(path) : Optional.empty();
+    }
+
+    /** A normalized repository path (no empty, ".", or ".." segments) with a supported image extension. */
+    public static boolean isImagePath(String path) {
+        if (path.isEmpty() || path.length() > 1024 || path.startsWith("/") || path.contains("\\")) return false;
+        for (String segment : path.split("/", -1)) {
+            if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) return false;
+        }
+        int dot = path.lastIndexOf('.');
+        return dot > path.lastIndexOf('/') && IMAGE_TYPES.containsKey(path.substring(dot + 1).toLowerCase(Locale.ROOT));
     }
 
     private static String nodeText(org.jsoup.nodes.Node node) {

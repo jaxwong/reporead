@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MarkdownRendererTest {
     private MarkdownRenderer.RenderedNote render(String source) {
-        return MarkdownRenderer.render(source, sha(source), "test fixture");
+        return MarkdownRenderer.render(source, sha(source), "notes/backend/test.md");
     }
 
     static String sha(String source) {
@@ -56,14 +56,42 @@ class MarkdownRendererTest {
         assertEquals("/assets/reader.js", html.selectFirst("script").attr("src"));
         assertTrue(html.select("a[href^=javascript:]").isEmpty());
         assertTrue(html.select("img").isEmpty());
-        assertTrue(html.text().contains("Image blocked"));
+        assertTrue(html.text().contains("Remote image blocked: bad"));
     }
 
-    @Test void everyImageIsVisiblyBlocked() {
-        var html = Jsoup.parse(render("![local](/assets/reader.css)\n\n![private](images/private.svg)").html());
-        assertTrue(html.select("img").isEmpty());
-        assertTrue(html.text().contains("Image blocked: local"));
-        assertTrue(html.text().contains("Image blocked: private"));
+    @Test void relativeImagesResolveLikeGitHubAndOthersAreVisiblyBlocked() {
+        var html = Jsoup.parse(render("""
+            ![diagram](images/flow%20chart.png)
+
+            ![shared](../../assets/logo.SVG "title")
+
+            ![root](/docs/a.webp?raw=true)
+
+            ![remote](https://example.com/tracker.png)
+
+            ![escape](../../../secret.png)
+
+            ![not an image](notes.md)
+            """).html());
+        assertEquals(java.util.List.of("/repo-image/notes/backend/images/flow%20chart.png", "/repo-image/assets/logo.SVG", "/repo-image/docs/a.webp"),
+            html.select("img").eachAttr("src"));
+        assertEquals("", html.select("img").get(1).attr("title"));
+        assertTrue(html.text().contains("Remote image blocked: remote"));
+        assertTrue(html.text().contains("Unsupported image: escape"));
+        assertTrue(html.text().contains("Unsupported image: not an image"));
+    }
+
+    @Test void imageCountIsBounded() {
+        var html = Jsoup.parse(render("![i](a.png)\n\n".repeat(MarkdownRenderer.MAX_IMAGES + 1)).html());
+        assertEquals(MarkdownRenderer.MAX_IMAGES, html.select("img").size());
+        assertTrue(html.text().contains("Image limit reached: i"));
+    }
+
+    @Test void imagePathsMustBeNormalizedRepositoryImages() {
+        assertTrue(MarkdownRenderer.isImagePath("a/b.png"));
+        for (String path : new String[] {"", "/a.png", "a//b.png", "a/./b.png", "a/../b.png", "a.md", "png", "a/.png/b", "x".repeat(1025) + ".png"}) {
+            assertFalse(MarkdownRenderer.isImagePath(path), path);
+        }
     }
 
     @Test void mermaidSourceIsBoundedAndNotAnExecutableScript() {

@@ -17,12 +17,14 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -46,14 +48,17 @@ public class GitHubApi {
 
     private final RestTemplate githubUserApi;
     private final RestTemplate githubTreeApi;
+    private final RestTemplate githubImageApi;
     private final JsonMapper json;
     private final OAuth2AuthorizedClientService clients;
 
     public GitHubApi(@Qualifier("githubUserApi") RestTemplate githubUserApi,
                      @Qualifier("githubTreeApi") RestTemplate githubTreeApi,
+                     @Qualifier("githubImageApi") RestTemplate githubImageApi,
                      JsonMapper json, OAuth2AuthorizedClientService clients) {
         this.githubUserApi = githubUserApi;
         this.githubTreeApi = githubTreeApi;
+        this.githubImageApi = githubImageApi;
         this.json = json;
         this.clients = clients;
     }
@@ -168,6 +173,27 @@ public class GitHubApi {
     /** Owner/repository names become URL path segments, so dot segments are rejected even though they match NAME. */
     private static boolean validName(String value) {
         return NAME.matcher(value).matches() && !value.equals(".") && !value.equals("..");
+    }
+
+    /** Raw bytes of a repository file at a commit, bounded by the 5 MiB image ceiling. {@code path} must be normalized. */
+    public byte[] imageFile(String token, String owner, String name, String path, String commitSha) {
+        var segments = new ArrayList<String>();
+        for (String segment : path.split("/")) segments.add(UriUtils.encodePathSegment(segment, StandardCharsets.UTF_8));
+        var uri = URI.create("https://api.github.com/repos/" + UriUtils.encodePathSegment(owner, StandardCharsets.UTF_8) + "/"
+            + UriUtils.encodePathSegment(name, StandardCharsets.UTF_8) + "/contents/" + String.join("/", segments)
+            + "?ref=" + UriUtils.encodeQueryParam(commitSha, StandardCharsets.UTF_8));
+        byte[] bytes;
+        try {
+            bytes = get(githubImageApi, uri, token, RAW,
+                new ApiFailure(HttpStatus.NOT_FOUND, "IMAGE_NOT_FOUND", "This image is not in the repository at the note's commit."));
+        } catch (ApiFailure failure) {
+            if (failure.code.equals("GITHUB_RESPONSE_LIMIT")) {
+                throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", "This image exceeds the 5 MiB reader limit.");
+            }
+            throw failure;
+        }
+        LOG.info("GitHub image read; bytes={}", bytes.length);
+        return bytes;
     }
 
     private static URI uri(String template, Object... variables) {
