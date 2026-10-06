@@ -116,6 +116,88 @@ window.reporead = {
   },
 };
 
+/*
+ * Selection capture under the Stage 0 contract: one block, UTF-16 offsets into its canonical (Java-exported) text.
+ * Broken mapping is an invariant failure, never an approximate anchor.
+ */
+function capture() {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount !== 1) return null;
+  const range = selection.getRangeAt(0);
+  const elementFor = node => node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  const startBlock = elementFor(range.startContainer).closest('[data-block-id]');
+  const endBlock = elementFor(range.endContainer).closest('[data-block-id]');
+  if (!startBlock || startBlock !== endBlock || !blocks.includes(startBlock)) {
+    return {error: 'Select text within a single paragraph, heading, list item, table cell, or code block.'};
+  }
+  const before = document.createRange();
+  before.selectNodeContents(startBlock);
+  before.setEnd(range.startContainer, range.startOffset);
+  const startOffset = before.toString().length;
+  before.setEnd(range.endContainer, range.endOffset);
+  const endOffset = before.toString().length;
+  const exactText = range.toString();
+  if (startBlock.textContent !== startBlock.dataset.anchorText ||
+      startBlock.dataset.anchorText.slice(startOffset, endOffset) !== exactText) {
+    throw new Error(`Canonical selection invariant failed in ${startBlock.dataset.blockId}`);
+  }
+  if (!exactText.length) return null;
+  return {sourceBlobSha: document.body.dataset.sourceBlobSha, blockId: startBlock.dataset.blockId, startOffset, endOffset, exactText};
+}
+
+/** Wraps [start, end) of a block's canonical text in <mark> elements; text content is unchanged. */
+function wrap(block, start, end, key) {
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  const pieces = [];
+  let offset = 0;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = node.data.length;
+    const from = Math.max(start, offset);
+    const to = Math.min(end, offset + length);
+    if (from < to) pieces.push([node, from - offset, to - offset]);
+    offset += length;
+  }
+  for (const [node, from, to] of pieces) {
+    let target = node;
+    if (to < target.data.length) target.splitText(to);
+    if (from > 0) target = target.splitText(from);
+    const mark = document.createElement('mark');
+    mark.dataset.key = key;
+    target.replaceWith(mark);
+    mark.append(target);
+  }
+}
+
+window.reporead.capture = capture;
+
+/** Replaces all highlights. Returns the keys whose text is not in this version, which are not drawn. */
+window.reporead.highlight = annotations => {
+  for (const mark of document.querySelectorAll('#note mark[data-key]')) mark.replaceWith(...mark.childNodes);
+  for (const block of blocks) block.normalize();
+  const missing = [];
+  for (const {key, blockId, startOffset, endOffset, exactText} of annotations) {
+    const block = blocks.find(candidate => candidate.dataset.blockId === blockId);
+    if (!block || block.dataset.anchorText.slice(startOffset, endOffset) !== exactText) {
+      missing.push(key);
+      continue;
+    }
+    wrap(block, startOffset, endOffset, key);
+  }
+  for (const block of blocks) {
+    if (block.textContent !== block.dataset.anchorText) throw new Error(`Highlighting changed canonical text in ${block.dataset.blockId}`);
+  }
+  return missing;
+};
+
+window.reporead.reveal = key => {
+  const mark = document.querySelector(`#note mark[data-key="${CSS.escape(key)}"]`);
+  if (!mark) return false;
+  mark.scrollIntoView({block: 'center'});
+  mark.classList.add('revealed');
+  setTimeout(() => mark.classList.remove('revealed'), 1500);
+  return true;
+};
+
 // Diagrams change the layout, so the app restores a position only once rendering has finished.
 render().then(() => {
   document.body.dataset.state = 'ready';

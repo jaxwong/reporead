@@ -1,6 +1,7 @@
 package com.reporead.android.data
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -39,6 +40,16 @@ data class ReadingRow(@PrimaryKey val documentId: Long, val title: String, val p
 @Entity(tableName = "bookmarks")
 data class BookmarkRow(@PrimaryKey val documentId: Long, val title: String, val path: String, val sourceBlobSha: String,
                        val bookmarked: Boolean, val pending: Boolean, val changedAt: Long)
+
+/**
+ * A highlight, keyed by the client mutation id that created it (the server returns it for every highlight).
+ * [pending] is a creation the backend has not acknowledged; the row is the local annotation and its pending mutation
+ * in one write. [rejection] is the server's reason for refusing a creation; such rows are shown, not retried.
+ */
+@Entity(tableName = "annotations", indices = [Index("documentId")])
+data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?, val documentId: Long, val sourceBlobSha: String,
+                         val blockId: String, val startOffset: Int, val endOffset: Int, val exactText: String, val note: String?,
+                         val version: Int, val createdAt: Long, val pending: Boolean, val rejection: String?)
 
 @Dao
 interface LibraryDao {
@@ -131,6 +142,37 @@ interface LibraryDao {
     @Query("select documentId from bookmarks where pending")
     suspend fun pendingBookmarkIds(): List<Long>
 
+    @Query("select * from annotations where documentId = :documentId order by createdAt")
+    fun annotations(documentId: Long): Flow<List<AnnotationRow>>
+
+    @Query("select * from annotations where mutationId = :mutationId")
+    suspend fun annotation(mutationId: String): AnnotationRow?
+
+    @Query("select * from annotations where pending and rejection is null order by createdAt")
+    suspend fun pendingAnnotations(): List<AnnotationRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveAnnotation(row: AnnotationRow)
+
+    @Query("delete from annotations where mutationId = :mutationId")
+    suspend fun deleteAnnotation(mutationId: String)
+
+    @Query("update annotations set rejection = :reason where mutationId = :mutationId")
+    suspend fun rejectAnnotation(mutationId: String, reason: String)
+
+    @Query("delete from annotations where documentId = :documentId and not pending")
+    suspend fun clearAcknowledgedAnnotations(documentId: Long)
+
+    /**
+     * The server's complete list for a document replaces acknowledged rows. A pending creation the server already has
+     * (same mutation id, e.g. after a lost acknowledgement) becomes acknowledged; other pending creations are kept.
+     */
+    @Transaction
+    suspend fun replaceRemoteAnnotations(documentId: Long, remote: List<AnnotationRow>) {
+        clearAcknowledgedAnnotations(documentId)
+        for (row in remote) saveAnnotation(row.copy(pending = false, rejection = null))
+    }
+
     /** The server's complete bookmark list replaces acknowledged rows; pending local toggles are kept. */
     @Transaction
     suspend fun replaceRemoteBookmarks(remote: List<BookmarkRow>) {
@@ -140,7 +182,11 @@ interface LibraryDao {
     }
 }
 
-@Database(entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class], version = 1)
+@Database(
+    entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class],
+    version = 2,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
+)
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao
 

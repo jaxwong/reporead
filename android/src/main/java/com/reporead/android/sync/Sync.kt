@@ -5,6 +5,7 @@ import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.contract
 import com.reporead.android.core.network.describe
+import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.BookmarkRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
@@ -16,6 +17,7 @@ import java.io.File
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.UUID
 
 /**
  * Owns how the offline cache and the backend meet. Every network operation is explicit and foreground; a failed
@@ -91,10 +93,12 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         dao.saveBookmark(BookmarkRow(note.documentId, note.title, note.path, note.blobSha, bookmarked, pending = true, System.currentTimeMillis()))
 
     /**
-     * Pushes pending reading saves and bookmark toggles, then replaces acknowledged local rows with the server's complete
-     * lists. Stops at the first failure; unacknowledged changes stay pending for the next explicit sync.
+     * Pushes pending highlight creations, reading saves, and bookmark toggles, then replaces acknowledged local reading
+     * and bookmark rows with the server's complete lists. Stops at the first failure; unacknowledged changes stay pending
+     * for the next explicit sync.
      */
-    suspend fun syncReading() {
+    suspend fun syncLocalChanges() {
+        pushAnnotations()
         for (row in dao.pendingReading()) {
             val body = JSONObject().put("lastReadBlobSha", row.lastReadBlobSha).put("progressPercent", row.progressPercent)
                 .put("anchor", JSONObject(row.anchorJson)).put("lastReadAt", Instant.ofEpochMilli(row.lastReadAt).toString())
@@ -138,6 +142,81 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                 }
             }
         })
+    }
+
+    /** Saves a new highlight locally as a pending creation; it is sent with this mutation id until acknowledged. */
+    suspend fun createAnnotation(selection: JSONObject, documentId: Long, note: String?) {
+        val row = contract {
+            AnnotationRow(UUID.randomUUID().toString(), null, documentId, selection.getString("sourceBlobSha"), selection.getString("blockId"),
+                selection.getInt("startOffset"), selection.getInt("endOffset"), selection.getString("exactText"), note, 1,
+                System.currentTimeMillis(), pending = true, rejection = null)
+        }
+        dao.saveAnnotation(row)
+    }
+
+    /**
+     * Sends pending creations. The same mutation id is replayed until the server answers, so a lost acknowledgement
+     * cannot create a duplicate. A refusal is kept on the row and shown; it is not retried.
+     */
+    suspend fun pushAnnotations() {
+        for (row in dao.pendingAnnotations()) {
+            val body = JSONObject().put("mutationId", row.mutationId).put("note", row.note ?: JSONObject.NULL).put("anchor",
+                JSONObject().put("sourceBlobSha", row.sourceBlobSha).put("blockId", row.blockId).put("startOffset", row.startOffset)
+                    .put("endOffset", row.endOffset).put("exactText", row.exactText))
+            val created = try {
+                api.post("/api/documents/${row.documentId}/annotations", body)
+            } catch (error: ApiException) {
+                when (error.code) {
+                    "ANNOTATION_DELETED" -> dao.deleteAnnotation(row.mutationId)
+                    "INVALID_ANCHOR", "INVALID_ANNOTATION", "MUTATION_ID_REUSED", "NOT_FOUND" -> dao.rejectAnnotation(row.mutationId, error.describe())
+                    else -> throw error
+                }
+                Log.w("RepoRead", "Highlight creation refused; documentId=${row.documentId} code=${error.code}")
+                continue
+            }
+            dao.saveAnnotation(annotationRow(created))
+        }
+    }
+
+    /** Pending creations are sent first, so the server's list already contains them where possible. */
+    suspend fun refreshAnnotations(documentId: Long) {
+        pushAnnotations()
+        val json = api.get("/api/documents/$documentId/annotations")
+        dao.replaceRemoteAnnotations(documentId, contract {
+            json.getJSONArray("annotations").let { array -> List(array.length()) { annotationRow(array.getJSONObject(it)) } }
+        })
+    }
+
+    /** Online only. A 409 ANNOTATION_CONFLICT means another edit landed first; nothing local changes. */
+    suspend fun editAnnotation(row: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow {
+        val serverId = checkNotNull(row.serverId) { "Only acknowledged highlights can be edited; ${row.mutationId} is pending" }
+        val updated = annotationRow(api.patch("/api/annotations/$serverId",
+            JSONObject().put("note", note ?: JSONObject.NULL).put("expectedVersion", expectedVersion)))
+        dao.saveAnnotation(updated)
+        return updated
+    }
+
+    /** Online for acknowledged highlights; a pending or refused creation the server never accepted is only local. */
+    suspend fun deleteAnnotation(row: AnnotationRow) {
+        val serverId = row.serverId
+        if (serverId != null) {
+            try {
+                api.delete("/api/annotations/$serverId?expectedVersion=${row.version}")
+            } catch (error: ApiException) {
+                if (error.status != 404) throw error
+            }
+        } else {
+            check(row.pending) { "Highlight ${row.mutationId} has no server id but is not pending" }
+        }
+        dao.deleteAnnotation(row.mutationId)
+    }
+
+    private fun annotationRow(json: JSONObject) = contract {
+        val anchor = json.getJSONObject("anchor")
+        AnnotationRow(json.getString("mutationId"), json.getLong("id"), json.getLong("documentId"), anchor.getString("sourceBlobSha"),
+            anchor.getString("blockId"), anchor.getInt("startOffset"), anchor.getInt("endOffset"), anchor.getString("exactText"),
+            json.nullableString("note"), json.getInt("version"), Instant.parse(json.getString("createdAt")).toEpochMilli(),
+            pending = false, rejection = null)
     }
 
     private fun readingRow(json: JSONObject) = contract {

@@ -98,7 +98,7 @@ fun RepositoriesScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure
         // Pushes pending reading saves and bookmarks, then pulls the server's view: the explicit foreground sync point.
         RefreshOnEntry(refresh, onFailure, { status = it }) {
             sync.refreshRepositories()
-            sync.syncReading()
+            sync.syncLocalChanges()
         }
     }
     Column(Modifier.fillMaxSize()) {

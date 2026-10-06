@@ -151,6 +151,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         })
         Screen.Available -> AvailableScreen(api, onFailure, onConnected = { stack = listOf(Screen.Repositories, it) })
         is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push)
-        is Screen.Reader -> ReaderScreen(sync, dao, scope, onFailure, screen)
+        is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen)
     }
 }

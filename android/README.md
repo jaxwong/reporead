@@ -1,6 +1,6 @@
 # RepoRead Android app
 
-Kotlin/Compose client: GitHub sign-in through the backend, connected repositories, folder/note browsing, the isolated technical-Markdown reader, an offline cache, reading progress with Continue Reading, and bookmarks. It talks to the backend only through the HTTP/JSON contract in [backend/README.md](../backend/README.md); it never holds GitHub credentials.
+Kotlin/Compose client: GitHub sign-in through the backend, connected repositories, folder/note browsing, the isolated technical-Markdown reader, an offline cache, reading progress with Continue Reading, bookmarks, and highlights with notes. It talks to the backend only through the HTTP/JSON contract in [backend/README.md](../backend/README.md); it never holds GitHub credentials.
 
 ## Run on the phone
 
@@ -17,11 +17,16 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:a
 
 ## Device tests
 
+These run the Room cache and pending-change rules against an in-memory database on the phone. Install and run them with adb, which keeps the installed app and its data:
+
 ```sh
-ANDROID_HOME="$HOME/Library/Android/sdk" ANDROID_SERIAL=<device-serial> ./gradlew :app:connectedDebugAndroidTest --no-daemon
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r android/build/outputs/apk/debug/app-debug.apk
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w com.reporead.android.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-These run the Room cache and pending-change rules against an in-memory database on the phone. **Gradle uninstalls the app afterwards**, which deletes its session, cache, and any unsynced changes; sync before running them on the phone you read on, then reinstall and sign in.
+`./gradlew :app:connectedDebugAndroidTest` runs the same tests but **uninstalls the app afterwards**, deleting its session, cache, and any unsynced changes; do not use it on the phone you read on.
 
 ## Behavior
 
@@ -29,7 +34,8 @@ These run the Room cache and pending-change rules against an in-memory database 
 - **Offline cache (Room):** repositories, document lists, and the latest complete rendered copy of each opened note, keyed by document and blob SHA. A note whose cached version matches the document's current version opens without a network call. Otherwise the current version is fetched; if that fails, the older saved copy is shown with the reason. Failed refreshes never replace saved lists or notes. There is no eviction yet; every opened note's latest version is kept (decide retention from real use).
 - **Reading position:** the reader saves the first block visible at the top of the screen (heading path, 64-character text prefix, block index) and scroll percent 0.7 s after scrolling stops, when the app goes to the background, and when leaving the note. It records the blob SHA actually displayed; refreshing a repository never changes it. Restoring tries heading + text, text, section, block index, then percent, and says when it is approximate or when the note changed since the last read. The system font size is applied to the reader.
 - **Continue reading and bookmarks:** the library shows the five most recently read notes and all bookmarks. Saves and bookmark toggles are stored locally as pending and sent when the library opens or **Sync** is tapped; pending changes win over older server state and yield to newer state. There is no background sync.
+- **Highlights and notes:** select text within one block and choose **Highlight** or **Add note** from the selection menu. The selection is read through `evaluateJavascript` using the Stage 0 contract (block id, UTF-16 offsets into canonical text); the page still cannot call native code. A new highlight is saved locally as a pending creation with a client mutation id in one Room write, then sent immediately and again on each library open, **Sync**, or note open until the server acknowledges it — the same id every time, so a lost acknowledgement cannot duplicate it. A refusal (e.g. the text no longer matches) is kept and shown, not retried. **Notes** lists the note's highlights with Show, Edit note, and Delete. Editing and deleting acknowledged highlights are online only; a conflicting edit shows both texts and asks which to keep. Highlights made on another version of the note are listed but not drawn until Stage 4 re-anchoring.
 - **Images:** repository images referenced by a note are fetched through the backend by native code (the page never sees the token) and cached with that note version. Offline and uncached, an image shows `[Image unavailable: …]`; remote images are blocked.
 - **Reader isolation:** backend-sanitized HTML in a WebView with app-bundled reader/Mermaid/highlight assets only, no credentials, no JavaScript bridge, and no network/file/content access. Tapped `http(s)` links open the browser; links between notes are not followed.
 
-`reader-web/` holds the reader's display JavaScript and styles; see its README. `schemas/` holds exported Room schemas for writing migrations.
+`reader-web/` holds the reader's display JavaScript and styles; see its README. `schemas/` holds exported Room schemas; version 2 adds `annotations` through a Room auto-migration, verified on the Pixel against an existing version 1 database.

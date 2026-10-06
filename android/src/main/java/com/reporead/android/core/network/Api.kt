@@ -21,6 +21,7 @@ class Api(private val baseUrl: String, private val accessToken: () -> String?) {
     suspend fun get(path: String): JSONObject = json("GET", path, null) ?: throw unexpected(200)
     suspend fun post(path: String, body: JSONObject? = null): JSONObject = json("POST", path, body) ?: throw unexpected(200)
     suspend fun put(path: String, body: JSONObject): JSONObject = json("PUT", path, body) ?: throw unexpected(200)
+    suspend fun patch(path: String, body: JSONObject): JSONObject = json("PATCH", path, body) ?: throw unexpected(200)
     suspend fun delete(path: String) { json("DELETE", path, null) }
 
     /** Blocking; for callers already on a background thread, such as WebView request interception. */

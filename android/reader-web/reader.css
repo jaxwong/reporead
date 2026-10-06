@@ -9,3 +9,5 @@ td, th { padding: 8px; border: 1px solid #bbb; min-width: 80px; }
 img, .diagram svg { max-width: 100%; height: auto; }
 .image-blocked, .diagram-error { color: #9b2424; }
 details { margin: 12px 0; }
+mark { background: #fff1a8; color: inherit; }
+mark.revealed { background: #ffd54a; }
