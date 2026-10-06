@@ -72,6 +72,31 @@ function headingPath(block) {
 
 const PREFIX_CHARS = 64;
 
+/*
+ * Where a block appears on screen. A Mermaid source sits collapsed under its rendered diagram, and scrolling to
+ * collapsed content does nothing, so the diagram stands in for it. The anchor still names the canonical source block.
+ */
+function visibleElement(block) {
+  const details = block.closest('details');
+  if (details && !details.open && details.previousElementSibling?.matches('.diagram, .diagram-error')) {
+    return details.previousElementSibling;
+  }
+  return block;
+}
+
+/** Scrolls explicitly; Element.scrollIntoView silently does nothing for collapsed content in this WebView. */
+function scrollToElement(element, align) {
+  const rect = element.getBoundingClientRect();
+  const offset = align === 'center' ? (window.innerHeight - rect.height) / 2 : 0;
+  window.scrollTo(0, Math.max(0, window.scrollY + rect.top - offset));
+}
+
+/** True when the element ended up within the viewport, so a restore can only claim the passage it actually shows. */
+function onScreen(element) {
+  const rect = element.getBoundingClientRect();
+  return rect.bottom > 0 && rect.top < window.innerHeight;
+}
+
 function scrollPercent() {
   const scrollable = document.documentElement.scrollHeight - window.innerHeight;
   return scrollable <= 0 ? 100 : Math.max(0, Math.min(100, Math.round(window.scrollY / scrollable * 100)));
@@ -83,7 +108,8 @@ function scrollPercent() {
  */
 window.reporead = {
   position() {
-    const index = blocks.findIndex(block => block.getBoundingClientRect().bottom > 0);
+    // Scrolling lands on device pixels, so a sliver under 1px of the previous block does not count as visible.
+    const index = blocks.findIndex(block => visibleElement(block).getBoundingClientRect().bottom > 1);
     const block = index < 0 ? null : blocks[index];
     return {
       progressPercent: scrollPercent(),
@@ -110,9 +136,12 @@ window.reporead = {
     else if (inSection.length) [target, mode] = [inSection[0], 'section'];
     else if (anchor.blockIndex < blocks.length) [target, mode] = [blocks[anchor.blockIndex], 'block'];
     else mode = 'percent';
-    if (target) target.scrollIntoView({block: 'start'});
-    else window.scrollTo(0, progressPercent / 100 * (document.documentElement.scrollHeight - window.innerHeight));
-    return mode;
+    if (target) {
+      scrollToElement(visibleElement(target), 'start');
+      if (onScreen(visibleElement(target))) return mode;
+    }
+    window.scrollTo(0, progressPercent / 100 * (document.documentElement.scrollHeight - window.innerHeight));
+    return 'percent';
   },
 };
 
@@ -192,7 +221,9 @@ window.reporead.highlight = annotations => {
 window.reporead.reveal = key => {
   const mark = document.querySelector(`#note mark[data-key="${CSS.escape(key)}"]`);
   if (!mark) return false;
-  mark.scrollIntoView({block: 'center'});
+  const details = mark.closest('details');
+  if (details) details.open = true;
+  scrollToElement(mark, 'center');
   mark.classList.add('revealed');
   setTimeout(() => mark.classList.remove('revealed'), 1500);
   return true;

@@ -242,6 +242,7 @@ private class ReaderSession(
         view.evaluateJavascript("document.body.dataset.state || ''") { encoded ->
             when (JSONTokener(encoded).nextValue()) {
                 "ready" -> {
+                    Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height} attempt=$attempt")
                     ready = true
                     applyHighlights()
                     restore(view)
@@ -263,6 +264,8 @@ private class ReaderSession(
             }
             view.evaluateJavascript("window.reporead.restore(${saved.anchorJson}, ${saved.progressPercent})") { encoded ->
                 val mode = JSONTokener(encoded).nextValue() as String
+                Log.i("RepoRead", "Reader restored; documentId=${note.documentId} mode=$mode savedPercent=${saved.progressPercent} " +
+                    "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}")
                 onRestoreNotice(when {
                     mode == "section" -> "Resumed at the start of the section you were reading; the exact passage changed."
                     mode == "block" || mode == "percent" -> "Resumed near your last position; the exact passage could not be found."
@@ -285,6 +288,8 @@ private class ReaderSession(
         }
         webView.evaluateJavascript("JSON.stringify(window.reporead.position())") { encoded ->
             val position = JSONObject(JSONTokener(encoded).nextValue() as String)
+            Log.i("RepoRead", "Reading position saved; documentId=${note.documentId} percent=${position.getInt("progressPercent")} " +
+                "block=${position.getJSONObject("anchor").getInt("blockIndex")} viewHeight=${webView.height}")
             val row = ReadingRow(note.documentId, note.title, note.path, note.blobSha, position.getInt("progressPercent"),
                 position.getJSONObject("anchor").toString(), System.currentTimeMillis(), pending = true)
             scope.launch { sync.saveReading(row) }
