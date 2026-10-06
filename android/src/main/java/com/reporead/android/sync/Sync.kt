@@ -10,6 +10,7 @@ import com.reporead.android.data.BookmarkRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import org.json.JSONObject
@@ -63,13 +64,14 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
     data class Opened(val note: NoteRow, val staleReason: String?)
 
     /**
-     * A cached copy of the document's current version opens without a network call. Otherwise the current version is
-     * fetched; if that fails, an older cached copy is shown with the reason, and a missing cache is the failure itself.
+     * A cached copy of the document's current version and path opens without a network call (the rendered page depends
+     * on the path too: its label and relative images). Otherwise the current version is fetched; if that fails, an older
+     * cached copy is shown with the reason, and a missing cache is the failure itself.
      */
     suspend fun openNote(documentId: Long): Opened {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
-        if (cached != null && cached.blobSha == current?.blobSha) return Opened(cached, null)
+        if (cached != null && current != null && cached.blobSha == current.blobSha && cached.path == current.path) return Opened(cached, null)
         val json = try {
             api.get("/api/documents/$documentId/content")
         } catch (error: ApiException) {
@@ -138,7 +140,8 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                 List(array.length()) {
                     val item = array.getJSONObject(it)
                     BookmarkRow(item.getLong("documentId"), item.getString("title"), item.getString("path"), item.getString("sourceBlobSha"),
-                        bookmarked = true, pending = false, Instant.parse(item.getString("createdAt")).toEpochMilli())
+                        bookmarked = true, pending = false, Instant.parse(item.getString("createdAt")).toEpochMilli(),
+                        deleted = item.getBoolean("deleted"))
                 }
             }
         })
@@ -196,6 +199,18 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         return updated
     }
 
+    /**
+     * Online only: places an acknowledged highlight on a selection the user made. A 409 ANNOTATION_CONFLICT means another
+     * change landed first; nothing local changes.
+     */
+    suspend fun reattachAnnotation(row: AnnotationRow, selection: JSONObject): AnnotationRow {
+        val serverId = checkNotNull(row.serverId) { "Only acknowledged highlights can be reattached; ${row.mutationId} is pending" }
+        val updated = annotationRow(api.post("/api/annotations/$serverId/reattach",
+            JSONObject().put("expectedVersion", row.version).put("anchor", selection)))
+        dao.saveAnnotation(updated)
+        return updated
+    }
+
     /** Online for acknowledged highlights; a pending or refused creation the server never accepted is only local. */
     suspend fun deleteAnnotation(row: AnnotationRow) {
         val serverId = row.serverId
@@ -213,16 +228,20 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
 
     private fun annotationRow(json: JSONObject) = contract {
         val anchor = json.getJSONObject("anchor")
+        val location = json.getJSONObject("location")
         AnnotationRow(json.getString("mutationId"), json.getLong("id"), json.getLong("documentId"), anchor.getString("sourceBlobSha"),
             anchor.getString("blockId"), anchor.getInt("startOffset"), anchor.getInt("endOffset"), anchor.getString("exactText"),
             json.nullableString("note"), json.getInt("version"), Instant.parse(json.getString("createdAt")).toEpochMilli(),
-            pending = false, rejection = null)
+            pending = false, rejection = null, prefixText = anchor.getString("prefixText"), suffixText = anchor.getString("suffixText"),
+            status = json.getString("status"), resolvedBlobSha = json.getString("resolvedBlobSha"),
+            location = Passage(location.getString("sourceBlobSha"), location.getString("blockId"), location.getInt("startOffset"),
+                location.getInt("endOffset"), location.getString("exactText")))
     }
 
     private fun readingRow(json: JSONObject) = contract {
         ReadingRow(json.getLong("documentId"), json.getString("title"), json.getString("path"), json.getString("lastReadBlobSha"),
             json.getInt("progressPercent"), json.getJSONObject("anchor").toString(), Instant.parse(json.getString("lastReadAt")).toEpochMilli(),
-            pending = false)
+            pending = false, deleted = json.getBoolean("deleted"))
     }
 
     /**
