@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,12 +27,16 @@ import com.reporead.android.auth.startSignIn
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
+import com.reporead.android.data.LocalStore
+import com.reporead.android.sync.Sync
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.RepositoriesScreen
 import com.reporead.android.reader.ReaderScreen
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** One navigation entry, encoded as strings so the back stack survives process death. */
 sealed interface Screen {
@@ -75,19 +80,24 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val context = LocalContext.current
     val store = remember { SessionStore(context.applicationContext) }
     val api = remember { Api(BuildConfig.API_BASE_URL) { store.accessToken() } }
+    val local = remember { LocalStore.get(context) }
+    val sync = remember { Sync(api, local, context.applicationContext.filesDir) }
+    val dao = remember { local.library() }
     var signedIn by remember { mutableStateOf(store.accessToken() != null) }
     var signInMessage by remember { mutableStateOf<String?>(null) }
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     val scope = rememberCoroutineScope()
+    val savedRepositories by dao.repositories().collectAsState(null)
 
-    val signOut: (String?) -> Unit = { message ->
-        store.clear()
-        signedIn = false
-        signInMessage = message
-        stack = listOf(Screen.Repositories)
+    // Any 401 means the app session or the server's GitHub token is gone. Saved notes stay readable; only refreshing
+    // and syncing wait for a new sign-in.
+    val onFailure: (ApiException) -> Unit = { error ->
+        if (error.status == 401) {
+            store.clear()
+            signedIn = false
+        }
     }
-    // Any 401 means the app session or the server's GitHub token is gone; the only remedy is a new sign-in.
-    val onFailure: (ApiException) -> Unit = { error -> if (error.status == 401) signOut("Your session ended. Sign in again.") }
+    val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
 
     // Keyed on the code, so the code is cleared only after the exchange ends: clearing it first would
     // restart this effect and cancel the exchange after the server had already issued the session.
@@ -108,11 +118,12 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         }
     }
 
-    if (!signedIn) {
+    val saved = savedRepositories ?: return
+    if (!signedIn && (saved.isEmpty() || signInMessage != null)) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("RepoRead", style = MaterialTheme.typography.headlineMedium)
             Text("Read your GitHub notes. RepoRead only reads repositories you grant to its GitHub App.")
-            Button(onClick = { startSignIn(context, BuildConfig.API_BASE_URL, store) }) { Text("Sign in with GitHub") }
+            Button(onClick = signIn) { Text("Sign in with GitHub") }
             signInMessage?.let { Text(it) }
         }
         return
@@ -121,7 +132,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val push: (Screen) -> Unit = { stack = stack + it }
     BackHandler(enabled = stack.size > 1) { stack = stack.dropLast(1) }
     when (val screen = stack.last()) {
-        Screen.Repositories -> RepositoriesScreen(api, onFailure, push, onSignOut = {
+        Screen.Repositories -> RepositoriesScreen(sync, dao, signedIn, onFailure, push, onSignIn = signIn, onSignOut = {
             scope.launch {
                 val message = try {
                     api.delete("/api/app-auth/session")
@@ -130,11 +141,16 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                     if (error.status == 401) null
                     else "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
                 }
-                signOut(message)
+                // Explicit sign-out removes this phone's copy of private notes, including unsynced changes.
+                withContext(Dispatchers.IO) { sync.clearAll() }
+                store.clear()
+                signedIn = false
+                signInMessage = message
+                stack = listOf(Screen.Repositories)
             }
         })
         Screen.Available -> AvailableScreen(api, onFailure, onConnected = { stack = listOf(Screen.Repositories, it) })
-        is Screen.Folder -> FolderScreen(api, onFailure, screen, push)
-        is Screen.Reader -> ReaderScreen(api, onFailure, screen)
+        is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push)
+        is Screen.Reader -> ReaderScreen(sync, dao, scope, onFailure, screen)
     }
 }

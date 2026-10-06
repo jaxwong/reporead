@@ -49,7 +49,78 @@ async function render() {
     `${blocks.length} canonical blocks; ${status.diagrams} diagrams; ${status.diagramErrors} diagram errors`;
 }
 
-render().catch(error => {
+// Repository images come from the app's cache or the authenticated backend; when neither has one, say so in place.
+for (const image of document.querySelectorAll('#note img')) {
+  const unavailable = () => {
+    const label = document.createElement('span');
+    label.className = 'image-blocked';
+    label.textContent = `[Image unavailable: ${image.alt}]`;
+    image.replaceWith(label);
+  };
+  if (image.complete && image.naturalWidth === 0) unavailable();
+  else image.addEventListener('error', unavailable, {once: true});
+}
+
+function headingPath(block) {
+  const path = [];
+  for (let level = 1; level <= 6; level++) {
+    const heading = block.getAttribute(`data-heading-${level}`);
+    if (heading !== null) path.push(heading);
+  }
+  return path;
+}
+
+const PREFIX_CHARS = 64;
+
+function scrollPercent() {
+  const scrollable = document.documentElement.scrollHeight - window.innerHeight;
+  return scrollable <= 0 ? 100 : Math.max(0, Math.min(100, Math.round(window.scrollY / scrollable * 100)));
+}
+
+/*
+ * Reading position for the native app, which calls these through evaluateJavascript; the page has no way to call native
+ * code. The anchor is the first block still visible at the top of the viewport.
+ */
+window.reporead = {
+  position() {
+    const index = blocks.findIndex(block => block.getBoundingClientRect().bottom > 0);
+    const block = index < 0 ? null : blocks[index];
+    return {
+      progressPercent: scrollPercent(),
+      anchor: {
+        headingPath: block ? headingPath(block) : [],
+        textPrefix: block ? block.dataset.anchorText.slice(0, PREFIX_CHARS) : null,
+        blockIndex: Math.max(index, 0),
+      },
+    };
+  },
+  /** Restores by heading and text, then text alone, then section, then block index, then percent. Returns how. */
+  restore(anchor, progressPercent) {
+    const section = JSON.stringify(anchor.headingPath);
+    const sameText = block => anchor.textPrefix !== null && block.dataset.anchorText.slice(0, PREFIX_CHARS) === anchor.textPrefix;
+    const inSection = blocks.filter(block => JSON.stringify(headingPath(block)) === section);
+    const nearest = candidates => candidates.reduce((best, block) =>
+      Math.abs(blocks.indexOf(block) - anchor.blockIndex) < Math.abs(blocks.indexOf(best) - anchor.blockIndex) ? block : best);
+    let target = null;
+    let mode;
+    const exact = inSection.filter(sameText);
+    const anywhere = blocks.filter(sameText);
+    if (exact.length) [target, mode] = [nearest(exact), 'exact'];
+    else if (anywhere.length) [target, mode] = [nearest(anywhere), 'text'];
+    else if (inSection.length) [target, mode] = [inSection[0], 'section'];
+    else if (anchor.blockIndex < blocks.length) [target, mode] = [blocks[anchor.blockIndex], 'block'];
+    else mode = 'percent';
+    if (target) target.scrollIntoView({block: 'start'});
+    else window.scrollTo(0, progressPercent / 100 * (document.documentElement.scrollHeight - window.innerHeight));
+    return mode;
+  },
+};
+
+// Diagrams change the layout, so the app restores a position only once rendering has finished.
+render().then(() => {
+  document.body.dataset.state = 'ready';
+}, error => {
+  document.body.dataset.state = 'failed';
   document.getElementById('render-status').textContent = `Reader failed: ${error.message}`;
   console.error(error);
 });

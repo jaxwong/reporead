@@ -1,0 +1,92 @@
+package com.reporead.android.data
+
+import androidx.room.Room
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/** Cache and pending-change rules against a real in-memory Room database on the device. Test-only data. */
+@RunWith(AndroidJUnit4::class)
+class LocalStoreTest {
+    private lateinit var store: LocalStore
+    private lateinit var dao: LibraryDao
+
+    @Before fun open() {
+        store = Room.inMemoryDatabaseBuilder(InstrumentationRegistry.getInstrumentation().targetContext, LocalStore::class.java).build()
+        dao = store.library()
+    }
+
+    @After fun close() = store.close()
+
+    private fun reading(at: Long, progress: Int, pending: Boolean) =
+        ReadingRow(1, "title", "a.md", "a".repeat(40), progress, "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}", at, pending)
+
+    private fun bookmark(id: Long, bookmarked: Boolean, pending: Boolean, at: Long) =
+        BookmarkRow(id, "title", "a.md", "a".repeat(40), bookmarked, pending, at)
+
+    @Test fun pendingLocalProgressSurvivesAnOlderServerStateButYieldsToANewerOne() = runBlocking {
+        dao.saveReading(reading(at = 200, progress = 60, pending = true))
+        dao.mergeRemoteReading(reading(at = 100, progress = 10, pending = false))
+        assertEquals(60, dao.reading(1)!!.progressPercent)
+        assertTrue(dao.reading(1)!!.pending)
+        dao.mergeRemoteReading(reading(at = 300, progress = 90, pending = false))
+        assertEquals(90, dao.reading(1)!!.progressPercent)
+        assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
+    }
+
+    @Test fun acknowledgingAnOldSaveLeavesANewerLocalSavePending() = runBlocking {
+        dao.saveReading(reading(at = 200, progress = 60, pending = true))
+        dao.acknowledgeReading(1, lastReadAt = 100)
+        assertTrue(dao.reading(1)!!.pending)
+        dao.acknowledgeReading(1, lastReadAt = 200)
+        assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
+    }
+
+    @Test fun acknowledgedProgressIsReplacedByTheServer() = runBlocking {
+        dao.saveReading(reading(at = 200, progress = 60, pending = false))
+        dao.mergeRemoteReading(reading(at = 200, progress = 70, pending = false))
+        assertEquals(70, dao.reading(1)!!.progressPercent)
+    }
+
+    @Test fun serverBookmarkListReplacesAcknowledgedRowsButKeepsPendingToggles() = runBlocking {
+        dao.saveBookmark(bookmark(1, bookmarked = true, pending = false, at = 1))
+        dao.saveBookmark(bookmark(2, bookmarked = false, pending = true, at = 2))
+        dao.saveBookmark(bookmark(3, bookmarked = true, pending = true, at = 3))
+        dao.replaceRemoteBookmarks(listOf(bookmark(2, bookmarked = true, pending = false, at = 0), bookmark(4, bookmarked = true, pending = false, at = 4)))
+        assertNull(dao.bookmark(1).first())
+        assertEquals(false, dao.bookmark(2).first()!!.bookmarked)
+        assertTrue(dao.bookmark(3).first()!!.pending)
+        assertEquals(true, dao.bookmark(4).first()!!.bookmarked)
+        assertEquals(listOf(4L, 3L), dao.bookmarks().first().map { it.documentId })
+    }
+
+    @Test fun bookmarkAcknowledgementsMatchTheToggleThatWasSent() = runBlocking {
+        dao.saveBookmark(bookmark(1, bookmarked = false, pending = true, at = 5))
+        dao.acknowledgeBookmarkCleared(1, changedAt = 4)
+        assertEquals(1, dao.pendingBookmarks().size)
+        dao.acknowledgeBookmarkCleared(1, changedAt = 5)
+        assertNull(dao.bookmark(1).first())
+        dao.saveBookmark(bookmark(2, bookmarked = true, pending = true, at = 6))
+        dao.acknowledgeBookmarkSet(2, changedAt = 6)
+        assertEquals(false, dao.bookmark(2).first()!!.pending)
+    }
+
+    @Test fun replacingDocumentsAndRepositoriesUsesOnlyTheCompleteNewList() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40)), DocumentRow(2, 7, "b.md", "b", "b".repeat(40))))
+        dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
+        dao.replaceDocuments(7, listOf(DocumentRow(2, 7, "b.md", "b", "c".repeat(40))))
+        assertEquals(listOf(2L), dao.documents(7).first().map { it.id })
+        assertEquals(listOf(3L), dao.documents(8).first().map { it.id })
+        dao.replaceRepositories(listOf(RepositoryRow(7, "o/r", 1, null)))
+        dao.replaceRepositories(emptyList())
+        assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
+    }
+}
