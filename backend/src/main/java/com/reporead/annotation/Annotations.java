@@ -1,6 +1,7 @@
 package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
@@ -30,8 +31,16 @@ public class Annotations {
         this.transaction = transaction;
     }
 
+    /**
+     * A passage in one source version. The last four fields say how distinguishable it was in that version:
+     * [blockSha] is the SHA-256 of its block's text when no other block has that text, [quoteOccurrences] how often its
+     * exact text occurs, [rivalContext] how similar the best other exact occurrence's context is (0 when unique), and
+     * [rivalQuote] how similar the closest look-alike in another block is (0 when none). They are null where unknown
+     * (anchors made before Stage 4); the resolver then treats the passage as indistinguishable.
+     */
     public record Anchor(String sourceBlobSha, String blockId, String exactText, String prefixText, String suffixText,
-                         int startOffset, int endOffset, List<String> headingPath) {}
+                         int startOffset, int endOffset, List<String> headingPath, @JsonIgnore String blockSha,
+                         @JsonIgnore Integer quoteOccurrences, @JsonIgnore Double rivalContext, @JsonIgnore Double rivalQuote) {}
 
     /** {@code mutationId} is the client id that created it, so a client can match a pending local copy to it. */
     public record Annotation(long id, String mutationId, long documentId, String type, String note, String status, int version,
@@ -131,7 +140,7 @@ public class Annotations {
 
     private Annotation annotation(ResultSet row, int n) throws SQLException {
         var anchor = new Anchor(row.getString(9), row.getString(10), row.getString(11), row.getString(12), row.getString(13),
-            row.getInt(14), row.getInt(15), json.readValue(row.getString(16), new TypeReference<List<String>>() {}));
+            row.getInt(14), row.getInt(15), json.readValue(row.getString(16), new TypeReference<List<String>>() {}), null, null, null, null);
         return new Annotation(row.getLong(1), row.getString(17), row.getLong(2), row.getString(3), row.getString(4), row.getString(5),
             row.getInt(6), row.getTimestamp(7).toInstant(), row.getTimestamp(8).toInstant(), anchor);
     }
