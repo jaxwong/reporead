@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -39,11 +40,15 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.rememberLoad
 import com.reporead.android.data.LibraryDao
+import com.reporead.android.core.network.Load
+import com.reporead.android.core.network.describe
+import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.sync.Sync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.ByteArrayInputStream
@@ -58,39 +63,94 @@ private const val READY_POLL_MS = 150L
 private const val READY_POLL_LIMIT = 100
 
 @Composable
-fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, onFailure: (ApiException) -> Unit, screen: Screen.Reader) {
+fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean, onFailure: (ApiException) -> Unit,
+                 screen: Screen.Reader) {
     var reload by remember { mutableIntStateOf(0) }
     val load by rememberLoad(screen.documentId to reload, onFailure) { sync.openNote(screen.documentId) }
     val bookmark by dao.bookmark(screen.documentId).collectAsState(null)
+    val annotations by dao.annotations(screen.documentId).collectAsState(emptyList())
     var restoreNotice by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var notesOpen by remember { mutableStateOf(false) }
+    var newSelection by remember { mutableStateOf<JSONObject?>(null) }
+    var notShown by remember { mutableStateOf(emptySet<String>()) }
+
+    if (signedIn) {
+        LaunchedEffect(screen.documentId) {
+            try {
+                sync.refreshAnnotations(screen.documentId)
+            } catch (error: ApiException) {
+                onFailure(error)
+                message = "Showing highlights saved on this phone. ${error.describe()}"
+            }
+        }
+    }
+    val create: (JSONObject, String?) -> Unit = { selection, note ->
+        appScope.launch {
+            sync.createAnnotation(selection, screen.documentId, note)
+            message = try {
+                sync.pushAnnotations()
+                null
+            } catch (error: ApiException) {
+                onFailure(error)
+                "Highlight saved on this phone; it will sync later. ${error.describe()}"
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(screen.title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            val opened = (load as? com.reporead.android.core.network.Load.Ready)?.value
+            val opened = (load as? Load.Ready)?.value
             if (opened != null) {
+                TextButton(onClick = { notesOpen = !notesOpen }) { Text("Notes (${annotations.size})") }
                 val marked = bookmark?.bookmarked == true
-                TextButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) {
-                    Text(if (marked) "★ Bookmarked" else "☆ Bookmark")
-                }
+                TextButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) { Text(if (marked) "★" else "☆") }
             }
         }
         LoadContent(load, onRetry = { reload++ }) { opened ->
             opened.staleReason?.let { Notice("Showing your saved copy. $it") }
             restoreNotice?.let { Notice(it) }
+            message?.let { Notice(it) }
             val lifecycle = LocalLifecycleOwner.current.lifecycle
-            val session = remember(opened.note) { ReaderSession(opened.note, sync, dao, appScope) { restoreNotice = it } }
+            val session = remember(opened.note) {
+                ReaderSession(opened.note, sync, dao, appScope,
+                    onRestoreNotice = { restoreNotice = it },
+                    onNotShown = { notShown = it },
+                    onSelection = { selection, withNote ->
+                        when {
+                            selection == null -> message = "Select some text first."
+                            selection.has("error") -> message = selection.getString("error")
+                            withNote -> newSelection = selection
+                            else -> create(selection, null)
+                        }
+                    })
+            }
             DisposableEffect(lifecycle, session) {
                 // Process death can follow ON_STOP, so the position is captured whenever the reader leaves the screen.
                 val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) session.capture() }
                 lifecycle.addObserver(observer)
                 onDispose { lifecycle.removeObserver(observer) }
             }
+            LaunchedEffect(session, annotations) { session.showHighlights(annotations) }
             AndroidView(
                 factory = { context -> session.createView(context) },
                 onRelease = { view -> session.release(view) },
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
+            if (notesOpen) {
+                NotesPanel(annotations, opened.note.blobSha, notShown, sync, dao, appScope, onFailure,
+                    onReveal = { session.reveal(it.mutationId) }, onMessage = { message = it },
+                    modifier = Modifier.fillMaxWidth().weight(0.7f))
+            }
         }
+    }
+    newSelection?.let { selection ->
+        NoteDialog(title = "Add a note", quote = selection.getString("exactText"), initial = "",
+            onDismiss = { newSelection = null }, onSave = { note ->
+                newSelection = null
+                create(selection, note.ifBlank { null })
+            })
     }
 }
 
@@ -109,16 +169,27 @@ private class ReaderSession(
     private val dao: LibraryDao,
     private val scope: CoroutineScope,
     private val onRestoreNotice: (String?) -> Unit,
+    private val onNotShown: (Set<String>) -> Unit,
+    /** The captured selection (null when empty, {error} when it spans blocks) and whether a note was requested. */
+    private val onSelection: (JSONObject?, Boolean) -> Unit,
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var view: WebView? = null
+    /** Rendering finished, so highlights and the scripts' functions can be used. */
+    private var ready = false
+    private var highlights: List<AnnotationRow> = emptyList()
     /** Saving starts only after the saved position is restored, so the top of the page never overwrites it. */
     private var restored = false
     private val saveAfterScroll = Runnable { capture() }
 
     fun createView(context: Context): WebView {
         val assets = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context)).build()
-        return WebView(context).apply {
+        return ReaderWebView(context) { withNote, finish ->
+            captureSelection { selection ->
+                finish()
+                onSelection(selection, withNote)
+            }
+        }.apply {
             settings.javaScriptEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
@@ -170,7 +241,11 @@ private class ReaderSession(
     private fun awaitReady(view: WebView, attempt: Int) {
         view.evaluateJavascript("document.body.dataset.state || ''") { encoded ->
             when (JSONTokener(encoded).nextValue()) {
-                "ready" -> restore(view)
+                "ready" -> {
+                    ready = true
+                    applyHighlights()
+                    restore(view)
+                }
                 "failed" -> Log.w("RepoRead", "Reader render failed; position not saved; documentId=${note.documentId}")
                 else -> if (attempt < READY_POLL_LIMIT) main.postDelayed({ awaitReady(view, attempt + 1) }, READY_POLL_MS)
                     else Log.w("RepoRead", "Reader never became ready; position not saved; documentId=${note.documentId}")
@@ -222,5 +297,42 @@ private class ReaderSession(
         capture { webView.destroy() }
         view = null
         restored = false
+        ready = false
+    }
+
+    /** Draws highlights made on the displayed version; highlights on other versions wait for Stage 4 re-anchoring. */
+    fun showHighlights(rows: List<AnnotationRow>) {
+        highlights = rows
+        applyHighlights()
+    }
+
+    private fun applyHighlights() {
+        val webView = view ?: return
+        if (!ready) return
+        val payload = JSONArray(highlights.filter { it.sourceBlobSha == note.blobSha }.map {
+            JSONObject().put("key", it.mutationId).put("blockId", it.blockId).put("startOffset", it.startOffset)
+                .put("endOffset", it.endOffset).put("exactText", it.exactText)
+        })
+        webView.evaluateJavascript("JSON.stringify(window.reporead.highlight($payload))") { encoded ->
+            val missing = JSONArray(JSONTokener(encoded).nextValue() as String)
+            onNotShown(List(missing.length()) { missing.getString(it) }.toSet())
+        }
+    }
+
+    fun reveal(key: String) {
+        val webView = view ?: return
+        if (ready) webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})", null)
+    }
+
+    private fun captureSelection(then: (JSONObject?) -> Unit) {
+        val webView = view
+        if (webView == null || !ready) {
+            then(null)
+            return
+        }
+        webView.evaluateJavascript("JSON.stringify(window.reporead.capture())") { encoded ->
+            val value = JSONTokener(encoded).nextValue()
+            then(if (value is String && value != "null") JSONObject(value) else null)
+        }
     }
 }

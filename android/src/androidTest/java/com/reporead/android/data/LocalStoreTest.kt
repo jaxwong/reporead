@@ -89,4 +89,33 @@ class LocalStoreTest {
         dao.replaceRepositories(emptyList())
         assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
     }
+
+    private fun annotation(mutationId: String, serverId: Long?, note: String?, pending: Boolean, rejection: String? = null) =
+        AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, pending, rejection)
+
+    @Test fun serverAnnotationListAcknowledgesAMatchingPendingCreationAndKeepsOthers() = runBlocking {
+        dao.saveAnnotation(annotation("lost-ack", null, "mine", pending = true))
+        dao.saveAnnotation(annotation("offline", null, "later", pending = true))
+        dao.saveAnnotation(annotation("deleted-elsewhere", 9, null, pending = false))
+        dao.replaceRemoteAnnotations(1, listOf(annotation("lost-ack", 7, "mine", pending = false), annotation("other-device", 8, null, pending = false)))
+        val rows = dao.annotations(1).first().associateBy { it.mutationId }
+        assertEquals(setOf("lost-ack", "offline", "other-device"), rows.keys)
+        assertEquals(7L, rows.getValue("lost-ack").serverId)
+        assertEquals(false, rows.getValue("lost-ack").pending)
+        assertTrue(rows.getValue("offline").pending)
+    }
+
+    @Test fun refusedCreationsAreKeptVisibleButNotRetried() = runBlocking {
+        dao.saveAnnotation(annotation("refused", null, null, pending = true))
+        dao.rejectAnnotation("refused", "The selected text does not match that version of the note.")
+        assertEquals(emptyList<AnnotationRow>(), dao.pendingAnnotations())
+        assertEquals("The selected text does not match that version of the note.", dao.annotation("refused")!!.rejection)
+    }
+
+    /** Note edits use PATCH; Android's HttpURLConnection must accept it before any network I/O. */
+    @Test fun platformHttpClientAcceptsPatch() {
+        val connection = java.net.URL("http://127.0.0.1:9/").openConnection() as java.net.HttpURLConnection
+        connection.requestMethod = "PATCH"
+        assertEquals("PATCH", connection.requestMethod)
+    }
 }
