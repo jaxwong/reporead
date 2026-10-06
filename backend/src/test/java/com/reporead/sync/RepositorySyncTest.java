@@ -240,6 +240,141 @@ class RepositorySyncTest {
         assertEquals(List.of(a), db.sql("select id from documents where deleted_at is not null").query(Long.class).list());
     }
 
+    // ---- Moves with edits (content moves) ----
+
+    /** Test-only note text: ten numbered sentences, enough five-word shingles to be compared by content. */
+    private static byte[] note(String topic, String verb) {
+        var text = new StringBuilder("# " + topic + "\n\n");
+        for (int i = 1; i <= 10; i++) text.append("In step ").append(i).append(" the ").append(topic).append(" worker ").append(verb)
+            .append(" a batch and records its checkpoint before continuing.\n\n");
+        return text.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static byte[] edited(byte[] original) {
+        return new String(original, java.nio.charset.StandardCharsets.UTF_8).replace("In step 4 the", "In step 4, after a pause, the")
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static String sha(byte[] bytes) {
+        return com.reporead.document.MarkdownRenderer.blobSha(bytes);
+    }
+
+    private void expectBlob(byte[] bytes) {
+        user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(bytes)))
+            .andRespond(withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
+    }
+
+    private void readSomething(long documentId) {
+        db.sql("""
+                insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
+                values (1, :id, :sha, 10, '{"headingPath":[],"textPrefix":null,"blockIndex":0}', now())""")
+            .param("id", documentId).param("sha", BLOB_1).update();
+    }
+
+    private long syncedNote(String path, byte[] bytes) throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry(path, "100644", "blob", sha(bytes)),
+            entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        next();
+        return documentId(path);
+    }
+
+    @Test void aNoteMovedAndEditedKeepsItsIdentityWhenItCarriesUserData() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] after = edited(before);
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("pipelines/ingest-worker.md", "100644", "blob", sha(after)),
+            entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        expectBlob(before);
+        expectBlob(after);
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(id, documentId("pipelines/ingest-worker.md"));
+        assertEquals(sha(after), db.sql("select current_blob_sha from documents where id = :id").param("id", id).query(String.class).single());
+        assertEquals(List.of("other.md", "pipelines/ingest-worker.md"), activePaths());
+        assertEquals(2, db.sql("select count(*) from documents").query(Integer.class).single());
+    }
+
+    @Test void anUnrelatedNewNoteIsNotMergedWithADeletedOne() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] unrelated = note("billing", "invoices");
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("billing.md", "100644", "blob", sha(unrelated)),
+            entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        expectBlob(before);
+        expectBlob(unrelated);
+        sync(alice, connection).andExpect(status().isOk());
+        assertNotEquals(id, documentId("billing.md"));
+        assertNotNull(db.sql("select deleted_at from documents where id = :id").param("id", id).query(java.sql.Timestamp.class).single());
+    }
+
+    @Test void twoEquallyLikelyNewNotesAreAmbiguousAndNeitherIsAMove() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] copyA = edited(before);
+        byte[] copyB = new String(before, java.nio.charset.StandardCharsets.UTF_8).replace("In step 7 the", "In step 7 only the")
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("a/ingest.md", "100644", "blob", sha(copyA)),
+            entry("b/ingest.md", "100644", "blob", sha(copyB)), entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        expectBlob(before);
+        expectBlob(copyA);
+        expectBlob(copyB);
+        sync(alice, connection).andExpect(status().isOk());
+        assertNotEquals(id, documentId("a/ingest.md"));
+        assertNotEquals(id, documentId("b/ingest.md"));
+    }
+
+    @Test void aNoteWithoutUserDataIsNotComparedAndCostsNoBlobReads() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        byte[] after = edited(before);
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("pipelines/ingest.md", "100644", "blob", sha(after)),
+            entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        assertNotEquals(id, documentId("pipelines/ingest.md"));
+    }
+
+    @Test void tooManyCandidatesAreNotComparedAndCostNoBlobReads() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        var entries = new java.util.ArrayList<String>();
+        for (int i = 0; i < RepositorySync.MAX_CONTENT_MOVE_CANDIDATES; i++) entries.add(entry("new-" + i + ".md", "100644", "blob", BLOB_1));
+        entries.add(entry("other.md", "100644", "blob", BLOB_2));
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entries.toArray(String[]::new)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        assertNotNull(db.sql("select deleted_at from documents where id = :id").param("id", id).query(java.sql.Timestamp.class).single());
+    }
+
+    @Test void anOldVersionGitHubNoLongerHasOnlyExcludesThatCandidate() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] after = edited(before);
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("pipelines/ingest.md", "100644", "blob", sha(after)),
+            entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before))).andRespond(withResourceNotFound());
+        expectBlob(after);
+        sync(alice, connection).andExpect(status().isOk());
+        assertNotEquals(id, documentId("pipelines/ingest.md"));
+        assertEquals(COMMIT_B, checkpoint());
+    }
+
+    @Test void anOutageWhileComparingFailsTheSyncWithoutChanges() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] after = edited(before);
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("pipelines/ingest.md", "100644", "blob", sha(after)),
+            entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before))).andRespond(withServiceUnavailable());
+        sync(alice, connection).andExpect(status().isServiceUnavailable());
+        assertEquals(COMMIT_A, checkpoint());
+        assertEquals(List.of("backend/ingest.md", "other.md"), activePaths());
+    }
+
     @Test void repositoryWithoutMarkdownIsAnEmptyCompleteLibrary() throws Exception {
         expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("README.txt", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.documentCount").value(0));

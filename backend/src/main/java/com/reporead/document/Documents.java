@@ -11,10 +11,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Owns the documents table: logical Markdown files of a connection. A path keeps its document; a document whose exact
- * content reappears at exactly one new path keeps its identity there (a move).
+ * content reappears at exactly one new path keeps its identity there (a move), as does one the sync recognized as moved
+ * and edited (a content move).
  */
 @Component
 public class Documents {
@@ -28,20 +30,20 @@ public class Documents {
     public record Summary(long id, String path, String title, String blobSha) {}
     /** A document that kept its identity under a new path. */
     public record Move(long documentId, String fromPath, String toPath) {}
-    record Existing(long id, String path, String blobSha, boolean deleted) {}
+    public record Existing(long id, String path, String blobSha, boolean deleted) {}
     public record Located(long id, String path, String title, String blobSha, String commitSha, boolean deleted,
                           String owner, String repositoryName) {}
 
     /**
      * Applies one complete tree snapshot. Moved documents take their new path first; then paths in the snapshot are
-     * inserted or updated (and undeleted), and paths absent from it are marked deleted, never removed. Callers must hold
-     * the connection's sync lock inside a transaction. Returns the moves applied.
+     * inserted or updated (and undeleted), and paths absent from it are marked deleted, never removed. [contentMoves]
+     * were decided before the lock and apply only if still valid against the locked rows. Callers must hold the
+     * connection's sync lock inside a transaction. Returns the moves applied.
      */
-    public List<Move> publishSnapshot(long connectionId, String commitSha, List<SourceFile> files, Instant syncedAt) {
-        var existing = db.sql("select id, path, current_blob_sha, deleted_at is not null from documents where repository_connection_id = :connectionId")
-            .param("connectionId", connectionId)
-            .query((row, n) -> new Existing(row.getLong(1), row.getString(2), row.getString(3), row.getBoolean(4))).list();
-        var moves = exactMoves(existing, files);
+    public List<Move> publishSnapshot(long connectionId, String commitSha, List<SourceFile> files, Instant syncedAt, List<Move> contentMoves) {
+        var existing = existing(connectionId);
+        var moves = new ArrayList<>(exactMoves(existing, files));
+        moves.addAll(stillMoves(contentMoves, existing, files, moves));
         for (var move : moves) {
             db.sql("update documents set path = :path, title = :title where id = :id")
                 .param("path", move.toPath()).param("title", title(move.toPath())).param("id", move.documentId()).update();
@@ -71,7 +73,7 @@ public class Documents {
      * the same blob SHA and that SHA is unique on both sides. Identical-content duplicates are never merged; a path that
      * once had a document resumes that document instead.
      */
-    static List<Move> exactMoves(List<Existing> existing, List<SourceFile> files) {
+    public static List<Move> exactMoves(List<Existing> existing, List<SourceFile> files) {
         var snapshotPaths = new HashSet<String>();
         for (var file : files) snapshotPaths.add(file.path());
         var knownPaths = new HashSet<String>();
@@ -92,6 +94,45 @@ public class Documents {
             }
         }
         return moves;
+    }
+
+    /**
+     * A content move still applies if its document is active at the path it left, that path is not in the snapshot, its
+     * target is in the snapshot and has never had a document, and no exact move claimed either side.
+     */
+    private static List<Move> stillMoves(List<Move> contentMoves, List<Existing> existing, List<SourceFile> files, List<Move> exact) {
+        var snapshotPaths = new HashSet<String>();
+        for (var file : files) snapshotPaths.add(file.path());
+        var knownPaths = new HashSet<String>();
+        for (var row : existing) knownPaths.add(row.path());
+        var claimedIds = new HashSet<Long>();
+        var claimedPaths = new HashSet<String>();
+        for (var move : exact) {
+            claimedIds.add(move.documentId());
+            claimedPaths.add(move.toPath());
+        }
+        return contentMoves.stream().filter(move -> existing.stream().anyMatch(row -> row.id() == move.documentId() && !row.deleted()
+                && row.path().equals(move.fromPath()))
+            && !snapshotPaths.contains(move.fromPath()) && snapshotPaths.contains(move.toPath()) && !knownPaths.contains(move.toPath())
+            && !claimedIds.contains(move.documentId()) && !claimedPaths.contains(move.toPath())).toList();
+    }
+
+    public List<Existing> existing(long connectionId) {
+        return db.sql("select id, path, current_blob_sha, deleted_at is not null from documents where repository_connection_id = :connectionId")
+            .param("connectionId", connectionId)
+            .query((row, n) -> new Existing(row.getLong(1), row.getString(2), row.getString(3), row.getBoolean(4))).list();
+    }
+
+    /**
+     * Documents of a connection that carry the user's own data: reading progress, a bookmark, or a highlight. Only their
+     * identity is worth recognizing a content move for; a read-only projection of the reading and annotation tables.
+     */
+    public Set<Long> withUserState(long connectionId) {
+        return new HashSet<>(db.sql("""
+                select d.id from documents d where d.repository_connection_id = :connectionId
+                and (exists (select 1 from reading_states r where r.document_id = d.id)
+                     or exists (select 1 from annotations a where a.document_id = d.id))""")
+            .param("connectionId", connectionId).query(Long.class).list());
     }
 
     public List<Summary> list(long connectionId) {
