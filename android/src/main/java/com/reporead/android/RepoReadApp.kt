@@ -30,6 +30,7 @@ import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.RepositoriesScreen
 import com.reporead.android.reader.ReaderScreen
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** One navigation entry, encoded as strings so the back stack survives process death. */
@@ -88,9 +89,10 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     // Any 401 means the app session or the server's GitHub token is gone; the only remedy is a new sign-in.
     val onFailure: (ApiException) -> Unit = { error -> if (error.status == 401) signOut("Your session ended. Sign in again.") }
 
+    // Keyed on the code, so the code is cleared only after the exchange ends: clearing it first would
+    // restart this effect and cancel the exchange after the server had already issued the session.
     LaunchedEffect(signInCode) {
         val code = signInCode ?: return@LaunchedEffect
-        onSignInCodeConsumed()
         signInMessage = "Finishing sign-in…"
         try {
             completeSignIn(code, api, store)
@@ -98,6 +100,11 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
             signInMessage = null
         } catch (error: ApiException) {
             signInMessage = error.describe()
+        } catch (cancelled: CancellationException) {
+            signInMessage = "Sign-in was interrupted. Tap Sign in with GitHub again."
+            throw cancelled
+        } finally {
+            onSignInCodeConsumed()
         }
     }
 
