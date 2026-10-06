@@ -63,7 +63,7 @@ Stage 0 is partially verified. Stage 1's exit gate passed on 2026-10-06: a real 
 
 ### Current evidence as of 2026-10-02
 
-See the [reader spike evidence](../spikes/reader-android/README.md).
+The reader spike that produced this evidence was removed after Stage 0 closed; see the [Stage 0 record](reporead-stage0-boundaries.md).
 
 - Read-only GitHub App installation access to the selected real repository has been demonstrated separately.
 - On the Pixel 8a, the local HTML spike returns the expected quote, block, and offsets, repeats the result after a cold launch, and rejects cross-block selections. These are user-reported on-device results.

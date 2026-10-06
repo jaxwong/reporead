@@ -4,7 +4,7 @@ Kotlin/Compose client for the Stage 1 reading path: GitHub sign-in through the b
 
 ## Run on the phone
 
-Start PostgreSQL and the backend first (see the backend README). Then, from the repository root, with reader dependencies installed once via `npm ci --ignore-scripts` in `spikes/reader-web`:
+Start PostgreSQL and the backend first (see the backend README). Then, from the repository root, with reader dependencies installed once via `npm ci --ignore-scripts` in `android/reader-web`:
 
 ```sh
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
@@ -22,4 +22,4 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:a
 - **Reader:** backend-sanitized HTML in a WebView with app-bundled reader/Mermaid/highlight assets only, no credentials, no JavaScript bridge, and no network/file/content access. Tapped `http(s)` links open the browser; links between notes are not followed. Repository images are shown as `Image blocked` until Stage 2 defines authenticated image delivery.
 - Loading, empty, access-denied, GitHub-unavailable, backend-unreachable, deleted-note, and unsupported-content states are shown explicitly. Nothing is cached offline yet (Stage 2).
 
-The reader bundle is still built from `spikes/reader-web`; it moves out of `spikes/` when the spike module is removed with approval.
+`reader-web/` holds the reader's display JavaScript and styles; see its README.

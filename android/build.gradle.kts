@@ -8,8 +8,8 @@ abstract class BundleReader : Exec() {
     @get:OutputDirectory abstract val assetDirectory: DirectoryProperty
 }
 val bundleReader = tasks.register<BundleReader>("bundleReader") {
-    workingDir("../spikes/reader-web")
-    inputs.files("../spikes/reader-web/reader.js", "../spikes/reader-web/reader.css", "../spikes/reader-web/build.mjs", "../spikes/reader-web/package-lock.json")
+    workingDir("reader-web")
+    inputs.files("reader-web/reader.js", "reader-web/reader.css", "reader-web/build.mjs", "reader-web/package-lock.json")
     doFirst { commandLine("npm", "run", "build", "--", assetDirectory.get().asFile.absolutePath) }
 }
 

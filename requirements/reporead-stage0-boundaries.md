@@ -201,3 +201,12 @@ The real-note **prose finger-selection** check passed based on screenshot-backed
 3. Extend actual touch selection to formatted text, code, table cells, Unicode, and a manual cross-block range, then cold-reopen and repeat. Real-note automated DOM checks and one prose finger selection have passed; the old `transaction`/`intro`/2–13 proof remains valid historical evidence, not evidence for these remaining new-renderer cases.
 
 No live backend-to-phone note delivery, PostgreSQL persistence, production sessions, or Stage 1–6 completion is claimed. Only `.gitignore` has been committed (`578d730`). A Stage 0 source commit is deferred because the existing foundation is largely untracked; unrelated files and the user's original-spec deletion have not been staged.
+
+## Stage 0 closed (2026-10-06)
+
+The user stated on 2026-10-06 that all remaining Stage 0 checks — diagram legibility, the synthetic code/image/Unicode fixture, touch selection on formatted text, code, table cells, Unicode, and manual cross-block rejection, and the repeat after a cold launch — had passed on the Pixel 8a. This is **user-reported without recorded captures or screenshots**; the exact captured offsets for those cases were not preserved. The real-note diagram legibility was additionally observed in the Stage 1 product reader screenshot ([Stage 1 record](reporead-stage1-record.md)).
+
+**Decision:** Compose chrome plus an isolated WebView, with Java owning parsing/sanitization/canonical block text and JavaScript owning display and DOM-range capture under the contract above, is the reader approach.
+
+With the user's approval, the reader spike module (`spikes/reader-android`), the GitHub snapshot tool (`spikes/github-read-proof`), the synthetic fixture, the backend `RenderNote` exporter, the spike's DOM-check/capture harness in `reader.js`, and the renderer's proof-image exception were deleted. The display bundle moved to `android/reader-web`. Paths and commands above that name those files are historical; see Git history before that removal. Selection capture returns with annotations in Stage 3.
+

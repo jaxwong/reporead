@@ -85,13 +85,4 @@ Sync reads the default branch's commit, then its full recursive tree. Documents 
 
 Tests run against a real PostgreSQL 17.11 container through Testcontainers (Docker must be running). GitHub is mocked with explicit test-only data; tests do not prove live GitHub authorization.
 
-## Export Markdown (development tool)
-
-```sh
-./gradlew :backend:run --args='--help' --no-daemon
-./gradlew :backend:run --args='/private/tmp/reporead-note.md <git-blob-sha> <source-label> /private/tmp/reporead-note.html' --no-daemon
-```
-
-The exporter verifies the Git blob SHA of the exact Markdown bytes, does not fetch GitHub, and exists for the Stage 0 reader spike. Keep private inputs and exports outside tracked files.
-
 Dependencies: Spring Boot web MVC, Security OAuth2 Client, JDBC, and Flyway; the PostgreSQL driver; CommonMark with GFM extensions; jsoup for sanitizing and canonical block text; JUnit, Spring test support, and Testcontainers. Mermaid and code highlighting are client-side display only.
