@@ -33,7 +33,8 @@ public class Annotations {
     public record Anchor(String sourceBlobSha, String blockId, String exactText, String prefixText, String suffixText,
                          int startOffset, int endOffset, List<String> headingPath) {}
 
-    public record Annotation(long id, long documentId, String type, String note, String status, int version,
+    /** {@code mutationId} is the client id that created it, so a client can match a pending local copy to it. */
+    public record Annotation(long id, String mutationId, long documentId, String type, String note, String status, int version,
                              Instant createdAt, Instant updatedAt, Anchor anchor) {}
 
     /** The result of a creation request, and whether it was the replay of an earlier identical request. */
@@ -41,8 +42,10 @@ public class Annotations {
 
     private static final String SELECT = """
         select a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at,
-               n.source_blob_sha, n.block_id, n.exact_text, n.prefix_text, n.suffix_text, n.start_offset, n.end_offset, n.heading_path::text
+               n.source_blob_sha, n.block_id, n.exact_text, n.prefix_text, n.suffix_text, n.start_offset, n.end_offset, n.heading_path::text,
+               m.mutation_id
         from annotations a join annotation_anchors n on n.annotation_id = a.id
+        join annotation_mutations m on m.annotation_id = a.id and m.user_id = a.user_id
         where a.type = 'HIGHLIGHT' and a.user_id = :userId""";
 
     List<Annotation> list(long userId, long documentId) {
@@ -129,7 +132,7 @@ public class Annotations {
     private Annotation annotation(ResultSet row, int n) throws SQLException {
         var anchor = new Anchor(row.getString(9), row.getString(10), row.getString(11), row.getString(12), row.getString(13),
             row.getInt(14), row.getInt(15), json.readValue(row.getString(16), new TypeReference<List<String>>() {}));
-        return new Annotation(row.getLong(1), row.getLong(2), row.getString(3), row.getString(4), row.getString(5), row.getInt(6),
-            row.getTimestamp(7).toInstant(), row.getTimestamp(8).toInstant(), anchor);
+        return new Annotation(row.getLong(1), row.getString(17), row.getLong(2), row.getString(3), row.getString(4), row.getString(5),
+            row.getInt(6), row.getTimestamp(7).toInstant(), row.getTimestamp(8).toInstant(), anchor);
     }
 }

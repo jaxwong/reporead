@@ -61,7 +61,7 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
 | `GET /api/bookmarks` | 0 | Document bookmarks |
 | `PUT` / `DELETE /api/documents/{id}/bookmark` | 0 | `PUT {sourceBlobSha}`; both idempotent |
-| `GET /api/documents/{id}/annotations` | 0 | This user's highlights on the document, with anchors |
+| `GET /api/documents/{id}/annotations` | 0 | This user's highlights on the document, with anchors and the creating `mutationId` |
 | `POST /api/documents/{id}/annotations` | 1 (the selected version's blob); 0 on replay | `{mutationId, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}, note?}`; 201 created, 200 replay |
 | `PATCH /api/annotations/{id}` | 0 | `{note, expectedVersion}`; 409 `ANNOTATION_CONFLICT` if another edit landed first |
 | `DELETE /api/annotations/{id}?expectedVersion=` | 0 | 409 on a stale version |

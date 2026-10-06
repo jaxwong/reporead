@@ -120,6 +120,7 @@ class AnnotationTest {
         expectSource(ExpectedCount.once());
         String id = UUID.randomUUID().toString();
         create(alice, note, body(id, "b2", START, EXACT, "Proxies only intercept external calls")).andExpect(status().isCreated())
+            .andExpect(jsonPath("$.mutationId").value(id))
             .andExpect(jsonPath("$.type").value("HIGHLIGHT")).andExpect(jsonPath("$.version").value(1))
             .andExpect(jsonPath("$.status").value("ANCHORED"))
             .andExpect(jsonPath("$.anchor.sourceBlobSha").value(OLD_SHA))
