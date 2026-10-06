@@ -12,6 +12,7 @@ Conflict order: understand the goal → correctness → simplicity → completen
 - No configurable knob until measured variability proves a constant insufficient. New dependencies require justification.
 - Functions over classes. Plain data over frameworks. Duplication over the wrong abstraction.
 - A replacement is unfinished until the code it replaced — plus its tests, docs, metrics, DB objects — is deleted or reassigned to a named owner. Never keep the old implementation in parallel.
+- A replacement updates every caller in the same change. Aliases, wrappers and compatibility endpoints for the old shape are not allowed. A refactor commit must remove more production lines than it adds, or explain why not.
 - Backward compatibility covers features this change did not target. It does not mean preserving a superseded implementation.
 
 ## 2. Define errors out of existence
@@ -61,6 +62,7 @@ Conflict order: understand the goal → correctness → simplicity → completen
 - Build the thinnest end-to-end path that runs: real entry point, real wiring, real output. Confirm the shape before adding breadth. Commit after each working step.
 - Test behavior and failure cases, not implementation details, following the repo's existing conventions. Characterize existing behavior before modifying it. Cover empty input, missing values, partial failure, timeouts, concurrency, and the second run.
 - Typecheck must pass. Never weaken a test, delete an assertion, or mock a failure away to get green.
+- A replaced implementation's tests are replaced in the same change. Move each behavior assertion onto the new implementation, then delete the tests that only exercised the old code path or its internals. Never keep both suites. Deleting tests of removed code is not weakening a test; losing coverage of a behavior that still exists is.
 - "Done" requires the exact commands, exit codes, and pasted output. Never "should work." List anything unverified as unverified.
 
 ## 8. Small blast radius
@@ -68,6 +70,7 @@ Conflict order: understand the goal → correctness → simplicity → completen
 - Smallest change that fixes the root cause. Root cause does not license a refactor.
 - No drive-by renames, reformatting, or improvements to adjacent code. Report unrelated bugs in the final message; do not fix them.
 - If the correct fix requires a refactor: stop, state the trade-off, offer the containment option, let the user choose.
+- Small blast radius never justifies a half-finished replacement. Once a change replaces something, updating every caller and deleting the old shape is in scope (§1).
 - No migrations, deletions, dependency upgrades, force-pushes, or infra changes without approval.
 
 ## 9. Maintainability
