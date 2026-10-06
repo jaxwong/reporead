@@ -34,7 +34,6 @@ import java.util.UUID;
 public class AnnotationController {
     private static final Logger LOG = LoggerFactory.getLogger(AnnotationController.class);
     static final int MAX_TEXT_CHARS = 10_000;
-    static final int CONTEXT_CHARS = 32;
     private final Annotations annotations;
     private final Documents documents;
     private final NoteVersions noteVersions;
@@ -114,10 +113,7 @@ public class AnnotationController {
         if (selection.endOffset() > text.length() || !text.substring(selection.startOffset(), selection.endOffset()).equals(selection.exactText())) {
             throw invalidAnchor("The selected text does not match that version of the note.");
         }
-        return new Annotations.Anchor(selection.sourceBlobSha(), block.id(), selection.exactText(),
-            text.substring(Math.max(0, selection.startOffset() - CONTEXT_CHARS), selection.startOffset()),
-            text.substring(selection.endOffset(), Math.min(text.length(), selection.endOffset() + CONTEXT_CHARS)),
-            selection.startOffset(), selection.endOffset(), block.headingPath());
+        return Anchoring.anchorAt(selection.sourceBlobSha(), rendered.blocks(), block, selection.startOffset(), selection.endOffset());
     }
 
     private static UUID mutationId(String value) {
