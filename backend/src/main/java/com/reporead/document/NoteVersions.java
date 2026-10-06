@@ -25,8 +25,13 @@ public class NoteVersions {
     public record Rendered(MarkdownRenderer.RenderedNote note, int bytes) {}
 
     public Rendered render(AppUser user, Documents.Located document, String blobSha) {
+        return render(user, document.owner(), document.repositoryName(), document.path(), blobSha);
+    }
+
+    /** The same for a repository path that may not have a document yet, such as a path in a snapshot being reconciled. */
+    public Rendered render(AppUser user, String owner, String repositoryName, String path, String blobSha) {
         String token = github.userToken(user.githubUserId());
-        byte[] bytes = github.blob(token, document.owner(), document.repositoryName(), blobSha);
+        byte[] bytes = github.blob(token, owner, repositoryName, blobSha);
         if (!MarkdownRenderer.blobSha(bytes).equals(blobSha)) {
             throw new ApiFailure(HttpStatus.BAD_GATEWAY, "GITHUB_INVALID_RESPONSE", "GitHub returned bytes that do not match the note's blob SHA.");
         }
@@ -37,7 +42,7 @@ public class NoteVersions {
             throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", "This note is not valid UTF-8 text.");
         }
         try {
-            return new Rendered(MarkdownRenderer.render(markdown, blobSha, document.path()), bytes.length);
+            return new Rendered(MarkdownRenderer.render(markdown, blobSha, path), bytes.length);
         } catch (MarkdownRenderer.ContentRejected rejected) {
             throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", rejected.getMessage());
         }

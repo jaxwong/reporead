@@ -112,14 +112,14 @@ class ReadingStateTest {
     @Test void repositoryRefreshDoesNotChangeTheLastReadVersion() throws Exception {
         save(alice, note, body(SHA_A, 50, Instant.now(), ANCHOR)).andExpect(status().isOk());
         transaction.executeWithoutResult(status -> documents.publishSnapshot(1, SHA_B,
-            List.of(new Documents.SourceFile("backend/spring.md", SHA_B)), Instant.now()));
+            List.of(new Documents.SourceFile("backend/spring.md", SHA_B)), Instant.now(), List.of()));
         list(alice).andExpect(jsonPath("$.readingStates[0].lastReadBlobSha").value(SHA_A))
             .andExpect(jsonPath("$.readingStates[0].currentBlobSha").value(SHA_B));
     }
 
     @Test void deletedDocumentKeepsItsReadingHistory() throws Exception {
         save(alice, note, body(SHA_A, 50, Instant.now(), ANCHOR)).andExpect(status().isOk());
-        transaction.executeWithoutResult(status -> documents.publishSnapshot(1, SHA_B, List.of(), Instant.now()));
+        transaction.executeWithoutResult(status -> documents.publishSnapshot(1, SHA_B, List.of(), Instant.now(), List.of()));
         list(alice).andExpect(jsonPath("$.readingStates[0].deleted").value(true)).andExpect(jsonPath("$.readingStates[0].progressPercent").value(50));
     }
 
