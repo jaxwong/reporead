@@ -18,8 +18,15 @@ Evidence for the [build plan](reporead-build-plan.md)'s Stage 3 gates. Contracts
 - **Defect found and fixed during Stage 3 testing:** resume failed when a Mermaid diagram was at the top of the screen; see the [Stage 2 record](reporead-stage2-record.md#defect-found-after-the-gate-2026-10-06) and `bd7f4e7`.
 - **Source integrity:** all GitHub calls from the backend are GETs (blob reads verify anchors); no endpoint writes to GitHub.
 
+- **User-reported (2026-10-06):** reopening the note redrew the highlights in place with the note available under Notes; a selection spanning two paragraphs was refused with a message; a highlight created offline still showed "waiting to sync" after a force-stop and reopen.
+
+## Gates
+
+- **3A passed:** a real highlight and note were created, recovered in context after reopening, and edited online; source Markdown is untouched.
+- **3B passed:** a real offline submission arrived twice and produced exactly one durable annotation (server replay log); pending work survived a force-stop (user-reported); a conflicting edit was surfaced, not silently lost.
+
 ## Not yet verified on the real system
 
-- The user's explicit observation that highlights and a note are redrawn in place after reopening the note (3A gate wording), and the cross-block selection refusal on the phone.
-- A pending creation surviving process death before sync (the offline highlights synced, but a force-stop while pending was not separately reported).
+- The highlight created offline in the force-stop check had not reached the server when this was recorded (the phone was off adb after airplane mode; the server still held annotations 2–4). Its sync after reconnecting is still to be confirmed.
 - A server refusal of a real offline creation (covered by automated tests only).
+- Concurrent duplicate requests and interrupted replay against the real phone (covered by automated tests only).

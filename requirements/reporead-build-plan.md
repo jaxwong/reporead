@@ -55,7 +55,7 @@ Rules throughout:
 | 5 | Meaningful changes since the version actually read | F-11 | Version reconciliation from Stage 4 |
 | 6 | Search, data controls, release, and MVP evidence | F-12, F-13; full acceptance review | Stages 1–5 |
 
-Stage 0 closed on 2026-10-06 (user-reported). Stage 1's exit gate passed on 2026-10-06: a real note opened on the phone through the real backend from the connected private repository (see the [Stage 1 record](reporead-stage1-record.md)). Stage 2's exit gate passed on 2026-10-06: offline reading, resume, Continue reading, and offline bookmarks with one successful sync (see the [Stage 2 record](reporead-stage2-record.md), including what remains unverified). The first usable release has started daily dogfooding. Stages 3–6 are planned, not implemented.
+Stage 0 closed on 2026-10-06 (user-reported). Stage 1's exit gate passed on 2026-10-06: a real note opened on the phone through the real backend from the connected private repository (see the [Stage 1 record](reporead-stage1-record.md)). Stage 2's exit gate passed on 2026-10-06: offline reading, resume, Continue reading, and offline bookmarks with one successful sync (see the [Stage 2 record](reporead-stage2-record.md), including what remains unverified). The first usable release has started daily dogfooding. Stage 3's gates passed on 2026-10-06: online and offline highlights with notes, idempotent sync, and visible edit conflicts (see the [Stage 3 record](reporead-stage3-record.md)). Stages 4–6 are planned, not implemented.
 
 ## Stage 0 — Finish proving the risky boundaries
 
