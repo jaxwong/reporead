@@ -32,6 +32,6 @@ public final class TestEnvironment {
     }
 
     public static void reset(JdbcClient db) {
-        db.sql("truncate annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users restart identity").update();
+        db.sql("truncate annotation_mutations, annotation_anchors, annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users restart identity").update();
     }
 }

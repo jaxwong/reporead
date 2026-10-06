@@ -61,6 +61,10 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
 | `GET /api/bookmarks` | 0 | Document bookmarks |
 | `PUT` / `DELETE /api/documents/{id}/bookmark` | 0 | `PUT {sourceBlobSha}`; both idempotent |
+| `GET /api/documents/{id}/annotations` | 0 | This user's highlights on the document, with anchors |
+| `POST /api/documents/{id}/annotations` | 1 (the selected version's blob); 0 on replay | `{mutationId, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}, note?}`; 201 created, 200 replay |
+| `PATCH /api/annotations/{id}` | 0 | `{note, expectedVersion}`; 409 `ANNOTATION_CONFLICT` if another edit landed first |
+| `DELETE /api/annotations/{id}?expectedVersion=` | 0 | 409 on a stale version |
 
 Every GitHub call uses the user's token, 15-second connect/read timeouts, no redirects, no retries, no pagination, and no installation-token fallback. A failed call ends the operation. Failures are `{code, message}`: `SIGN_IN_REQUIRED` 401, `GITHUB_ACCESS_DENIED`/`REPOSITORY_NOT_AUTHORIZED` 403, `NOT_FOUND`/`DEFAULT_BRANCH_NOT_FOUND`/`SOURCE_NOT_FOUND` 404, `DOCUMENT_DELETED` 410, `UNSUPPORTED_CONTENT`/`DOCUMENT_LIMIT` 422, `GITHUB_INVALID_RESPONSE`/`GITHUB_RESPONSE_LIMIT`/`GITHUB_TREE_INCOMPLETE`/`GITHUB_*_LIMIT` 502, `GITHUB_UNAVAILABLE` 503. Upstream error bodies are not exposed.
 
@@ -76,6 +80,7 @@ Every connection, document, and content request is scoped to the signed-in user;
 | Markdown documents per repository | 5,000 | 422 `DOCUMENT_LIMIT` |
 | Note render | 1 MiB UTF-8, 4,096 blocks, 16 diagrams of 20,000 UTF-16 units, 200 Mermaid edges | 422 `UNSUPPORTED_CONTENT` |
 | Repository images | 64 per note; 5 MiB each | Extra images render as `[Image limit reached]`; larger images 422 `UNSUPPORTED_CONTENT` |
+| Annotation | selection and note at most 10,000 UTF-16 units each; one block per selection | 400 `INVALID_ANNOTATION` |
 | Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
 
 These are chosen ceilings, not measured ones. Clients cannot change them.
@@ -91,6 +96,14 @@ The renderer resolves relative and root-relative Markdown images against the not
 ### Reading state and bookmarks
 
 Only the reader writes reading state, recording the blob SHA actually displayed; repository refreshes never change it. A write older than or equal to the stored `lastReadAt` is ignored and the current state is returned, so replaying a stale offline save cannot overwrite newer progress. Deleting a document upstream keeps its reading state and bookmarks. Bookmarks live in the `annotations` table as type `BOOKMARK` (one per user and document).
+
+### Annotations
+
+A highlight (type `HIGHLIGHT`, with an optional note) is anchored to one source version using the [Stage 0 text contract](../requirements/reporead-stage0-boundaries.md#rendering-and-selection-contract): block id, UTF-16 offsets into that block's canonical text, and the exact text. On creation the server fetches that exact blob, renders it with the same renderer as the reader, and rejects a selection that does not name real text in it (422 `INVALID_ANCHOR`). It derives the 32-character prefix/suffix context and heading path itself. Source Markdown is never written.
+
+Creation is idempotent per client `mutationId` (a UUID): the first request records the mutation, annotation, and anchor in one transaction. Replaying the same request returns the original annotation (200) without a GitHub call — including after a lost acknowledgement or concurrently with the original. Reusing the id for different content is 409 `MUTATION_ID_REUSED`; replaying after the annotation was deleted is 410 `ANNOTATION_DELETED`, so a late replay cannot resurrect it. A failure before commit stores nothing, and the same mutation can be retried. Note edits and deletion use optimistic versions and never silently overwrite.
+
+Stage 3 stores anchors only; re-anchoring to newer versions is Stage 4. The server does not yet check that `sourceBlobSha` is a version of this particular document, only that it is a blob in the document's repository that renders to the selected text.
 
 ## Verify
 

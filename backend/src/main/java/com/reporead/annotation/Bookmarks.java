@@ -26,8 +26,8 @@ public class Bookmarks {
     /** Bookmarking an already bookmarked document keeps the original bookmark. */
     Bookmark set(long userId, long documentId, String sourceBlobSha) {
         db.sql("""
-                insert into annotations (user_id, document_id, source_blob_sha, type, created_at)
-                values (:userId, :documentId, :sha, 'BOOKMARK', :now)
+                insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at)
+                values (:userId, :documentId, :sha, 'BOOKMARK', :now, :now)
                 on conflict (user_id, document_id) where type = 'BOOKMARK' do nothing""")
             .param("userId", userId).param("documentId", documentId).param("sha", sourceBlobSha)
             .param("now", Timestamp.from(Instant.now())).update();
