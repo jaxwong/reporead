@@ -18,7 +18,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Owns HIGHLIGHT annotations, their anchors, and the idempotency record of each client creation. */
+/**
+ * Owns HIGHLIGHT annotations: their original anchors, their current locations and status, and the idempotency record
+ * of each client creation.
+ */
 @Component
 public class Annotations {
     private final JdbcClient db;
@@ -42,18 +45,26 @@ public class Annotations {
                          int startOffset, int endOffset, List<String> headingPath, @JsonIgnore String blockSha,
                          @JsonIgnore Integer quoteOccurrences, @JsonIgnore Double rivalContext, @JsonIgnore Double rivalQuote) {}
 
-    /** {@code mutationId} is the client id that created it, so a client can match a pending local copy to it. */
+    /**
+     * {@code mutationId} is the client id that created it, so a client can match a pending local copy to it.
+     * {@code anchor} is the original selection, never changed. {@code location} is the latest trusted location, and
+     * {@code status} says what it means for version {@code resolvedBlobSha}: ANCHORED (the original selection, in that
+     * version), REANCHORED (found again in that version, by the server or by the user), or ORPHANED (not reliably found
+     * in that version; {@code location} is the last place the passage was known to be).
+     */
     public record Annotation(long id, String mutationId, long documentId, String type, String note, String status, int version,
-                             Instant createdAt, Instant updatedAt, Anchor anchor) {}
+                             Instant createdAt, Instant updatedAt, Anchor anchor, Anchor location, String resolvedBlobSha) {}
 
     /** The result of a creation request, and whether it was the replay of an earlier identical request. */
     record Created(Annotation annotation, boolean replayed) {}
 
     private static final String SELECT = """
-        select a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at,
+        select a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at, m.mutation_id, a.resolved_blob_sha,
                n.source_blob_sha, n.block_id, n.exact_text, n.prefix_text, n.suffix_text, n.start_offset, n.end_offset, n.heading_path::text,
-               m.mutation_id
+               l.source_blob_sha, l.block_id, l.exact_text, l.prefix_text, l.suffix_text, l.start_offset, l.end_offset, l.heading_path::text,
+               l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote
         from annotations a join annotation_anchors n on n.annotation_id = a.id
+        join annotation_locations l on l.annotation_id = a.id
         join annotation_mutations m on m.annotation_id = a.id and m.user_id = a.user_id
         where a.type = 'HIGHLIGHT' and a.user_id = :userId""";
 
@@ -99,8 +110,8 @@ public class Annotations {
                 .param("userId", userId).param("mutationId", mutationId).param("hash", requestHash).param("now", Timestamp.from(now)).update();
             if (claimed == 0) return new Created(replay(userId, mutationId, requestHash).orElseThrow(), true);
             long id = db.sql("""
-                    insert into annotations (user_id, document_id, source_blob_sha, type, note, created_at, updated_at)
-                    values (:userId, :documentId, :sha, 'HIGHLIGHT', :note, :now, :now) returning id""")
+                    insert into annotations (user_id, document_id, source_blob_sha, type, note, created_at, updated_at, resolved_blob_sha)
+                    values (:userId, :documentId, :sha, 'HIGHLIGHT', :note, :now, :now, :sha) returning id""")
                 .param("userId", userId).param("documentId", documentId).param("sha", anchor.sourceBlobSha())
                 .param("note", note).param("now", Timestamp.from(now)).query(Long.class).single();
             db.sql("""
@@ -110,6 +121,7 @@ public class Annotations {
                 .param("id", id).param("sha", anchor.sourceBlobSha()).param("block", anchor.blockId()).param("exact", anchor.exactText())
                 .param("prefix", anchor.prefixText()).param("suffix", anchor.suffixText()).param("start", anchor.startOffset())
                 .param("end", anchor.endOffset()).param("headings", json.writeValueAsString(anchor.headingPath())).update();
+            writeLocation(id, anchor);
             db.sql("update annotation_mutations set annotation_id = :id where user_id = :userId and mutation_id = :mutationId")
                 .param("id", id).param("userId", userId).param("mutationId", mutationId).update();
             return new Created(find(userId, id).orElseThrow(), false);
@@ -133,15 +145,90 @@ public class Annotations {
         if (deleted == 0) throw missingOrConflict(userId, id);
     }
 
+    /**
+     * Records resolving a highlight in version [blobSha], only while it is still resolved against [expectedBlobSha], so
+     * a concurrent resolution or a reattachment wins. Empty [found] orphans it and keeps its last location. The user-edit
+     * version is unchanged: re-anchoring is not an edit. Returns whether this call applied.
+     */
+    boolean resolved(Annotation annotation, String blobSha, Optional<Anchor> found) {
+        String status = found.map(location -> sameSelection(location, annotation.anchor()) ? "ANCHORED" : "REANCHORED").orElse("ORPHANED");
+        return Boolean.TRUE.equals(transaction.execute(tx -> {
+            int updated = db.sql("""
+                    update annotations set status = :status, resolved_blob_sha = :sha
+                    where id = :id and type = 'HIGHLIGHT' and resolved_blob_sha = :expected""")
+                .param("status", status).param("sha", blobSha).param("id", annotation.id()).param("expected", annotation.resolvedBlobSha()).update();
+            if (updated == 0) return false;
+            found.ifPresent(location -> writeLocation(annotation.id(), location));
+            return true;
+        }));
+    }
+
+    /** Fills a pre-Stage-4 location's distinguishability, computed from its own version; changes nothing else. */
+    void fillEvidence(long id, Anchor location) {
+        db.sql("""
+                update annotation_locations set block_sha = :blockSha, quote_occurrences = :occurrences, rival_context = :rivalContext,
+                       rival_quote = :rivalQuote
+                where annotation_id = :id and source_blob_sha = :sha and block_id = :block and start_offset = :start and rival_context is null""")
+            .param("blockSha", location.blockSha()).param("occurrences", location.quoteOccurrences())
+            .param("rivalContext", location.rivalContext()).param("rivalQuote", location.rivalQuote()).param("id", id)
+            .param("sha", location.sourceBlobSha()).param("block", location.blockId()).param("start", location.startOffset()).update();
+    }
+
+    /** The user's own placement: versioned like a note edit (409 if another change landed first, 404 if absent). */
+    Annotation reattach(long userId, long id, int expectedVersion, Anchor location) {
+        transaction.executeWithoutResult(tx -> {
+            int updated = db.sql("""
+                    update annotations set status = 'REANCHORED', resolved_blob_sha = :sha, version = version + 1, updated_at = :now
+                    where id = :id and user_id = :userId and type = 'HIGHLIGHT' and version = :expected""")
+                .param("sha", location.sourceBlobSha()).param("now", Timestamp.from(Instant.now())).param("id", id)
+                .param("userId", userId).param("expected", expectedVersion).update();
+            if (updated == 0) throw missingOrConflict(userId, id);
+            writeLocation(id, location);
+        });
+        return find(userId, id).orElseThrow();
+    }
+
+    private void writeLocation(long id, Anchor location) {
+        db.sql("""
+                insert into annotation_locations (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset,
+                                                  end_offset, heading_path, block_sha, quote_occurrences, rival_context, rival_quote)
+                values (:id, :sha, :block, :exact, :prefix, :suffix, :start, :end, cast(:headings as jsonb), :blockSha, :occurrences,
+                        :rivalContext, :rivalQuote)
+                on conflict (annotation_id) do update set source_blob_sha = excluded.source_blob_sha, block_id = excluded.block_id,
+                    exact_text = excluded.exact_text, prefix_text = excluded.prefix_text, suffix_text = excluded.suffix_text,
+                    start_offset = excluded.start_offset, end_offset = excluded.end_offset, heading_path = excluded.heading_path,
+                    block_sha = excluded.block_sha, quote_occurrences = excluded.quote_occurrences,
+                    rival_context = excluded.rival_context, rival_quote = excluded.rival_quote""")
+            .param("id", id).param("sha", location.sourceBlobSha()).param("block", location.blockId()).param("exact", location.exactText())
+            .param("prefix", location.prefixText()).param("suffix", location.suffixText()).param("start", location.startOffset())
+            .param("end", location.endOffset()).param("headings", json.writeValueAsString(location.headingPath()))
+            .param("blockSha", location.blockSha()).param("occurrences", location.quoteOccurrences())
+            .param("rivalContext", location.rivalContext()).param("rivalQuote", location.rivalQuote()).update();
+    }
+
+    private static boolean sameSelection(Anchor a, Anchor b) {
+        return a.sourceBlobSha().equals(b.sourceBlobSha()) && a.blockId().equals(b.blockId())
+            && a.startOffset() == b.startOffset() && a.endOffset() == b.endOffset();
+    }
+
     private ApiFailure missingOrConflict(long userId, long id) {
         if (find(userId, id).isEmpty()) return new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found.");
         return new ApiFailure(HttpStatus.CONFLICT, "ANNOTATION_CONFLICT", "This annotation was changed elsewhere; reload it and choose which text to keep.");
     }
 
     private Annotation annotation(ResultSet row, int n) throws SQLException {
-        var anchor = new Anchor(row.getString(9), row.getString(10), row.getString(11), row.getString(12), row.getString(13),
-            row.getInt(14), row.getInt(15), json.readValue(row.getString(16), new TypeReference<List<String>>() {}), null, null, null, null);
-        return new Annotation(row.getLong(1), row.getString(17), row.getLong(2), row.getString(3), row.getString(4), row.getString(5),
-            row.getInt(6), row.getTimestamp(7).toInstant(), row.getTimestamp(8).toInstant(), anchor);
+        var location = anchor(row, 19);
+        location = new Anchor(location.sourceBlobSha(), location.blockId(), location.exactText(), location.prefixText(),
+            location.suffixText(), location.startOffset(), location.endOffset(), location.headingPath(), row.getString(27),
+            (Integer) row.getObject(28), (Double) row.getObject(29), (Double) row.getObject(30));
+        return new Annotation(row.getLong(1), row.getString(9), row.getLong(2), row.getString(3), row.getString(4), row.getString(5),
+            row.getInt(6), row.getTimestamp(7).toInstant(), row.getTimestamp(8).toInstant(), anchor(row, 11), location, row.getString(10));
+    }
+
+    /** The eight anchor columns starting at [first]; distinguishability is not part of an original anchor. */
+    private Anchor anchor(ResultSet row, int first) throws SQLException {
+        return new Anchor(row.getString(first), row.getString(first + 1), row.getString(first + 2), row.getString(first + 3),
+            row.getString(first + 4), row.getInt(first + 5), row.getInt(first + 6),
+            json.readValue(row.getString(first + 7), new TypeReference<List<String>>() {}), null, null, null, null);
     }
 }

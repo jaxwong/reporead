@@ -46,7 +46,14 @@ class AnnotationTest {
     private static final byte[] OLD = "# Spring\n\n## Proxies\n\nBy default, Spring implements declarative transactions using a proxy around the target bean.\n"
         .getBytes(StandardCharsets.UTF_8);
     private static final String OLD_SHA = MarkdownRenderer.blobSha(OLD);
-    private static final String CURRENT_SHA = "c".repeat(40);
+    /** The note has since moved on: a paragraph was inserted above the highlighted one, which is unchanged. */
+    private static final byte[] CURRENT = ("# Spring\n\nTransactions are a core Spring feature.\n\n## Proxies\n\n"
+        + "By default, Spring implements declarative transactions using a proxy around the target bean.\n").getBytes(StandardCharsets.UTF_8);
+    private static final String CURRENT_SHA = MarkdownRenderer.blobSha(CURRENT);
+    /** A later rewrite that no longer contains the highlighted passage. */
+    private static final byte[] REWRITTEN = "# Spring\n\n## Weaving\n\nAspectJ weaves advice into the bytecode at build time.\n"
+        .getBytes(StandardCharsets.UTF_8);
+    private static final String REWRITTEN_SHA = MarkdownRenderer.blobSha(REWRITTEN);
     private static final String EXACT = "Spring implements declarative transactions";
     private static final int START = "By default, ".length();
 
@@ -69,7 +76,7 @@ class AnnotationTest {
         github = MockRestServiceServer.bindTo(githubUserApi).ignoreExpectOrder(true).build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
         db.sql("insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch) values (1, 11, 7, 'test-only', 'notes', 'main')").update();
-        // The note has moved on to CURRENT_SHA; annotations are created against the older version the user was reading.
+        // The note has moved on to CURRENT; annotations are created against the older version the user was reading.
         note = db.sql("""
                 insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at)
                 values (1, 'backend/spring.md', 'spring', :sha, :sha, now()) returning id""").param("sha", CURRENT_SHA).query(Long.class).single();
@@ -84,6 +91,11 @@ class AnnotationTest {
     private void expectSource(ExpectedCount count) {
         github.expect(count, requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + OLD_SHA))
             .andExpect(method(HttpMethod.GET)).andRespond(withSuccess(OLD, MediaType.APPLICATION_OCTET_STREAM));
+    }
+
+    private void expectVersion(ExpectedCount count, String sha, byte[] bytes) {
+        github.expect(count, requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha))
+            .andExpect(method(HttpMethod.GET)).andRespond(withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
     }
 
     private void next() {
@@ -118,6 +130,7 @@ class AnnotationTest {
 
     @Test void createdAnchorIsVerifiedAgainstTheSelectedVersionAndContextComesFromTheServer() throws Exception {
         expectSource(ExpectedCount.once());
+        expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
         String id = UUID.randomUUID().toString();
         create(alice, note, body(id, "b2", START, EXACT, "Proxies only intercept external calls")).andExpect(status().isCreated())
             .andExpect(jsonPath("$.mutationId").value(id))
@@ -200,6 +213,7 @@ class AnnotationTest {
 
     @Test void editsUseOptimisticVersionsAndConflictsAreVisible() throws Exception {
         expectSource(ExpectedCount.once());
+        expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
         long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, "v1"));
         edit(alice, id, "from phone", 1).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2));
         edit(alice, id, "stale laptop edit", 1).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ANNOTATION_CONFLICT"));
@@ -223,6 +237,7 @@ class AnnotationTest {
 
     @Test void annotationsArePrivateAndBookmarksAreNotEditableAsHighlights() throws Exception {
         expectSource(ExpectedCount.once());
+        expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
         long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB");
         mvc.perform(get("/api/documents/" + note + "/annotations").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob)).andExpect(status().isNotFound());
@@ -236,6 +251,139 @@ class AnnotationTest {
         remove(alice, bookmark, 1).andExpect(status().isNotFound());
         mvc.perform(get("/api/documents/" + note + "/annotations").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
             .andExpect(jsonPath("$.annotations.length()").value(1));
+    }
+
+    // ---- Stage 4: re-anchoring, orphans, reattachment ----
+
+    private ResultActions list(String bearer) throws Exception {
+        return mvc.perform(get("/api/documents/" + note + "/annotations").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+    }
+
+    private ResultActions reattach(String bearer, long id, int expectedVersion, String sha, String block, int start, String exact) throws Exception {
+        return mvc.perform(post("/api/annotations/" + id + "/reattach").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":" + expectedVersion + ",\"anchor\":{\"sourceBlobSha\":\"" + sha
+                + "\",\"blockId\":\"" + block + "\",\"startOffset\":" + start + ",\"endOffset\":" + (start + exact.length())
+                + ",\"exactText\":\"" + exact + "\"}}"));
+    }
+
+    private void moveNoteTo(String sha) {
+        db.sql("update documents set current_blob_sha = :sha where id = :id").param("sha", sha).param("id", note).update();
+    }
+
+    @Test void listingResolvesHighlightsAgainstTheCurrentVersionOnceAndKeepsTheOriginalSelection() throws Exception {
+        expectSource(ExpectedCount.once());
+        long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, "kept"));
+        next();
+        expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
+        list(alice).andExpect(status().isOk())
+            .andExpect(jsonPath("$.annotations[0].status").value("REANCHORED"))
+            .andExpect(jsonPath("$.annotations[0].resolvedBlobSha").value(CURRENT_SHA))
+            .andExpect(jsonPath("$.annotations[0].location.sourceBlobSha").value(CURRENT_SHA))
+            .andExpect(jsonPath("$.annotations[0].location.blockId").value("b3"))
+            .andExpect(jsonPath("$.annotations[0].location.startOffset").value(START))
+            .andExpect(jsonPath("$.annotations[0].location.exactText").value(EXACT))
+            .andExpect(jsonPath("$.annotations[0].location.rivalContext").doesNotExist())
+            .andExpect(jsonPath("$.annotations[0].anchor.sourceBlobSha").value(OLD_SHA))
+            .andExpect(jsonPath("$.annotations[0].anchor.blockId").value("b2"))
+            .andExpect(jsonPath("$.annotations[0].version").value(1));
+        next();
+        // Resolved against the current version: listing again needs no GitHub request.
+        list(alice).andExpect(jsonPath("$.annotations[0].location.blockId").value("b3"));
+        // Re-anchoring is not an edit: the client's version is still current.
+        edit(alice, id, "still mine", 1).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2))
+            .andExpect(jsonPath("$.status").value("REANCHORED"));
+    }
+
+    @Test void aPassageThatIsGoneIsOrphanedWithItsOriginalAndLastLocationAndCanBeReattached() throws Exception {
+        expectSource(ExpectedCount.once());
+        long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, "about proxies"));
+        next();
+        moveNoteTo(REWRITTEN_SHA);
+        expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
+        list(alice).andExpect(jsonPath("$.annotations[0].status").value("ORPHANED"))
+            .andExpect(jsonPath("$.annotations[0].resolvedBlobSha").value(REWRITTEN_SHA))
+            .andExpect(jsonPath("$.annotations[0].location.sourceBlobSha").value(OLD_SHA))
+            .andExpect(jsonPath("$.annotations[0].anchor.exactText").value(EXACT))
+            .andExpect(jsonPath("$.annotations[0].anchor.prefixText").value("By default, "))
+            .andExpect(jsonPath("$.annotations[0].note").value("about proxies"));
+        next();
+
+        // Rejected before GitHub: no version, or a malformed selection.
+        mvc.perform(post("/api/annotations/" + id + "/reattach").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"anchor\":null}")).andExpect(status().isBadRequest());
+        reattach(alice, id, 1, "nope", "b2", 0, "AspectJ").andExpect(status().isBadRequest());
+        String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB");
+        reattach(bob, id, 1, REWRITTEN_SHA, "b2", 0, "AspectJ").andExpect(status().isNotFound());
+
+        expectVersion(ExpectedCount.times(3), REWRITTEN_SHA, REWRITTEN);
+        reattach(alice, id, 1, REWRITTEN_SHA, "b2", 9, "weaves").andExpect(status().isUnprocessableContent())
+            .andExpect(jsonPath("$.code").value("INVALID_ANCHOR"));
+        reattach(alice, id, 1, REWRITTEN_SHA, "b2", 8, "weaves advice").andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("REANCHORED")).andExpect(jsonPath("$.version").value(2))
+            .andExpect(jsonPath("$.resolvedBlobSha").value(REWRITTEN_SHA))
+            .andExpect(jsonPath("$.location.exactText").value("weaves advice"))
+            .andExpect(jsonPath("$.location.headingPath[1]").value("Weaving"))
+            .andExpect(jsonPath("$.anchor.exactText").value(EXACT));
+        reattach(alice, id, 1, REWRITTEN_SHA, "b2", 0, "AspectJ").andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("ANNOTATION_CONFLICT"));
+        next();
+        list(alice).andExpect(jsonPath("$.annotations[0].status").value("REANCHORED"))
+            .andExpect(jsonPath("$.annotations[0].location.blockId").value("b2"));
+    }
+
+    @Test void anOrphanIsFoundAgainWhenItsPassageReturnsAndTheOriginalPlaceIsAnchoredAgain() throws Exception {
+        expectSource(ExpectedCount.once());
+        createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
+        next();
+        moveNoteTo(REWRITTEN_SHA);
+        expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
+        list(alice).andExpect(jsonPath("$.annotations[0].status").value("ORPHANED"));
+        next();
+        // A branch rewind back to the version the highlight was made on.
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        list(alice).andExpect(jsonPath("$.annotations[0].status").value("ANCHORED"))
+            .andExpect(jsonPath("$.annotations[0].resolvedBlobSha").value(OLD_SHA))
+            .andExpect(jsonPath("$.annotations[0].location.blockId").value("b2"));
+    }
+
+    @Test void aHighlightFromBeforeStage4GetsItsEvidenceFromItsOwnVersionOnce() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
+        // As V4 migrated Stage 3 highlights: a location copied from the anchor, distinguishability unknown.
+        db.sql("update annotation_locations set block_sha = null, quote_occurrences = null, rival_context = null, rival_quote = null").update();
+        next();
+        expectSource(ExpectedCount.once());
+        list(alice).andExpect(jsonPath("$.annotations[0].status").value("ANCHORED"));
+        assertEquals(1, db.sql("select quote_occurrences from annotation_locations").query(Integer.class).single());
+        assertEquals(0.0, db.sql("select rival_context from annotation_locations").query(Double.class).single());
+        next();
+        list(alice).andExpect(status().isOk());
+    }
+
+    @Test void aDeletedNoteKeepsItsHighlightsWithoutGitHubRequests() throws Exception {
+        expectSource(ExpectedCount.once());
+        createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, "still here"));
+        next();
+        db.sql("update documents set deleted_at = now() where id = :id").param("id", note).update();
+        list(alice).andExpect(jsonPath("$.annotations[0].note").value("still here"))
+            .andExpect(jsonPath("$.annotations[0].status").value("ANCHORED"))
+            .andExpect(jsonPath("$.annotations[0].resolvedBlobSha").value(OLD_SHA));
+    }
+
+    @Test void concurrentListingsResolveAHighlightToOneLocation() throws Exception {
+        expectSource(ExpectedCount.once());
+        createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
+        next();
+        expectVersion(ExpectedCount.between(1, 4), CURRENT_SHA, CURRENT);
+        Callable<Integer> listing = () -> list(alice).andReturn().getResponse().getStatus();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (var result : executor.invokeAll(List.of(listing, listing, listing, listing))) assertEquals(200, result.get());
+        }
+        assertEquals(1, count("annotation_locations"));
+        assertEquals(List.of("REANCHORED", CURRENT_SHA), db.sql("select status, resolved_blob_sha from annotations")
+            .query((row, n) -> List.of(row.getString(1), row.getString(2))).single());
     }
 
     private long createdId(String json) throws Exception {

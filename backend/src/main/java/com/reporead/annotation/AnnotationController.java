@@ -23,12 +23,16 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
- * Highlights with optional notes. External-call ceilings: create 1 GitHub request (the source version's blob, to verify
- * the anchor) or 0 when replaying a known mutation id; list, edit, and delete 0. Source Markdown is never written.
+ * Highlights with optional notes. External-call ceilings: create and reattach 1 GitHub request (the selected version's
+ * blob, to verify the anchor), or 0 when replaying a known mutation id; list 0 when every highlight is resolved against
+ * the note's current version, else 1 (the current version) plus 1 per older version holding a pre-Stage-4 location;
+ * edit and delete 0. Source Markdown is never written.
  */
 @RestController
 public class AnnotationController {
@@ -50,8 +54,49 @@ public class AnnotationController {
 
     @GetMapping("/api/documents/{id}/annotations")
     AnnotationList list(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        documents.find(user.id(), id).orElseThrow(AnnotationController::notFound);
-        return new AnnotationList(annotations.list(user.id(), id));
+        var document = documents.find(user.id(), id).orElseThrow(AnnotationController::notFound);
+        var all = annotations.list(user.id(), id);
+        // A deleted note has no current version; its highlights keep their last resolution.
+        if (!document.deleted() && bringUpToDate(user, document, all)) all = annotations.list(user.id(), id);
+        return new AnnotationList(all);
+    }
+
+    /**
+     * Resolves every highlight against the note's current version. A pre-Stage-4 location first gets its
+     * distinguishability from its own version. Returns whether anything needed resolving.
+     */
+    private boolean bringUpToDate(AppUser user, Documents.Located document, List<Annotations.Annotation> all) {
+        String current = document.blobSha();
+        var stale = all.stream().filter(annotation -> !annotation.resolvedBlobSha().equals(current)
+            || annotation.location().rivalContext() == null).toList();
+        if (stale.isEmpty()) return false;
+        var versions = new HashMap<String, List<MarkdownRenderer.Block>>();
+        Function<String, List<MarkdownRenderer.Block>> blocks =
+            sha -> versions.computeIfAbsent(sha, version -> noteVersions.render(user, document, version).note().blocks());
+        for (var annotation : stale) {
+            var location = annotation.location();
+            if (location.rivalContext() == null) {
+                location = withEvidence(location, blocks.apply(location.sourceBlobSha()), annotation.id());
+                annotations.fillEvidence(annotation.id(), location);
+            }
+            if (annotation.resolvedBlobSha().equals(current)) continue;
+            var resolved = Anchoring.resolve(location, current, blocks.apply(current));
+            boolean applied = annotations.resolved(annotation, current, resolved.map(Anchoring.Resolved::anchor));
+            LOG.info("Highlight resolved; userId={} documentId={} annotationId={} from={} to={} outcome={} applied={}", user.id(),
+                document.id(), annotation.id(), location.sourceBlobSha(), current,
+                resolved.map(found -> found.method().name()).orElse("ORPHANED"), applied);
+        }
+        return true;
+    }
+
+    /** A location recomputed in its own version, which must still contain it exactly. */
+    private static Annotations.Anchor withEvidence(Annotations.Anchor location, List<MarkdownRenderer.Block> own, long annotationId) {
+        var block = own.stream().filter(candidate -> candidate.id().equals(location.blockId())).findFirst()
+            .filter(candidate -> candidate.text().length() >= location.endOffset()
+                && candidate.text().substring(location.startOffset(), location.endOffset()).equals(location.exactText()))
+            .orElseThrow(() -> new IllegalStateException("Annotation " + annotationId + " location " + location.blockId() + "["
+                + location.startOffset() + "," + location.endOffset() + ") is not in its own version " + location.sourceBlobSha()));
+        return Anchoring.anchorAt(location.sourceBlobSha(), own, block, location.startOffset(), location.endOffset());
     }
 
     /** What the client selected; the server verifies it and derives everything else from the canonical text. */
@@ -64,13 +109,7 @@ public class AnnotationController {
     ResponseEntity<Annotations.Annotation> create(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CreateRequest body) {
         UUID mutationId = mutationId(body.mutationId());
         var selection = body.anchor();
-        boolean valid = selection != null && selection.sourceBlobSha() != null && selection.sourceBlobSha().matches("[0-9a-f]{40}")
-            && selection.blockId() != null && selection.blockId().matches("b[0-9]{1,4}")
-            && selection.startOffset() != null && selection.endOffset() != null && selection.startOffset() >= 0
-            && selection.endOffset() > selection.startOffset() && selection.exactText() != null
-            && selection.exactText().length() == selection.endOffset() - selection.startOffset()
-            && selection.exactText().length() <= MAX_TEXT_CHARS && validNote(body.note());
-        if (!valid) {
+        if (!validSelection(selection) || !validNote(body.note())) {
             throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION",
                 "An annotation needs a source blob SHA, a block id, a non-empty UTF-16 range matching exactText (at most 10000 characters), and an optional note of at most 10000 characters.");
         }
@@ -86,6 +125,25 @@ public class AnnotationController {
         LOG.info("Annotation {}; userId={} documentId={} annotationId={}", created.replayed() ? "creation replayed" : "created",
             user.id(), id, created.annotation().id());
         return ResponseEntity.status(created.replayed() ? HttpStatus.OK : HttpStatus.CREATED).body(created.annotation());
+    }
+
+    record ReattachRequest(Integer expectedVersion, Selection anchor) {}
+
+    /** The user places an orphaned (or any) highlight on a selection they made in a version of its note. */
+    @PostMapping("/api/annotations/{id}/reattach")
+    Annotations.Annotation reattach(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody ReattachRequest body) {
+        if (body.expectedVersion() == null || body.expectedVersion() < 1 || !validSelection(body.anchor())) {
+            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION",
+                "A reattachment needs expectedVersion and a selection: source blob SHA, block id, and a non-empty UTF-16 range matching exactText (at most 10000 characters).");
+        }
+        var annotation = annotations.find(user.id(), id).orElseThrow(AnnotationController::notFound);
+        var document = documents.find(user.id(), annotation.documentId()).orElseThrow(() -> new IllegalStateException(
+            "Annotation " + id + " of user " + user.id() + " references document " + annotation.documentId() + " outside their connections"));
+        var location = verifiedAnchor(body.anchor(), noteVersions.render(user, document, body.anchor().sourceBlobSha()).note());
+        var reattached = annotations.reattach(user.id(), id, body.expectedVersion(), location);
+        LOG.info("Highlight reattached; userId={} documentId={} annotationId={} blobSha={} version={}", user.id(), document.id(), id,
+            location.sourceBlobSha(), reattached.version());
+        return reattached;
     }
 
     record EditRequest(String note, Integer expectedVersion) {}
@@ -122,6 +180,15 @@ public class AnnotationController {
         } catch (IllegalArgumentException error) {
             throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION", "mutationId must be a client-generated UUID.");
         }
+    }
+
+    private static boolean validSelection(Selection selection) {
+        return selection != null && selection.sourceBlobSha() != null && selection.sourceBlobSha().matches("[0-9a-f]{40}")
+            && selection.blockId() != null && selection.blockId().matches("b[0-9]{1,4}")
+            && selection.startOffset() != null && selection.endOffset() != null && selection.startOffset() >= 0
+            && selection.endOffset() > selection.startOffset() && selection.exactText() != null
+            && selection.exactText().length() == selection.endOffset() - selection.startOffset()
+            && selection.exactText().length() <= MAX_TEXT_CHARS;
     }
 
     private static boolean validNote(String note) {

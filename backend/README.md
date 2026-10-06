@@ -61,10 +61,11 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
 | `GET /api/bookmarks` | 0 | Document bookmarks |
 | `PUT` / `DELETE /api/documents/{id}/bookmark` | 0 | `PUT {sourceBlobSha}`; both idempotent |
-| `GET /api/documents/{id}/annotations` | 0 | This user's highlights on the document, with anchors and the creating `mutationId` |
+| `GET /api/documents/{id}/annotations` | 0 when every highlight is resolved against the current version; else 1 (that version) plus 1 per older version holding a pre-Stage-4 location | This user's highlights: original `anchor`, current `location`, `status` (`ANCHORED`, `REANCHORED`, `ORPHANED`) for `resolvedBlobSha`, and the creating `mutationId` |
 | `POST /api/documents/{id}/annotations` | 1 (the selected version's blob); 0 on replay | `{mutationId, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}, note?}`; 201 created, 200 replay |
 | `PATCH /api/annotations/{id}` | 0 | `{note, expectedVersion}`; 409 `ANNOTATION_CONFLICT` if another edit landed first |
 | `DELETE /api/annotations/{id}?expectedVersion=` | 0 | 409 on a stale version |
+| `POST /api/annotations/{id}/reattach` | 1 (the selected version's blob) | `{expectedVersion, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}}`; places the highlight on the user's selection, `REANCHORED`; 409 on a stale version |
 
 Every GitHub call uses the user's token, 15-second connect/read timeouts, no redirects, no retries, no pagination, and no installation-token fallback. A failed call ends the operation. Failures are `{code, message}`: `SIGN_IN_REQUIRED` 401, `GITHUB_ACCESS_DENIED`/`REPOSITORY_NOT_AUTHORIZED` 403, `NOT_FOUND`/`DEFAULT_BRANCH_NOT_FOUND`/`SOURCE_NOT_FOUND` 404, `DOCUMENT_DELETED` 410, `UNSUPPORTED_CONTENT`/`DOCUMENT_LIMIT` 422, `GITHUB_INVALID_RESPONSE`/`GITHUB_RESPONSE_LIMIT`/`GITHUB_TREE_INCOMPLETE`/`GITHUB_*_LIMIT` 502, `GITHUB_UNAVAILABLE` 503. Upstream error bodies are not exposed.
 
@@ -87,7 +88,7 @@ These are chosen ceilings, not measured ones. Clients cannot change them.
 
 ### Sync semantics
 
-Sync reads the default branch's commit, then its full recursive tree. Documents are regular-file blobs ending in `.md` (any case); symlinks and submodules are skipped. A truncated or malformed tree fails without changes and is never evidence of deletion. Only after complete validation does one transaction upsert documents by path, mark paths absent from the complete tree as deleted (rows are kept), and advance the connection's commit checkpoint. Repeating a sync is idempotent; concurrent syncs of one connection are serialized by a row lock. Moves, renames, and branch rewinds are Stage 4.
+Sync reads the default branch's commit, then its full recursive tree. Documents are regular-file blobs ending in `.md` (any case); symlinks and submodules are skipped. A truncated or malformed tree fails without changes and is never evidence of deletion. Only after complete validation does one transaction upsert documents by path, mark paths absent from the complete tree as deleted (rows are kept), and advance the connection's commit checkpoint. Repeating a sync is idempotent; concurrent syncs of one connection are serialized by a row lock. A document whose path left the snapshot keeps its id at a path that has never had a document when both share a blob SHA unique on each side (a path-only move); identical-content duplicates are never merged, and a path that once had a document resumes it. Because every sync is a complete snapshot, a branch rewind is reconciled like any other: paths absent from it are marked deleted and return to their documents if they reappear.
 
 ### Images
 
@@ -103,7 +104,9 @@ A highlight (type `HIGHLIGHT`, with an optional note) is anchored to one source 
 
 Creation is idempotent per client `mutationId` (a UUID): the first request records the mutation, annotation, and anchor in one transaction. Replaying the same request returns the original annotation (200) without a GitHub call — including after a lost acknowledgement or concurrently with the original. Reusing the id for different content is 409 `MUTATION_ID_REUSED`; replaying after the annotation was deleted is 410 `ANNOTATION_DELETED`, so a late replay cannot resurrect it. A failure before commit stores nothing, and the same mutation can be retried. Note edits and deletion use optimistic versions and never silently overwrite.
 
-Stage 3 stores anchors only; re-anchoring to newer versions is Stage 4. The server does not yet check that `sourceBlobSha` is a version of this particular document, only that it is a blob in the document's repository that renders to the selected text.
+**Re-anchoring.** The original anchor never changes. Each highlight also has a current `location` (where it was made, re-anchored, or reattached) and a `status` for `resolvedBlobSha`. Listing a document's highlights resolves any that were resolved against an older version, using `Anchoring`: the location's block unchanged anywhere, then unchanged position, then the exact quote singled out by context and heading, then a bounded fuzzy match. Anything weaker is `ORPHANED`, keeping its last location so the next version is resolved from there; the user can reattach it. Re-anchoring does not change the user-edit `version`. Thresholds and their measurement on a real notes repository are in the [Stage 4 record](../requirements/reporead-stage4-record.md). A deleted document's highlights are listed as last resolved, without GitHub calls.
+
+The server does not yet check that `sourceBlobSha` is a version of this particular document, only that it is a blob in the document's repository that renders to the selected text.
 
 ## Verify
 
