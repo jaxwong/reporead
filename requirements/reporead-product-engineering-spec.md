@@ -1,345 +1,15 @@
-# RepoRead — Product & Engineering Specification
+# RepoRead — Implementation Specification
 
-> **Working title:** RepoRead  
-> **Product thesis:** A mobile reading and annotation layer for developers who keep technical notes as Markdown in GitHub. GitHub remains the source of truth; RepoRead makes those notes pleasant to read, annotate, revisit, and review on a phone without modifying the original Markdown.
+This document owns the technical design for the MVP: architecture, data ownership, synchronization, anchoring, APIs, security, failure behavior, and verification. It does not define feature priority or user-facing acceptance criteria.
 
----
+- [User stories](reporead-user-stories.md) define the user need and observable acceptance criteria.
+- [Feature list](reporead-feature-list.md) defines MVP scope, delivery order, and project-level success criteria.
 
-## 1. Problem
-
-Developers often keep long-form technical notes, cheatsheets, and learning material as Markdown inside GitHub repositories because Git provides versioning, portability, searchability, and a natural workflow from an editor such as VS Code.
-
-That workflow is strong for **writing**, but weak for **reading on a phone**.
-
-Typical problems:
-
-- GitHub Mobile is designed primarily as a repository/code client, not a long-form reading application.
-- Rich technical Markdown is inconsistently supported on mobile, especially Mermaid diagrams.
-- Readers cannot attach personal highlights and annotations to arbitrary passages without modifying the underlying Markdown.
-- There is no durable "continue reading" state for long notes.
-- A reader cannot easily see what changed in a note since the last time they studied it.
-- Old notes become a knowledge graveyard because nothing intentionally resurfaces them.
-- Existing note applications often require moving the source of truth into their own vault/workspace or using a separate sync workflow.
-
-The core frustration is not "I need another Markdown editor."
-
-It is:
-
-> **I already have good technical notes in GitHub. I want a better way to read and study them on my phone.**
+GitHub owns authored Markdown; the Spring Boot backend owns durable reading and annotation state; the Android app owns its offline cache and pending mutations. Reading actions must not write back to source Markdown.
 
 ---
 
-## 2. Product Vision
-
-RepoRead treats GitHub as the canonical storage system for notes.
-
-```text
-WRITE                                  READ / STUDY
-
-VS Code                                RepoRead Mobile
-   │                                         │
-   │ Markdown                               │ highlights
-   │ Mermaid                                │ annotations
-   │ code                                   │ progress
-   ▼                                         │ review state
- GitHub  ◄───────────────────────────────────┘
- source of truth
-```
-
-RepoRead does **not** rewrite the user's notes just because the user highlighted, annotated, bookmarked, or reviewed something.
-
-The repository contains authored knowledge.
-
-RepoRead contains **reading state layered on top of that knowledge**.
-
----
-
-## 3. Product Principles
-
-### 3.1 GitHub remains the source of truth
-
-RepoRead must never require users to migrate notes into a proprietary file format.
-
-If RepoRead disappears tomorrow, all Markdown files remain intact in GitHub.
-
-### 3.2 Reading, not authoring
-
-The first release is optimized for consuming technical notes.
-
-RepoRead is not an Obsidian replacement and is not a general-purpose Markdown editor.
-
-### 3.3 Annotations must not pollute source files
-
-Highlights, comments, bookmarks, and reading progress are stored separately from the repository.
-
-### 3.4 Technical Markdown must render correctly
-
-The reader should handle the content developers actually put in technical notes:
-
-- GitHub-flavored Markdown
-- fenced code blocks
-- syntax highlighting
-- Mermaid
-- tables
-- task lists
-- block quotes
-- inline code
-- images
-- links
-- optional LaTeX/math in a later release
-
-### 3.5 Git history is a feature
-
-Because the source is Git, RepoRead should exploit document versions rather than hiding them.
-
-Examples:
-
-- "What changed since I last read this?"
-- "This annotation was created against commit `abc123`."
-- "This file moved but is still the same logical note."
-
-### 3.6 Failure must be explicit
-
-RepoRead must never silently attach an annotation to the wrong sentence after a document changes.
-
-When re-anchoring confidence is insufficient, the annotation becomes `ORPHANED` and the user is shown its original context.
-
----
-
-# 4. Target User
-
-Initial target:
-
-> Developers and technical students who keep learning notes, cheatsheets, or documentation as Markdown in GitHub and want to review them on mobile.
-
-The first user is the developer building RepoRead.
-
-Example repository:
-
-```text
-engineering-notes/
-├── algorithms/
-│   ├── binary-search.md
-│   └── dynamic-programming.md
-├── backend/
-│   ├── spring-transactions.md
-│   ├── postgres-mvcc.md
-│   └── redis.md
-├── go/
-│   └── concurrency.md
-└── infrastructure/
-    └── kubernetes.md
-```
-
----
-
-# 5. Core User Journey
-
-## 5.1 Connect GitHub
-
-User signs into RepoRead and authorizes read access to selected GitHub repositories.
-
-```text
-RepoRead
-   │
-   ▼
-Connect GitHub
-   │
-   ▼
-Choose repositories
-   │
-   ▼
-engineering-notes ✓
-interview-notes   ✓
-```
-
-RepoRead discovers Markdown files and records their Git identity.
-
----
-
-## 5.2 Browse notes
-
-The user sees a reading-oriented view rather than a repository-oriented view.
-
-```text
-Engineering Notes
-
-Continue Reading
-────────────────────────
-Spring Transactions      63%
-PostgreSQL MVCC          21%
-
-Recently Updated
-────────────────────────
-Go Concurrency           +34 / -12
-Redis                    +18 / -4
-
-Folders
-────────────────────────
-Algorithms
-Backend
-Go
-Infrastructure
-```
-
----
-
-## 5.3 Read technical Markdown
-
-A document opens as a clean mobile reading surface.
-
-```text
-Spring Transactions
-━━━━━━━━━━━━━━━━━━━━━━━━━━ 63%
-
-# Transaction Boundaries
-
-A transaction groups several database
-operations into one unit of work.
-
-      ┌──────────────────────┐
-      │     Controller       │
-      │          │           │
-      │          ▼           │
-      │       Service        │
-      │   @Transactional     │
-      │          │           │
-      │          ▼           │
-      │      Repository      │
-      └──────────────────────┘
-
-[Mermaid rendered here]
-
-...
-```
-
-Scroll position and logical reading progress are persisted.
-
----
-
-## 5.4 Highlight and annotate
-
-The user selects text:
-
-```text
-Spring implements declarative transactions
-using a proxy around the target bean.
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-```
-
-Actions:
-
-```text
-[ Highlight ] [ Annotate ] [ Copy ]
-```
-
-The annotation is stored by RepoRead, **not inserted into the Markdown file**.
-
-Example annotation:
-
-```text
-Important: self-invocation does not pass
-through the Spring proxy.
-```
-
----
-
-## 5.5 Continue later
-
-The next time the user opens the application:
-
-```text
-Continue Reading
-
-Spring Transactions
-63% · Section: Proxy Behaviour
-
-[ Continue ]
-```
-
-The application restores the user near the same semantic location.
-
----
-
-## 5.6 Read changes since last study session
-
-Suppose the note was last read at commit:
-
-```text
-a18fd92
-```
-
-and GitHub now contains:
-
-```text
-c814a73
-```
-
-RepoRead shows:
-
-```text
-Updated since you last read
-
-Spring Transactions
-
-+ New section: Transaction propagation
-~ Isolation explanation rewritten
-+ Diagram: proxy invocation path
-
-[ Read changes ]
-[ Read full note ]
-```
-
-This feature should be **section-aware**, rather than merely dumping a raw Git diff onto a phone.
-
----
-
-# 6. MVP Scope
-
-The MVP is deliberately narrow.
-
-## Required
-
-1. GitHub authentication / repository connection
-2. Select one or more repositories
-3. Discover Markdown files
-4. Browse folders and notes
-5. Render Markdown cleanly on mobile
-6. Render fenced code with syntax highlighting
-7. Render Mermaid
-8. Cache notes for offline reading
-9. Persist reading progress
-10. Create highlights
-11. Create textual annotations attached to highlights
-12. Store annotations separately from source Markdown
-13. Detect when source documents change
-14. Attempt annotation re-anchoring after changes
-15. Surface orphaned annotations safely
-16. Show notes changed since the user last read them
-17. Basic search across cached note titles/content
-
-## Explicitly not in MVP
-
-- Markdown editing
-- Git commits from the app
-- pull requests
-- collaborative annotations
-- AI summaries
-- chat with notes
-- spaced-repetition flashcards
-- public social profiles
-- arbitrary Git providers
-- arbitrary binary document formats
-- WYSIWYG editing
-- team knowledge management
-- comments written back into GitHub
-- rich drawing/canvas tools
-
-These may be revisited only after the reading workflow is genuinely useful.
-
----
-
-# 7. Technology Choices
+# 1. Technology Choices
 
 ## Backend
 
@@ -465,7 +135,7 @@ Raw repository HTML must never be blindly executed.
 
 ---
 
-# 8. High-Level Architecture
+# 2. High-Level Architecture
 
 ```text
                         GitHub
@@ -515,7 +185,7 @@ GitHub owns the Markdown source.
 
 ---
 
-# 9. Core Domain Model
+# 3. Core Domain Model
 
 ## User
 
@@ -653,7 +323,7 @@ Example:
 
 ---
 
-# 10. Annotation Anchoring
+# 4. Annotation Anchoring
 
 This is one of the project's core engineering problems.
 
@@ -766,7 +436,7 @@ Original selection:
 
 ---
 
-# 11. Document Identity and File Moves
+# 5. Document Identity and File Moves
 
 Paths are not stable identities.
 
@@ -795,7 +465,7 @@ Do not automatically merge documents with weak similarity.
 
 ---
 
-# 12. Repository Synchronization
+# 6. Repository Synchronization
 
 ## Initial Sync
 
@@ -856,7 +526,7 @@ A webhook should be treated as a notification that "something changed", not as t
 
 ---
 
-# 13. "Changed Since Last Read"
+# 7. "Changed Since Last Read"
 
 This is a core differentiator.
 
@@ -916,7 +586,7 @@ AST-aware Markdown differencing can distinguish:
 
 ---
 
-# 14. Reading Progress
+# 8. Reading Progress
 
 Pixel position alone is fragile because rendering changes across:
 
@@ -958,7 +628,7 @@ When restoring:
 
 ---
 
-# 15. Offline-First Behaviour
+# 9. Offline-First Behaviour
 
 Reading should work on a train without connectivity.
 
@@ -1005,7 +675,7 @@ The server must treat repeating the same mutation as the same operation.
 
 ---
 
-# 16. Conflict Handling
+# 10. Conflict Handling
 
 For MVP, assume annotations are edited by one user across potentially several devices.
 
@@ -1038,7 +708,7 @@ Annotation text does **not** silently use last-write-wins.
 
 ---
 
-# 17. Authentication and GitHub Access
+# 11. Authentication and GitHub Access
 
 Security principle:
 
@@ -1059,7 +729,7 @@ Sensitive tokens stored by the backend must be encrypted at rest and excluded fr
 
 ---
 
-# 18. Markdown and Mermaid Security
+# 12. Markdown and Mermaid Security
 
 Repository content is untrusted input.
 
@@ -1087,7 +757,7 @@ Rules:
 
 ---
 
-# 19. API Sketch
+# 13. API Sketch
 
 ## Repository
 
@@ -1132,7 +802,7 @@ GET /api/search?q=transaction+proxy
 
 ---
 
-# 20. Spring Boot Package Structure
+# 14. Spring Boot Package Structure
 
 Package by capability rather than by technical layer.
 
@@ -1242,7 +912,7 @@ changed-since-last-read
 
 ---
 
-# 21. Database Sketch
+# 15. Database Sketch
 
 ```text
 users
@@ -1338,7 +1008,7 @@ repository_connections(user_id)
 
 ---
 
-# 22. Search
+# 16. Search
 
 MVP search does not need Elasticsearch.
 
@@ -1355,7 +1025,7 @@ Do not introduce Elasticsearch unless actual scale or search requirements justif
 
 ---
 
-# 23. Background Work
+# 17. Background Work
 
 Examples:
 
@@ -1373,7 +1043,7 @@ The first version is one Spring Boot deployment.
 
 ---
 
-# 24. Architecture Decision: Modular Monolith
+# 18. Architecture Decision: Modular Monolith
 
 RepoRead should begin as a modular monolith.
 
@@ -1407,7 +1077,7 @@ Potential future separation should be driven by evidence, not aesthetics.
 
 ---
 
-# 25. Testing Strategy
+# 19. Testing Strategy
 
 ## Unit tests
 
@@ -1479,7 +1149,7 @@ Test:
 
 ---
 
-# 26. Observability
+# 20. Observability
 
 Expose with Spring Boot Actuator / Micrometer:
 
@@ -1511,7 +1181,7 @@ Useful operational questions:
 
 ---
 
-# 27. Failure Behaviour
+# 21. Failure Behaviour
 
 ## GitHub unavailable
 
@@ -1544,7 +1214,7 @@ Useful operational questions:
 
 ---
 
-# 28. Privacy
+# 22. Privacy
 
 RepoRead may access private repositories containing sensitive technical notes.
 
@@ -1560,213 +1230,9 @@ Requirements:
 
 ---
 
-# 29. MVP Milestones
+# 23. Engineering Invariants
 
-## Milestone 1 — Read
-
-Goal: dogfood the application.
-
-- Spring Boot project
-- GitHub connection
-- select repo
-- list Markdown files
-- Kotlin + Jetpack Compose Android app
-- Room-backed local cache
-- mobile reader
-- code rendering
-- Mermaid
-- basic local cache
-
-Success criterion:
-
-> The developer prefers RepoRead over GitHub Mobile for reading his own technical notes.
-
-## Milestone 2 — Remember
-
-- reading progress
-- bookmarks
-- highlights
-- annotations
-- offline mutation queue
-
-Success criterion:
-
-> The developer can read on the phone for a week without modifying source Markdown and can always resume where he stopped.
-
-## Milestone 3 — Survive edits
-
-- Git version tracking
-- annotation anchors
-- exact/context re-anchoring
-- orphan state
-- manual reattachment
-
-Success criterion:
-
-> Common edits to notes do not destroy or incorrectly relocate annotations.
-
-## Milestone 4 — Git-aware reading
-
-- changed-since-last-read
-- section-level diff summary
-- recently changed notes
-
-Success criterion:
-
-> The developer can quickly review only knowledge that changed since his previous study session.
-
-## Milestone 5 — Polish for interview
-
-- integration tests
-- metrics
-- documented architecture decisions
-- security review
-- load/failure demonstrations
-- seeded demo repository
-- clean setup script
-
----
-
-# 30. Recommended Interview Demo
-
-Target: approximately 10 minutes before opening the code.
-
-## 0:00–1:00 — Motivation
-
-Show an actual technical Markdown note in GitHub Mobile.
-
-Explain:
-
-> "I write my engineering notes as Markdown in GitHub because Git is a great source of truth. But I often want to review them on my phone, where the reading experience, Mermaid support, annotations, and study state are weak."
-
-## 1:00–2:30 — Product
-
-Open the same repository in RepoRead.
-
-Show:
-
-- folder browser
-- rendered Markdown
-- syntax-highlighted code
-- Mermaid
-
-## 2:30–4:00 — Annotation
-
-Highlight a sentence.
-
-Add a margin note.
-
-Show that the GitHub Markdown remains unchanged.
-
-## 4:00–6:00 — Core technical problem
-
-On laptop:
-
-1. edit the highlighted passage;
-2. insert paragraphs above it;
-3. commit/push;
-4. refresh RepoRead.
-
-Show the annotation correctly re-anchoring.
-
-Then make a destructive rewrite and show RepoRead refusing to guess:
-
-```text
-ORPHANED
-```
-
-This demonstrates a correctness decision, not merely UI.
-
-## 6:00–7:30 — Git-aware reading
-
-Show:
-
-```text
-Changed since you last read
-```
-
-and jump directly to a new section.
-
-## 7:30–9:00 — Offline
-
-Disable network.
-
-Open cached note.
-
-Create annotation.
-
-Reconnect.
-
-Show idempotent synchronization.
-
-## 9:00–10:00 — Architecture
-
-Briefly explain:
-
-```text
-GitHub = source
-Spring Boot = durable reading/annotation state
-Room / SQLite = Android offline cache
-```
-
-Then move to code.
-
----
-
-# 31. Code to Show Interviewers
-
-Prioritize code that expresses decisions.
-
-Good candidates:
-
-1. `AnchorResolver`
-2. re-anchoring strategy implementations
-3. repository incremental synchronization
-4. idempotent offline mutation endpoint
-5. GitHub authentication/security boundary
-6. optimistic annotation updates
-7. sanitization/render security configuration
-8. integration tests for annotation survival
-
-Avoid spending interview time showing generic CRUD controllers.
-
----
-
-# 32. Questions to Be Ready For
-
-- Why not just use Obsidian?
-- Why GitHub instead of storing Markdown yourself?
-- Why Spring Boot?
-- Why a backend at all?
-- Why not store annotations inside Markdown?
-- How do highlights survive edits?
-- Why not use line numbers?
-- How do you avoid attaching an annotation to the wrong passage?
-- How do you handle duplicate text?
-- What happens when the entire section is rewritten?
-- How do you handle file renames?
-- What happens after a force-push?
-- How does offline sync work?
-- Can the same offline annotation be uploaded twice?
-- How do you resolve concurrent annotation edits?
-- Why PostgreSQL?
-- Why not Elasticsearch?
-- How are GitHub tokens protected?
-- What repository permissions do you request?
-- Can malicious Markdown execute code?
-- How is Mermaid isolated?
-- What is cached on the phone?
-- What happens when GitHub is unavailable?
-- What would fail at 100,000 users?
-- What would you split out first and why?
-- What part of the design are you least confident in?
-- What did you deliberately not build?
-
----
-
-# 33. Engineering Invariants
-
-These should appear in `INVARIANTS.md` in the repository.
+These invariants are normative for the MVP.
 
 ## Source integrity
 
@@ -1795,30 +1261,3 @@ These should appear in `INVARIANTS.md` in the repository.
 ## Graceful degradation
 
 > Previously cached notes must remain readable when GitHub or RepoRead's backend is temporarily unavailable.
-
----
-
-# 34. Definition of Done for the Personal Project
-
-RepoRead is successful as a personal project when all of the following are true:
-
-1. At least one real personal GitHub notes repository is connected.
-2. A signed Android APK is installed on the developer's actual phone without requiring Google Play publication.
-3. The Kotlin + Jetpack Compose client works against the real Spring Boot backend.
-4. The developer uses it voluntarily for at least two weeks.
-5. Mermaid diagrams render correctly.
-6. Reading progress reliably resumes.
-7. At least 20 real highlights/annotations have been created.
-8. Source Markdown remains untouched by reading actions.
-9. At least one real note edit has exercised re-anchoring.
-10. Offline reading and annotation work.
-11. A change made on the laptop appears in the mobile "changed since last read" workflow.
-12. The backend has integration tests against PostgreSQL.
-13. Important design decisions are documented as ADRs.
-14. The project can be demoed locally even if GitHub is temporarily unavailable by using seeded fixtures.
-
-The strongest interview evidence is not the feature count.
-
-It is:
-
-> "I built this because I needed it, installed it on my own phone, and actually used it. These engineering decisions came from the failures and edge cases I encountered while dogfooding it."
