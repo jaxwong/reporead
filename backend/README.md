@@ -56,6 +56,11 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `POST /api/repositories/{id}/sync` | 2 (branch, recursive tree) | Publishes a complete snapshot of the default branch |
 | `GET /api/repositories/{id}/documents` | 0 | Active Markdown documents and the last synced commit |
 | `GET /api/documents/{id}/content` | 1 (raw blob at the stored SHA) | Sanitized reader HTML; not cached on the server |
+| `GET /api/documents/{id}/image?path=` | 1 (file at the note's current commit) | A repository image referenced by the note; see below |
+| `GET /api/reading-states` | 0 | Most recently read first, with the version last read and the current version |
+| `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
+| `GET /api/bookmarks` | 0 | Document bookmarks |
+| `PUT` / `DELETE /api/documents/{id}/bookmark` | 0 | `PUT {sourceBlobSha}`; both idempotent |
 
 Every GitHub call uses the user's token, 15-second connect/read timeouts, no redirects, no retries, no pagination, and no installation-token fallback. A failed call ends the operation. Failures are `{code, message}`: `SIGN_IN_REQUIRED` 401, `GITHUB_ACCESS_DENIED`/`REPOSITORY_NOT_AUTHORIZED` 403, `NOT_FOUND`/`DEFAULT_BRANCH_NOT_FOUND`/`SOURCE_NOT_FOUND` 404, `DOCUMENT_DELETED` 410, `UNSUPPORTED_CONTENT`/`DOCUMENT_LIMIT` 422, `GITHUB_INVALID_RESPONSE`/`GITHUB_RESPONSE_LIMIT`/`GITHUB_TREE_INCOMPLETE`/`GITHUB_*_LIMIT` 502, `GITHUB_UNAVAILABLE` 503. Upstream error bodies are not exposed.
 
@@ -70,12 +75,22 @@ Every connection, document, and content request is scoped to the signed-in user;
 | Installations / repositories per installation | 10 / 100, complete lists only | 502 `GITHUB_INSTALLATION_LIMIT` / `GITHUB_REPOSITORY_LIMIT` |
 | Markdown documents per repository | 5,000 | 422 `DOCUMENT_LIMIT` |
 | Note render | 1 MiB UTF-8, 4,096 blocks, 16 diagrams of 20,000 UTF-16 units, 200 Mermaid edges | 422 `UNSUPPORTED_CONTENT` |
+| Repository images | 64 per note; 5 MiB each | Extra images render as `[Image limit reached]`; larger images 422 `UNSUPPORTED_CONTENT` |
+| Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
 
 These are chosen ceilings, not measured ones. Clients cannot change them.
 
 ### Sync semantics
 
 Sync reads the default branch's commit, then its full recursive tree. Documents are regular-file blobs ending in `.md` (any case); symlinks and submodules are skipped. A truncated or malformed tree fails without changes and is never evidence of deletion. Only after complete validation does one transaction upsert documents by path, mark paths absent from the complete tree as deleted (rows are kept), and advance the connection's commit checkpoint. Repeating a sync is idempotent; concurrent syncs of one connection are serialized by a row lock. Moves, renames, and branch rewinds are Stage 4.
+
+### Images
+
+The renderer resolves relative and root-relative Markdown images against the note's directory, as GitHub does, and rewrites them to the same-origin path `/repo-image/<repository path>`. The Android reader serves that path from its offline cache or from `GET /api/documents/{id}/image`, attaching the bearer token in native code; the page's JavaScript never sees a credential. Only normalized repository paths ending in png, jpg/jpeg, gif, webp, or svg are served (`nosniff`). Remote (`https:`, `//`) images, references escaping the repository, and other file types render as visible `[… blocked]`/`[Unsupported image]` text.
+
+### Reading state and bookmarks
+
+Only the reader writes reading state, recording the blob SHA actually displayed; repository refreshes never change it. A write older than or equal to the stored `lastReadAt` is ignored and the current state is returned, so replaying a stale offline save cannot overwrite newer progress. Deleting a document upstream keeps its reading state and bookmarks. Bookmarks live in the `annotations` table as type `BOOKMARK` (one per user and document).
 
 ## Verify
 

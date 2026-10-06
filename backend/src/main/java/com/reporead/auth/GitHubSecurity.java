@@ -55,6 +55,8 @@ public class GitHubSecurity {
     public static final int MAX_RESPONSE_BYTES = 1_048_576;
     /** Above GitHub's documented 7 MB recursive-tree maximum, so only GitHub's own truncation can make a tree incomplete. */
     public static final int MAX_TREE_RESPONSE_BYTES = 8 * 1_048_576;
+    /** Repository images shown in notes; larger images are visibly unavailable rather than fetched. */
+    public static final int MAX_IMAGE_RESPONSE_BYTES = 5 * 1_048_576;
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(15);
 
     @Bean
@@ -100,6 +102,13 @@ public class GitHubSecurity {
     RestTemplate githubTreeApi(JdkClientHttpRequestFactory githubRequestFactory) {
         var rest = new RestTemplate(githubRequestFactory);
         rest.setInterceptors(java.util.List.of(boundedResponse(MAX_TREE_RESPONSE_BYTES)));
+        return rest;
+    }
+
+    @Bean
+    RestTemplate githubImageApi(JdkClientHttpRequestFactory githubRequestFactory) {
+        var rest = new RestTemplate(githubRequestFactory);
+        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_IMAGE_RESPONSE_BYTES)));
         return rest;
     }
 
