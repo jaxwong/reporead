@@ -1,0 +1,15 @@
+# Local development database only. Bound to loopback; 5432 is already used by unrelated services on this Mac.
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: reporead
+      POSTGRES_USER: reporead
+      # Development-only password for a loopback-bound container; never reuse it for a deployed database.
+      POSTGRES_PASSWORD: reporead-local-dev
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - reporead-postgres:/var/lib/postgresql/data
+volumes:
+  reporead-postgres:

@@ -1,0 +1,260 @@
+package com.reporead.sync;
+
+import com.reporead.TestEnvironment;
+import com.reporead.auth.AppSessions;
+import com.reporead.auth.GitHubSecurity;
+import com.reporead.auth.TestSessions;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.client.ExpectedCount;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.web.client.ResponseCreator;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+class RepositorySyncTest {
+    // Test-only repository, SHAs, and tokens; no live GitHub call is made or claimed.
+    private static final String TOKEN = "TEST_ONLY_ALICE_USER_TOKEN";
+    private static final String BRANCH = "https://api.github.com/repos/test-only/notes/branches/main";
+    private static final String COMMIT_A = "a".repeat(40);
+    private static final String COMMIT_B = "b".repeat(40);
+    private static final String TREE_A = "1".repeat(40);
+    private static final String TREE_B = "2".repeat(40);
+    private static final String BLOB_1 = "3".repeat(40);
+    private static final String BLOB_2 = "4".repeat(40);
+
+    @DynamicPropertySource static void environment(DynamicPropertyRegistry properties) {
+        TestEnvironment.register(properties);
+    }
+
+    @Autowired MockMvc mvc;
+    @Autowired @Qualifier("githubUserApi") RestTemplate githubUserApi;
+    @Autowired @Qualifier("githubTreeApi") RestTemplate githubTreeApi;
+    @Autowired OAuth2AuthorizedClientService clients;
+    @Autowired ClientRegistrationRepository registrations;
+    @Autowired AppSessions sessions;
+    @Autowired JdbcClient db;
+    MockRestServiceServer user;
+    MockRestServiceServer trees;
+    String alice;
+    long connection;
+
+    @BeforeEach void setup() {
+        TestEnvironment.reset(db);
+        user = MockRestServiceServer.bindTo(githubUserApi).ignoreExpectOrder(true).build();
+        trees = MockRestServiceServer.bindTo(githubTreeApi).ignoreExpectOrder(true).build();
+        alice = TestSessions.signIn(sessions, clients, registrations, 42, TOKEN);
+        connection = connect(1, "main");
+    }
+
+    @AfterEach void verifyNoExtraCalls() {
+        user.verify();
+        trees.verify();
+        clients.removeAuthorizedClient("github", "42");
+        clients.removeAuthorizedClient("github", "84");
+    }
+
+    private long connect(long userId, String branch) {
+        return db.sql("""
+                insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch)
+                values (:userId, 11, 7, 'test-only', 'notes', :branch) returning id""")
+            .param("userId", userId).param("branch", branch).query(Long.class).single();
+    }
+
+    private static String branch(String commit, String tree) {
+        return "{\"name\":\"main\",\"commit\":{\"sha\":\"" + commit + "\",\"commit\":{\"tree\":{\"sha\":\"" + tree + "\"}}}}";
+    }
+
+    private static String entry(String path, String mode, String type, String sha) {
+        return "{\"path\":\"" + path + "\",\"mode\":\"" + mode + "\",\"type\":\"" + type + "\",\"sha\":\"" + sha + "\"}";
+    }
+
+    private static String tree(boolean truncated, String... entries) {
+        return "{\"sha\":\"" + TREE_A + "\",\"truncated\":" + truncated + ",\"tree\":[" + String.join(",", entries) + "]}";
+    }
+
+    private void expectSync(String commit, String treeSha, ResponseCreator treeResponse) {
+        user.expect(requestTo(BRANCH)).andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN))
+            .andRespond(withSuccess(branch(commit, treeSha), MediaType.APPLICATION_JSON));
+        trees.expect(requestTo("https://api.github.com/repos/test-only/notes/git/trees/" + treeSha + "?recursive=1"))
+            .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN)).andRespond(treeResponse);
+    }
+
+    /** Ends one request phase: every expected call happened, and later expectations start fresh. */
+    private void next() {
+        user.verify();
+        trees.verify();
+        user.reset();
+        trees.reset();
+    }
+
+    private ResultActions sync(String bearer, long id) throws Exception {
+        return mvc.perform(post("/api/repositories/" + id + "/sync").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+    }
+
+    private ResultActions documents(String bearer, long id) throws Exception {
+        return mvc.perform(get("/api/repositories/" + id + "/documents").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+    }
+
+    private List<String> activePaths() {
+        return db.sql("select path from documents where deleted_at is null order by path").query(String.class).list();
+    }
+
+    private String checkpoint() {
+        return db.sql("select last_synced_commit_sha from repository_connections where id = :id").param("id", connection)
+            .query(String.class).optional().orElse(null);
+    }
+
+    @Test void syncPublishesOnlyRegularMarkdownFilesAndTheSecondRunIsIdempotent() throws Exception {
+        String body = tree(false,
+            entry("intro.md", "100644", "blob", BLOB_1), entry("algorithms", "040000", "tree", TREE_B),
+            entry("algorithms/Graphs.MD", "100755", "blob", BLOB_2), entry("image.png", "100644", "blob", BLOB_1),
+            entry("link.md", "120000", "blob", BLOB_1), entry("vendor.md", "160000", "commit", COMMIT_B));
+        expectSync(COMMIT_A, TREE_A, withSuccess(body, MediaType.APPLICATION_JSON));
+        expectSync(COMMIT_A, TREE_A, withSuccess(body, MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.commitSha").value(COMMIT_A))
+            .andExpect(jsonPath("$.documentCount").value(2));
+        var ids = db.sql("select id from documents order by id").query(Long.class).list();
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(ids, db.sql("select id from documents order by id").query(Long.class).list());
+        assertEquals(List.of("algorithms/Graphs.MD", "intro.md"), activePaths());
+        documents(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.lastSyncedCommitSha").value(COMMIT_A))
+            .andExpect(jsonPath("$.documents[0].path").value("algorithms/Graphs.MD"))
+            .andExpect(jsonPath("$.documents[0].title").value("Graphs"))
+            .andExpect(jsonPath("$.documents[1].blobSha").value(BLOB_1));
+    }
+
+    @Test void truncatedTreeChangesNothingAndIsNotTreatedAsDeletion() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("intro.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        next();
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(true), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_TREE_INCOMPLETE"));
+        assertEquals(List.of("intro.md"), activePaths());
+        assertEquals(COMMIT_A, checkpoint());
+    }
+
+    @Test void pathMissingFromACompleteTreeIsMarkedDeletedNotRemovedAndCanReturn() throws Exception {
+        String both = tree(false, entry("a.md", "100644", "blob", BLOB_1), entry("b.md", "100644", "blob", BLOB_2));
+        expectSync(COMMIT_A, TREE_A, withSuccess(both, MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        long b = db.sql("select id from documents where path = 'b.md'").query(Long.class).single();
+
+        next();
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("a.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.documentCount").value(1));
+        assertEquals(List.of("a.md"), activePaths());
+        assertEquals(2, db.sql("select count(*) from documents").query(Integer.class).single());
+        assertEquals(BLOB_2, db.sql("select current_blob_sha from documents where path = 'a.md'").query(String.class).single());
+
+        next();
+        expectSync(COMMIT_A, TREE_A, withSuccess(both, MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(b, db.sql("select id from documents where path = 'b.md' and deleted_at is null").query(Long.class).single());
+    }
+
+    @Test void repositoryWithoutMarkdownIsAnEmptyCompleteLibrary() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("README.txt", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.documentCount").value(0));
+        documents(alice, connection).andExpect(jsonPath("$.lastSyncedCommitSha").value(COMMIT_A)).andExpect(jsonPath("$.documents").isEmpty());
+    }
+
+    @Test void neverSyncedRepositoryHasNoCheckpoint() throws Exception {
+        documents(alice, connection).andExpect(status().isOk())
+            .andExpect(jsonPath("$.lastSyncedCommitSha").doesNotExist()).andExpect(jsonPath("$.documents").isEmpty());
+    }
+
+    @Test void missingOrEmptyDefaultBranchFailsWithoutChanges() throws Exception {
+        user.expect(requestTo(BRANCH)).andRespond(withResourceNotFound());
+        sync(alice, connection).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("DEFAULT_BRANCH_NOT_FOUND"));
+        assertNull(checkpoint());
+    }
+
+    @Test void treeFailureAfterTheBranchCallLeavesThePreviousSnapshot() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("a.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        next();
+        expectSync(COMMIT_B, TREE_B, withServiceUnavailable());
+        sync(alice, connection).andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("GITHUB_UNAVAILABLE"));
+        assertEquals(COMMIT_A, checkpoint());
+        assertEquals(List.of("a.md"), activePaths());
+    }
+
+    @Test void malformedTreeEntriesAreRejected() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("a.md", "100644", "blob", "not-a-sha")), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"));
+        next();
+        expectSync(COMMIT_A, TREE_A, withSuccess("{\"tree\":[]}", MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"));
+        assertNull(checkpoint());
+    }
+
+    @Test void treeCeilingIsAboveGitHubsSevenMegabyteMaximumButStillBounded() throws Exception {
+        var entries = new StringBuilder();
+        for (int i = 0; entries.length() <= GitHubSecurity.MAX_RESPONSE_BYTES; i++) {
+            if (i > 0) entries.append(',');
+            entries.append(entry("assets/image-" + i + ".png", "100644", "blob", BLOB_1));
+        }
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entries.toString(), entry("a.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.documentCount").value(1));
+        next();
+        expectSync(COMMIT_B, TREE_B, withSuccess(new byte[GitHubSecurity.MAX_TREE_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_RESPONSE_LIMIT"));
+        assertEquals(COMMIT_A, checkpoint());
+    }
+
+    @Test void branchNamesAreEncodedAsOnePathSegment() throws Exception {
+        db.sql("update repository_connections set default_branch = 'release/notes v2' where id = :id").param("id", connection).update();
+        user.expect(requestTo("https://api.github.com/repos/test-only/notes/branches/release%2Fnotes%20v2")).andRespond(withResourceNotFound());
+        sync(alice, connection).andExpect(status().isNotFound());
+    }
+
+    @Test void anotherUserCannotSyncOrListAndMakesNoGitHubCalls() throws Exception {
+        String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
+        sync(bob, connection).andExpect(status().isNotFound());
+        documents(bob, connection).andExpect(status().isNotFound());
+        documents(alice, 999).andExpect(status().isNotFound());
+        mvc.perform(post("/api/repositories/" + connection + "/sync")).andExpect(status().isUnauthorized());
+    }
+
+    @Test void concurrentSyncsOfOneConnectionDoNotDuplicateDocuments() throws Exception {
+        String body = tree(false, entry("a.md", "100644", "blob", BLOB_1), entry("b.md", "100644", "blob", BLOB_2));
+        user.expect(ExpectedCount.times(4), requestTo(BRANCH)).andRespond(withSuccess(branch(COMMIT_A, TREE_A), MediaType.APPLICATION_JSON));
+        trees.expect(ExpectedCount.times(4), requestTo("https://api.github.com/repos/test-only/notes/git/trees/" + TREE_A + "?recursive=1"))
+            .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var runs = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+            for (int i = 0; i < 4; i++) runs.add(executor.submit(() -> sync(alice, connection).andExpect(status().isOk())));
+            for (var run : runs) run.get(10, TimeUnit.SECONDS);
+        }
+        assertEquals(2, db.sql("select count(*) from documents").query(Integer.class).single());
+        assertEquals(COMMIT_A, checkpoint());
+    }
+}

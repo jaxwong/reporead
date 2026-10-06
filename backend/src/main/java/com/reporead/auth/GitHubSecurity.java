@@ -5,6 +5,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
@@ -12,6 +14,7 @@ import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.endpoint.RestClientAuthorizationCodeTokenResponseClient;
 import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
@@ -25,8 +28,8 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 
@@ -48,7 +51,10 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 @Configuration
 public class GitHubSecurity {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubSecurity.class);
-    static final int MAX_OAUTH_RESPONSE_BYTES = 1_048_576;
+    /** Ceiling for OAuth, metadata, and raw note responses; equals MarkdownRenderer.MAX_NOTE_BYTES. */
+    public static final int MAX_RESPONSE_BYTES = 1_048_576;
+    /** Above GitHub's documented 7 MB recursive-tree maximum, so only GitHub's own truncation can make a tree incomplete. */
+    public static final int MAX_TREE_RESPONSE_BYTES = 8 * 1_048_576;
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(15);
 
     @Bean
@@ -59,7 +65,8 @@ public class GitHubSecurity {
         @Value("${server.port}") int port
     ) throws IOException {
         if (clientId.isBlank()) throw new IllegalArgumentException("reporead.github.client-id must not be blank");
-        if (!address.equals("127.0.0.1")) throw new IllegalArgumentException("Stage 0 OAuth server must bind to 127.0.0.1");
+        // The phone reaches this loopback callback through `adb reverse`; see backend/README.md.
+        if (!address.equals("127.0.0.1")) throw new IllegalArgumentException("Development OAuth server must bind to 127.0.0.1");
         String callback = "http://" + address + ":" + port + "/login/oauth2/code/github";
         var registration = ClientRegistration.withRegistrationId("github")
             .clientId(clientId).clientSecret(readSecret(Path.of(secretFile)))
@@ -85,41 +92,65 @@ public class GitHubSecurity {
     @Bean
     RestTemplate githubUserApi(JdkClientHttpRequestFactory githubRequestFactory) {
         var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(java.util.List.of(boundedResponse()));
+        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_RESPONSE_BYTES)));
         return rest;
     }
 
     @Bean
-    SecurityFilterChain security(HttpSecurity http, ClientRegistrationRepository registrations,
+    RestTemplate githubTreeApi(JdkClientHttpRequestFactory githubRequestFactory) {
+        var rest = new RestTemplate(githubRequestFactory);
+        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_TREE_RESPONSE_BYTES)));
+        return rest;
+    }
+
+    /** /api is bearer-only and stateless: no session cookie can authenticate it, so CSRF does not apply. */
+    @Bean
+    @Order(1)
+    SecurityFilterChain api(HttpSecurity http, AppSessions sessions) throws Exception {
+        http.securityMatcher("/api/**")
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.POST, "/api/app-auth/token").permitAll()
+                .anyRequest().authenticated())
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .csrf(csrf -> csrf.disable())
+            .requestCache(cache -> cache.disable())
+            .exceptionHandling(errors -> errors.authenticationEntryPoint(new HttpStatusEntryPoint(UNAUTHORIZED)))
+            .addFilterBefore(new BearerAuthentication(sessions), AnonymousAuthenticationFilter.class);
+        return http.build();
+    }
+
+    /** Browser-only GitHub OAuth for the app's Custom Tab. Its session lives only until the app code is issued. */
+    @Bean
+    @Order(2)
+    SecurityFilterChain browser(HttpSecurity http, ClientRegistrationRepository registrations,
                                 OAuth2AuthorizedClientService clients,
-                                JdkClientHttpRequestFactory githubRequestFactory) throws Exception {
+                                JdkClientHttpRequestFactory githubRequestFactory, AppSessions sessions) throws Exception {
         var resolver = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
         resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
 
         var tokenClient = new RestClientAuthorizationCodeTokenResponseClient();
         tokenClient.setRestClient(RestClient.builder().requestFactory(githubRequestFactory)
-            .requestInterceptor(boundedResponse())
+            .requestInterceptor(boundedResponse(MAX_RESPONSE_BYTES))
             .configureMessageConverters(converters -> converters.disableDefaults()
                 .addCustomConverter(new FormHttpMessageConverter())
                 .addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter()))
             .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler()).build());
         var userHttp = new RestTemplate(githubRequestFactory);
-        userHttp.setInterceptors(java.util.List.of(boundedResponse()));
+        userHttp.setInterceptors(java.util.List.of(boundedResponse(MAX_RESPONSE_BYTES)));
         userHttp.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
         var userService = new DefaultOAuth2UserService();
         userService.setRestOperations(userHttp);
 
         http.authorizeHttpRequests(auth -> auth
-                .requestMatchers("/", "/auth/failed", "/error").permitAll()
-                .anyRequest().authenticated())
-            .exceptionHandling(errors -> errors.defaultAuthenticationEntryPointFor(
-                new HttpStatusEntryPoint(UNAUTHORIZED), PathPatternRequestMatcher.pathPattern("/api/**")))
+                .requestMatchers("/app/sign-in", "/auth/failed", "/error").permitAll()
+                .anyRequest().denyAll())
+            .exceptionHandling(errors -> errors.authenticationEntryPoint(new HttpStatusEntryPoint(UNAUTHORIZED)))
             .oauth2Login(oauth -> oauth
                 .authorizedClientService(clients)
                 .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(resolver))
                 .tokenEndpoint(endpoint -> endpoint.accessTokenResponseClient(tokenClient))
                 .userInfoEndpoint(endpoint -> endpoint.userService(userService))
-                .defaultSuccessUrl("/api/auth/me", true)
+                .successHandler(new AppSignInSuccess(sessions))
                 .failureHandler((request, response, error) -> {
                     LOG.warn("GitHub sign-in rejected; failureType={}", error.getClass().getSimpleName());
                     response.sendRedirect("/auth/failed");
@@ -127,8 +158,8 @@ public class GitHubSecurity {
         return http.build();
     }
 
-    static final class ResponseTooLarge extends IOException {
-        ResponseTooLarge(String endpoint) { super("GitHub response exceeds 1 MiB at " + endpoint); }
+    public static final class ResponseTooLarge extends IOException {
+        ResponseTooLarge(String endpoint, int maxBytes) { super("GitHub response exceeds " + maxBytes + " bytes at " + endpoint); }
     }
 
     static String readSecret(Path file) throws IOException {
@@ -150,16 +181,16 @@ public class GitHubSecurity {
     }
 
     // OAuth login makes at most two application-level requests: token exchange, then user identity.
-    static ClientHttpRequestInterceptor boundedResponse() {
+    static ClientHttpRequestInterceptor boundedResponse(int maxBytes) {
         return (request, body, execution) -> {
-            request.getHeaders().set(HttpHeaders.USER_AGENT, "RepoRead-stage0");
+            request.getHeaders().set(HttpHeaders.USER_AGENT, "RepoRead");
             request.getHeaders().set("X-GitHub-Api-Version", "2026-03-10");
             var response = execution.execute(request, body);
             byte[] bytes;
             try {
-                bytes = response.getBody().readNBytes(MAX_OAUTH_RESPONSE_BYTES + 1);
-                if (bytes.length > MAX_OAUTH_RESPONSE_BYTES) {
-                    throw new ResponseTooLarge(request.getURI().getPath());
+                bytes = response.getBody().readNBytes(maxBytes + 1);
+                if (bytes.length > maxBytes) {
+                    throw new ResponseTooLarge(request.getURI().getPath(), maxBytes);
                 }
             } catch (IOException error) {
                 response.close();

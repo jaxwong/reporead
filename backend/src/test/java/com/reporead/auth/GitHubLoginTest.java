@@ -1,44 +1,39 @@
 package com.reporead.auth;
 
+import com.reporead.TestEnvironment;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextImpl;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.json.JsonCompareMode;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oauth2Login;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties = {
-    // Loud test-only credentials; no GitHub requests or successful OAuth exchange are claimed here.
-    "reporead.github.client-id=test-only-not-a-github-app"
-})
+// Loud test-only credentials; no GitHub requests or successful OAuth exchange are claimed here.
+@SpringBootTest
 @AutoConfigureMockMvc
 class GitHubLoginTest {
-    @DynamicPropertySource
-    static void testSecret(DynamicPropertyRegistry properties) {
-        try {
-            var file = java.nio.file.Files.createTempFile("reporead-test-client-secret-", ".txt");
-            java.nio.file.Files.writeString(file, "TEST_ONLY_NOT_A_REAL_SECRET\n");
-            java.nio.file.Files.setPosixFilePermissions(file, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
-            file.toFile().deleteOnExit();
-            properties.add("reporead.github.client-secret-file", file::toString);
-        } catch (java.io.IOException error) {
-            throw new ExceptionInInitializerError(error);
-        }
+    @DynamicPropertySource static void environment(DynamicPropertyRegistry properties) {
+        TestEnvironment.register(properties);
     }
 
     @Autowired MockMvc mvc;
@@ -64,13 +59,17 @@ class GitHubLoginTest {
         assertNotEquals(params.get("state"), query(second).get("state"));
     }
 
-    @Test void apiRequiresSignInWithoutStartingAnExternalCall() throws Exception {
+    @Test void apiRequiresAnAppSessionWithoutStartingAnExternalCall() throws Exception {
         mvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/repositories")).andExpect(status().isUnauthorized());
     }
 
-    @Test void repositoryAccessRequiresAServerSideGitHubUserToken() throws Exception {
-        mvc.perform(get("/api/auth/installations/1/repositories").with(oauth2Login()))
-            .andExpect(status().isUnauthorized());
+    @Test void browserOAuthSessionCannotAuthenticateTheApi() throws Exception {
+        var user = new DefaultOAuth2User(List.of(new SimpleGrantedAuthority("OAUTH2_USER")), Map.of("id", 42L, "login", "test-only-user"), "id");
+        var session = new MockHttpSession();
+        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
+            new SecurityContextImpl(new OAuth2AuthenticationToken(user, user.getAuthorities(), "github")));
+        mvc.perform(get("/api/auth/me").session(session)).andExpect(status().isUnauthorized());
     }
 
     @Test void invalidCallbackHasAnExplicitFailureAndDoesNotAuthenticate() throws Exception {
@@ -81,11 +80,8 @@ class GitHubLoginTest {
         mvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
     }
 
-    @Test void identityResponseContainsNoTokenOrSecret() throws Exception {
-        mvc.perform(get("/api/auth/me").with(oauth2Login().attributes(attrs -> {
-            attrs.put("id", 42L); attrs.put("login", "test-only-user");
-        }))).andExpect(status().isOk())
-            .andExpect(content().json("{\"id\":42,\"login\":\"test-only-user\"}", JsonCompareMode.STRICT));
+    @Test void unknownBrowserPathsAreNotServed() throws Exception {
+        mvc.perform(get("/")).andExpect(status().isUnauthorized());
     }
 
     private static Map<String, String> query(URI uri) {
