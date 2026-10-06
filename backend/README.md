@@ -1,62 +1,97 @@
-# Backend Stage 0 boundaries
+# RepoRead backend
 
-Stage 0 contains the real backend's Java Markdown parser/sanitizer, Spring Boot GitHub user sign-in, and a user-scoped repository eligibility check. There is no database or Android session handoff yet. The command-line exporter is a development proof tool, not a substitute for authenticated backend delivery.
+Spring Boot owns user identity, app sessions, authorized repository connections, logical Markdown documents, and safe note rendering. GitHub owns the Markdown; PostgreSQL owns RepoRead's state. The server never writes to GitHub.
 
-Requirements: JDK 25 and the repository's Gradle wrapper.
+Requirements: JDK 25, Docker, and the repository's Gradle wrapper.
 
-## Local GitHub user sign-in
+## Local database
 
-Spring Boot/Security owns OAuth state, PKCE, code exchange, user identity, the HttpOnly/SameSite=Lax session cookie, and server-side authorized clients. The callback is derived from the server's address and port; Stage 0 refuses a non-loopback bind. No broad OAuth scopes are requested: GitHub App user tokens are constrained by both App permissions and user access.
+`compose.yaml` runs a RepoRead-only PostgreSQL 17.11 bound to `127.0.0.1:5435` (5432 is used by unrelated services on the development Mac). Its password is a development-only value for a loopback container.
 
-Save a single client-secret token in a file **outside any Git repository**, with permissions **0600**. The App PEM is not the OAuth secret. Never put either credential in Android assets, source control, a browser URL, or logs. No fallback credentials exist; missing/malformed/unsafe files fail startup.
+```sh
+docker compose -f backend/compose.yaml -p reporead up -d
+```
+
+Flyway applies `src/main/resources/db/migration` at startup. Schema changes are new versioned files; never edit an applied migration.
+
+## Run
+
+Save the GitHub App client secret as a single token in a file **outside any Git repository**, mode **0600**. The App PEM is not the OAuth secret. No fallback credentials or database exist; missing/malformed/unsafe configuration fails startup.
 
 ```sh
 DEBUG=false \
 REPOREAD_GITHUB_CLIENT_ID='<your-app-client-id>' \
 REPOREAD_GITHUB_CLIENT_SECRET_FILE='/absolute/private/path/client-secret' \
+REPOREAD_DB_URL='jdbc:postgresql://127.0.0.1:5435/reporead' \
+REPOREAD_DB_USERNAME='reporead' \
+REPOREAD_DB_PASSWORD='reporead-local-dev' \
 ./gradlew :backend:bootRun --no-daemon
 ```
 
-Default local URLs:
+`DEBUG=false` overrides this Mac's inherited `DEBUG=release`, which otherwise enables verbose framework logging. Do not enable HTTP/security debug logging with real credentials.
 
-- Register this callback in the GitHub App settings: `http://127.0.0.1:8081/login/oauth2/code/github`
-- Begin sign-in **on the Mac running the server**: `http://127.0.0.1:8081/`
-- Successful sign-in redirects to `GET /api/auth/me`, returning only `{id, login}`.
-- Unauthenticated API calls return 401. An invalid/failed callback redirects to `/auth/failed` (401); no partial authentication result is published. Start a fresh sign-in explicitly; there is no automatic retry or alternate authentication strategy.
+The server binds to `127.0.0.1:8081` (an unrelated Docker service owns 8080). Register this GitHub App callback: `http://127.0.0.1:8081/login/oauth2/code/github`. The phone reaches the same loopback address through adb, so the callback is identical on the Mac and phone:
 
-The development port is 8081 because an unrelated Docker service already owns 8080; that service is left untouched. `application.properties` owns the port, and the OAuth registration derives its callback from it rather than accepting a caller's Host header.
+```sh
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> reverse tcp:8081 tcp:8081
+```
 
-The explicit `DEBUG=false` overrides this Mac's inherited `DEBUG=release`, which otherwise enables verbose Spring framework logging. Do not enable HTTP/security debug logging with real OAuth credentials.
+## Sign-in contract (Android)
 
-Login redirects make zero backend GitHub requests. The callback makes at most **two application-level GitHub requests** (code exchange, then user identity), with 15-second connect/read timeouts, no HTTP redirects, a 1 MiB response ceiling per request, and no application retry. OAuth exchange/errors are handled by Spring Security; logs contain endpoint/status/size or failure type, never tokens or response bodies. Fake identities/credentials exist only in test sources and do not prove real GitHub authorization.
+1. The app creates a PKCE verifier and opens `GET /app/sign-in?code_challenge=<S256 challenge>` in a Custom Tab.
+2. The browser runs GitHub OAuth (Spring Security owns state, PKCE with GitHub, and code exchange). The callback saves the user, issues a **single-use, 60-second** code bound to the app's challenge, **ends the browser session**, and redirects to `reporead://auth?code=…`. A GitHub login not started from `/app/sign-in` gets no code.
+3. The app sends `POST /api/app-auth/token {code, codeVerifier}` and receives `{accessToken, expiresAt, user}`. A wrong verifier consumes the code. Sessions last 30 days; `DELETE /api/app-auth/session` signs out.
+4. `/api/**` accepts only `Authorization: Bearer <accessToken>`. It is stateless: browser session cookies never authenticate the API. Any 401 means "sign in again".
 
-Sessions and authorized clients are in memory and disappear on restart. This is a loopback-only development proof, not production session storage; PostgreSQL, encryption-at-rest, secure HTTPS cookies, Android login, and refresh-token handling remain later work. Installation-token access alone is not evidence of signed-in user eligibility.
+Only SHA-256 hashes of codes and session tokens are stored. The GitHub user token stays **in server memory** and is never returned. Restarting the server or GitHub expiring the token leaves the app session valid for database-only reads, but GitHub-backed operations return 401 `SIGN_IN_REQUIRED` until the user signs in again. There is no refresh-token handling or durable GitHub-token storage yet; adding either requires an encryption-at-rest key decision.
 
-## Check signed-in repository eligibility
+## API
 
-After signing in, open `GET /api/auth/installations/{installationId}/repositories` in the **same Mac browser**. For the supplied development installation, use:
+| Route | GitHub calls (ceiling) | Notes |
+| --- | --- | --- |
+| `GET /api/auth/me` | 0 | `{id, githubUserId, login}` |
+| `GET /api/repositories` | 0 | This user's connections, sync checkpoint, document count |
+| `GET /api/repositories/available` | 1 + installations, at most 11 | Repositories GitHub says this user and the App can both access |
+| `POST /api/repositories/{githubRepositoryId}/connect` `{installationId}` | 1 | GitHub re-verifies eligibility; connecting twice returns the same connection |
+| `POST /api/repositories/{id}/sync` | 2 (branch, recursive tree) | Publishes a complete snapshot of the default branch |
+| `GET /api/repositories/{id}/documents` | 0 | Active Markdown documents and the last synced commit |
+| `GET /api/documents/{id}/content` | 1 (raw blob at the stored SHA) | Sanitized reader HTML; not cached on the server |
 
-`http://127.0.0.1:8081/api/auth/installations/166757310/repositories`
+Every GitHub call uses the user's token, 15-second connect/read timeouts, no redirects, no retries, no pagination, and no installation-token fallback. A failed call ends the operation. Failures are `{code, message}`: `SIGN_IN_REQUIRED` 401, `GITHUB_ACCESS_DENIED`/`REPOSITORY_NOT_AUTHORIZED` 403, `NOT_FOUND`/`DEFAULT_BRANCH_NOT_FOUND`/`SOURCE_NOT_FOUND` 404, `DOCUMENT_DELETED` 410, `UNSUPPORTED_CONTENT`/`DOCUMENT_LIMIT` 422, `GITHUB_INVALID_RESPONSE`/`GITHUB_RESPONSE_LIMIT`/`GITHUB_TREE_INCOMPLETE`/`GITHUB_*_LIMIT` 502, `GITHUB_UNAVAILABLE` 503. Upstream error bodies are not exposed.
 
-Look for `fullName: "jaxwong/zw_obsidian"` in `repositories`. The response contains the installation ID and repository metadata (`id`, `fullName`, `privateRepository`), never credentials or note contents. An empty complete list is a real empty result, not a fixture. This check does not persist a connection or open a note.
+Every connection, document, and content request is scoped to the signed-in user; another user's ids return 404 without a GitHub call.
 
-The endpoint loads only the current user's authorized client from the same Spring-owned service used by login. It makes **one** [GitHub user-token repository request](https://docs.github.com/en/rest/apps/installations?apiVersion=2026-03-10#list-repositories-accessible-to-the-user-access-token), which restricts results to repositories accessible to both the App installation and the user. The shared HTTP boundary enforces 15-second connect/read timeouts, no redirects, and a 1 MiB response cap. The server requests at most 100 repositories; oversized or incomplete lists fail explicitly without fetching another page or publishing partial results. Caller-supplied pagination/limit parameters do not change this bound.
+### Server-owned limits
 
-Missing, expired, or rejected user tokens return 401 (`SIGN_IN_REQUIRED`); sign in again explicitly. Inaccessible installations return 403 (`GITHUB_ACCESS_DENIED`), transport/timeouts/rate limits/upstream server failures return 503 (`GITHUB_UNAVAILABLE`), and malformed/incomplete/over-limit responses return 502. There is no retry, token refresh, installation-token fallback, or alternate fetch strategy. Restarting the server clears the development session, so repeat sign-in before checking eligibility.
+| Limit | Value | Failure |
+| --- | --- | --- |
+| GitHub responses (OAuth, metadata, raw note) | 1 MiB | 502 `GITHUB_RESPONSE_LIMIT`; a note over the limit is 422 `UNSUPPORTED_CONTENT` |
+| Recursive tree response | 8 MiB (GitHub's own maximum is 7 MB) | 502 `GITHUB_RESPONSE_LIMIT` |
+| Installations / repositories per installation | 10 / 100, complete lists only | 502 `GITHUB_INSTALLATION_LIMIT` / `GITHUB_REPOSITORY_LIMIT` |
+| Markdown documents per repository | 5,000 | 422 `DOCUMENT_LIMIT` |
+| Note render | 1 MiB UTF-8, 4,096 blocks, 16 diagrams of 20,000 UTF-16 units, 200 Mermaid edges | 422 `UNSUPPORTED_CONTENT` |
 
-## Verify and export Markdown
+These are chosen ceilings, not measured ones. Clients cannot change them.
+
+### Sync semantics
+
+Sync reads the default branch's commit, then its full recursive tree. Documents are regular-file blobs ending in `.md` (any case); symlinks and submodules are skipped. A truncated or malformed tree fails without changes and is never evidence of deletion. Only after complete validation does one transaction upsert documents by path, mark paths absent from the complete tree as deleted (rows are kept), and advance the connection's commit checkpoint. Repeating a sync is idempotent; concurrent syncs of one connection are serialized by a row lock. Moves, renames, and branch rewinds are Stage 4.
+
+## Verify
 
 ```sh
 ./gradlew :backend:test --no-daemon
-./gradlew :backend:run --args='--help' --no-daemon
 ```
 
-Export a UTF-8 Markdown file outside the repository:
+Tests run against a real PostgreSQL 17.11 container through Testcontainers (Docker must be running). GitHub is mocked with explicit test-only data; tests do not prove live GitHub authorization.
+
+## Export Markdown (development tool)
 
 ```sh
+./gradlew :backend:run --args='--help' --no-daemon
 ./gradlew :backend:run --args='/private/tmp/reporead-note.md <git-blob-sha> <source-label> /private/tmp/reporead-note.html' --no-daemon
 ```
 
-The exporter requires the SHA of the exact Markdown bytes and verifies it using Git's blob hashing. It does not fetch GitHub, log note content, or accept a caller-selected size cap. Its HTML is for the isolated Stage 0 reader only. Real private note inputs and exports must stay outside tracked files.
+The exporter verifies the Git blob SHA of the exact Markdown bytes, does not fetch GitHub, and exists for the Stage 0 reader spike. Keep private inputs and exports outside tracked files.
 
-Dependencies: Spring Boot web MVC and Security OAuth2 Client provide the specified backend and standard authentication flow; CommonMark and its GFM extensions parse Markdown; jsoup sanitizes output and establishes canonical block text; JUnit and Spring's test support verify behavior. Mermaid and code highlighting are client-side display only and must preserve the exported text.
+Dependencies: Spring Boot web MVC, Security OAuth2 Client, JDBC, and Flyway; the PostgreSQL driver; CommonMark with GFM extensions; jsoup for sanitizing and canonical block text; JUnit, Spring test support, and Testcontainers. Mermaid and code highlighting are client-side display only.

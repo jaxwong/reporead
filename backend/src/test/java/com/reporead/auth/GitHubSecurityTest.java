@@ -49,18 +49,18 @@ class GitHubSecurityTest {
     @Test void oauthResponseHasAHardByteCapAndNeverRetriesAfterFailure() throws IOException {
         var request = new MockClientHttpRequest(HttpMethod.GET, URI.create("https://api.github.com/user"));
         var calls = new AtomicInteger();
-        var oversized = new MockClientHttpResponse(new byte[GitHubSecurity.MAX_OAUTH_RESPONSE_BYTES + 1], HttpStatus.OK);
-        assertThrows(IOException.class, () -> GitHubSecurity.boundedResponse().intercept(request, new byte[0], (sent, body) -> {
+        var oversized = new MockClientHttpResponse(new byte[GitHubSecurity.MAX_RESPONSE_BYTES + 1], HttpStatus.OK);
+        assertThrows(IOException.class, () -> GitHubSecurity.boundedResponse(GitHubSecurity.MAX_RESPONSE_BYTES).intercept(request, new byte[0], (sent, body) -> {
             calls.incrementAndGet(); return oversized;
         }));
         assertEquals(1, calls.get());
-        assertEquals("RepoRead-stage0", request.getHeaders().getFirst("User-Agent"));
+        assertEquals("RepoRead", request.getHeaders().getFirst("User-Agent"));
         assertEquals("2026-03-10", request.getHeaders().getFirst("X-GitHub-Api-Version"));
     }
 
     @Test void boundedResponsePreservesExpectedExternalFailureAndTheSecondCallWorks() throws IOException {
         var request = new MockClientHttpRequest(HttpMethod.GET, URI.create("https://api.github.com/user"));
-        var interceptor = GitHubSecurity.boundedResponse();
+        var interceptor = GitHubSecurity.boundedResponse(GitHubSecurity.MAX_RESPONSE_BYTES);
         var denied = interceptor.intercept(request, new byte[0], (sent, body) ->
             new MockClientHttpResponse("test-only-denied".getBytes(StandardCharsets.UTF_8), HttpStatus.FORBIDDEN));
         assertEquals(HttpStatus.FORBIDDEN, denied.getStatusCode());
@@ -75,7 +75,7 @@ class GitHubSecurityTest {
     @Test void transportTimeoutIsRaisedWithoutAnAlternateStrategy() {
         var request = new MockClientHttpRequest(HttpMethod.GET, URI.create("https://api.github.com/user"));
         var calls = new AtomicInteger();
-        assertThrows(java.net.SocketTimeoutException.class, () -> GitHubSecurity.boundedResponse().intercept(request, new byte[0], (sent, body) -> {
+        assertThrows(java.net.SocketTimeoutException.class, () -> GitHubSecurity.boundedResponse(GitHubSecurity.MAX_RESPONSE_BYTES).intercept(request, new byte[0], (sent, body) -> {
             calls.incrementAndGet(); throw new java.net.SocketTimeoutException("test-only timeout");
         }));
         assertEquals(1, calls.get());
