@@ -55,7 +55,7 @@ Rules throughout:
 | 5 | Meaningful changes since the version actually read | F-11 | Version reconciliation from Stage 4 |
 | 6 | Search, data controls, release, and MVP evidence | F-12, F-13; full acceptance review | Stages 1–5 |
 
-Stages 1–6 are planned, not implemented. Stage 0 is partially verified.
+Stage 0 is partially verified. Stage 1 backend and Android code is implemented and passes automated tests (2026-10-06); its real-phone acceptance is pending. Stages 2–6 are planned, not implemented.
 
 ## Stage 0 — Finish proving the risky boundaries
 
@@ -90,7 +90,7 @@ See the [reader spike evidence](../spikes/reader-android/README.md).
 ### Backend
 
 - Add the Java/Spring Boot entry point and local PostgreSQL development setup.
-- Define the first HTTP/JSON contract using the implementation spec's repository/document API sketch. Auth/session contracts are not yet specified; settle them before implementation.
+- Define the first HTTP/JSON contract using the implementation spec's repository/document API sketch. The auth/session contract (Custom Tab + PKCE-bound single-use code → bearer session) is specified in the backend README.
 - Persist users, authorized repository connections, and logical document metadata using reviewed migrations. Do not create every future table now.
 - Let the user connect one or more eligible repositories; use one real repository for the first acceptance test without hardcoding it into product behavior.
 - Discover Markdown paths and fetch a requested note body on demand. Do not download the whole repository.
@@ -225,7 +225,7 @@ For every working slice:
 6. Record exact commands, exit codes, and output; distinguish automated checks from user-reported device observations.
 7. Commit the verified step without including unrelated work. Do not advance a stage on mocks alone or leave its superseded implementation running in parallel.
 
-Production run/test commands for the backend and full Android app are not yet present. Add verified commands to their README when those entry points exist; do not invent commands in advance.
+Verified run/test commands live in [backend/README.md](../backend/README.md) and [android/README.md](../android/README.md). Add commands there only after running them.
 
 ## 5. Decisions to settle at their owning stage
 
