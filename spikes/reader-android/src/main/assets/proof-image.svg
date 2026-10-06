@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="110" viewBox="0 0 300 110">
+  <rect width="300" height="110" rx="12" fill="#e8f0fe"/>
+  <rect x="18" y="18" width="56" height="74" rx="6" fill="#fff" stroke="#3157a0" stroke-width="3"/>
+  <path d="M29 35h33M29 47h33M29 59h25M94 55h36m-10-10 10 10-10 10" fill="none" stroke="#3157a0" stroke-width="3"/>
+  <text x="145" y="49" font-family="sans-serif" font-size="16" fill="#203762">Image fixture</text>
+  <text x="145" y="73" font-family="sans-serif" font-size="12" fill="#203762">App-owned; no network</text>
+</svg>
