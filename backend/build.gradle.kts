@@ -1,18 +1,10 @@
 plugins {
-    application
+    java
     id("org.springframework.boot")
 }
 
 java {
     toolchain.languageVersion.set(JavaLanguageVersion.of(25))
-}
-
-application {
-    mainClass.set("com.reporead.RepoReadApplication")
-}
-
-tasks.named<JavaExec>("run") {
-    mainClass.set("com.reporead.document.RenderNote")
 }
 
 dependencies {

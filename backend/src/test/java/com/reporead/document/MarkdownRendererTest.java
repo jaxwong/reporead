@@ -59,10 +59,10 @@ class MarkdownRendererTest {
         assertTrue(html.text().contains("Image blocked"));
     }
 
-    @Test void onlyAppOwnedProofImageIsAllowed() {
-        var html = Jsoup.parse(render("![proof](/assets/proof-image.svg)\n\n![private](images/private.svg)").html());
-        assertEquals(1, html.select("img").size());
-        assertEquals("/assets/proof-image.svg", html.selectFirst("img").attr("src"));
+    @Test void everyImageIsVisiblyBlocked() {
+        var html = Jsoup.parse(render("![local](/assets/reader.css)\n\n![private](images/private.svg)").html());
+        assertTrue(html.select("img").isEmpty());
+        assertTrue(html.text().contains("Image blocked: local"));
         assertTrue(html.text().contains("Image blocked: private"));
     }
 

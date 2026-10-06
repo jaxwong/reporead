@@ -79,10 +79,7 @@ public final class MarkdownRenderer {
         dirty.outputSettings().prettyPrint(false);
         var clean = CLEANER.clean(dirty);
         for (var image : clean.select("img")) {
-            if (!image.attr("src").equals("/assets/proof-image.svg")) {
-                image.replaceWith(new Element("span").addClass("image-blocked")
-                        .text("[Image blocked: " + image.attr("alt") + "]"));
-            }
+            image.replaceWith(new Element("span").addClass("image-blocked").text("[Image blocked: " + image.attr("alt") + "]"));
         }
         for (var input : clean.select("input")) {
             if (!input.attr("type").equals("checkbox")) throw new IllegalStateException("Parser emitted a non-checkbox input");
