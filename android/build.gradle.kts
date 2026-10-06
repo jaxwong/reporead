@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
 }
 
 // The Variant API needs a typed output directory to wire generated assets to their producer.
@@ -25,6 +26,7 @@ android {
         versionName = "0.1"
         // Development backend reached through `adb reverse tcp:8081 tcp:8081`; see backend/README.md.
         buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8081\"")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -36,6 +38,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+ksp {
+    // Exported schemas let later stages write real migrations instead of discarding pending local changes.
+    arg("room.schemaLocation", file("schemas").absolutePath)
 }
 
 androidComponents.onVariants { variant ->
@@ -50,5 +57,11 @@ dependencies {
     implementation("androidx.webkit:webkit:1.16.0")
     // Custom Tabs for GitHub sign-in in the user's browser rather than an embedded WebView.
     implementation("androidx.browser:browser:1.10.0")
+    // Offline cache and pending local changes (spec: Room for local persistence).
+    implementation("androidx.room:room-runtime:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
     testImplementation("junit:junit:4.13.2")
+    // Room needs Android's SQLite, so cache rules are tested on the device.
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }
