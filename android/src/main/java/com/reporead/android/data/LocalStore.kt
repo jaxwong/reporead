@@ -2,8 +2,10 @@ package com.reporead.android.data
 
 import android.content.Context
 import androidx.room.AutoMigration
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.Insert
@@ -31,25 +33,46 @@ data class DocumentRow(@PrimaryKey val id: Long, val repositoryId: Long, val pat
 data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val commitSha: String, val path: String,
                    val title: String, val html: String, val fetchedAt: Long)
 
-/** [pending] is a local save the backend has not acknowledged. Last write wins by [lastReadAt]. */
+/**
+ * [pending] is a local save the backend has not acknowledged. Last write wins by [lastReadAt]. [deleted]: the note was
+ * not in the latest complete repository refresh, as last reported by the backend.
+ */
 @Entity(tableName = "reading_states")
 data class ReadingRow(@PrimaryKey val documentId: Long, val title: String, val path: String, val lastReadBlobSha: String,
-                      val progressPercent: Int, val anchorJson: String, val lastReadAt: Long, val pending: Boolean)
+                      val progressPercent: Int, val anchorJson: String, val lastReadAt: Long, val pending: Boolean,
+                      @ColumnInfo(defaultValue = "0") val deleted: Boolean = false)
 
 /** A row with bookmarked=false is a pending removal; it is deleted once the backend acknowledges it. */
 @Entity(tableName = "bookmarks")
 data class BookmarkRow(@PrimaryKey val documentId: Long, val title: String, val path: String, val sourceBlobSha: String,
-                       val bookmarked: Boolean, val pending: Boolean, val changedAt: Long)
+                       val bookmarked: Boolean, val pending: Boolean, val changedAt: Long,
+                       @ColumnInfo(defaultValue = "0") val deleted: Boolean = false)
+
+/** A passage in one source version of a note, as UTF-16 offsets into a block's canonical text. */
+data class Passage(val blobSha: String, val blockId: String, val startOffset: Int, val endOffset: Int, val exactText: String)
 
 /**
  * A highlight, keyed by the client mutation id that created it (the server returns it for every highlight).
  * [pending] is a creation the backend has not acknowledged; the row is the local annotation and its pending mutation
  * in one write. [rejection] is the server's reason for refusing a creation; such rows are shown, not retried.
+ * The source/block/offset/exact fields and [prefixText]/[suffixText] are the original selection. [location], [status]
+ * and [resolvedBlobSha] are the server's: where the highlight is now and what that means for that version (ANCHORED,
+ * REANCHORED, ORPHANED). A pending creation has none of them and is drawn where it was made.
  */
 @Entity(tableName = "annotations", indices = [Index("documentId")])
 data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?, val documentId: Long, val sourceBlobSha: String,
                          val blockId: String, val startOffset: Int, val endOffset: Int, val exactText: String, val note: String?,
-                         val version: Int, val createdAt: Long, val pending: Boolean, val rejection: String?)
+                         val version: Int, val createdAt: Long, val pending: Boolean, val rejection: String?,
+                         @ColumnInfo(defaultValue = "") val prefixText: String = "",
+                         @ColumnInfo(defaultValue = "") val suffixText: String = "",
+                         val status: String? = null, val resolvedBlobSha: String? = null,
+                         @Embedded(prefix = "location") val location: Passage? = null) {
+    /** Where to draw it: the server's current location, or the original selection while the creation is pending. */
+    val drawn: Passage get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
+
+    /** The server could not find it reliably in [blobSha]. */
+    fun orphanedIn(blobSha: String) = status == "ORPHANED" && resolvedBlobSha == blobSha
+}
 
 @Dao
 interface LibraryDao {
@@ -184,8 +207,8 @@ interface LibraryDao {
 
 @Database(
     entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class],
-    version = 2,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    version = 3,
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao

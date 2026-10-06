@@ -16,10 +16,11 @@ public class Bookmarks {
         this.db = db;
     }
 
-    public record Bookmark(long documentId, long repositoryId, String path, String title, String sourceBlobSha, Instant createdAt) {}
+    /** [deleted]: the note was not in the latest complete repository refresh; the bookmark is kept. */
+    public record Bookmark(long documentId, long repositoryId, String path, String title, String sourceBlobSha, Instant createdAt, boolean deleted) {}
 
     private static final String SELECT = """
-        select a.document_id, d.repository_connection_id, d.path, d.title, a.source_blob_sha, a.created_at
+        select a.document_id, d.repository_connection_id, d.path, d.title, a.source_blob_sha, a.created_at, d.deleted_at is not null
         from annotations a join documents d on d.id = a.document_id
         where a.type = 'BOOKMARK' and a.user_id = :userId""";
 
@@ -45,6 +46,7 @@ public class Bookmarks {
     }
 
     private static Bookmark bookmark(java.sql.ResultSet row, int n) throws java.sql.SQLException {
-        return new Bookmark(row.getLong(1), row.getLong(2), row.getString(3), row.getString(4), row.getString(5), row.getTimestamp(6).toInstant());
+        return new Bookmark(row.getLong(1), row.getLong(2), row.getString(3), row.getString(4), row.getString(5), row.getTimestamp(6).toInstant(),
+            row.getBoolean(7));
     }
 }

@@ -117,13 +117,17 @@ fun RepositoriesScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure
             if (recent.isNotEmpty()) {
                 section("Continue reading")
                 items(recent, key = { "recent:${it.documentId}" }) { row ->
-                    ListEntry(row.title, "${row.progressPercent}% · ${row.path}") { push(Screen.Reader(row.documentId, row.title)) }
+                    ListEntry(row.title, (if (row.deleted) "Removed from the repository · " else "") + "${row.progressPercent}% · ${row.path}") {
+                        push(Screen.Reader(row.documentId, row.title))
+                    }
                 }
             }
             if (bookmarks.isNotEmpty()) {
                 section("Bookmarks")
                 items(bookmarks, key = { "bookmark:${it.documentId}" }) { row ->
-                    ListEntry(row.title, row.path) { push(Screen.Reader(row.documentId, row.title)) }
+                    ListEntry(row.title, (if (row.deleted) "Removed from the repository · " else "") + row.path) {
+                        push(Screen.Reader(row.documentId, row.title))
+                    }
                 }
             }
             section("Repositories")

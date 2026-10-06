@@ -59,7 +59,7 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `GET /api/documents/{id}/image?path=` | 1 (file at the note's current commit) | A repository image referenced by the note; see below |
 | `GET /api/reading-states` | 0 | Most recently read first, with the version last read and the current version |
 | `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
-| `GET /api/bookmarks` | 0 | Document bookmarks |
+| `GET /api/bookmarks` | 0 | Document bookmarks, each with `deleted` when the note left the repository (the bookmark is kept) |
 | `PUT` / `DELETE /api/documents/{id}/bookmark` | 0 | `PUT {sourceBlobSha}`; both idempotent |
 | `GET /api/documents/{id}/annotations` | 0 when every highlight is resolved against the current version; else 1 (that version) plus 1 per older version holding a pre-Stage-4 location | This user's highlights: original `anchor`, current `location`, `status` (`ANCHORED`, `REANCHORED`, `ORPHANED`) for `resolvedBlobSha`, and the creating `mutationId` |
 | `POST /api/documents/{id}/annotations` | 1 (the selected version's blob); 0 on replay | `{mutationId, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}, note?}`; 201 created, 200 replay |

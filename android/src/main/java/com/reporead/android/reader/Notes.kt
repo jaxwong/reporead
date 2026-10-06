@@ -34,15 +34,17 @@ private data class Conflict(val current: AnnotationRow, val mine: String?)
 private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<String>): String? = when {
     row.rejection != null -> "Not saved to the server: ${row.rejection}"
     row.pending -> "Saved on this phone; waiting to sync"
-    row.sourceBlobSha != displayedBlobSha -> "Made on an earlier version of this note; not shown in the text"
+    row.orphanedIn(displayedBlobSha) -> "The note changed and this passage could not be found reliably. Originally: …${row.prefixText}[${row.exactText}]${row.suffixText}…"
+    row.drawn.blobSha != displayedBlobSha -> "Placed in another version of this note; not shown in the text"
     row.mutationId in notShown -> "Its text was not found in this version; not shown"
+    row.drawn.exactText != row.exactText -> "Followed an edit of the note; now “${row.drawn.exactText}”"
     else -> null
 }
 
 @Composable
 internal fun NotesPanel(annotations: List<AnnotationRow>, displayedBlobSha: String, notShown: Set<String>, sync: Sync, dao: LibraryDao,
                         scope: CoroutineScope, onFailure: (ApiException) -> Unit, onReveal: (AnnotationRow) -> Unit,
-                        onMessage: (String?) -> Unit, modifier: Modifier) {
+                        onMessage: (String?) -> Unit, onReattach: (AnnotationRow) -> Unit, modifier: Modifier) {
     var editing by remember { mutableStateOf<AnnotationRow?>(null) }
     var conflict by remember { mutableStateOf<Conflict?>(null) }
 
@@ -78,9 +80,10 @@ internal fun NotesPanel(annotations: List<AnnotationRow>, displayedBlobSha: Stri
                     row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
                     status(row, displayedBlobSha, notShown)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     Row {
-                        if (row.sourceBlobSha == displayedBlobSha && row.mutationId !in notShown) {
-                            TextButton(onClick = { onReveal(row) }) { Text("Show") }
-                        }
+                        val shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown
+                        if (shown) TextButton(onClick = { onReveal(row) }) { Text("Show") }
+                        // Online: the server verifies the new selection against the version it was made on.
+                        if (row.serverId != null && !shown) TextButton(onClick = { onReattach(row) }) { Text("Reattach") }
                         if (row.serverId != null) TextButton(onClick = { editing = row }) { Text("Edit note") }
                         TextButton(onClick = {
                             scope.launch {

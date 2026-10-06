@@ -74,6 +74,8 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var notesOpen by remember { mutableStateOf(false) }
     var newSelection by remember { mutableStateOf<JSONObject?>(null) }
     var notShown by remember { mutableStateOf(emptySet<String>()) }
+    /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here. */
+    var reattaching by remember { mutableStateOf<AnnotationRow?>(null) }
 
     if (signedIn) {
         LaunchedEffect(screen.documentId) {
@@ -98,6 +100,20 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
         }
     }
 
+    val reattach: (AnnotationRow, JSONObject) -> Unit = { row, selection ->
+        appScope.launch {
+            message = try {
+                sync.reattachAnnotation(row, selection)
+                reattaching = null
+                null
+            } catch (error: ApiException) {
+                onFailure(error)
+                if (error.code == "ANNOTATION_CONFLICT") "This highlight was changed elsewhere; sync, reopen the note, and try again."
+                else "Not reattached. ${error.describe()}"
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(screen.title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -112,16 +128,26 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             opened.staleReason?.let { Notice("Showing your saved copy. $it") }
             restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
+            reattaching?.let { row ->
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Select the passage for “${row.exactText}”, then choose Reattach here.", style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f))
+                    TextButton(onClick = { reattaching = null }) { Text("Cancel") }
+                }
+            }
             val lifecycle = LocalLifecycleOwner.current.lifecycle
             val session = remember(opened.note) {
                 ReaderSession(opened.note, sync, dao, appScope,
                     onRestoreNotice = { restoreNotice = it },
                     onNotShown = { notShown = it },
-                    onSelection = { selection, withNote ->
+                    reattaching = { reattaching != null },
+                    onSelection = { selection, action ->
+                        val placing = reattaching
                         when {
                             selection == null -> message = "Select some text first."
                             selection.has("error") -> message = selection.getString("error")
-                            withNote -> newSelection = selection
+                            action == SelectionAction.REATTACH && placing != null -> reattach(placing, selection)
+                            action == SelectionAction.ADD_NOTE -> newSelection = selection
                             else -> create(selection, null)
                         }
                     })
@@ -141,6 +167,11 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             if (notesOpen) {
                 NotesPanel(annotations, opened.note.blobSha, notShown, sync, dao, appScope, onFailure,
                     onReveal = { session.reveal(it.mutationId) }, onMessage = { message = it },
+                    onReattach = { row ->
+                        reattaching = row
+                        notesOpen = false
+                        message = null
+                    },
                     modifier = Modifier.fillMaxWidth().weight(0.7f))
             }
         }
@@ -170,8 +201,10 @@ private class ReaderSession(
     private val scope: CoroutineScope,
     private val onRestoreNotice: (String?) -> Unit,
     private val onNotShown: (Set<String>) -> Unit,
-    /** The captured selection (null when empty, {error} when it spans blocks) and whether a note was requested. */
-    private val onSelection: (JSONObject?, Boolean) -> Unit,
+    /** Whether a highlight is being reattached, which changes the selection menu. */
+    private val reattaching: () -> Boolean,
+    /** The captured selection (null when empty, {error} when it spans blocks) and the chosen action. */
+    private val onSelection: (JSONObject?, SelectionAction) -> Unit,
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var view: WebView? = null
@@ -184,10 +217,10 @@ private class ReaderSession(
 
     fun createView(context: Context): WebView {
         val assets = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context)).build()
-        return ReaderWebView(context) { withNote, finish ->
+        return ReaderWebView(context, reattaching) { action, finish ->
             captureSelection { selection ->
                 finish()
-                onSelection(selection, withNote)
+                onSelection(selection, action)
             }
         }.apply {
             settings.javaScriptEnabled = true
@@ -305,7 +338,7 @@ private class ReaderSession(
         ready = false
     }
 
-    /** Draws highlights made on the displayed version; highlights on other versions wait for Stage 4 re-anchoring. */
+    /** Draws each highlight whose current location is in the displayed version; others are listed, not drawn. */
     fun showHighlights(rows: List<AnnotationRow>) {
         highlights = rows
         applyHighlights()
@@ -314,9 +347,10 @@ private class ReaderSession(
     private fun applyHighlights() {
         val webView = view ?: return
         if (!ready) return
-        val payload = JSONArray(highlights.filter { it.sourceBlobSha == note.blobSha }.map {
-            JSONObject().put("key", it.mutationId).put("blockId", it.blockId).put("startOffset", it.startOffset)
-                .put("endOffset", it.endOffset).put("exactText", it.exactText)
+        val payload = JSONArray(highlights.filter { it.drawn.blobSha == note.blobSha }.map {
+            val passage = it.drawn
+            JSONObject().put("key", it.mutationId).put("blockId", passage.blockId).put("startOffset", passage.startOffset)
+                .put("endOffset", passage.endOffset).put("exactText", passage.exactText)
         })
         webView.evaluateJavascript("JSON.stringify(window.reporead.highlight($payload))") { encoded ->
             val missing = JSONArray(JSONTokener(encoded).nextValue() as String)
