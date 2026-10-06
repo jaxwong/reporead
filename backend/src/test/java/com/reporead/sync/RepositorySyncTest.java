@@ -180,6 +180,66 @@ class RepositorySyncTest {
         assertEquals(b, db.sql("select id from documents where path = 'b.md' and deleted_at is null").query(Long.class).single());
     }
 
+    private long documentId(String path) {
+        return db.sql("select id from documents where path = :path").param("path", path).query(Long.class).single();
+    }
+
+    @Test void pathOnlyMoveWithTheSameBlobKeepsTheDocumentAndItsReadingState() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("backend/spring.md", "100644", "blob", BLOB_1),
+            entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        long spring = documentId("backend/spring.md");
+        db.sql("""
+                insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
+                values (1, :id, :sha, 40, '{"headingPath":[],"textPrefix":null,"blockIndex":3}', now())""")
+            .param("id", spring).param("sha", BLOB_1).update();
+
+        String moved = tree(false, entry("java/spring/transactions.md", "100644", "blob", BLOB_1), entry("other.md", "100644", "blob", BLOB_2));
+        for (int run = 0; run < 2; run++) {
+            next();
+            expectSync(COMMIT_B, TREE_B, withSuccess(moved, MediaType.APPLICATION_JSON));
+            sync(alice, connection).andExpect(status().isOk());
+            assertEquals(spring, documentId("java/spring/transactions.md"));
+            assertEquals(List.of("java/spring/transactions.md", "other.md"), activePaths());
+            assertEquals(2, db.sql("select count(*) from documents").query(Integer.class).single());
+        }
+        assertEquals("transactions", db.sql("select title from documents where id = :id").param("id", spring).query(String.class).single());
+        assertEquals(spring, db.sql("select document_id from reading_states").query(Long.class).single());
+    }
+
+    @Test void identicalContentDuplicatesAreNeverMergedByAMove() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("a.md", "100644", "blob", BLOB_1), entry("b.md", "100644", "blob", BLOB_1),
+            entry("x.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        var before = List.of(documentId("a.md"), documentId("b.md"), documentId("x.md"));
+
+        next();
+        // Two vanished documents share one SHA, and one vanished SHA reappears at two paths: neither is a unique move.
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("c.md", "100644", "blob", BLOB_1), entry("d.md", "100644", "blob", BLOB_1),
+            entry("y.md", "100644", "blob", BLOB_2), entry("z.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(List.of("c.md", "d.md", "y.md", "z.md"), activePaths());
+        assertEquals(before, db.sql("select id from documents where deleted_at is not null order by path").query(Long.class).list());
+        assertEquals(7, db.sql("select count(*) from documents").query(Integer.class).single());
+    }
+
+    @Test void aPathThatOnceHadADocumentResumesItInsteadOfReceivingAMove() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("a.md", "100644", "blob", BLOB_1), entry("b.md", "100644", "blob", BLOB_2)),
+            MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        long a = documentId("a.md");
+        long b = documentId("b.md");
+        next();
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("a.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+
+        next();
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("b.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(List.of(b), db.sql("select id from documents where deleted_at is null").query(Long.class).list());
+        assertEquals(List.of(a), db.sql("select id from documents where deleted_at is not null").query(Long.class).list());
+    }
+
     @Test void repositoryWithoutMarkdownIsAnEmptyCompleteLibrary() throws Exception {
         expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("README.txt", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.documentCount").value(0));

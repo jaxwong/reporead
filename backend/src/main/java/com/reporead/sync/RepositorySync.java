@@ -47,13 +47,17 @@ public class RepositorySync {
         var branch = github.branch(token, connection.owner(), connection.name(), connection.defaultBranch());
         var markdown = markdownDocuments(github.completeTree(token, connection.owner(), connection.name(), branch.treeSha()));
         Instant syncedAt = Instant.now();
-        transaction.executeWithoutResult(status -> {
+        var moves = transaction.execute(status -> {
             connections.lockForSync(user.id(), connectionId);
-            documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt);
+            var applied = documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt);
             connections.markSynced(connectionId, branch.commitSha(), syncedAt);
+            return applied;
         });
-        LOG.info("Repository synced; userId={} connectionId={} commitSha={} documents={}",
-            user.id(), connectionId, branch.commitSha(), markdown.size());
+        for (var move : moves) {
+            LOG.info("Document moved; connectionId={} documentId={} from={} to={}", connectionId, move.documentId(), move.fromPath(), move.toPath());
+        }
+        LOG.info("Repository synced; userId={} connectionId={} commitSha={} documents={} moves={}",
+            user.id(), connectionId, branch.commitSha(), markdown.size(), moves.size());
         return new Result(connectionId, branch.commitSha(), markdown.size(), syncedAt);
     }
 
