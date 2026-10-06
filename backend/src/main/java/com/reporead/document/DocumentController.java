@@ -15,9 +15,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /** External-call ceilings: listing 0 GitHub requests; content 1 (the note's blob); image 1 (the file at the note's commit). */
@@ -27,11 +24,13 @@ public class DocumentController {
     private final RepositoryConnections connections;
     private final Documents documents;
     private final GitHubApi github;
+    private final NoteVersions noteVersions;
 
-    public DocumentController(RepositoryConnections connections, Documents documents, GitHubApi github) {
+    public DocumentController(RepositoryConnections connections, Documents documents, GitHubApi github, NoteVersions noteVersions) {
         this.connections = connections;
         this.documents = documents;
         this.github = github;
+        this.noteVersions = noteVersions;
     }
 
     record DocumentList(long repositoryId, String lastSyncedCommitSha, List<Documents.Summary> documents) {}
@@ -51,25 +50,10 @@ public class DocumentController {
         if (document.deleted()) {
             throw new ApiFailure(HttpStatus.GONE, "DOCUMENT_DELETED", "This note was not present in the latest complete repository refresh.");
         }
-        String token = github.userToken(user.githubUserId());
-        byte[] bytes = github.blob(token, document.owner(), document.repositoryName(), document.blobSha());
-        if (!MarkdownRenderer.blobSha(bytes).equals(document.blobSha())) {
-            throw new ApiFailure(HttpStatus.BAD_GATEWAY, "GITHUB_INVALID_RESPONSE", "GitHub returned bytes that do not match the note's blob SHA.");
-        }
-        String markdown;
-        try {
-            markdown = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
-        } catch (CharacterCodingException error) {
-            throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", "This note is not valid UTF-8 text.");
-        }
-        MarkdownRenderer.RenderedNote rendered;
-        try {
-            rendered = MarkdownRenderer.render(markdown, document.blobSha(), document.path());
-        } catch (MarkdownRenderer.ContentRejected rejected) {
-            throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", rejected.getMessage());
-        }
+        var version = noteVersions.render(user, document, document.blobSha());
+        var rendered = version.note();
         LOG.info("Document rendered; userId={} documentId={} blobSha={} bytes={} blocks={} diagrams={}",
-            user.id(), id, document.blobSha(), bytes.length, rendered.blocks().size(), rendered.diagramCount());
+            user.id(), id, document.blobSha(), version.bytes(), rendered.blocks().size(), rendered.diagramCount());
         return new Content(id, document.path(), document.title(), document.blobSha(), document.commitSha(),
             rendered.blocks().size(), rendered.diagramCount(), rendered.html());
     }
