@@ -66,7 +66,7 @@ private const val COPY_CODE = "/copy-code"
 private const val FULL_SCREEN = "/full-screen"
 private const val SAVE_AFTER_SCROLL_MS = 700L
 private const val SECTION_AFTER_SCROLL_MS = 150L
-/** How far the reader scrolls in one direction before the bars hide or come back, so small jitters do nothing. */
+/** How far one swipe must scroll before the bars hide or come back, so small jitters do nothing. */
 private const val BARS_SCROLL_DP = 24
 
 @Composable
@@ -367,8 +367,13 @@ private class ReaderSession(
      * outline, Show) clear it, so they never hide the bars.
      */
     private var touched = false
-    /** Distance scrolled in the current direction, in pixels: positive down. */
-    private var scrolledThisWay = 0
+    /**
+     * The bars change only when the finger lifts, by that swipe's net scroll (pixels, positive down). Moving the view
+     * under a finger that is still down made the page read the move as more scrolling the other way, so the bars and the
+     * page oscillated during the drag (seen on the Pixel 8a).
+     */
+    private var fingerDown = false
+    private var swipeScroll = 0
 
     fun createView(context: Context): WebView {
         val assets = readerAssets(context)
@@ -411,8 +416,21 @@ private class ReaderSession(
                 override fun onPageFinished(view: WebView, url: String) = awaitReady(view)
             }
             val barsThreshold = (BARS_SCROLL_DP * context.resources.displayMetrics.density).toInt()
-            setOnTouchListener { _, event ->
-                if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) touched = true
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        touched = true
+                        fingerDown = true
+                        swipeScroll = 0
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        fingerDown = false
+                        when {
+                            view.scrollY <= barsThreshold || swipeScroll < -barsThreshold -> onBarsShown(true)
+                            swipeScroll > barsThreshold -> onBarsShown(false)
+                        }
+                    }
+                }
                 false
             }
             setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
@@ -420,14 +438,9 @@ private class ReaderSession(
                 main.removeCallbacks(sectionAfterScroll)
                 if (restored) main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
                 if (ready) main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
-                val delta = scrollY - oldScrollY
-                if (!touched || delta == 0) return@setOnScrollChangeListener
-                if ((delta > 0) != (scrolledThisWay > 0)) scrolledThisWay = 0
-                scrolledThisWay += delta
-                when {
-                    scrollY <= barsThreshold || scrolledThisWay < -barsThreshold -> onBarsShown(true)
-                    scrolledThisWay > barsThreshold -> onBarsShown(false)
-                }
+                if (fingerDown) swipeScroll += scrollY - oldScrollY
+                // A fling that reaches the top brings the bars back; nothing else changes them without a finger lifting.
+                else if (touched && scrollY <= barsThreshold) onBarsShown(true)
             }
             view = this
             loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
