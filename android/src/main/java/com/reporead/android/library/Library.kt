@@ -326,6 +326,8 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                 status = null
                 scope.launch {
                     try {
+                        // Unsent changes are sent first, so the confirmation counts everything that will be deleted.
+                        sync.syncLocalChanges()
                         confirmDisconnect = sync.storedData(screen.repositoryId)
                     } catch (failure: ApiException) {
                         onFailure(failure)
@@ -341,8 +343,8 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                 title = { Text("Disconnect ${screen.repositoryName}?") },
                 text = {
                     Text("RepoRead will delete, on its server and this phone, its list of ${stored.documents} notes, your reading progress on " +
-                        "${stored.readingStates}, ${stored.bookmarks} bookmarks, and ${stored.highlights} highlights with their notes, " +
-                        "including changes not yet synced. This cannot be undone. The repository on GitHub is not changed; to remove " +
+                        "${stored.readingStates}, ${stored.bookmarks} bookmarks, and ${stored.highlights} highlights with their notes. " +
+                        "This cannot be undone. The repository on GitHub is not changed; to remove " +
                         "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub.")
                 },
                 confirmButton = {
