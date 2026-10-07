@@ -3,6 +3,8 @@ package com.reporead.document;
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.ext.task.list.items.TaskListItemsExtension;
+import org.commonmark.node.AbstractVisitor;
+import org.commonmark.parser.IncludeSourceSpans;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.jsoup.Jsoup;
@@ -41,7 +43,7 @@ public final class MarkdownRenderer {
     private static final String ORIGIN = "https://appassets.androidplatform.net";
     private static final List<org.commonmark.Extension> EXTENSIONS = List.of(
             TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create());
-    private static final Parser PARSER = Parser.builder().extensions(EXTENSIONS).build();
+    private static final Parser PARSER = Parser.builder().extensions(EXTENSIONS).includeSourceSpans(IncludeSourceSpans.BLOCKS).build();
     private static final HtmlRenderer HTML = HtmlRenderer.builder().extensions(EXTENSIONS)
             .escapeHtml(true).sanitizeUrls(true).softbreak(" ").build();
     private static final Cleaner CLEANER = new Cleaner(new Safelist()
@@ -59,7 +61,9 @@ public final class MarkdownRenderer {
     private MarkdownRenderer() {}
 
     public record Block(String id, String text, List<String> headingPath) {}
-    public record RenderedNote(String html, List<Block> blocks, int diagramCount) {}
+    /** A heading block and the 0-based line of {@link #sourceLines} where it starts: its section runs to the next heading. */
+    public record Heading(String blockId, int line, List<String> headingPath) {}
+    public record RenderedNote(String html, List<Block> blocks, int diagramCount, List<Heading> headings) {}
 
     public static final class ContentRejected extends IllegalArgumentException {
         public ContentRejected(String message) { super(message); }
@@ -86,7 +90,15 @@ public final class MarkdownRenderer {
         if (bytes.length > MAX_NOTE_BYTES) throw new ContentRejected("Markdown exceeds the 1 MiB reader limit");
         if (!blobSha(bytes).equals(sourceBlobSha)) throw new ContentRejected("Markdown bytes do not match sourceBlobSha");
 
-        var dirty = Jsoup.parseBodyFragment(HTML.render(PARSER.parse(markdown)), ORIGIN);
+        var parsed = PARSER.parse(markdown);
+        var headingLines = new ArrayList<Integer>();
+        parsed.accept(new AbstractVisitor() {
+            @Override public void visit(org.commonmark.node.Heading heading) {
+                headingLines.add(heading.getSourceSpans().getFirst().getLineIndex());
+                visitChildren(heading);
+            }
+        });
+        var dirty = Jsoup.parseBodyFragment(HTML.render(parsed), ORIGIN);
         dirty.outputSettings().prettyPrint(false);
         var clean = CLEANER.clean(dirty);
         int images = 0;
@@ -116,6 +128,7 @@ public final class MarkdownRenderer {
 
         String[] headings = new String[6];
         var blocks = new ArrayList<Block>();
+        var headingBlocks = new ArrayList<Heading>();
         int diagrams = 0;
         for (var element : clean.body().getAllElements()) {
             String tag = element.tagName();
@@ -142,6 +155,13 @@ public final class MarkdownRenderer {
                 element.attr("data-mermaid", "");
             }
             blocks.add(new Block(id, text, List.copyOf(headingPath)));
+            if (tag.matches("h[1-6]")) {
+                if (headingBlocks.size() == headingLines.size()) throw new IllegalStateException("Rendered more headings than the parser found");
+                headingBlocks.add(new Heading(id, headingLines.get(headingBlocks.size()), List.copyOf(headingPath)));
+            }
+        }
+        if (headingBlocks.size() != headingLines.size()) {
+            throw new IllegalStateException("Rendered " + headingBlocks.size() + " heading blocks for " + headingLines.size() + " parsed headings");
         }
 
         var document = Document.createShell(ORIGIN);
@@ -159,7 +179,22 @@ public final class MarkdownRenderer {
         document.body().appendElement("p").id("render-status").text("Rendering diagrams…");
         var note = document.body().appendElement("main").id("note").html(clean.body().html());
         if (blocks.isEmpty()) note.appendElement("p").text("This note is empty.");
-        return new RenderedNote("<!doctype html>\n" + document.outerHtml(), List.copyOf(blocks), diagrams);
+        return new RenderedNote("<!doctype html>\n" + document.outerHtml(), List.copyOf(blocks), diagrams, List.copyOf(headingBlocks));
+    }
+
+    /** The source split into lines as the parser numbers them: a line ends at \n, \r\n, or \r; a final line break adds no line. */
+    public static List<String> sourceLines(String markdown) {
+        var lines = new ArrayList<String>();
+        int start = 0;
+        for (int i = 0; i < markdown.length(); i++) {
+            char c = markdown.charAt(i);
+            if (c != '\n' && c != '\r') continue;
+            lines.add(markdown.substring(start, i));
+            if (c == '\r' && i + 1 < markdown.length() && markdown.charAt(i + 1) == '\n') i++;
+            start = i + 1;
+        }
+        if (start < markdown.length()) lines.add(markdown.substring(start));
+        return List.copyOf(lines);
     }
 
     private static Element blockedImage(String reason, String alt) {

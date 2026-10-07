@@ -54,9 +54,10 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `GET /api/repositories/available` | 1 + installations, at most 11 | Repositories GitHub says this user and the App can both access |
 | `POST /api/repositories/{githubRepositoryId}/connect` `{installationId}` | 1 | GitHub re-verifies eligibility; connecting twice returns the same connection |
 | `POST /api/repositories/{id}/sync` | 2 (branch, recursive tree) + at most 8 blob reads (moved-and-edited notes) | Publishes a complete snapshot of the default branch |
-| `GET /api/repositories/{id}/documents` | 0 | Active Markdown documents and the last synced commit |
+| `GET /api/repositories/{id}/documents` | 0 | Active Markdown documents and the last synced commit; each with `contentChangedAt` (see Sync semantics) |
 | `GET /api/documents/{id}/content` | 1 (raw blob at the stored SHA) | Sanitized reader HTML; not cached on the server |
 | `GET /api/documents/{id}/image?path=` | 1 (file at the note's current commit) | A repository image referenced by the note; see below |
+| `GET /api/documents/{id}/changes?since=&to=` | 2 (both versions' blobs); 0 when `since` = `to` | Sections changed between the version last read and the version on screen; see Changes since last read |
 | `GET /api/reading-states` | 0 | Most recently read first, with the version last read and the current version |
 | `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
 | `GET /api/bookmarks` | 0 | Document bookmarks, each with `deleted` when the note left the repository (the bookmark is kept) |
@@ -83,12 +84,15 @@ Every connection, document, and content request is scoped to the signed-in user;
 | Repository images | 64 per note; 5 MiB each | Extra images render as `[Image limit reached]`; larger images 422 `UNSUPPORTED_CONTENT` |
 | Annotation | selection and note at most 10,000 UTF-16 units each; one block per selection | 400 `INVALID_ANNOTATION` |
 | Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
+| Changes comparison | 20,000 lines per version; 1,000 inserted plus deleted lines | `TOO_LARGE` status, no sections |
 
 These are chosen ceilings, not measured ones. Clients cannot change them.
 
 ### Sync semantics
 
 Sync reads the default branch's commit, then its full recursive tree. Documents are regular-file blobs ending in `.md` (any case); symlinks and submodules are skipped. A truncated or malformed tree fails without changes and is never evidence of deletion. Only after complete validation does one transaction upsert documents by path, mark paths absent from the complete tree as deleted (rows are kept), and advance the connection's commit checkpoint. Repeating a sync is idempotent; concurrent syncs of one connection are serialized by a row lock. A document whose path left the snapshot keeps its id at a path that has never had a document when both share a blob SHA unique on each side (a path-only move); identical-content duplicates are never merged, and a path that once had a document resumes it. A vanished document carrying the user's data also keeps its id at a new path whose content is alike enough (measured thresholds in the [Stage 4 record](../requirements/reporead-stage4-record.md)), checked only when vanished documents plus new paths number at most 8. Because every sync is a complete snapshot, a branch rewind is reconciled like any other: paths absent from it are marked deleted and return to their documents if they reappear.
+
+`contentChangedAt` is when a sync found the note new, with a different blob, or back after being deleted (a path-only move is not a change). It is null for notes from a connection's first sync and for notes RepoRead has not seen change since Stage 5: it is when RepoRead noticed, not the commit time.
 
 ### Images
 
@@ -97,6 +101,14 @@ The renderer resolves relative and root-relative Markdown images against the not
 ### Reading state and bookmarks
 
 Only the reader writes reading state, recording the blob SHA actually displayed; repository refreshes never change it. A write older than or equal to the stored `lastReadAt` is ignored and the current state is returned, so replaying a stale offline save cannot overwrite newer progress. Deleting a document upstream keeps its reading state and bookmarks. Bookmarks live in the `annotations` table as type `BOOKMARK` (one per user and document).
+
+### Changes since last read
+
+The phone sends `since`, the version the user last read as it knows it (its unsent reading saves can be newer than the server's), and `to`, the version on screen. Both must be blobs in the note's repository. The server fetches both, splits the Markdown into lines as the parser numbers them, computes a minimal line diff (Myers), and assigns each inserted or deleted line to the heading section it is in: from a heading's line to the next heading of any level, with lines before the first heading as the beginning of the note. Sections are told apart by position, so duplicate headings are separate. A section is `ADDED` when its heading line is new and `CHANGED` otherwise, with its heading's `blockId` in `to` for navigation; an old section whose heading line was deleted is `REMOVED` and listed where it used to be. A renamed heading is a removed and an added section. Counts are source lines, so blank-line edits count.
+
+`status` is `CHANGED` (with `sections`, possibly empty when only line endings differ), `UNCHANGED` (same version, no GitHub call), `SINCE_UNAVAILABLE` with a `reason` (GitHub no longer has the older version, or it can no longer be read as a note), or `TOO_LARGE` (over the limits above). Only `CHANGED` lists sections; a too-large comparison is never shown as a partial list. Any other failure, such as a GitHub outage or the newer version missing, fails the request; a missing or malformed `since`/`to` is 400 `INVALID_VERSIONS`, and a deleted note is 410 `DOCUMENT_DELETED`. Nothing is cached. A note never read has no `since`, and the phone does not ask.
+
+The cost is proportional to lines × changed lines; constructed worst cases at both limits took at most 25 ms.
 
 ### Annotations
 
