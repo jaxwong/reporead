@@ -44,8 +44,9 @@ public class DocumentController {
         return new DocumentList(id, connection.lastSyncedCommitSha(), documents.list(id));
     }
 
+    /** [text]: the canonical text of the note's blocks, one per line, for search on the phone. */
     record Content(long documentId, String path, String title, String sourceBlobSha, String commitSha,
-                   int blockCount, int diagramCount, String html) {}
+                   int blockCount, int diagramCount, String html, String text) {}
 
     @GetMapping("/api/documents/{id}/content")
     Content content(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
@@ -58,7 +59,8 @@ public class DocumentController {
         LOG.info("Document rendered; userId={} documentId={} blobSha={} bytes={} blocks={} diagrams={}",
             user.id(), id, document.blobSha(), version.bytes(), rendered.blocks().size(), rendered.diagramCount());
         return new Content(id, document.path(), document.title(), document.blobSha(), document.commitSha(),
-            rendered.blocks().size(), rendered.diagramCount(), rendered.html());
+            rendered.blocks().size(), rendered.diagramCount(), rendered.html(),
+            String.join("\n", rendered.blocks().stream().map(MarkdownRenderer.Block::text).toList()));
     }
 
     enum ChangeStatus { CHANGED, UNCHANGED, SINCE_UNAVAILABLE, TOO_LARGE }

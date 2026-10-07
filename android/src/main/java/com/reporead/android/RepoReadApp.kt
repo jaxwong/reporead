@@ -33,6 +33,7 @@ import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.RepositoriesScreen
 import com.reporead.android.reader.ReaderScreen
+import com.reporead.android.search.SearchScreen
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,6 +45,7 @@ sealed interface Screen {
     data object Available : Screen
     data class Folder(val repositoryId: Long, val repositoryName: String, val path: String) : Screen
     data class Reader(val documentId: Long, val title: String) : Screen
+    data object Search : Screen
 }
 
 private fun encode(screen: Screen): List<String> = when (screen) {
@@ -51,6 +53,7 @@ private fun encode(screen: Screen): List<String> = when (screen) {
     Screen.Available -> listOf("available")
     is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
     is Screen.Reader -> listOf("reader", screen.documentId.toString(), screen.title)
+    Screen.Search -> listOf("search")
 }
 
 private fun decode(parts: List<String>): Screen = when (parts[0]) {
@@ -58,6 +61,7 @@ private fun decode(parts: List<String>): Screen = when (parts[0]) {
     "available" -> Screen.Available
     "folder" -> Screen.Folder(parts[1].toLong(), parts[2], parts[3])
     "reader" -> Screen.Reader(parts[1].toLong(), parts[2])
+    "search" -> Screen.Search
     else -> error("Unknown saved screen ${parts[0]}")
 }
 
@@ -105,7 +109,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         val code = signInCode ?: return@LaunchedEffect
         signInMessage = "Finishing sign-in…"
         try {
-            completeSignIn(code, api, store)
+            completeSignIn(code, api, store) { withContext(Dispatchers.IO) { sync.clearAll() } }
             signedIn = true
             signInMessage = null
         } catch (error: ApiException) {
@@ -144,6 +148,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                 // Explicit sign-out removes this phone's copy of private notes, including unsynced changes.
                 withContext(Dispatchers.IO) { sync.clearAll() }
                 store.clear()
+                store.dataOwner = null
                 signedIn = false
                 signInMessage = message
                 stack = listOf(Screen.Repositories)
@@ -152,5 +157,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         Screen.Available -> AvailableScreen(api, onFailure, onConnected = { stack = listOf(Screen.Repositories, it) })
         is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push)
         is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen)
+        Screen.Search -> SearchScreen(dao, push)
     }
 }

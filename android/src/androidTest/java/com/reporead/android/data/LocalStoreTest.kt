@@ -122,6 +122,26 @@ class LocalStoreTest {
         assertEquals(listOf(3L, 2L, 1L, 6L), dao.recentlyChanged(5).first().map { it.documentId })
     }
 
+    @Test fun searchMatchesSavedTitlesTextAndHighlightsWithLiteralWildcards() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "java/Spring.md", "Spring", "a".repeat(40)),
+            DocumentRow(2, 7, "db/Postgres.md", "Postgres", "b".repeat(40)), DocumentRow(3, 7, "misc/100_percent.md", "100_percent", "c".repeat(40))))
+        dao.saveNote(NoteRow(2, "b".repeat(40), "c".repeat(40), "db/Postgres.md", "Postgres", "<html/>", 0, "MVCC\nUse 100% of the TRANSACTION log"))
+        dao.saveNote(NoteRow(9, "d".repeat(40), "c".repeat(40), "gone/Old.md", "Old", "<html/>", 0, null))
+        dao.saveAnnotation(AnnotationRow("m1", 5, 1, "a".repeat(40), "b1", 0, 4, "Propagation", "about transactions", 1, 0, pending = false, rejection = null))
+
+        // Title in a saved list, saved text (ASCII case-insensitive), and a highlight's note all match "transaction".
+        assertEquals(listOf(2L), dao.searchNotes("%transaction%", 50).filter { it.searchText != null }.map { it.documentId })
+        assertEquals(listOf(1L), dao.searchHighlights("%transaction%", 50).map { it.documentId })
+        assertEquals(listOf(1L), dao.searchNotes("%spring%", 50).map { it.documentId })
+        // A saved copy of a note no longer in any list still matches by title; one saved before search has no text.
+        assertEquals(listOf(9L), dao.searchNotes("%old%", 50).map { it.documentId })
+        // Escaped wildcards are literal: "0\_p" matches "100_percent" only, "0\%" only the text with "100%".
+        assertEquals(listOf(3L), dao.searchNotes("%0\\_p%", 50).map { it.documentId })
+        assertEquals(listOf(2L), dao.searchNotes("%0\\%%", 50).map { it.documentId })
+        assertEquals(emptyList<NoteMatch>(), dao.searchNotes("%nothing like this%", 50))
+        assertEquals(2, dao.searchNotes("%s%", 2).size)
+    }
+
     private fun annotation(mutationId: String, serverId: Long?, note: String?, pending: Boolean, rejection: String? = null) =
         AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, pending, rejection)
 

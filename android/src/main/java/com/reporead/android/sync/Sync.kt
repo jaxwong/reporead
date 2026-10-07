@@ -74,22 +74,24 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
     /**
      * A cached copy of the document's current version and path opens without a network call (the rendered page depends
      * on the path too: its label and relative images). Otherwise the current version is fetched; if that fails, an older
-     * cached copy is shown with the reason, and a missing cache is the failure itself.
+     * cached copy is shown with the reason, and a missing cache is the failure itself. A current copy saved before search
+     * existed is fetched once more for its search text; if that fails it is still current, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
-        if (cached != null && current != null && cached.blobSha == current.blobSha && cached.path == current.path) return Opened(cached, null)
+        val cachedIsCurrent = cached != null && current != null && cached.blobSha == current.blobSha && cached.path == current.path
+        if (cachedIsCurrent && cached!!.searchText != null) return Opened(cached, null)
         val json = try {
             api.get("/api/documents/$documentId/content")
         } catch (error: ApiException) {
             if (cached == null) throw error
-            Log.i("RepoRead", "Showing cached note; documentId=$documentId code=${error.code}")
-            return Opened(cached, error.describe())
+            Log.i("RepoRead", "Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
+            return Opened(cached, if (cachedIsCurrent) null else error.describe())
         }
         val note = contract {
             NoteRow(documentId, json.getString("sourceBlobSha"), json.getString("commitSha"), json.getString("path"),
-                json.getString("title"), json.getString("html"), System.currentTimeMillis())
+                json.getString("title"), json.getString("html"), System.currentTimeMillis(), json.getString("text"))
         }
         dao.saveNote(note)
         File(imageRoot, documentId.toString()).listFiles()?.filter { it.name != note.blobSha }?.forEach { it.deleteRecursively() }
