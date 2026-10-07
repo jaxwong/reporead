@@ -48,6 +48,11 @@ class SessionStore(context: Context) {
 
     fun clear() = prefs.edit().remove("token").apply()
 
+    /** The RepoRead user id whose data is saved on this phone; null when nothing is known to be saved. */
+    var dataOwner: Long?
+        get() = if (prefs.contains("dataOwner")) prefs.getLong("dataOwner", 0) else null
+        set(value) = prefs.edit().apply { if (value == null) remove("dataOwner") else putLong("dataOwner", value) }.apply()
+
     var pendingVerifier: String?
         get() = prefs.getString("verifier", null)
         set(value) = prefs.edit().putString("verifier", value).apply()

@@ -34,10 +34,19 @@ data class DocumentRow(@PrimaryKey val id: Long, val repositoryId: Long, val pat
 data class ChangedNote(val documentId: Long, val title: String, val path: String, val blobSha: String, val changedAt: Long?,
                        val lastReadBlobSha: String?)
 
-/** The latest complete rendered copy of an opened note, identified by document and source version. */
+/**
+ * The latest complete rendered copy of an opened note, identified by document and source version. [searchText] is its
+ * blocks' canonical text, one per line; null for a copy saved before search existed.
+ */
 @Entity(tableName = "notes")
 data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val commitSha: String, val path: String,
-                   val title: String, val html: String, val fetchedAt: Long)
+                   val title: String, val html: String, val fetchedAt: Long, val searchText: String? = null)
+
+/** A saved note matching a search: [searchText] is set when it matched by text, for a snippet. */
+data class NoteMatch(val documentId: Long, val title: String, val path: String, val searchText: String?)
+
+/** A highlight matching a search, with its note's title from the saved lists or saved copies. */
+data class HighlightMatch(val documentId: Long, val title: String, val path: String, val exactText: String, val note: String?)
 
 /**
  * [pending] is a local save the backend has not acknowledged. Last write wins by [lastReadAt]. [deleted]: the note was
@@ -120,6 +129,30 @@ interface LibraryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveNote(row: NoteRow)
+
+    /**
+     * Notes in the saved lists whose title or path matches, and saved copies whose title, path, or text matches.
+     * [pattern] is a LIKE pattern with \ as the escape character (ASCII letters match case-insensitively).
+     */
+    @Query("""select id as documentId, title, path, null as searchText from documents
+              where title like :pattern escape '\' or path like :pattern escape '\'
+              union
+              select documentId, title, path, case when searchText like :pattern escape '\' then searchText end from notes
+              where title like :pattern escape '\' or path like :pattern escape '\' or searchText like :pattern escape '\'
+              order by title limit :limit""")
+    suspend fun searchNotes(pattern: String, limit: Int): List<NoteMatch>
+
+    @Query("""select a.documentId, coalesce(d.title, n.title, '') as title, coalesce(d.path, n.path, '') as path, a.exactText, a.note
+              from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
+              where a.exactText like :pattern escape '\' or a.note like :pattern escape '\'
+              order by a.createdAt desc limit :limit""")
+    suspend fun searchHighlights(pattern: String, limit: Int): List<HighlightMatch>
+
+    @Query("select count(*) from documents")
+    suspend fun savedListCount(): Int
+
+    @Query("select count(*) from notes where searchText is not null")
+    suspend fun searchableNoteCount(): Int
 
     @Query("select * from reading_states order by lastReadAt desc limit :limit")
     fun recentReading(limit: Int): Flow<List<ReadingRow>>
@@ -226,8 +259,9 @@ interface LibraryDao {
 
 @Database(
     entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class],
-    version = 4,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    version = 5,
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
+        AutoMigration(from = 4, to = 5)],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao

@@ -114,6 +114,7 @@ fun RepositoriesScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure
     Column(Modifier.fillMaxSize()) {
         Header("Library")
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { push(Screen.Search) }) { Text("Search") }
             if (signedIn) {
                 Button(onClick = { push(Screen.Available) }) { Text("Add repository") }
                 OutlinedButton(onClick = { refresh++ }) { Text("Sync") }

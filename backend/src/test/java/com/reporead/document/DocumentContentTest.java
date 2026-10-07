@@ -108,6 +108,7 @@ class DocumentContentTest {
             String body = read(alice, id).andExpect(status().isOk())
                 .andExpect(jsonPath("$.path").value("backend/spring.md")).andExpect(jsonPath("$.sourceBlobSha").value(sha))
                 .andExpect(jsonPath("$.commitSha").value("c".repeat(40))).andExpect(jsonPath("$.blockCount").value(3))
+                .andExpect(jsonPath("$.text").value("Spring\nA transaction groups work.\n<script>alert(1)</script>"))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("TOKEN"))))
                 .andReturn().getResponse().getContentAsString();
             var html = Jsoup.parse(json.readTree(body).get("html").stringValue());
