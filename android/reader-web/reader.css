@@ -154,9 +154,10 @@ a.wikilink { text-decoration-style: dotted; }
 p:has(> .fn-def:first-child) { font-size: 0.85em; color: var(--muted); }
 .fn-def:not(:first-child)::before { content: "\A"; }
 .fn-def::after { content: attr(data-label) "."; font-weight: 650; color: var(--fg); }
+/* Sized in % of the viewport, not vh: in the app's WebView viewport units resolve to 0 (measured on the Pixel 8a). */
 #footnote {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-  max-height: 45vh; overflow-y: auto; padding: 12px 18px 20px;
+  max-height: 45%; overflow-y: auto; padding: 12px 18px 20px;
   background: var(--surface-strong); border-top: 1px solid var(--border); box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
   font-size: 0.9em; white-space: normal;
 }
