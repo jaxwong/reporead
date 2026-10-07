@@ -15,6 +15,24 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:a
 
 `adb reverse` makes the phone's `127.0.0.1:8081` reach the Mac's loopback backend, so the registered GitHub callback is unchanged. It is reset when the phone disconnects — including when airplane mode or Wi-Fi loss ends wireless debugging. Re-enable wireless debugging and repeat it before syncing. Cleartext HTTP is permitted only to `127.0.0.1` (`res/xml/network_security_config.xml`). The base URL is a `BuildConfig` constant in `build.gradle.kts`.
 
+## Signing and the release APK
+
+Every build — release, debug, and the device-test APK — is signed with one personal key, so each installs over the last and keeps the phone's data. The key is outside the repository; `~/.gradle/gradle.properties` names it (paths only):
+
+```properties
+reporead.signing.storeFile=/Users/<you>/.config/reporead/release.jks
+reporead.signing.passwordFile=/Users/<you>/.config/reporead/release-keystore-password.txt
+```
+
+Both files are mode 0600. It was created with `keytool -genkeypair -keystore … -storetype PKCS12 -alias reporead -keyalg RSA -keysize 4096 -validity 10000 -storepass:file … -keypass:file …` (certificate SHA-256 `20:49:29:9F:…:53:29:3F`). **Back up both files:** without them the next build cannot update the installed app, and installing one signed differently requires uninstalling it, which deletes the phone's saved notes and unsynced changes. Packaging without the properties fails with an explicit message; nothing falls back to the debug key.
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleRelease --no-daemon
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r android/build/outputs/apk/release/app-release.apk
+```
+
+The release build is not debuggable (no WebView DevTools, no `run-as`) and not minified. It uses the same backend address as development, `http://127.0.0.1:8081` through `adb reverse`, so refreshing and syncing need the phone on wireless debugging with the Mac; saved notes, highlights, and progress work offline and sync later. Hosting the backend is a separate decision. To inspect the phone's database, install the debug build over it (same key and app id; data is kept), then the release build again.
+
 ## Device tests
 
 These run the Room cache and pending-change rules against an in-memory database on the phone. Install and run them with adb, which keeps the installed app and its data:
@@ -26,7 +44,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assem
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w com.reporead.android.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-`./gradlew :app:connectedDebugAndroidTest` runs the same tests but **uninstalls the app afterwards**, deleting its session, cache, and any unsynced changes; do not use it on the phone you read on.
+They need the debug build installed; reinstall the release build afterwards. `./gradlew :app:connectedDebugAndroidTest` runs the same tests but **uninstalls the app afterwards**, deleting its session, cache, and any unsynced changes; do not use it on the phone you read on.
 
 ## Behavior
 
