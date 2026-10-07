@@ -218,6 +218,18 @@ window.reporead.highlight = annotations => {
   return missing;
 };
 
+/** Scrolls a changed section's heading block to the top of the screen; null is the beginning of the note. */
+window.reporead.showBlock = blockId => {
+  if (blockId === null) {
+    window.scrollTo(0, 0);
+    return true;
+  }
+  const block = blocks.find(candidate => candidate.dataset.blockId === blockId);
+  if (!block) return false;
+  scrollToElement(visibleElement(block), 'start');
+  return true;
+};
+
 window.reporead.reveal = key => {
   const mark = document.querySelector(`#note mark[data-key="${CSS.escape(key)}"]`);
   if (!mark) return false;
