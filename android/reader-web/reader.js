@@ -261,6 +261,42 @@ window.reporead.reveal = key => {
   return true;
 };
 
+/*
+ * Tapping a footnote number shows its definition in a sheet at the bottom, without scrolling away from the passage.
+ * The sheet is outside #note, so nothing in it is a block: it cannot be highlighted or become the reading position.
+ */
+const footnoteSheet = document.createElement('aside');
+footnoteSheet.id = 'footnote';
+footnoteSheet.hidden = true;
+document.body.append(footnoteSheet);
+
+function showFootnote(label) {
+  const marker = document.querySelector(`#note .fn-def[data-footnote="${CSS.escape(label)}"]`);
+  if (!marker) throw new Error(`Footnote ${label} is referenced but has no definition marker`);
+  const close = document.createElement('button');
+  close.textContent = '×';
+  close.setAttribute('aria-label', 'Close footnote');
+  close.addEventListener('click', () => { footnoteSheet.hidden = true; });
+  const number = document.createElement('span');
+  number.className = 'footnote-number';
+  number.textContent = `${marker.dataset.label}.`;
+  footnoteSheet.replaceChildren(close, number);
+  // A definition runs to the next definition marker or the end of its paragraph.
+  for (let node = marker.nextSibling; node && !node.matches?.('.fn-def'); node = node.nextSibling) footnoteSheet.append(node.cloneNode(true));
+  footnoteSheet.hidden = false;
+}
+
+// A listener on each reference also makes the browser's touch adjustment treat these small numbers as tap targets.
+for (const reference of document.querySelectorAll('#note .fn-ref')) {
+  reference.addEventListener('click', event => {
+    event.stopPropagation();
+    showFootnote(reference.dataset.footnote);
+  });
+}
+document.addEventListener('click', event => {
+  if (!footnoteSheet.contains(event.target)) footnoteSheet.hidden = true;
+});
+
 // Diagrams change the layout, so the app restores a position only once rendering has finished.
 render().then(() => {
   document.body.dataset.state = 'ready';

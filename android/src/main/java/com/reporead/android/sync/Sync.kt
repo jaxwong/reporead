@@ -33,8 +33,8 @@ data class Changes(val status: String, val reason: String?, val addedLines: Int,
  * Owns how the offline cache and the backend meet. Every network operation is explicit and foreground; a failed
  * call ends that operation and leaves the previous complete cache untouched. Nothing here retries.
  */
-/** The page format this app needs from the server (MarkdownRenderer.FORMAT): 2 adds note links and Obsidian embeds. */
-const val RENDER_FORMAT = 2
+/** The page format this app needs from the server (MarkdownRenderer.FORMAT): 2 adds note links and Obsidian embeds, 3 footnotes. */
+const val RENDER_FORMAT = 3
 
 class Sync(private val api: Api, private val store: LocalStore, filesDir: File) {
     private val dao = store.library()
@@ -80,7 +80,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
      * A cached copy of the document's current version and path opens without a network call (the rendered page depends
      * on the path too: its label and relative images). Otherwise the current version is fetched; if that fails, an older
      * cached copy is shown with the reason, and a missing cache is the failure itself. A current copy saved in an older page
-     * format (without search text, note links, or embeds) is fetched once more; if that fails it is still the current
+     * format (without search text, note links, embeds, or footnotes) is fetched once more; if that fails it is still the current
      * version, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened {
