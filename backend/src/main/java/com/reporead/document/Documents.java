@@ -27,7 +27,8 @@ public class Documents {
     }
 
     public record SourceFile(String path, String blobSha) {}
-    public record Summary(long id, String path, String title, String blobSha) {}
+    /** [contentChangedAt]: when a refresh found the note new, changed, or back; null if RepoRead never saw it change. */
+    public record Summary(long id, String path, String title, String blobSha, Instant contentChangedAt) {}
     /** A document that kept its identity under a new path. */
     public record Move(long documentId, String fromPath, String toPath) {}
     public record Existing(long id, String path, String blobSha, boolean deleted) {}
@@ -37,10 +38,13 @@ public class Documents {
     /**
      * Applies one complete tree snapshot. Moved documents take their new path first; then paths in the snapshot are
      * inserted or updated (and undeleted), and paths absent from it are marked deleted, never removed. [contentMoves]
-     * were decided before the lock and apply only if still valid against the locked rows. Callers must hold the
-     * connection's sync lock inside a transaction. Returns the moves applied.
+     * were decided before the lock and apply only if still valid against the locked rows. A note that is new, has a new
+     * blob, or is back after being deleted records [syncedAt] as its content change, except in a connection's first
+     * snapshot ([previouslySynced] false), where RepoRead has seen nothing change. Callers must hold the connection's sync
+     * lock inside a transaction. Returns the moves applied.
      */
-    public List<Move> publishSnapshot(long connectionId, String commitSha, List<SourceFile> files, Instant syncedAt, List<Move> contentMoves) {
+    public List<Move> publishSnapshot(long connectionId, String commitSha, List<SourceFile> files, Instant syncedAt, List<Move> contentMoves,
+                                      boolean previouslySynced) {
         var existing = existing(connectionId);
         var moves = new ArrayList<>(exactMoves(existing, files));
         moves.addAll(stillMoves(contentMoves, existing, files, moves));
@@ -53,13 +57,16 @@ public class Documents {
         String[] blobs = files.stream().map(SourceFile::blobSha).toArray(String[]::new);
         var now = Timestamp.from(syncedAt);
         db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at)
-                select :connectionId, source.path, source.title, source.blob, :commitSha, :now
+                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at,
+                                       content_changed_at)
+                select :connectionId, source.path, source.title, source.blob, :commitSha, :now, cast(:firstSeenChange as timestamptz)
                 from unnest(:paths::text[], :titles::text[], :blobs::text[]) as source (path, title, blob)
                 on conflict (repository_connection_id, path) do update
                 set title = excluded.title, current_blob_sha = excluded.current_blob_sha,
-                    current_commit_sha = excluded.current_commit_sha, last_synced_at = excluded.last_synced_at, deleted_at = null""")
-            .param("connectionId", connectionId).param("commitSha", commitSha).param("now", now)
+                    current_commit_sha = excluded.current_commit_sha, last_synced_at = excluded.last_synced_at, deleted_at = null,
+                    content_changed_at = case when documents.current_blob_sha <> excluded.current_blob_sha or documents.deleted_at is not null
+                                              then excluded.last_synced_at else documents.content_changed_at end""")
+            .param("connectionId", connectionId).param("commitSha", commitSha).param("now", now).param("firstSeenChange", previouslySynced ? now : null)
             .param("paths", paths).param("titles", titles).param("blobs", blobs).update();
         db.sql("""
                 update documents set deleted_at = :now
@@ -137,10 +144,14 @@ public class Documents {
 
     public List<Summary> list(long connectionId) {
         return db.sql("""
-                select id, path, title, current_blob_sha from documents
+                select id, path, title, current_blob_sha, content_changed_at from documents
                 where repository_connection_id = :connectionId and deleted_at is null order by path""")
             .param("connectionId", connectionId)
-            .query((row, n) -> new Summary(row.getLong(1), row.getString(2), row.getString(3), row.getString(4))).list();
+            .query((row, n) -> {
+                var changedAt = row.getTimestamp(5);
+                return new Summary(row.getLong(1), row.getString(2), row.getString(3), row.getString(4),
+                    changedAt == null ? null : changedAt.toInstant());
+            }).list();
     }
 
     /** Finds a document only if it belongs to one of this user's connections. */

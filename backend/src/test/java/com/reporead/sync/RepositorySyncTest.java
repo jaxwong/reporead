@@ -184,6 +184,47 @@ class RepositorySyncTest {
         return db.sql("select id from documents where path = :path").param("path", path).query(Long.class).single();
     }
 
+    private java.time.Instant changedAt(String path) {
+        var at = db.sql("select content_changed_at from documents where path = :path").param("path", path)
+            .query((row, n) -> java.util.Optional.ofNullable(row.getTimestamp(1))).single();
+        return at.map(java.sql.Timestamp::toInstant).orElse(null);
+    }
+
+    private java.time.Instant lastSyncedAt() {
+        return db.sql("select last_synced_at from repository_connections where id = :id").param("id", connection)
+            .query((row, n) -> row.getTimestamp(1).toInstant()).single();
+    }
+
+    @Test void aRefreshRecordsWhenItFoundANoteNewChangedOrBackButNotTheFirstSnapshotOrAMove() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("same.md", "100644", "blob", BLOB_1), entry("edited.md", "100644", "blob", BLOB_1),
+            entry("gone.md", "100644", "blob", "5".repeat(40)), entry("old/moved.md", "100644", "blob", "6".repeat(40))), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        for (var path : List.of("same.md", "edited.md", "gone.md", "old/moved.md")) assertNull(changedAt(path), path);
+
+        next();
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("same.md", "100644", "blob", BLOB_1), entry("edited.md", "100644", "blob", BLOB_2),
+            entry("new.md", "100644", "blob", "7".repeat(40)), entry("new/moved.md", "100644", "blob", "6".repeat(40))), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        var second = lastSyncedAt();
+        assertNull(changedAt("same.md"));
+        assertEquals(second, changedAt("edited.md"));
+        assertEquals(second, changedAt("new.md"));
+        assertNull(changedAt("new/moved.md"), "a path-only move is not a content change");
+        documents(alice, connection).andExpect(status().isOk())
+            .andExpect(jsonPath("$.documents[?(@.path == 'edited.md')].contentChangedAt").value(second.toString()))
+            .andExpect(jsonPath("$.documents[?(@.path == 'same.md')].contentChangedAt").value(org.hamcrest.Matchers.contains((Object) null)));
+
+        next();
+        // The same snapshot again changes nothing; a note that returns after being deleted was found again.
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("same.md", "100644", "blob", BLOB_1), entry("edited.md", "100644", "blob", BLOB_2),
+            entry("new.md", "100644", "blob", "7".repeat(40)), entry("new/moved.md", "100644", "blob", "6".repeat(40)),
+            entry("gone.md", "100644", "blob", "5".repeat(40))), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        var third = lastSyncedAt();
+        assertEquals(second, changedAt("edited.md"));
+        assertEquals(third, changedAt("gone.md"));
+    }
+
     @Test void pathOnlyMoveWithTheSameBlobKeepsTheDocumentAndItsReadingState() throws Exception {
         expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("backend/spring.md", "100644", "blob", BLOB_1),
             entry("other.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
