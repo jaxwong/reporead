@@ -59,8 +59,8 @@ public class RepositorySync {
         var contentMoves = contentMoves(user, connection, markdown);
         Instant syncedAt = Instant.now();
         var moves = transaction.execute(status -> {
-            connections.lockForSync(user.id(), connectionId);
-            var applied = documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt, contentMoves);
+            boolean previouslySynced = connections.lockForSync(user.id(), connectionId);
+            var applied = documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt, contentMoves, previouslySynced);
             connections.markSynced(connectionId, branch.commitSha(), syncedAt);
             return applied;
         });

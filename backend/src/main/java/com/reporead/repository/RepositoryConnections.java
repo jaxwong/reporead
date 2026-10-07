@@ -66,10 +66,13 @@ public class RepositoryConnections {
             .query(Long.class).single();
     }
 
-    /** Serializes concurrent syncs of one connection; must run inside the sync transaction. */
-    public void lockForSync(long userId, long connectionId) {
-        db.sql("select id from repository_connections where id = :id and user_id = :userId for update")
-            .param("id", connectionId).param("userId", userId).query(Long.class).optional()
+    /**
+     * Serializes concurrent syncs of one connection; must run inside the sync transaction. Returns whether the connection
+     * has published a snapshot before, read under the lock.
+     */
+    public boolean lockForSync(long userId, long connectionId) {
+        return db.sql("select last_synced_commit_sha is not null from repository_connections where id = :id and user_id = :userId for update")
+            .param("id", connectionId).param("userId", userId).query(Boolean.class).optional()
             .orElseThrow(() -> new IllegalStateException("Connection " + connectionId + " vanished during sync for user " + userId));
     }
 
