@@ -101,6 +101,13 @@ pre {
 /* Code keeps its lines and indentation and scrolls sideways; wrapping would break indentation. Layout only. */
 pre[data-block-id], pre code { white-space: pre; overflow-wrap: normal; }
 pre code { padding: 0; font-size: 1em; background: none; }
+pre.wrapped, pre.wrapped code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-tools { display: flex; align-items: center; gap: 4px; margin: 0 0 2px; font-size: 0.75em; color: var(--muted); }
+.code-tools span { flex: 1; font-family: ui-monospace, "Roboto Mono", monospace; }
+.code-tools button, .code-tools a {
+  padding: 6px 10px; border: 0; border-radius: 6px; background: none; color: var(--link); font: inherit; text-decoration: none;
+}
+.code-tools button:active, .code-tools a:active { background: var(--surface-strong); }
 
 /* Wide tables scroll sideways instead of squeezing every cell. */
 table { display: block; margin: 0 0 1em; border-collapse: collapse; overflow-x: auto; font-size: 0.9em; }
