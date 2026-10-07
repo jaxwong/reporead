@@ -32,6 +32,7 @@ import com.reporead.android.sync.Sync
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
+import com.reporead.android.reader.FigureScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
 import kotlinx.coroutines.CancellationException
@@ -46,6 +47,8 @@ sealed interface Screen {
     data class Folder(val repositoryId: Long, val repositoryName: String, val path: String) : Screen
     /** [heading]: open at this heading (from a note link) instead of the saved reading position. */
     data class Reader(val documentId: Long, val title: String, val heading: String? = null) : Screen
+    /** One table or diagram ([figure], the page's id for it) of the saved version [blobSha] of a note, full screen. */
+    data class Figure(val documentId: Long, val blobSha: String, val figure: String, val title: String) : Screen
     data object Search : Screen
 }
 
@@ -54,6 +57,7 @@ private fun encode(screen: Screen): List<String> = when (screen) {
     Screen.Available -> listOf("available")
     is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
     is Screen.Reader -> listOfNotNull("reader", screen.documentId.toString(), screen.title, screen.heading)
+    is Screen.Figure -> listOf("figure", screen.documentId.toString(), screen.blobSha, screen.figure, screen.title)
     Screen.Search -> listOf("search")
 }
 
@@ -62,6 +66,7 @@ private fun decode(parts: List<String>): Screen = when (parts[0]) {
     "available" -> Screen.Available
     "folder" -> Screen.Folder(parts[1].toLong(), parts[2], parts[3])
     "reader" -> Screen.Reader(parts[1].toLong(), parts[2], parts.getOrNull(3))
+    "figure" -> Screen.Figure(parts[1].toLong(), parts[2], parts[3], parts[4])
     "search" -> Screen.Search
     else -> error("Unknown saved screen ${parts[0]}")
 }
@@ -167,6 +172,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push, onBack = pop,
             onDisconnected = { stack = listOf(Screen.Repositories) })
         is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen, onBack = pop, push = push)
+        is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
         Screen.Search -> SearchScreen(dao, push, onBack = pop)
     }
 }
