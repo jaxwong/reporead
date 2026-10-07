@@ -85,7 +85,7 @@ Recommended order: P1, then P3's in-note study view, then P2, then the rest of P
    - The top bar shows the current section's name as a subtitle.
    - The reader lists headings from blocks it already marks with `data-heading-N`. The app reads them through `evaluateJavascript`, the same way `position()` works today; the page still gets no native bridge. No backend change.
 2. **Footnotes.**
-   - Add `org.commonmark:commonmark-ext-footnotes` 0.30.0 (it exists on Maven Central and matches the current CommonMark version; justified by 39 notes) and allow its output through the sanitizer.
+   - ~~Add `org.commonmark:commonmark-ext-footnotes` 0.30.0~~ Built without it: the extension splits and moves definitions, changing blocks of unchanged blobs; see the [P1 record](reporead-p1-record.md).
    - Tapping a footnote reference shows its text in a sheet, without leaving the passage.
    - **Constraint:** an unchanged blob must keep the same canonical block text, or existing anchors break (ADR-05). Keep the `[^1]` source text in the block and hide it, as Obsidian links already do (`.wl-hidden`).
    - Bump `MarkdownRenderer.FORMAT` (now 2, [MarkdownRenderer.java:52](../backend/src/main/java/com/reporead/document/MarkdownRenderer.java#L52)) so saved copies are fetched again.
