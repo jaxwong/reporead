@@ -5,6 +5,7 @@ import com.reporead.auth.AppUser;
 import com.reporead.document.Documents;
 import com.reporead.document.MarkdownRenderer;
 import com.reporead.document.NoteVersions;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -37,13 +38,19 @@ import java.util.function.Function;
 @RestController
 public class AnnotationController {
     private static final Logger LOG = LoggerFactory.getLogger(AnnotationController.class);
+    /** Metrics: highlights created (not replays); re-anchoring outcomes (method or ORPHANED) and the time each resolution took. */
+    static final String CREATED = "reporead.annotations.created";
+    static final String REANCHOR = "reporead.annotation.reanchor";
+    static final String REANCHOR_DURATION = "reporead.annotation.reanchor.duration";
     static final int MAX_TEXT_CHARS = 10_000;
     private final Annotations annotations;
     private final Documents documents;
     private final NoteVersions noteVersions;
     private final JsonMapper json;
+    private final MeterRegistry meters;
 
-    public AnnotationController(Annotations annotations, Documents documents, NoteVersions noteVersions, JsonMapper json) {
+    public AnnotationController(Annotations annotations, Documents documents, NoteVersions noteVersions, JsonMapper json, MeterRegistry meters) {
+        this.meters = meters;
         this.annotations = annotations;
         this.documents = documents;
         this.noteVersions = noteVersions;
@@ -80,11 +87,15 @@ public class AnnotationController {
                 annotations.fillEvidence(annotation.id(), location);
             }
             if (annotation.resolvedBlobSha().equals(current)) continue;
-            var resolved = Anchoring.resolve(location, current, blocks.apply(current));
+            var currentBlocks = blocks.apply(current);
+            var from = location;
+            var resolved = meters.timer(REANCHOR_DURATION).record(() -> Anchoring.resolve(from, current, currentBlocks));
             boolean applied = annotations.resolved(annotation, current, resolved.map(Anchoring.Resolved::anchor));
+            String outcome = resolved.map(found -> found.method().name()).orElse("ORPHANED");
+            // Counted once per applied resolution; a concurrent listing that lost the race changed nothing.
+            if (applied) meters.counter(REANCHOR, "outcome", outcome).increment();
             LOG.info("Highlight resolved; userId={} documentId={} annotationId={} from={} to={} outcome={} applied={}", user.id(),
-                document.id(), annotation.id(), location.sourceBlobSha(), current,
-                resolved.map(found -> found.method().name()).orElse("ORPHANED"), applied);
+                document.id(), annotation.id(), location.sourceBlobSha(), current, outcome, applied);
         }
         return true;
     }
@@ -122,6 +133,7 @@ public class AnnotationController {
         }
         var anchor = verifiedAnchor(selection, noteVersions.render(user, document, selection.sourceBlobSha()).note());
         var created = annotations.create(user.id(), id, mutationId, hash, anchor, body.note());
+        if (!created.replayed()) meters.counter(CREATED).increment();
         LOG.info("Annotation {}; userId={} documentId={} annotationId={}", created.replayed() ? "creation replayed" : "created",
             user.id(), id, created.annotation().id());
         return ResponseEntity.status(created.replayed() ? HttpStatus.OK : HttpStatus.CREATED).body(created.annotation());

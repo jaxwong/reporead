@@ -72,6 +72,25 @@ Every GitHub call uses the user's token, 15-second connect/read timeouts, no red
 
 Every connection, document, and content request is scoped to the signed-in user; another user's ids return 404 without a GitHub call.
 
+### Observability
+
+Logs name ids, SHAs, counts, outcomes, and repository paths; never tokens, authorization headers, note text, quotes, or annotation notes. Metrics (Micrometer, Spring Boot Actuator) are served only on the management port `127.0.0.1:8082`, which exposes `health` and `metrics` and nothing else; `adb reverse` forwards only 8081, so the phone cannot reach it. Tags never carry paths or content.
+
+| Meter | Tags | Counts |
+| --- | --- | --- |
+| `reporead.github.requests` | `outcome`: `2xx`/`3xx`/`4xx`/`5xx`, `too_large`, `failed` | Every GitHub HTTP request, including sign-in |
+| `reporead.github.syncs` | `outcome`: `success`/`failure`; `code`: the failure code or `NONE` | Repository syncs (the spec's sync total and sync failures) |
+| `reporead.documents.synced` | — | Documents in each successful sync |
+| `reporead.annotations.created` | — | New highlights (replays are not counted) |
+| `reporead.annotation.reanchor` | `outcome`: `BLOCK`/`POSITION`/`QUOTE`/`FUZZY`/`ORPHANED` | Applied re-anchoring decisions (the spec's orphaned total is `outcome=ORPHANED`) |
+| `reporead.annotation.reanchor.duration` | — | Time per resolution (timer) |
+
+```sh
+curl -s http://127.0.0.1:8082/actuator/metrics/reporead.github.requests
+```
+
+Meters appear after their first use. They are in memory and reset when the server restarts: a projection, never application state.
+
 ### Server-owned limits
 
 | Limit | Value | Failure |
