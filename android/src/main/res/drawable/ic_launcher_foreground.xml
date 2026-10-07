@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RepoRead launcher icon: an open book (reading), a Git branch on its right page (notes in GitHub), and a bookmark
+     ribbon (progress and highlights). Drawn inside the adaptive icon's 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M53,39 C47,35 39,34 30,35.5 L30,72 C39,70.5 47,71.5 53,75.5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M55,39 C61,35 69,34 78,35.5 L78,72 C69,70.5 61,71.5 55,75.5 Z" />
+    <path android:strokeColor="#3730A3" android:strokeWidth="2.4" android:strokeLineCap="round"
+        android:pathData="M35.5,45 L47.5,46.5 M35.5,51 L47.5,52.5 M35.5,57 L47.5,58.5 M35.5,63 L44,64" />
+    <path android:strokeColor="#3730A3" android:strokeWidth="2.4" android:strokeLineCap="round"
+        android:pathData="M62,49 L62,66 M62,61 C62,57 70,58 70,54" />
+    <path android:fillColor="#3730A3"
+        android:pathData="M59,66 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 M67,54 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 M59,48.5 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <path android:fillColor="#FBBF24" android:pathData="M69,33 L75,33 L75,45 L72,42 L69,45 Z" />
+</vector>
