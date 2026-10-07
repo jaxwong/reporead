@@ -14,6 +14,14 @@ val bundleReader = tasks.register<BundleReader>("bundleReader") {
     doFirst { commandLine("npm", "run", "build", "--", assetDirectory.get().asFile.absolutePath) }
 }
 
+/*
+ * Release and development builds are signed with one personal key kept outside the repository, so every build installs
+ * over the last and keeps the phone's data (see android/README.md). Packaging without it fails; nothing falls back to
+ * the debug key.
+ */
+val signingStore = providers.gradleProperty("reporead.signing.storeFile").orNull
+val signingPasswordFile = providers.gradleProperty("reporead.signing.passwordFile").orNull
+
 android {
     namespace = "com.reporead.android"
     compileSdk = 37
@@ -27,6 +35,25 @@ android {
         // Development backend reached through `adb reverse tcp:8081 tcp:8081`; see backend/README.md.
         buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8081\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (signingStore != null && signingPasswordFile != null) create("personal") {
+            val password = file(signingPasswordFile).readText().trim()
+            storeFile = file(signingStore)
+            storePassword = password
+            keyAlias = "reporead"
+            keyPassword = password
+        }
+    }
+
+    buildTypes {
+        debug { signingConfigs.findByName("personal")?.let { signingConfig = it } }
+        release {
+            signingConfigs.findByName("personal")?.let { signingConfig = it }
+            // Not minified: Room, Compose, and the reader bridge-free WebView are verified unshrunk only.
+            isMinifyEnabled = false
+        }
     }
 
     buildFeatures {
@@ -43,6 +70,14 @@ android {
 ksp {
     // Exported schemas let later stages write real migrations instead of discarding pending local changes.
     arg("room.schemaLocation", file("schemas").absolutePath)
+}
+
+tasks.matching { it.name.startsWith("package") && it.name != "packageDebugUnitTestForUnitTest" }.configureEach {
+    doFirst {
+        if (signingStore == null || signingPasswordFile == null) {
+            throw GradleException("Set reporead.signing.storeFile and reporead.signing.passwordFile in ~/.gradle/gradle.properties (android/README.md).")
+        }
+    }
 }
 
 androidComponents.onVariants { variant ->
