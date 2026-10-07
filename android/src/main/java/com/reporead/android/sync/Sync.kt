@@ -13,12 +13,19 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
+
+/** A changed section: ADDED, CHANGED, or REMOVED; empty [headingPath] is the beginning of the note; [blockId] is in the newer version. */
+data class ChangedSection(val change: String, val headingPath: List<String>, val blockId: String?, val addedLines: Int, val removedLines: Int)
+
+/** The server's comparison: [status] CHANGED (with [sections]), UNCHANGED, SINCE_UNAVAILABLE (with [reason]), or TOO_LARGE. */
+data class Changes(val status: String, val reason: String?, val addedLines: Int, val removedLines: Int, val sections: List<ChangedSection>)
 
 /**
  * Owns how the offline cache and the backend meet. Every network operation is explicit and foreground; a failed
@@ -48,7 +55,8 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
             val array = json.getJSONArray("documents")
             List(array.length()) {
                 val item = array.getJSONObject(it)
-                DocumentRow(item.getLong("id"), repositoryId, item.getString("path"), item.getString("title"), item.getString("blobSha"))
+                DocumentRow(item.getLong("id"), repositoryId, item.getString("path"), item.getString("title"), item.getString("blobSha"),
+                    item.nullableString("contentChangedAt")?.let { Instant.parse(it).toEpochMilli() })
             }
         }
         dao.replaceDocuments(repositoryId, rows)
@@ -86,6 +94,26 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         dao.saveNote(note)
         File(imageRoot, documentId.toString()).listFiles()?.filter { it.name != note.blobSha }?.forEach { it.deleteRecursively() }
         return Opened(note, null)
+    }
+
+    /**
+     * Which sections changed between [since], the version last read, and [to], the version on screen. Online only;
+     * nothing is cached.
+     */
+    suspend fun changes(documentId: Long, since: String, to: String): Changes {
+        val json = api.get("/api/documents/$documentId/changes?since=$since&to=$to")
+        return contract {
+            val sections = json.getJSONArray("sections")
+            val status = json.getString("status")
+            if (status !in setOf("CHANGED", "UNCHANGED", "SINCE_UNAVAILABLE", "TOO_LARGE")) throw JSONException("Unknown change status $status")
+            Changes(status, json.nullableString("reason"), json.getInt("addedLines"), json.getInt("removedLines"),
+                List(sections.length()) {
+                    val item = sections.getJSONObject(it)
+                    val path = item.getJSONArray("headingPath")
+                    ChangedSection(item.getString("change"), List(path.length()) { index -> path.getString(index) },
+                        item.nullableString("blockId"), item.getInt("addedLines"), item.getInt("removedLines"))
+                })
+        }
     }
 
     /** Only the reader calls this, with the version it actually displayed. */

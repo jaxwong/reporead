@@ -25,7 +25,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,7 @@ import com.reporead.android.core.network.describe
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReadingRow
+import com.reporead.android.sync.Changes
 import com.reporead.android.sync.Sync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -66,7 +69,37 @@ private const val READY_POLL_LIMIT = 100
 fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean, onFailure: (ApiException) -> Unit,
                  screen: Screen.Reader) {
     var reload by remember { mutableIntStateOf(0) }
-    val load by rememberLoad(screen.documentId to reload, onFailure) { sync.openNote(screen.documentId) }
+    /*
+     * The version last read when the note was opened (null: never read). Captured once, before the reader saves the
+     * displayed version as read, and kept across activity recreation; reopening the note captures it again.
+     */
+    var since by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
+    var sinceCaptured by rememberSaveable(screen.documentId) { mutableStateOf(false) }
+    val load by rememberLoad(screen.documentId to reload, onFailure) {
+        if (!sinceCaptured) {
+            since = dao.reading(screen.documentId)?.lastReadBlobSha
+            sinceCaptured = true
+        }
+        sync.openNote(screen.documentId)
+    }
+    val displayed = (load as? Load.Ready)?.value?.note?.blobSha
+    var changesReload by remember { mutableIntStateOf(0) }
+    var changesExpanded by rememberSaveable(screen.documentId) { mutableStateOf(true) }
+    // Null when there is nothing to compare: never read, or reading the same version again.
+    val changes by produceState<Load<Changes>?>(null, since, displayed, signedIn, changesReload) {
+        val from = since
+        if (from == null || displayed == null || from == displayed || !signedIn) {
+            value = null
+            return@produceState
+        }
+        value = Load.Loading
+        value = try {
+            Load.Ready(sync.changes(screen.documentId, from, displayed))
+        } catch (error: ApiException) {
+            onFailure(error)
+            Load.Failed(error)
+        }
+    }
     val bookmark by dao.bookmark(screen.documentId).collectAsState(null)
     val annotations by dao.annotations(screen.documentId).collectAsState(emptyList())
     var restoreNotice by remember { mutableStateOf<String?>(null) }
@@ -128,6 +161,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             opened.staleReason?.let { Notice("Showing your saved copy. $it") }
             restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
+            if (since != null && since != opened.note.blobSha && !signedIn) Notice("This note changed since you last read it. Sign in to see what changed.")
             reattaching?.let { row ->
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Select the passage for “${row.exactText}”, then choose Reattach here.", style = MaterialTheme.typography.bodySmall,
@@ -159,6 +193,15 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                 onDispose { lifecycle.removeObserver(observer) }
             }
             LaunchedEffect(session, annotations) { session.showHighlights(annotations) }
+            changes?.let { comparison ->
+                ChangesPanel(comparison, changesExpanded, onToggle = { changesExpanded = !changesExpanded }, onRetry = { changesReload++ },
+                    onOpen = { section ->
+                        changesExpanded = false
+                        session.showBlock(section.blockId) { shown ->
+                            if (!shown) message = "That section isn't in the version on screen; reopen the note."
+                        }
+                    })
+            }
             AndroidView(
                 factory = { context -> session.createView(context) },
                 onRelease = { view -> session.release(view) },
@@ -355,6 +398,20 @@ private class ReaderSession(
         webView.evaluateJavascript("JSON.stringify(window.reporead.highlight($payload))") { encoded ->
             val missing = JSONArray(JSONTokener(encoded).nextValue() as String)
             onNotShown(List(missing.length()) { missing.getString(it) }.toSet())
+        }
+    }
+
+    /** Scrolls to a changed section's heading block in this version, or the top for null; reports whether it was found. */
+    fun showBlock(blockId: String?, then: (Boolean) -> Unit) {
+        val webView = view
+        if (webView == null || !ready) {
+            then(false)
+            return
+        }
+        webView.evaluateJavascript("window.reporead.showBlock(${if (blockId == null) "null" else JSONObject.quote(blockId)})") { encoded ->
+            val shown = JSONTokener(encoded).nextValue() == true
+            if (!shown) Log.w("RepoRead", "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId")
+            then(shown)
         }
     }
 

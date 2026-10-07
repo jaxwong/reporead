@@ -90,6 +90,38 @@ class LocalStoreTest {
         assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
     }
 
+    private fun readAt(documentId: Long, blobSha: String, at: Long) =
+        ReadingRow(documentId, "title", "n.md", blobSha, 50, "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}", at, pending = false)
+
+    @Test fun libraryListsNotesUpdatedSinceReadAndOtherRecentChangesOnce() = runBlocking {
+        val a = "a".repeat(40)
+        val b = "b".repeat(40)
+        dao.replaceDocuments(7, listOf(
+            DocumentRow(1, 7, "read-old.md", "read-old", b, changedAt = 300),
+            DocumentRow(2, 7, "read-current.md", "read-current", b, changedAt = 400),
+            DocumentRow(3, 7, "never-read.md", "never-read", b, changedAt = 500),
+            DocumentRow(4, 7, "unseen-change.md", "unseen-change", b, changedAt = null),
+            DocumentRow(5, 7, "first-refresh.md", "first-refresh", b, changedAt = null),
+            DocumentRow(6, 7, "older-change.md", "older-change", b, changedAt = 100)))
+        dao.saveReading(readAt(1, a, at = 10))
+        dao.saveReading(readAt(2, b, at = 20))
+        dao.saveReading(readAt(4, a, at = 30))
+        dao.saveReading(readAt(9, a, at = 40)) // a note whose document is not in any saved list
+
+        // Read in another version: most recently seen change first; a change RepoRead never timed comes last.
+        assertEquals(listOf(1L, 4L), dao.updatedSinceRead().first().map { it.documentId })
+        val changed = dao.recentlyChanged(5).first()
+        assertEquals(listOf(3L, 2L, 6L), changed.map { it.documentId })
+        assertNull(changed.first().lastReadBlobSha)
+        assertEquals(b, changed[1].lastReadBlobSha)
+        assertEquals(listOf(3L, 2L), dao.recentlyChanged(2).first().map { it.documentId })
+
+        // Reading the current version moves the note out of Updated since you read.
+        dao.saveReading(readAt(1, b, at = 50))
+        assertEquals(listOf(4L), dao.updatedSinceRead().first().map { it.documentId })
+        assertEquals(listOf(3L, 2L, 1L, 6L), dao.recentlyChanged(5).first().map { it.documentId })
+    }
+
     private fun annotation(mutationId: String, serverId: Long?, note: String?, pending: Boolean, rejection: String? = null) =
         AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, pending, rejection)
 

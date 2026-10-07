@@ -25,8 +25,14 @@ import kotlinx.coroutines.flow.Flow
 @Entity(tableName = "repositories")
 data class RepositoryRow(@PrimaryKey val id: Long, val fullName: String, val documentCount: Int, val lastSyncedCommitSha: String?)
 
+/** [changedAt]: when a repository refresh found the note new or changed (epoch ms); null if RepoRead never saw it change. */
 @Entity(tableName = "documents", indices = [Index("repositoryId")])
-data class DocumentRow(@PrimaryKey val id: Long, val repositoryId: Long, val path: String, val title: String, val blobSha: String)
+data class DocumentRow(@PrimaryKey val id: Long, val repositoryId: Long, val path: String, val title: String, val blobSha: String,
+                       val changedAt: Long? = null)
+
+/** A note in the library's change lists: its current version, when it was seen changing, and the version last read (null: never). */
+data class ChangedNote(val documentId: Long, val title: String, val path: String, val blobSha: String, val changedAt: Long?,
+                       val lastReadBlobSha: String?)
 
 /** The latest complete rendered copy of an opened note, identified by document and source version. */
 @Entity(tableName = "notes")
@@ -121,6 +127,19 @@ interface LibraryDao {
     @Query("select * from reading_states where documentId = :documentId")
     suspend fun reading(documentId: Long): ReadingRow?
 
+    /** Read notes whose current version in the saved note lists is not the one last read; most recently changed first. */
+    @Query("""select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
+              from reading_states r join documents d on d.id = r.documentId
+              where d.blobSha != r.lastReadBlobSha order by d.changedAt is null, d.changedAt desc, r.lastReadAt desc""")
+    fun updatedSinceRead(): Flow<List<ChangedNote>>
+
+    /** The most recently changed notes other than those updated since read: never read, or read in their current version. */
+    @Query("""select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
+              from documents d left join reading_states r on r.documentId = d.id
+              where d.changedAt is not null and (r.lastReadBlobSha is null or r.lastReadBlobSha = d.blobSha)
+              order by d.changedAt desc limit :limit""")
+    fun recentlyChanged(limit: Int): Flow<List<ChangedNote>>
+
     @Query("select * from reading_states where pending")
     suspend fun pendingReading(): List<ReadingRow>
 
@@ -207,8 +226,8 @@ interface LibraryDao {
 
 @Database(
     entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class],
-    version = 3,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+    version = 4,
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao

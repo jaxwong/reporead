@@ -1,5 +1,6 @@
 package com.reporead.android.library
 
+import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.contract
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.rememberLoad
+import com.reporead.android.data.ChangedNote
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.sync.Sync
@@ -65,6 +67,11 @@ private fun ListEntry(label: String, detail: String?, onClick: () -> Unit) {
     HorizontalDivider()
 }
 
+/** When a refresh found the note changed; RepoRead does not know the commit time. */
+private fun seenChanged(note: ChangedNote) = note.changedAt?.let {
+    "seen changed ${DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)} · "
+} ?: ""
+
 private fun LazyListScope.section(title: String) {
     item(key = "section:$title") {
         Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp))
@@ -94,6 +101,9 @@ fun RepositoriesScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure
     val repositories by dao.repositories().collectAsState(emptyList())
     val recent by dao.recentReading(5).collectAsState(emptyList())
     val bookmarks by dao.bookmarks().collectAsState(emptyList())
+    val updated by dao.updatedSinceRead().collectAsState(emptyList())
+    val changed by dao.recentlyChanged(5).collectAsState(emptyList())
+    val updatedIds = updated.map { it.documentId }.toSet()
     if (signedIn) {
         // Pushes pending reading saves and bookmarks, then pulls the server's view: the explicit foreground sync point.
         RefreshOnEntry(refresh, onFailure, { status = it }) {
@@ -117,8 +127,25 @@ fun RepositoriesScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure
             if (recent.isNotEmpty()) {
                 section("Continue reading")
                 items(recent, key = { "recent:${it.documentId}" }) { row ->
-                    ListEntry(row.title, (if (row.deleted) "Removed from the repository · " else "") + "${row.progressPercent}% · ${row.path}") {
-                        push(Screen.Reader(row.documentId, row.title))
+                    val state = when {
+                        row.deleted -> "Removed from the repository · "
+                        row.documentId in updatedIds -> "Updated since you read · "
+                        else -> ""
+                    }
+                    ListEntry(row.title, state + "${row.progressPercent}% · ${row.path}") { push(Screen.Reader(row.documentId, row.title)) }
+                }
+            }
+            if (updated.isNotEmpty()) {
+                section("Updated since you read")
+                items(updated, key = { "updated:${it.documentId}" }) { note ->
+                    ListEntry(note.title, seenChanged(note) + note.path) { push(Screen.Reader(note.documentId, note.title)) }
+                }
+            }
+            if (changed.isNotEmpty()) {
+                section("Recently changed")
+                items(changed, key = { "changed:${it.documentId}" }) { note ->
+                    ListEntry(note.title, (if (note.lastReadBlobSha == null) "Not read yet · " else "Read · ") + seenChanged(note) + note.path) {
+                        push(Screen.Reader(note.documentId, note.title))
                     }
                 }
             }
