@@ -339,6 +339,8 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
     var disconnecting by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var listed by remember { mutableStateOf(false) }
+    /** Notes fetched so far and to fetch, while saving every note; null otherwise. Leaving the screen stops it. */
+    var saving by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     val scope = rememberCoroutineScope()
     val documents by dao.documents(screen.repositoryId).collectAsState(null)
     val repository by dao.repositories().collectAsState(emptyList())
@@ -365,15 +367,38 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
             }
         }
     }
+    val saveAll = {
+        status = null
+        saving = 0 to 0
+        scope.launch {
+            status = try {
+                val saved = sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = done to toFetch }
+                listed = true
+                listOfNotNull(
+                    "Saved ${saved.fetched} notes on this phone; ${saved.alreadySaved} were already saved.",
+                    saved.cannotShow.takeIf { it.isNotEmpty() }?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
+                ).joinToString(" ")
+            } catch (failure: ApiException) {
+                onFailure(failure)
+                val (done, toFetch) = saving ?: (0 to 0)
+                "Stopped after $done of $toFetch notes; those are saved, and saving again continues from there. ${failure.describe()}"
+            } finally {
+                saving = null
+            }
+        }
+    }
+    val busy = refreshing || disconnecting || saving != null
     Scaffold(topBar = {
         AppBar(if (root) screen.repositoryName else screen.path.substringAfterLast('/'),
             if (root) null else "${screen.repositoryName} / ${screen.path}", onBack = onBack, actions = {
                 if (signedIn && root) {
-                    IconButton(enabled = !refreshing && !disconnecting, onClick = { refreshFromGitHub() }) {
+                    IconButton(enabled = !busy, onClick = { refreshFromGitHub() }) {
                         AppIcon(R.drawable.ic_refresh, "Refresh from GitHub")
                     }
-                    OverflowMenu(listOf(MenuAction("Disconnect…") {
-                        if (refreshing || disconnecting) return@MenuAction
+                    OverflowMenu(listOf(MenuAction("Save all notes on this phone") {
+                        if (!busy) saveAll()
+                    }, MenuAction("Disconnect…") {
+                        if (busy) return@MenuAction
                         status = null
                         scope.launch {
                             try {
@@ -390,8 +415,18 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
             })
     }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            if (refreshing || disconnecting) LinearProgressIndicator(Modifier.fillMaxWidth())
-            StatusLine(if (disconnecting) "Disconnecting…" else status)
+            val progress = saving
+            when {
+                progress != null && progress.second > 0 ->
+                    LinearProgressIndicator(progress = { progress.first.toFloat() / progress.second }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
+                refreshing || disconnecting || progress != null -> LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            StatusLine(when {
+                disconnecting -> "Disconnecting…"
+                progress != null && progress.second > 0 -> "Saving notes on this phone: ${progress.first} of ${progress.second}. Leaving this screen stops it."
+                progress != null -> "Checking which notes need saving…"
+                else -> status
+            })
             val rows = documents ?: return@Column
             val (folders, notes) = children(rows, screen.path)
             when {

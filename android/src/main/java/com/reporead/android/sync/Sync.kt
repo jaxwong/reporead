@@ -76,32 +76,77 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
 
     data class Opened(val note: NoteRow, val staleReason: String?)
 
+    /** The saved copy is [document]'s current version: same blob and same path (the page shows the path and resolves relative images against it). */
+    private fun sameVersion(cached: NoteRow?, document: DocumentRow?) =
+        cached != null && document != null && cached.blobSha == document.blobSha && cached.path == document.path
+
+    /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
+    private fun upToDate(cached: NoteRow?, document: DocumentRow?) = sameVersion(cached, document) && cached!!.renderFormat >= RENDER_FORMAT
+
     /**
-     * A cached copy of the document's current version and path opens without a network call (the rendered page depends
-     * on the path too: its label and relative images). Otherwise the current version is fetched; if that fails, an older
-     * cached copy is shown with the reason, and a missing cache is the failure itself. A current copy saved in an older page
-     * format (without search text, note links, embeds, or footnotes) is fetched once more; if that fails it is still the current
-     * version, so it opens without a warning.
+     * A cached copy of the document's current version and path opens without a network call. Otherwise the current
+     * version is fetched; if that fails, an older cached copy is shown with the reason, and a missing cache is the
+     * failure itself. A current copy saved in an older page format (without search text, note links, embeds, or
+     * footnotes) is fetched once more; if that fails it is still the current version, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
-        val cachedIsCurrent = cached != null && current != null && cached.blobSha == current.blobSha && cached.path == current.path
-        if (cachedIsCurrent && cached!!.renderFormat >= RENDER_FORMAT) return Opened(cached, null)
-        val json = try {
-            api.get("/api/documents/$documentId/content")
+        if (upToDate(cached, current)) return Opened(cached!!, null)
+        return try {
+            Opened(fetchNote(documentId), null)
         } catch (error: ApiException) {
             if (cached == null) throw error
+            val cachedIsCurrent = sameVersion(cached, current)
             Log.i("RepoRead", "Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
-            return Opened(cached, if (cachedIsCurrent) null else error.describe())
+            Opened(cached, if (cachedIsCurrent) null else error.describe())
         }
+    }
+
+    /** Fetches and saves the note's current version (one GitHub call on the server); the copy is saved whole or not at all. */
+    private suspend fun fetchNote(documentId: Long): NoteRow {
+        val json = api.get("/api/documents/$documentId/content")
         val note = contract {
             NoteRow(documentId, json.getString("sourceBlobSha"), json.getString("commitSha"), json.getString("path"),
                 json.getString("title"), json.getString("html"), System.currentTimeMillis(), json.getString("text"), json.getInt("renderFormat"))
         }
         dao.saveNote(note)
         File(imageRoot, documentId.toString()).listFiles()?.filter { it.name != note.blobSha }?.forEach { it.deleteRecursively() }
-        return Opened(note, null)
+        return note
+    }
+
+    /** [fetched] new or updated copies; [alreadySaved] were current; [cannotShow] are the paths the server refused to render (too large). */
+    data class SavedAll(val fetched: Int, val alreadySaved: Int, val cannotShow: List<String>)
+
+    /**
+     * Saves every note of [repositoryId] on the phone: refreshes the note list from the server (no GitHub call), then
+     * fetches each note whose saved copy is not [upToDate], one at a time. A note the server refuses to render
+     * (UNSUPPORTED_CONTENT) is listed and skipped; any other failure ends the run, keeping the copies already saved.
+     * Cancelling (leaving the screen) also keeps them, so running again continues where it stopped. Images are not
+     * fetched; they are saved when a note is read online.
+     */
+    suspend fun saveAllNotes(repositoryId: Long, onProgress: (done: Int, toFetch: Int) -> Unit): SavedAll {
+        refreshDocuments(repositoryId)
+        val documents = dao.documentsOnce(repositoryId)
+        val missing = documents.filter { !upToDate(dao.note(it.id), it) }
+        Log.i("RepoRead", "Saving all notes; repositoryId=$repositoryId documents=${documents.size} toFetch=${missing.size}")
+        val cannotShow = mutableListOf<String>()
+        onProgress(0, missing.size)
+        missing.forEachIndexed { index, document ->
+            try {
+                fetchNote(document.id)
+            } catch (error: ApiException) {
+                if (error.code != "UNSUPPORTED_CONTENT") {
+                    Log.w("RepoRead", "Saving all notes stopped; repositoryId=$repositoryId fetched=${index - cannotShow.size} documentId=${document.id} code=${error.code}")
+                    throw error
+                }
+                Log.i("RepoRead", "Note cannot be shown; documentId=${document.id} code=${error.code}")
+                cannotShow += document.path
+            }
+            onProgress(index + 1, missing.size)
+        }
+        Log.i("RepoRead", "Saved all notes; repositoryId=$repositoryId fetched=${missing.size - cannotShow.size} cannotShow=${cannotShow.size}")
+        return SavedAll(missing.size - cannotShow.size, documents.size - missing.size, cannotShow)
     }
 
     /**
