@@ -70,6 +70,35 @@ class MarkdownRendererTest {
         assertEquals(result.blocks().getFirst().text(), html.selectFirst("[data-block-id=b0]").attr("data-anchor-text"));
     }
 
+    @Test void footnotesAreMarkedWithoutChangingCanonicalText() {
+        // Consecutive definitions are one paragraph to CommonMark without a footnote extension, as in the real notes.
+        String source = "Claim[^src] and another[^1], again[^src]. Undefined [^none]. Code `[^1]`, [link [^1]](https://example.com).\n\n"
+            + "| A |\n| --- |\n| cell[^1] |\n\n"
+            + "[^1]: First **bold** note.\n[^src]: Second note, https://example.com/x.\n";
+        var result = render(source);
+        assertEquals(java.util.List.of(
+                "Claim[^src] and another[^1], again[^src]. Undefined [^none]. Code [^1], link [^1].",
+                "A", "cell[^1]", "[^1]: First bold note. [^src]: Second note, https://example.com/x."),
+            result.blocks().stream().map(MarkdownRenderer.Block::text).toList(), "source text stays, only hidden");
+        var html = Jsoup.parse(result.html());
+        // Numbered in definition order, which is the order the definitions are shown; an undefined label stays literal.
+        assertEquals(java.util.List.of("src", "1", "src", "1"), html.select(".fn-ref").eachAttr("data-footnote"));
+        assertEquals(java.util.List.of("2", "1", "2", "1"), html.select(".fn-ref").eachAttr("data-label"));
+        assertEquals(java.util.List.of("[^src]", "[^1]", "[^src]", "[^1]"), html.select(".fn-ref > .wl-hidden").eachText());
+        assertTrue(html.select("code .fn-ref, a .fn-ref").isEmpty(), "code and link text are never marked");
+        assertEquals(java.util.List.of("1", "src"), html.select(".fn-def").eachAttr("data-footnote"));
+        assertEquals(java.util.List.of("1", "2"), html.select(".fn-def").eachAttr("data-label"));
+        assertEquals(java.util.List.of("[^1]:", "[^src]:"), html.select(".fn-def > .wl-hidden").eachText());
+        for (var block : result.blocks()) {
+            assertEquals(block.text(), html.selectFirst("[data-block-id=" + block.id() + "]").attr("data-anchor-text"));
+        }
+    }
+
+    @Test void onlyAParagraphThatStartsWithADefinitionDefinesFootnotes() {
+        var html = Jsoup.parse(render("Prose that mentions [^1]: not a definition.\n\nSee [^1].").html());
+        assertTrue(html.select(".fn-def, .fn-ref").isEmpty());
+    }
+
     @Test void obsidianImageEmbedsBecomeImagesAndNoteEmbedsBecomeLinks() {
         String source = "![[Pasted image 1.png]] and ![[diagram.svg|300]] and ![[other note]]";
         var result = render(source);

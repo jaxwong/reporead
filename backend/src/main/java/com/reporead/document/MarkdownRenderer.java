@@ -47,10 +47,12 @@ public final class MarkdownRenderer {
     public static final String NOTE_LINK = "/note-link";
     /**
      * The page format the app relies on; bumped when rendered HTML gains something a saved copy would lack. 2: note
-     * links and Obsidian embeds.
+     * links and Obsidian embeds. 3: footnotes.
      */
-    public static final int FORMAT = 2;
+    public static final int FORMAT = 3;
     private static final java.util.regex.Pattern WIKILINK = java.util.regex.Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
+    /** A footnote reference {@code [^label]}, or with {@code :} a definition marker. */
+    private static final java.util.regex.Pattern FOOTNOTE = java.util.regex.Pattern.compile("\\[\\^([^\\[\\]\\s]+)\\](:?)");
     private static final int MAX_BLOCKS = 4_096;
     private static final String BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,pre,td,th,li";
     private static final String ORIGIN = "https://appassets.androidplatform.net";
@@ -133,6 +135,7 @@ public final class MarkdownRenderer {
             }
         }
         images = linkNotes(clean, documentPath, images);
+        markFootnotes(clean);
         for (var input : clean.select("input")) {
             if (!input.attr("type").equals("checkbox")) throw new IllegalStateException("Parser emitted a non-checkbox input");
             input.attr("disabled", "");
@@ -291,6 +294,67 @@ public final class MarkdownRenderer {
             text.remove();
         }
         return images;
+    }
+
+    /**
+     * Footnotes as Obsidian writes them, without a parser extension: an extension would split and move definitions,
+     * changing blocks of unchanged blobs (ADR-05). To CommonMark a definition {@code [^label]: text} is a paragraph,
+     * and consecutive definitions are one paragraph. A paragraph that starts with a definition marker defines
+     * footnotes; within it, each further marker after whitespace (a soft-broken line) starts the next. References to
+     * defined labels outside code and links are marked. Footnotes are numbered in definition order: definitions cannot
+     * be moved (unlike GitHub, which lists them in reference order), so their list reads 1, 2, 3. Source text stays,
+     * hidden, so canonical block text is unchanged; CSS draws the numbers from {@code data-label}.
+     */
+    private static void markFootnotes(Document clean) {
+        var definitions = new ArrayList<Element>();
+        for (var paragraph : clean.select("p")) {
+            if (!nodeText(paragraph).matches("(?s)\\[\\^[^\\[\\]\\s]+\\]:.*")) continue;
+            for (var text : List.copyOf(paragraph.textNodes())) {
+                var previous = text.previousSibling();
+                boolean afterSpace = previous == null || nodeText(previous).matches("(?s).*\\s");
+                definitions.addAll(splitFootnotes(text, true, (whole, match) -> !match.group(2).isEmpty()
+                    && (match.start() == 0 ? afterSpace : Character.isWhitespace(whole.charAt(match.start() - 1)))));
+            }
+        }
+        var numbers = new java.util.HashMap<String, String>();
+        for (var marked : definitions) numbers.putIfAbsent(marked.attr("data-footnote"), Integer.toString(numbers.size() + 1));
+        var references = new ArrayList<Element>();
+        for (var element : clean.body().getAllElements()) {
+            if (element.closest("a, code, pre, .wl-hidden") != null) continue;
+            for (var text : List.copyOf(element.textNodes())) {
+                references.addAll(splitFootnotes(text, false, (whole, match) -> numbers.containsKey(match.group(1))));
+            }
+        }
+        for (var marked : references) marked.attr("data-label", numbers.get(marked.attr("data-footnote")));
+        for (var marked : definitions) marked.attr("data-label", numbers.get(marked.attr("data-footnote")));
+    }
+
+    /**
+     * Wraps each footnote match in [text] that [accept] takes — a definition marker {@code [^label]:} when
+     * [definitions], otherwise a reference {@code [^label]} (a following colon stays text) — and returns the new elements.
+     */
+    private static List<Element> splitFootnotes(TextNode text, boolean definitions,
+                                                java.util.function.BiPredicate<String, java.util.regex.MatchResult> accept) {
+        String whole = text.getWholeText();
+        var matcher = FOOTNOTE.matcher(whole);
+        var replacement = new ArrayList<org.jsoup.nodes.Node>();
+        var marked = new ArrayList<Element>();
+        int last = 0;
+        while (matcher.find()) {
+            if (!accept.test(whole, matcher)) continue;
+            int end = definitions ? matcher.end() : matcher.end(1) + 1;
+            if (matcher.start() > last) replacement.add(new TextNode(whole.substring(last, matcher.start())));
+            var element = new Element(definitions ? "span" : "sup").addClass(definitions ? "fn-def" : "fn-ref")
+                .attr("data-footnote", matcher.group(1)).appendChild(hidden(whole.substring(matcher.start(), end)));
+            replacement.add(element);
+            marked.add(element);
+            last = end;
+        }
+        if (marked.isEmpty()) return marked;
+        if (last < whole.length()) replacement.add(new TextNode(whole.substring(last)));
+        for (var node : replacement) text.before(node);
+        text.remove();
+        return marked;
     }
 
     private static Element hidden(String text) {
