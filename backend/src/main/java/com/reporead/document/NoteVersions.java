@@ -22,7 +22,7 @@ public class NoteVersions {
         this.github = github;
     }
 
-    public record Rendered(MarkdownRenderer.RenderedNote note, int bytes) {}
+    public record Rendered(MarkdownRenderer.RenderedNote note, int bytes, String markdown) {}
 
     public Rendered render(AppUser user, Documents.Located document, String blobSha) {
         return render(user, document.owner(), document.repositoryName(), document.path(), blobSha);
@@ -42,7 +42,7 @@ public class NoteVersions {
             throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", "This note is not valid UTF-8 text.");
         }
         try {
-            return new Rendered(MarkdownRenderer.render(markdown, blobSha, path), bytes.length);
+            return new Rendered(MarkdownRenderer.render(markdown, blobSha, path), bytes.length, markdown);
         } catch (MarkdownRenderer.ContentRejected rejected) {
             throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", rejected.getMessage());
         }

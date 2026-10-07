@@ -34,6 +34,24 @@ class MarkdownRendererTest {
         assertEquals(result.blocks().get(1).text(), html.selectFirst("[data-block-id=b1]").attr("data-anchor-text"));
     }
 
+    @Test void headingsReportTheirSourceLineAndBlockSoChangedLinesMapToSections() {
+        String source = "intro\r\n\r\n# Top\r\n\r\n```sh\r\n# not a heading\r\n```\r\n\r\nSetext\r\n---\r\n\r\n> ## Quoted\r\n\r\n- ## In list\r\n\r\n## Top\r\n";
+        var result = render(source);
+        assertEquals(java.util.List.of(
+            new MarkdownRenderer.Heading("b1", 2, java.util.List.of("Top")),
+            new MarkdownRenderer.Heading("b3", 8, java.util.List.of("Top", "Setext")),
+            new MarkdownRenderer.Heading("b4", 11, java.util.List.of("Top", "Quoted")),
+            new MarkdownRenderer.Heading("b5", 13, java.util.List.of("Top", "In list")),
+            new MarkdownRenderer.Heading("b6", 15, java.util.List.of("Top", "Top"))), result.headings());
+        var html = Jsoup.parse(result.html());
+        for (var heading : result.headings()) assertTrue(html.selectFirst("[data-block-id=" + heading.blockId() + "]").tagName().matches("h[1-6]"));
+        var lines = MarkdownRenderer.sourceLines(source);
+        assertEquals("# Top", lines.get(2));
+        assertEquals("## Top", lines.get(15));
+        assertEquals(java.util.List.of(), MarkdownRenderer.sourceLines(""));
+        assertEquals(java.util.List.of("a", "", "b"), MarkdownRenderer.sourceLines("a\n\rb\n"));
+    }
+
     @Test void unicodeAndHardBreaksArePreserved() {
         var result = render("A 😀 **café**  \nsecond line");
         assertEquals("A 😀 café\nsecond line", result.blocks().getFirst().text());
