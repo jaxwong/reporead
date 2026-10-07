@@ -44,11 +44,11 @@ Pixel 8a, debug build over the release build (same key, data kept), backend rest
   - **No saved copy:** `[[later]]`, before Save all, previewed "Not saved on this phone yet, so there is nothing to preview. Open it to fetch it."
   - **New notes:** after Refresh from GitHub, Save all fetched the 3 new unsaved notes (`toFetch=4` with the refused one): "Saved 3 notes on this phone; 654 were already saved."
   - **After a laptop edit, only that note:** after the one-line edit and Refresh from GitHub, `toFetch=2`, **fetched 1**; the phone's database shows only `scratch/p2/links.md` fetched (21:05:13), with the new line in its search text.
+- **Disconnect deletes the downloaded notes**, checked on the throwaway `jaxwong/reporead-disconnect-test` (user's choice: on `zw_obsidian` Disconnect would also delete its 4 highlights, 24 reading positions, and 3 bookmarks on the server for good). Connected, refreshed, Save all: "Saved 2 notes on this phone; 0 were already saved." Disconnect (server log: `documents=2 readingStates=0 bookmarks=0 highlights=0`), then the phone's database: its 2 saved copies, 2 list rows, and the repository row gone (659 → 657 saved notes); `zw_obsidian`'s 658 list rows, 657 saved notes, 4 highlights, 24 reading positions, and 3 bookmarks unchanged.
 - **Exit gate, backend unreachable** (`adb reverse` removed; `nc` to 127.0.0.1:8081 refused; app restarted): searching "competencies", a word only in the body of `core/web/knowledge-architecture-research.md`, which had never been opened, found it with a snippet; it opened `ready`, 340 blocks, 0 canonical-text mismatches; its link to `core/web/00-orientation.md` previewed from the saved copy. Forwarding was restored afterwards.
 
 ## Not done or not verified
 
-- **Disconnect deletes the downloaded notes:** not run on `zw_obsidian`. Disconnect also deletes the repository's highlights (4), reading positions (24), and bookmarks (3) on the server for good (`RepositoryController.disconnect`), not only the phone's copies.
 - **Airplane mode** itself: the backend was made unreachable by removing `adb reverse` instead, because airplane mode drops wireless debugging.
 - **Images:** Save all does not fetch images; three notes have one embedded image each (`books/the pragmatic programmer/…` T12, T15, T33), which show "[Image unavailable]" offline until opened online once.
 - The release build is not reinstalled yet.
