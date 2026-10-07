@@ -28,8 +28,11 @@ public class DocumentController {
     private final Documents documents;
     private final GitHubApi github;
     private final NoteVersions noteVersions;
+    private final Attachments attachments;
 
-    public DocumentController(RepositoryConnections connections, Documents documents, GitHubApi github, NoteVersions noteVersions) {
+    public DocumentController(RepositoryConnections connections, Documents documents, GitHubApi github, NoteVersions noteVersions,
+                              Attachments attachments) {
+        this.attachments = attachments;
         this.connections = connections;
         this.documents = documents;
         this.github = github;
@@ -45,8 +48,9 @@ public class DocumentController {
     }
 
     /** [text]: the canonical text of the note's blocks, one per line, for search on the phone. */
+    /** [renderFormat]: MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format. */
     record Content(long documentId, String path, String title, String sourceBlobSha, String commitSha,
-                   int blockCount, int diagramCount, String html, String text) {}
+                   int blockCount, int diagramCount, String html, String text, int renderFormat) {}
 
     @GetMapping("/api/documents/{id}/content")
     Content content(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
@@ -60,7 +64,7 @@ public class DocumentController {
             user.id(), id, document.blobSha(), version.bytes(), rendered.blocks().size(), rendered.diagramCount());
         return new Content(id, document.path(), document.title(), document.blobSha(), document.commitSha(),
             rendered.blocks().size(), rendered.diagramCount(), rendered.html(),
-            String.join("\n", rendered.blocks().stream().map(MarkdownRenderer.Block::text).toList()));
+            String.join("\n", rendered.blocks().stream().map(MarkdownRenderer.Block::text).toList()), MarkdownRenderer.FORMAT);
     }
 
     enum ChangeStatus { CHANGED, UNCHANGED, SINCE_UNAVAILABLE, TOO_LARGE }
@@ -112,16 +116,25 @@ public class DocumentController {
             .orElseGet(() -> new Changes(document.id(), since, to, ChangeStatus.TOO_LARGE, null, 0, 0, List.of()));
     }
 
-    /** A repository image referenced by an owned note, fetched at the note's current commit. Not cached on the server. */
+    /**
+     * A repository image referenced by an owned note, fetched at the note's current commit: by [path], or by an Obsidian
+     * [embed] name resolved against the latest snapshot's image files (no GitHub call when it is missing or ambiguous).
+     * Not cached on the server.
+     */
     @GetMapping("/api/documents/{id}/image")
-    ResponseEntity<byte[]> image(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestParam String path) {
-        if (!MarkdownRenderer.isImagePath(path)) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_IMAGE_PATH", "path must be a normalized repository path to a png, jpg, gif, webp, or svg image.");
+    ResponseEntity<byte[]> image(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestParam(required = false) String path,
+                                 @RequestParam(required = false) String embed) {
+        if ((path == null) == (embed == null)) {
+            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_IMAGE_PATH", "Give exactly one of path or embed.");
+        }
+        if (path != null ? !MarkdownRenderer.isImagePath(path) : embed.length() > 1024 || !MarkdownRenderer.isImagePath(embed)) {
+            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_IMAGE_PATH", "path or embed must name a png, jpg, gif, webp, or svg image.");
         }
         var document = documents.find(user.id(), id).orElseThrow(DocumentController::notFound);
         if (document.deleted()) {
             throw new ApiFailure(HttpStatus.GONE, "DOCUMENT_DELETED", "This note was not present in the latest complete repository refresh.");
         }
+        if (embed != null) path = attachments.resolve(document.connectionId(), document.path(), embed);
         String token = github.userToken(user.githubUserId());
         byte[] bytes = github.imageFile(token, document.owner(), document.repositoryName(), path, document.commitSha());
         String extension = path.substring(path.lastIndexOf('.') + 1).toLowerCase(java.util.Locale.ROOT);

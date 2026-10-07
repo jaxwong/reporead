@@ -152,6 +152,20 @@ class RepositorySyncTest {
             .andExpect(jsonPath("$.documents[1].blobSha").value(BLOB_1));
     }
 
+    @Test void aSnapshotRecordsItsImageFilesForEmbedsAndReplacesThemNextTime() throws Exception {
+        expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("intro.md", "100644", "blob", BLOB_1),
+            entry("attachments/Pasted image.png", "100644", "blob", BLOB_2), entry("diagram.SVG", "100755", "blob", BLOB_2),
+            entry("link.png", "120000", "blob", BLOB_2), entry("notes.txt", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(List.of("attachments/Pasted image.png", "diagram.SVG"),
+            db.sql("select path from repository_images order by path").query(String.class).list());
+        next();
+        expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("intro.md", "100644", "blob", BLOB_1),
+            entry("img/new.webp", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(List.of("img/new.webp"), db.sql("select path from repository_images").query(String.class).list());
+    }
+
     @Test void truncatedTreeChangesNothingAndIsNotTreatedAsDeletion() throws Exception {
         expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("intro.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
         double succeeded = meters.counter(RepositorySync.SYNCS, "outcome", "success", "code", "NONE").count();

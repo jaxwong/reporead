@@ -52,6 +52,42 @@ class MarkdownRendererTest {
         assertEquals(java.util.List.of("a", "", "b"), MarkdownRenderer.sourceLines("a\n\rb\n"));
     }
 
+    @Test void obsidianLinksBecomeNoteLinksWithoutChangingCanonicalText() {
+        String source = "See [[stack]], [[queues|the queue note]], [[stack#Push#Pop]], [[#Local]] and [[fifo#^block1]]. Code `[[not]]`.\n\n"
+            + "```\n[[not a link]]\n```\n";
+        var result = render(source);
+        assertEquals("See [[stack]], [[queues|the queue note]], [[stack#Push#Pop]], [[#Local]] and [[fifo#^block1]]. Code [[not]].",
+            result.blocks().getFirst().text(), "brackets and targets stay in the canonical text, only hidden");
+        assertEquals("[[not a link]]\n", result.blocks().get(1).text());
+        var html = Jsoup.parse(result.html());
+        assertEquals(java.util.List.of("/note-link?target=stack", "/note-link?target=queues", "/note-link?target=stack&heading=Pop",
+                "/note-link?heading=Local", "/note-link?target=fifo"),
+            html.select("a.wikilink").eachAttr("href"));
+        var aliased = html.select("a.wikilink").get(1);
+        assertEquals(java.util.List.of("[[", "queues|", "]]"), aliased.select(".wl-hidden").eachText());
+        assertEquals("the queue note", aliased.ownText());
+        assertTrue(html.select("code a, pre a").isEmpty(), "code is never linked");
+        assertEquals(result.blocks().getFirst().text(), html.selectFirst("[data-block-id=b0]").attr("data-anchor-text"));
+    }
+
+    @Test void obsidianImageEmbedsBecomeImagesAndNoteEmbedsBecomeLinks() {
+        String source = "![[Pasted image 1.png]] and ![[diagram.svg|300]] and ![[other note]]";
+        var result = render(source);
+        assertEquals(source, result.blocks().getFirst().text());
+        var html = Jsoup.parse(result.html());
+        assertEquals(java.util.List.of(MarkdownRenderer.EMBED_PREFIX + "Pasted%20image%201.png", MarkdownRenderer.EMBED_PREFIX + "diagram.svg"),
+            html.select("#note img").eachAttr("src"));
+        assertEquals("300", html.select("#note img").get(1).attr("width"));
+        assertEquals("Pasted image 1.png", html.selectFirst("#note img").attr("alt"));
+        assertEquals(java.util.List.of("/note-link?target=other%20note"), html.select("a.wikilink").eachAttr("href"));
+    }
+
+    @Test void relativeMarkdownLinksBecomeNoteLinksResolvedAgainstTheNote() {
+        var html = Jsoup.parse(render("[next](../queues/fifo%20list.md#Enqueue) [root](/top.md) [out](../../../x.md) [web](https://example.com/a.md)").html());
+        assertEquals(java.util.List.of("/note-link?path=notes/queues/fifo%20list.md&heading=Enqueue", "/note-link?path=top.md",
+            "../../../x.md", "https://example.com/a.md"), html.select("#note a").eachAttr("href"));
+    }
+
     @Test void unicodeAndHardBreaksArePreserved() {
         var result = render("A 😀 **café**  \nsecond line");
         assertEquals("A 😀 café\nsecond line", result.blocks().getFirst().text());

@@ -33,7 +33,7 @@ public class Documents {
     public record Move(long documentId, String fromPath, String toPath) {}
     public record Existing(long id, String path, String blobSha, boolean deleted) {}
     public record Located(long id, String path, String title, String blobSha, String commitSha, boolean deleted,
-                          String owner, String repositoryName) {}
+                          String owner, String repositoryName, long connectionId) {}
 
     /**
      * Applies one complete tree snapshot. Moved documents take their new path first; then paths in the snapshot are
@@ -163,12 +163,12 @@ public class Documents {
     /** Finds a document only if it belongs to one of this user's connections. */
     public Optional<Located> find(long userId, long documentId) {
         return db.sql("""
-                select d.id, d.path, d.title, d.current_blob_sha, d.current_commit_sha, d.deleted_at is not null, c.owner, c.name
+                select d.id, d.path, d.title, d.current_blob_sha, d.current_commit_sha, d.deleted_at is not null, c.owner, c.name, c.id
                 from documents d join repository_connections c on c.id = d.repository_connection_id
                 where d.id = :id and c.user_id = :userId""")
             .param("id", documentId).param("userId", userId)
             .query((row, n) -> new Located(row.getLong(1), row.getString(2), row.getString(3), row.getString(4),
-                row.getString(5), row.getBoolean(6), row.getString(7), row.getString(8))).optional();
+                row.getString(5), row.getBoolean(6), row.getString(7), row.getString(8), row.getLong(9))).optional();
     }
 
     static String title(String path) {

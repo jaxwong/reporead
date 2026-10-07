@@ -44,7 +44,8 @@ sealed interface Screen {
     data object Repositories : Screen
     data object Available : Screen
     data class Folder(val repositoryId: Long, val repositoryName: String, val path: String) : Screen
-    data class Reader(val documentId: Long, val title: String) : Screen
+    /** [heading]: open at this heading (from a note link) instead of the saved reading position. */
+    data class Reader(val documentId: Long, val title: String, val heading: String? = null) : Screen
     data object Search : Screen
 }
 
@@ -52,7 +53,7 @@ private fun encode(screen: Screen): List<String> = when (screen) {
     Screen.Repositories -> listOf("repositories")
     Screen.Available -> listOf("available")
     is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
-    is Screen.Reader -> listOf("reader", screen.documentId.toString(), screen.title)
+    is Screen.Reader -> listOfNotNull("reader", screen.documentId.toString(), screen.title, screen.heading)
     Screen.Search -> listOf("search")
 }
 
@@ -60,7 +61,7 @@ private fun decode(parts: List<String>): Screen = when (parts[0]) {
     "repositories" -> Screen.Repositories
     "available" -> Screen.Available
     "folder" -> Screen.Folder(parts[1].toLong(), parts[2], parts[3])
-    "reader" -> Screen.Reader(parts[1].toLong(), parts[2])
+    "reader" -> Screen.Reader(parts[1].toLong(), parts[2], parts.getOrNull(3))
     "search" -> Screen.Search
     else -> error("Unknown saved screen ${parts[0]}")
 }
@@ -165,7 +166,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         Screen.Available -> AvailableScreen(api, onFailure, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
         is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push, onBack = pop,
             onDisconnected = { stack = listOf(Screen.Repositories) })
-        is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen, onBack = pop)
+        is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen, onBack = pop, push = push)
         Screen.Search -> SearchScreen(dao, push, onBack = pop)
     }
 }

@@ -1,0 +1,447 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 6,
+    "identityHash": "d908bc7acfa0cb6e9f95917c69c443a1",
+    "entities": [
+      {
+        "tableName": "repositories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `fullName` TEXT NOT NULL, `documentCount` INTEGER NOT NULL, `lastSyncedCommitSha` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fullName",
+            "columnName": "fullName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentCount",
+            "columnName": "documentCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedCommitSha",
+            "columnName": "lastSyncedCommitSha",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "documents",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `repositoryId` INTEGER NOT NULL, `path` TEXT NOT NULL, `title` TEXT NOT NULL, `blobSha` TEXT NOT NULL, `changedAt` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "repositoryId",
+            "columnName": "repositoryId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blobSha",
+            "columnName": "blobSha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "changedAt",
+            "columnName": "changedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_documents_repositoryId",
+            "unique": false,
+            "columnNames": [
+              "repositoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_documents_repositoryId` ON `${TABLE_NAME}` (`repositoryId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "notes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`documentId` INTEGER NOT NULL, `blobSha` TEXT NOT NULL, `commitSha` TEXT NOT NULL, `path` TEXT NOT NULL, `title` TEXT NOT NULL, `html` TEXT NOT NULL, `fetchedAt` INTEGER NOT NULL, `searchText` TEXT, `renderFormat` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`documentId`))",
+        "fields": [
+          {
+            "fieldPath": "documentId",
+            "columnName": "documentId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blobSha",
+            "columnName": "blobSha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "commitSha",
+            "columnName": "commitSha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "html",
+            "columnName": "html",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fetchedAt",
+            "columnName": "fetchedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "searchText",
+            "columnName": "searchText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "renderFormat",
+            "columnName": "renderFormat",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "documentId"
+          ]
+        }
+      },
+      {
+        "tableName": "reading_states",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`documentId` INTEGER NOT NULL, `title` TEXT NOT NULL, `path` TEXT NOT NULL, `lastReadBlobSha` TEXT NOT NULL, `progressPercent` INTEGER NOT NULL, `anchorJson` TEXT NOT NULL, `lastReadAt` INTEGER NOT NULL, `pending` INTEGER NOT NULL, `deleted` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`documentId`))",
+        "fields": [
+          {
+            "fieldPath": "documentId",
+            "columnName": "documentId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastReadBlobSha",
+            "columnName": "lastReadBlobSha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "progressPercent",
+            "columnName": "progressPercent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "anchorJson",
+            "columnName": "anchorJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastReadAt",
+            "columnName": "lastReadAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pending",
+            "columnName": "pending",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "documentId"
+          ]
+        }
+      },
+      {
+        "tableName": "bookmarks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`documentId` INTEGER NOT NULL, `title` TEXT NOT NULL, `path` TEXT NOT NULL, `sourceBlobSha` TEXT NOT NULL, `bookmarked` INTEGER NOT NULL, `pending` INTEGER NOT NULL, `changedAt` INTEGER NOT NULL, `deleted` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`documentId`))",
+        "fields": [
+          {
+            "fieldPath": "documentId",
+            "columnName": "documentId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceBlobSha",
+            "columnName": "sourceBlobSha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bookmarked",
+            "columnName": "bookmarked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pending",
+            "columnName": "pending",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "changedAt",
+            "columnName": "changedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deleted",
+            "columnName": "deleted",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "documentId"
+          ]
+        }
+      },
+      {
+        "tableName": "annotations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`mutationId` TEXT NOT NULL, `serverId` INTEGER, `documentId` INTEGER NOT NULL, `sourceBlobSha` TEXT NOT NULL, `blockId` TEXT NOT NULL, `startOffset` INTEGER NOT NULL, `endOffset` INTEGER NOT NULL, `exactText` TEXT NOT NULL, `note` TEXT, `version` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `pending` INTEGER NOT NULL, `rejection` TEXT, `prefixText` TEXT NOT NULL DEFAULT '', `suffixText` TEXT NOT NULL DEFAULT '', `status` TEXT, `resolvedBlobSha` TEXT, `locationblobSha` TEXT, `locationblockId` TEXT, `locationstartOffset` INTEGER, `locationendOffset` INTEGER, `locationexactText` TEXT, PRIMARY KEY(`mutationId`))",
+        "fields": [
+          {
+            "fieldPath": "mutationId",
+            "columnName": "mutationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serverId",
+            "columnName": "serverId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "documentId",
+            "columnName": "documentId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceBlobSha",
+            "columnName": "sourceBlobSha",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blockId",
+            "columnName": "blockId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startOffset",
+            "columnName": "startOffset",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endOffset",
+            "columnName": "endOffset",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "exactText",
+            "columnName": "exactText",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "version",
+            "columnName": "version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pending",
+            "columnName": "pending",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejection",
+            "columnName": "rejection",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "prefixText",
+            "columnName": "prefixText",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "suffixText",
+            "columnName": "suffixText",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "resolvedBlobSha",
+            "columnName": "resolvedBlobSha",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "location.blobSha",
+            "columnName": "locationblobSha",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "location.blockId",
+            "columnName": "locationblockId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "location.startOffset",
+            "columnName": "locationstartOffset",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "location.endOffset",
+            "columnName": "locationendOffset",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "location.exactText",
+            "columnName": "locationexactText",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "mutationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_annotations_documentId",
+            "unique": false,
+            "columnNames": [
+              "documentId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_annotations_documentId` ON `${TABLE_NAME}` (`documentId`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd908bc7acfa0cb6e9f95917c69c443a1')"
+    ]
+  }
+}

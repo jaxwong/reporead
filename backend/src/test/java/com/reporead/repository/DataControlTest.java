@@ -132,6 +132,8 @@ class DataControlTest {
             .andExpect(status().isOk()).andExpect(jsonPath("$.documents").value(2)).andExpect(jsonPath("$.readingStates").value(2))
             .andExpect(jsonPath("$.bookmarks").value(1)).andExpect(jsonPath("$.highlights").value(1));
 
+        db.sql("insert into repository_images (repository_connection_id, path) values (:notes, 'a.png'), (:other, 'b.png')")
+            .param("notes", notes).param("other", other).update();
         mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
             .andExpect(status().isOk()).andExpect(jsonPath("$.documentIds.length()").value(2))
             .andExpect(jsonPath("$.documentIds[0]").value(active)).andExpect(jsonPath("$.documentIds[1]").value(removedUpstream))
@@ -141,6 +143,7 @@ class DataControlTest {
         assertEquals(List.of(otherNote, bobNote), db.sql("select id from documents order by id").query(Long.class).list());
         assertEquals(List.of(otherNote, bobNote), db.sql("select document_id from reading_states order by document_id").query(Long.class).list());
         assertEquals(List.of(otherNote, bobNote), db.sql("select document_id from annotations order by document_id").query(Long.class).list());
+        assertEquals(List.of("b.png"), db.sql("select path from repository_images").query(String.class).list());
         assertEquals(2, count("select count(*) from annotation_anchors"));
         assertEquals(2, count("select count(*) from annotation_locations"));
         // The deleted highlight's mutation keeps only its hash, so a late replay is answered as deleted, not recreated.

@@ -38,6 +38,19 @@ public final class MarkdownRenderer {
             "gif", "image/gif", "webp", "image/webp", "svg", "image/svg+xml");
     /** Same-origin path that the Android reader serves from its cache or the authenticated image endpoint. */
     public static final String IMAGE_PREFIX = "/repo-image/";
+    /** Same-origin path for an Obsidian image embed by attachment name, resolved by the server's image endpoint. */
+    public static final String EMBED_PREFIX = "/repo-embed/";
+    /**
+     * Same-origin path the reader app intercepts to open another note: {@code target} (an Obsidian link name) or
+     * {@code path} (a repository path from a relative Markdown link), and an optional {@code heading}.
+     */
+    public static final String NOTE_LINK = "/note-link";
+    /**
+     * The page format the app relies on; bumped when rendered HTML gains something a saved copy would lack. 2: note
+     * links and Obsidian embeds.
+     */
+    public static final int FORMAT = 2;
+    private static final java.util.regex.Pattern WIKILINK = java.util.regex.Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
     private static final int MAX_BLOCKS = 4_096;
     private static final String BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,pre,td,th,li";
     private static final String ORIGIN = "https://appassets.androidplatform.net";
@@ -119,6 +132,7 @@ public final class MarkdownRenderer {
                 image.attr("src", IMAGE_PREFIX + UriUtils.encodePath(path.get(), StandardCharsets.UTF_8)).attr("loading", "eager");
             }
         }
+        images = linkNotes(clean, documentPath, images);
         for (var input : clean.select("input")) {
             if (!input.attr("type").equals("checkbox")) throw new IllegalStateException("Parser emitted a non-checkbox input");
             input.attr("disabled", "");
@@ -197,6 +211,99 @@ public final class MarkdownRenderer {
         return List.copyOf(lines);
     }
 
+    /**
+     * Obsidian {@code [[links]]} and {@code ![[embeds]]} outside code, and relative links to {@code .md} files, become
+     * note links and attachment images. The original text stays in the page — what is not shown is in hidden spans — so
+     * canonical block text, and every anchor into it, is unchanged. Returns the image count including embeds.
+     */
+    private static int linkNotes(Document clean, String documentPath, int images) {
+        for (var link : clean.select("a[href]")) {
+            String href = link.attr("href");
+            if (href.startsWith("//") || href.startsWith("#") || href.matches("^[A-Za-z][A-Za-z0-9+.-]*:.*")) continue;
+            String[] parts = href.split("#", 2);
+            if (!parts[0].toLowerCase(Locale.ROOT).endsWith(".md")) continue;
+            var path = repositoryPath(documentPath, parts[0]);
+            if (path.isEmpty()) continue;
+            String heading = null;
+            if (parts.length == 2 && !parts[1].isEmpty()) {
+                try {
+                    heading = UriUtils.decode(parts[1], StandardCharsets.UTF_8);
+                } catch (IllegalArgumentException malformed) {
+                    // A malformed fragment still opens the note, just not at a heading.
+                    heading = null;
+                }
+            }
+            link.attr("href", noteLink("path", path.get(), heading));
+        }
+        var texts = new ArrayList<TextNode>();
+        for (var element : clean.body().getAllElements()) {
+            if (element.closest("a, code, pre") != null) continue;
+            for (var node : element.textNodes()) if (node.getWholeText().contains("[[")) texts.add(node);
+        }
+        for (var text : texts) {
+            String whole = text.getWholeText();
+            var matcher = WIKILINK.matcher(whole);
+            var replacement = new ArrayList<org.jsoup.nodes.Node>();
+            int last = 0;
+            while (matcher.find()) {
+                if (matcher.start() > last) replacement.add(new TextNode(whole.substring(last, matcher.start())));
+                boolean embed = !matcher.group(1).isEmpty();
+                String inner = matcher.group(2);
+                int bar = inner.indexOf('|');
+                String target = bar < 0 ? inner : inner.substring(0, bar);
+                String alias = bar < 0 ? null : inner.substring(bar + 1);
+                int hash = target.indexOf('#');
+                String name = (hash < 0 ? target : target.substring(0, hash)).trim();
+                String heading = hash < 0 ? null : target.substring(target.lastIndexOf('#') + 1).trim();
+                if (heading != null && (heading.isEmpty() || heading.startsWith("^"))) heading = null;
+                String extension = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT) : "";
+                if (embed && IMAGE_TYPES.containsKey(extension)) {
+                    var span = new Element("span").addClass("embed").appendChild(hidden(matcher.group()));
+                    if (++images > MAX_IMAGES) {
+                        span.appendChild(new Element("span").addClass("image-blocked").attr("data-label", "[Image limit reached: " + name + "]"));
+                    } else {
+                        var image = new Element("img").attr("src", EMBED_PREFIX + UriUtils.encodePath(name, StandardCharsets.UTF_8))
+                            .attr("alt", name).attr("loading", "eager");
+                        if (alias != null && alias.trim().matches("\\d{1,4}(x\\d{1,4})?")) {
+                            String[] size = alias.trim().split("x");
+                            image.attr("width", size[0]);
+                            if (size.length == 2) image.attr("height", size[1]);
+                        }
+                        span.appendChild(image);
+                    }
+                    replacement.add(span);
+                } else if (name.isEmpty() && heading == null) {
+                    replacement.add(new TextNode(matcher.group()));
+                } else {
+                    var link = new Element("a").addClass("wikilink")
+                        .attr("href", name.isEmpty() ? noteLink(null, null, heading) : noteLink("target", name, heading));
+                    link.appendChild(hidden(matcher.group(1) + "[["));
+                    if (alias != null) link.appendChild(hidden(target + "|")).appendChild(new TextNode(alias));
+                    else link.appendChild(new TextNode(target));
+                    link.appendChild(hidden("]]"));
+                    replacement.add(link);
+                }
+                last = matcher.end();
+            }
+            if (replacement.isEmpty()) continue;
+            if (last < whole.length()) replacement.add(new TextNode(whole.substring(last)));
+            for (var node : replacement) text.before(node);
+            text.remove();
+        }
+        return images;
+    }
+
+    private static Element hidden(String text) {
+        return new Element("span").addClass("wl-hidden").appendChild(new TextNode(text));
+    }
+
+    private static String noteLink(String key, String value, String heading) {
+        var query = new ArrayList<String>();
+        if (key != null) query.add(key + "=" + UriUtils.encodeQueryParam(value, StandardCharsets.UTF_8));
+        if (heading != null) query.add("heading=" + UriUtils.encodeQueryParam(heading, StandardCharsets.UTF_8));
+        return NOTE_LINK + "?" + String.join("&", query);
+    }
+
     private static Element blockedImage(String reason, String alt) {
         return new Element("span").addClass("image-blocked").text("[" + reason + ": " + alt + "]");
     }
@@ -206,6 +313,14 @@ public final class MarkdownRenderer {
      * Empty when the reference escapes the repository, is malformed, or is not a supported image type.
      */
     static Optional<String> repositoryImagePath(String documentPath, String src) {
+        return repositoryPath(documentPath, src).filter(MarkdownRenderer::isImagePath);
+    }
+
+    /**
+     * Resolves a relative or root-relative reference against the note's directory, as GitHub does. Empty when it
+     * escapes the repository or is malformed.
+     */
+    static Optional<String> repositoryPath(String documentPath, String src) {
         String reference = src.split("[?#]", 2)[0];
         if (reference.isEmpty()) return Optional.empty();
         try {
@@ -228,8 +343,7 @@ public final class MarkdownRenderer {
             }
         }
         if (segments.isEmpty()) return Optional.empty();
-        String path = String.join("/", segments);
-        return isImagePath(path) ? Optional.of(path) : Optional.empty();
+        return Optional.of(String.join("/", segments));
     }
 
     /** A normalized repository path (no empty, ".", or ".." segments) with a supported image extension. */

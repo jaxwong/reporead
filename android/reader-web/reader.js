@@ -222,6 +222,15 @@ window.reporead.highlight = annotations => {
   return missing;
 };
 
+/** Scrolls the first heading whose text is [text] (ignoring case and spacing), as Obsidian heading links do. */
+window.reporead.showHeading = text => {
+  const wanted = text.trim().toLowerCase();
+  const heading = blocks.find(block => /^H[1-6]$/.test(block.tagName) && block.dataset.anchorText.trim().toLowerCase() === wanted);
+  if (!heading) return false;
+  scrollToElement(heading, 'start');
+  return true;
+};
+
 /** Scrolls a changed section's heading block to the top of the screen; null is the beginning of the note. */
 window.reporead.showBlock = blockId => {
   if (blockId === null) {

@@ -33,6 +33,9 @@ data class Changes(val status: String, val reason: String?, val addedLines: Int,
  * Owns how the offline cache and the backend meet. Every network operation is explicit and foreground; a failed
  * call ends that operation and leaves the previous complete cache untouched. Nothing here retries.
  */
+/** The page format this app needs from the server (MarkdownRenderer.FORMAT): 2 adds note links and Obsidian embeds. */
+const val RENDER_FORMAT = 2
+
 class Sync(private val api: Api, private val store: LocalStore, filesDir: File) {
     private val dao = store.library()
     private val imageRoot = File(filesDir, "images")
@@ -76,14 +79,15 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
     /**
      * A cached copy of the document's current version and path opens without a network call (the rendered page depends
      * on the path too: its label and relative images). Otherwise the current version is fetched; if that fails, an older
-     * cached copy is shown with the reason, and a missing cache is the failure itself. A current copy saved before search
-     * existed is fetched once more for its search text; if that fails it is still current, so it opens without a warning.
+     * cached copy is shown with the reason, and a missing cache is the failure itself. A current copy saved in an older page
+     * format (without search text, note links, or embeds) is fetched once more; if that fails it is still the current
+     * version, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
         val cachedIsCurrent = cached != null && current != null && cached.blobSha == current.blobSha && cached.path == current.path
-        if (cachedIsCurrent && cached!!.searchText != null) return Opened(cached, null)
+        if (cachedIsCurrent && cached!!.renderFormat >= RENDER_FORMAT) return Opened(cached, null)
         val json = try {
             api.get("/api/documents/$documentId/content")
         } catch (error: ApiException) {
@@ -93,7 +97,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         }
         val note = contract {
             NoteRow(documentId, json.getString("sourceBlobSha"), json.getString("commitSha"), json.getString("path"),
-                json.getString("title"), json.getString("html"), System.currentTimeMillis(), json.getString("text"))
+                json.getString("title"), json.getString("html"), System.currentTimeMillis(), json.getString("text"), json.getInt("renderFormat"))
         }
         dao.saveNote(note)
         File(imageRoot, documentId.toString()).listFiles()?.filter { it.name != note.blobSha }?.forEach { it.deleteRecursively() }
@@ -306,11 +310,18 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
      * A repository image for the displayed note version: from the cache, else fetched through the backend with the
      * bearer token (blocking; call from a background thread). Null when it is neither cached nor fetchable.
      */
-    fun image(documentId: Long, blobSha: String, path: String): ByteArray? {
-        val file = File(imageRoot, "$documentId/$blobSha/${sha256(path)}")
+    fun image(documentId: Long, blobSha: String, path: String): ByteArray? =
+        cachedImage(documentId, blobSha, sha256(path), "path=${URLEncoder.encode(path, Charsets.UTF_8)}")
+
+    /** The same for an Obsidian embed by attachment name; the server resolves the name (missing or ambiguous: null). */
+    fun embedImage(documentId: Long, blobSha: String, name: String): ByteArray? =
+        cachedImage(documentId, blobSha, sha256("embed:$name"), "embed=${URLEncoder.encode(name, Charsets.UTF_8)}")
+
+    private fun cachedImage(documentId: Long, blobSha: String, key: String, query: String): ByteArray? {
+        val file = File(imageRoot, "$documentId/$blobSha/$key")
         if (file.isFile) return file.readBytes()
         val bytes = try {
-            api.bytes("/api/documents/$documentId/image?path=${URLEncoder.encode(path, Charsets.UTF_8)}")
+            api.bytes("/api/documents/$documentId/image?$query")
         } catch (error: ApiException) {
             Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
             return null
