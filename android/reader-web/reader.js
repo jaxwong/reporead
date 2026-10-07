@@ -231,6 +231,13 @@ window.reporead.showHeading = text => {
   return true;
 };
 
+/**
+ * The note's headings in order, for the outline: block id, index in the block list (comparable with position()'s
+ * blockIndex), level, and the text as shown — hidden link targets are left out, so it reads like the page.
+ */
+window.reporead.outline = () => blocks.flatMap((block, index) => /^H[1-6]$/.test(block.tagName)
+  ? [{blockId: block.dataset.blockId, index, level: Number(block.tagName[1]), text: block.innerText.trim()}] : []);
+
 /** Scrolls a changed section's heading block to the top of the screen; null is the beginning of the note. */
 window.reporead.showBlock = blockId => {
   if (blockId === null) {

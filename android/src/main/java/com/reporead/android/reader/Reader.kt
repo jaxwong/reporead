@@ -70,6 +70,7 @@ private const val NOTE_LINK = "/note-link"
 private val IMAGE_TYPES = mapOf("png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "gif" to "image/gif",
     "webp" to "image/webp", "svg" to "image/svg+xml")
 private const val SAVE_AFTER_SCROLL_MS = 700L
+private const val SECTION_AFTER_SCROLL_MS = 150L
 private const val READY_POLL_MS = 150L
 private const val READY_POLL_LIMIT = 100
 
@@ -122,6 +123,11 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     /** The displayed page's session, for scrolling to a heading linked from the same note. */
     var sessionRef by remember { mutableStateOf<ReaderSession?>(null) }
+    /** The displayed page's headings (null until it has rendered) and the first block at the top of the screen. */
+    var outline by remember(displayed) { mutableStateOf<List<OutlineEntry>?>(null) }
+    var topBlock by remember(displayed) { mutableIntStateOf(0) }
+    var outlineOpen by remember { mutableStateOf(false) }
+    val section = outline?.sectionAt(topBlock)
 
     if (signedIn) {
         LaunchedEffect(screen.documentId) {
@@ -161,8 +167,11 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     }
 
     Column(Modifier.fillMaxSize()) {
-        AppBar(screen.title, onBack = onBack, actions = {
+        AppBar(screen.title, subtitle = section?.text?.ifBlank { null }, onBack = onBack, actions = {
             val opened = (load as? Load.Ready)?.value
+            if (!outline.isNullOrEmpty()) {
+                IconButton(onClick = { outlineOpen = true }) { AppIcon(R.drawable.ic_toc, "Outline") }
+            }
             if (opened != null) {
                 IconButton(onClick = { notesOpen = !notesOpen }) {
                     BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
@@ -212,6 +221,8 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                         }
                     },
                     onNotShown = { notShown = it },
+                    onOutline = { outline = it },
+                    onTopBlock = { topBlock = it },
                     reattaching = { reattaching != null },
                     onSelection = { selection, action ->
                         val placing = reattaching
@@ -257,6 +268,12 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                     modifier = Modifier.fillMaxWidth().weight(0.7f))
             }
         }
+    }
+    outline?.takeIf { outlineOpen && it.isNotEmpty() }?.let { headings ->
+        OutlineSheet(headings, section, onDismiss = { outlineOpen = false }, onJump = { entry ->
+            outlineOpen = false
+            sessionRef?.showBlock(entry.blockId) { shown -> if (!shown) message = "Couldn't scroll to “${entry.text}”; reopen the note." }
+        })
     }
     linkChoices?.let { (heading, choices) ->
         androidx.compose.material3.AlertDialog(
@@ -305,6 +322,10 @@ private class ReaderSession(
     /** A tapped note link: an Obsidian [target] name or a repository [path], and an optional heading. */
     private val onNoteLink: (target: String?, path: String?, heading: String?) -> Unit,
     private val onNotShown: (Set<String>) -> Unit,
+    /** The page's headings, once rendering has finished. */
+    private val onOutline: (List<OutlineEntry>) -> Unit,
+    /** The index of the first block visible at the top, after scrolling settles and whenever the position is saved. */
+    private val onTopBlock: (Int) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
     /** The captured selection (null when empty, {error} when it spans blocks) and the chosen action. */
@@ -318,6 +339,7 @@ private class ReaderSession(
     /** Saving starts only after the saved position is restored, so the top of the page never overwrites it. */
     private var restored = false
     private val saveAfterScroll = Runnable { capture() }
+    private val sectionAfterScroll = Runnable { reportTopBlock() }
 
     fun createView(context: Context): WebView {
         val assets = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context)).build()
@@ -382,7 +404,9 @@ private class ReaderSession(
             }
             setOnScrollChangeListener { _, _, _, _, _ ->
                 main.removeCallbacks(saveAfterScroll)
+                main.removeCallbacks(sectionAfterScroll)
                 if (restored) main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
+                if (ready) main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
             }
             view = this
             loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
@@ -396,6 +420,9 @@ private class ReaderSession(
                     Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height} attempt=$attempt")
                     ready = true
                     applyHighlights()
+                    view.evaluateJavascript("JSON.stringify(window.reporead.outline())") { outline ->
+                        onOutline(parseOutline(JSONTokener(outline).nextValue() as String))
+                    }
                     restore(view)
                 }
                 "failed" -> Log.w("RepoRead", "Reader render failed; position not saved; documentId=${note.documentId}")
@@ -455,12 +482,20 @@ private class ReaderSession(
             val row = ReadingRow(note.documentId, note.title, note.path, note.blobSha, position.getInt("progressPercent"),
                 position.getJSONObject("anchor").toString(), System.currentTimeMillis(), pending = true)
             scope.launch { sync.saveReading(row) }
+            onTopBlock(position.getJSONObject("anchor").getInt("blockIndex"))
             then()
         }
     }
 
+    private fun reportTopBlock() {
+        val webView = view ?: return
+        if (!ready) return
+        webView.evaluateJavascript("window.reporead.position().anchor.blockIndex") { encoded -> onTopBlock(JSONTokener(encoded).nextValue() as Int) }
+    }
+
     /** Saves the final position before destroying the view; later lifecycle events no longer touch it. */
     fun release(webView: WebView) {
+        main.removeCallbacks(sectionAfterScroll)
         capture { webView.destroy() }
         view = null
         restored = false
