@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -95,7 +97,9 @@ private fun RefreshOnEntry(key: Any, onFailure: (ApiException) -> Unit, onStatus
 
 @Composable
 fun RepositoriesScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (ApiException) -> Unit, push: (Screen) -> Unit,
-                       onSignIn: () -> Unit, onSignOut: () -> Unit) {
+                       onSignIn: () -> Unit, onSignOut: () -> Unit, onAccountDeleted: () -> Unit) {
+    var confirmDeleteAccount by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
     var status by remember { mutableStateOf<String?>(null) }
     val repositories by dao.repositories().collectAsState(emptyList())
@@ -169,8 +173,46 @@ fun RepositoriesScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure
                     push(Screen.Folder(repository.id, repository.fullName, ""))
                 }
             }
+            if (signedIn) {
+                section("Account")
+                item(key = "account:delete") {
+                    TextButton(onClick = { confirmDeleteAccount = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Delete account…") }
+                }
+            }
         }
     }
+    if (confirmDeleteAccount) {
+        DeleteAccountDialog(repositories.map { it.fullName }, onDismiss = { confirmDeleteAccount = false }, onConfirm = {
+            confirmDeleteAccount = false
+            status = "Deleting account…"
+            scope.launch {
+                try {
+                    sync.deleteAccount()
+                    onAccountDeleted()
+                } catch (failure: ApiException) {
+                    onFailure(failure)
+                    status = "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
+                }
+            }
+        })
+    }
+}
+
+@Composable
+private fun DeleteAccountDialog(repositories: List<String>, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete your RepoRead account?") },
+        text = {
+            Text("RepoRead will delete, on its server and this phone, your connections" +
+                (if (repositories.isEmpty()) "" else " (${repositories.joinToString()})") +
+                ", note lists, reading progress, bookmarks, highlights and notes, and sign this phone out. This cannot be undone. " +
+                "Your GitHub repositories are not changed. To also remove RepoRead's GitHub authorization and App, use GitHub's " +
+                "Settings → Applications.")
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete account") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -243,8 +285,12 @@ internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<S
 }
 
 @Composable
-fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (ApiException) -> Unit, screen: Screen.Folder, push: (Screen) -> Unit) {
+fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (ApiException) -> Unit, screen: Screen.Folder, push: (Screen) -> Unit,
+                 onDisconnected: () -> Unit) {
     var status by remember { mutableStateOf<String?>(null) }
+    /** What disconnecting would delete, fetched for the confirmation; non-null while it is shown. */
+    var confirmDisconnect by remember { mutableStateOf<Sync.StoredData?>(null) }
+    var disconnecting by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var listed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -260,8 +306,8 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
     Column(Modifier.fillMaxSize()) {
         Header(if (screen.path.isEmpty()) screen.repositoryName else screen.path.substringAfterLast('/'),
             if (screen.path.isEmpty()) null else "${screen.repositoryName} / ${screen.path}")
-        if (signedIn && screen.path.isEmpty()) {
-            Button(enabled = !refreshing, modifier = Modifier.padding(horizontal = 16.dp), onClick = {
+        if (signedIn && screen.path.isEmpty()) Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(enabled = !refreshing && !disconnecting, onClick = {
                 refreshing = true
                 status = null
                 scope.launch {
@@ -276,8 +322,50 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                     }
                 }
             }) { Text(if (refreshing) "Refreshing…" else "Refresh from GitHub") }
+            OutlinedButton(enabled = !refreshing && !disconnecting, onClick = {
+                status = null
+                scope.launch {
+                    try {
+                        confirmDisconnect = sync.storedData(screen.repositoryId)
+                    } catch (failure: ApiException) {
+                        onFailure(failure)
+                        status = "Can't disconnect now. ${failure.describe()}"
+                    }
+                }
+            }) { Text("Disconnect…") }
         }
         Status(status)
+        confirmDisconnect?.let { stored ->
+            AlertDialog(
+                onDismissRequest = { confirmDisconnect = null },
+                title = { Text("Disconnect ${screen.repositoryName}?") },
+                text = {
+                    Text("RepoRead will delete, on its server and this phone, its list of ${stored.documents} notes, your reading progress on " +
+                        "${stored.readingStates}, ${stored.bookmarks} bookmarks, and ${stored.highlights} highlights with their notes, " +
+                        "including changes not yet synced. This cannot be undone. The repository on GitHub is not changed; to remove " +
+                        "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub.")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDisconnect = null
+                        disconnecting = true
+                        status = "Disconnecting…"
+                        scope.launch {
+                            try {
+                                sync.disconnect(screen.repositoryId)
+                                onDisconnected()
+                            } catch (failure: ApiException) {
+                                onFailure(failure)
+                                status = "Not disconnected; nothing was deleted on this phone. ${failure.describe()}"
+                            } finally {
+                                disconnecting = false
+                            }
+                        }
+                    }) { Text("Disconnect") }
+                },
+                dismissButton = { TextButton(onClick = { confirmDisconnect = null }) { Text("Cancel") } },
+            )
+        }
         val rows = documents ?: return@Column
         val (folders, notes) = children(rows, screen.path)
         when {

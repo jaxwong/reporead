@@ -13,6 +13,8 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
@@ -116,6 +118,32 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                         item.nullableString("blockId"), item.getInt("addedLines"), item.getInt("removedLines"))
                 })
         }
+    }
+
+    data class StoredData(val documents: Int, val readingStates: Int, val bookmarks: Int, val highlights: Int)
+
+    /** What disconnecting [repositoryId] would delete on the server, for the confirmation. */
+    suspend fun storedData(repositoryId: Long): StoredData {
+        val json = api.get("/api/repositories/$repositoryId/stored-data")
+        return contract { StoredData(json.getInt("documents"), json.getInt("readingStates"), json.getInt("bookmarks"), json.getInt("highlights")) }
+    }
+
+    /**
+     * Online only: the server deletes the connection and everything stored for it, then this phone deletes its copies,
+     * including unsynced changes for those notes. A failure changes nothing on the phone.
+     */
+    suspend fun disconnect(repositoryId: Long) {
+        val json = api.delete("/api/repositories/$repositoryId") ?: throw ApiException(204, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
+        val documentIds = contract { json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } } }
+        dao.forgetRepository(repositoryId, documentIds)
+        for (id in documentIds) File(imageRoot, id.toString()).deleteRecursively()
+        Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
+    }
+
+    /** Online only: the server deletes the account and everything it stored; then this phone's copy is cleared. */
+    suspend fun deleteAccount() {
+        api.delete("/api/account")
+        withContext(Dispatchers.IO) { clearAll() }
     }
 
     /** Only the reader calls this, with the version it actually displayed. */

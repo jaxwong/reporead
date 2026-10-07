@@ -48,6 +48,12 @@ public class ReadingStates {
             .param("userId", userId).param("documentId", documentId).query(this::state).single();
     }
 
+    /** Deletes reading progress on a connection's documents; returns how many states were deleted. */
+    public int deleteOnConnection(long connectionId) {
+        return db.sql("delete from reading_states where document_id in (select id from documents where repository_connection_id = :connectionId)")
+            .param("connectionId", connectionId).update();
+    }
+
     /** Most recently read first. Bounded by the user's documents. */
     List<State> list(long userId) {
         return db.sql(SELECT + " where r.user_id = :userId order by r.last_read_at desc")

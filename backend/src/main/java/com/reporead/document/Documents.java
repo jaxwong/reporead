@@ -124,6 +124,12 @@ public class Documents {
             && !claimedIds.contains(move.documentId()) && !claimedPaths.contains(move.toPath())).toList();
     }
 
+    /** Deletes a connection's documents, active and deleted upstream; returns their ids. Reading and annotation rows must go first. */
+    public List<Long> deleteConnection(long connectionId) {
+        return db.sql("delete from documents where repository_connection_id = :connectionId returning id")
+            .param("connectionId", connectionId).query(Long.class).list().stream().sorted().toList();
+    }
+
     public List<Existing> existing(long connectionId) {
         return db.sql("select id, path, current_blob_sha, deleted_at is not null from documents where repository_connection_id = :connectionId")
             .param("connectionId", connectionId)
