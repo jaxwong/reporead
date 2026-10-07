@@ -2,6 +2,7 @@ package com.reporead.auth;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -50,6 +51,7 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 @Configuration
 public class GitHubSecurity {
+    static final String GITHUB_REQUESTS = "reporead.github.requests";
     private static final Logger LOG = LoggerFactory.getLogger(GitHubSecurity.class);
     /** Ceiling for OAuth, metadata, and raw note responses; equals MarkdownRenderer.MAX_NOTE_BYTES. */
     public static final int MAX_RESPONSE_BYTES = 1_048_576;
@@ -92,24 +94,38 @@ public class GitHubSecurity {
     }
 
     @Bean
-    RestTemplate githubUserApi(JdkClientHttpRequestFactory githubRequestFactory) {
+    RestTemplate githubUserApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_RESPONSE_BYTES)));
+        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_RESPONSE_BYTES, meters)));
         return rest;
     }
 
     @Bean
-    RestTemplate githubTreeApi(JdkClientHttpRequestFactory githubRequestFactory) {
+    RestTemplate githubTreeApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_TREE_RESPONSE_BYTES)));
+        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_TREE_RESPONSE_BYTES, meters)));
         return rest;
     }
 
     @Bean
-    RestTemplate githubImageApi(JdkClientHttpRequestFactory githubRequestFactory) {
+    RestTemplate githubImageApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_IMAGE_RESPONSE_BYTES)));
+        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_IMAGE_RESPONSE_BYTES, meters)));
         return rest;
+    }
+
+    /**
+     * The management server (loopback only, a port adb reverse does not forward) exposes only health and metrics, which
+     * hold counts, never repository content or credentials.
+     */
+    @Bean
+    @Order(0)
+    SecurityFilterChain management(HttpSecurity http, @Value("${management.server.port}") int managementPort) throws Exception {
+        http.securityMatcher(request -> request.getLocalPort() == managementPort)
+            .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .csrf(csrf -> csrf.disable());
+        return http.build();
     }
 
     /** /api is bearer-only and stateless: no session cookie can authenticate it, so CSRF does not apply. */
@@ -133,19 +149,19 @@ public class GitHubSecurity {
     @Order(2)
     SecurityFilterChain browser(HttpSecurity http, ClientRegistrationRepository registrations,
                                 OAuth2AuthorizedClientService clients,
-                                JdkClientHttpRequestFactory githubRequestFactory, AppSessions sessions) throws Exception {
+                                JdkClientHttpRequestFactory githubRequestFactory, AppSessions sessions, MeterRegistry meters) throws Exception {
         var resolver = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
         resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
 
         var tokenClient = new RestClientAuthorizationCodeTokenResponseClient();
         tokenClient.setRestClient(RestClient.builder().requestFactory(githubRequestFactory)
-            .requestInterceptor(boundedResponse(MAX_RESPONSE_BYTES))
+            .requestInterceptor(boundedResponse(MAX_RESPONSE_BYTES, meters))
             .configureMessageConverters(converters -> converters.disableDefaults()
                 .addCustomConverter(new FormHttpMessageConverter())
                 .addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter()))
             .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler()).build());
         var userHttp = new RestTemplate(githubRequestFactory);
-        userHttp.setInterceptors(java.util.List.of(boundedResponse(MAX_RESPONSE_BYTES)));
+        userHttp.setInterceptors(java.util.List.of(boundedResponse(MAX_RESPONSE_BYTES, meters)));
         userHttp.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
         var userService = new DefaultOAuth2UserService();
         userService.setRestOperations(userHttp);
@@ -190,11 +206,19 @@ public class GitHubSecurity {
     }
 
     // OAuth login makes at most two application-level requests: token exchange, then user identity.
-    static ClientHttpRequestInterceptor boundedResponse(int maxBytes) {
+    // Every GitHub request passes here, so it is also where they are counted: reporead.github.requests by outcome
+    // (status family, too_large, or failed). Tags never include paths, which name private repositories and notes.
+    static ClientHttpRequestInterceptor boundedResponse(int maxBytes, MeterRegistry meters) {
         return (request, body, execution) -> {
             request.getHeaders().set(HttpHeaders.USER_AGENT, "RepoRead");
             request.getHeaders().set("X-GitHub-Api-Version", "2026-03-10");
-            var response = execution.execute(request, body);
+            ClientHttpResponse response;
+            try {
+                response = execution.execute(request, body);
+            } catch (IOException error) {
+                meters.counter(GITHUB_REQUESTS, "outcome", "failed").increment();
+                throw error;
+            }
             byte[] bytes;
             try {
                 bytes = response.getBody().readNBytes(maxBytes + 1);
@@ -203,9 +227,11 @@ public class GitHubSecurity {
                 }
             } catch (IOException error) {
                 response.close();
+                meters.counter(GITHUB_REQUESTS, "outcome", error instanceof ResponseTooLarge ? "too_large" : "failed").increment();
                 LOG.warn("GitHub response failed; endpoint={} failureType={}", request.getURI().getPath(), error.getClass().getSimpleName());
                 throw error;
             }
+            meters.counter(GITHUB_REQUESTS, "outcome", (response.getStatusCode().value() / 100) + "xx").increment();
             LOG.info("GitHub response; endpoint={} status={} bytes={}", request.getURI().getPath(), response.getStatusCode().value(), bytes.length);
             return new ClientHttpResponse() {
                 private final InputStream buffered = new ByteArrayInputStream(bytes);

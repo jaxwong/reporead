@@ -67,6 +67,12 @@ class AnnotationTest {
     @Autowired ClientRegistrationRepository registrations;
     @Autowired AppSessions sessions;
     @Autowired JdbcClient db;
+    @Autowired io.micrometer.core.instrument.MeterRegistry meters;
+
+    /** Sum of a counter across its tags; meters are shared by every test in the context, so tests compare deltas. */
+    private double total(String name) {
+        return meters.find(name).counters().stream().mapToDouble(io.micrometer.core.instrument.Counter::count).sum();
+    }
     MockRestServiceServer github;
     String alice;
     long note;
@@ -146,11 +152,13 @@ class AnnotationTest {
 
     @Test void replayAfterALostAcknowledgementReturnsTheOriginalWithoutGitHub() throws Exception {
         expectSource(ExpectedCount.once());
+        double created = total(AnnotationController.CREATED);
         String json = body(UUID.randomUUID().toString(), "b2", START, EXACT, null);
         String first = create(alice, note, json).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         String second = create(alice, note, json).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertEquals(first, second);
         assertEquals(1, count("annotations"));
+        assertEquals(created + 1, total(AnnotationController.CREATED), "a replay is not counted as a new highlight");
     }
 
     @Test void reusingAMutationIdForDifferentContentIsRejected() throws Exception {
@@ -300,12 +308,14 @@ class AnnotationTest {
         next();
         moveNoteTo(REWRITTEN_SHA);
         expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
+        double orphaned = meters.counter(AnnotationController.REANCHOR, "outcome", "ORPHANED").count();
         list(alice).andExpect(jsonPath("$.annotations[0].status").value("ORPHANED"))
             .andExpect(jsonPath("$.annotations[0].resolvedBlobSha").value(REWRITTEN_SHA))
             .andExpect(jsonPath("$.annotations[0].location.sourceBlobSha").value(OLD_SHA))
             .andExpect(jsonPath("$.annotations[0].anchor.exactText").value(EXACT))
             .andExpect(jsonPath("$.annotations[0].anchor.prefixText").value("By default, "))
             .andExpect(jsonPath("$.annotations[0].note").value("about proxies"));
+        assertEquals(orphaned + 1, meters.counter(AnnotationController.REANCHOR, "outcome", "ORPHANED").count());
         next();
 
         // Rejected before GitHub: no version, or a malformed selection.
@@ -377,11 +387,13 @@ class AnnotationTest {
         createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
         next();
         expectVersion(ExpectedCount.between(1, 4), CURRENT_SHA, CURRENT);
+        double resolutions = total(AnnotationController.REANCHOR);
         Callable<Integer> listing = () -> list(alice).andReturn().getResponse().getStatus();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var result : executor.invokeAll(List.of(listing, listing, listing, listing))) assertEquals(200, result.get());
         }
         assertEquals(1, count("annotation_locations"));
+        assertEquals(resolutions + 1, total(AnnotationController.REANCHOR), "only the applied resolution is counted");
         assertEquals(List.of("REANCHORED", CURRENT_SHA), db.sql("select status, resolved_blob_sha from annotations")
             .query((row, n) -> List.of(row.getString(1), row.getString(2))).single());
     }

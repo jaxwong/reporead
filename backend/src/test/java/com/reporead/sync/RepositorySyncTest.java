@@ -61,6 +61,7 @@ class RepositorySyncTest {
     @Autowired ClientRegistrationRepository registrations;
     @Autowired AppSessions sessions;
     @Autowired JdbcClient db;
+    @Autowired io.micrometer.core.instrument.MeterRegistry meters;
     MockRestServiceServer user;
     MockRestServiceServer trees;
     String alice;
@@ -153,12 +154,18 @@ class RepositorySyncTest {
 
     @Test void truncatedTreeChangesNothingAndIsNotTreatedAsDeletion() throws Exception {
         expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entry("intro.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
+        double succeeded = meters.counter(RepositorySync.SYNCS, "outcome", "success", "code", "NONE").count();
+        double incomplete = meters.counter(RepositorySync.SYNCS, "outcome", "failure", "code", "GITHUB_TREE_INCOMPLETE").count();
+        double documents = meters.counter(RepositorySync.DOCUMENTS_SYNCED).count();
         sync(alice, connection).andExpect(status().isOk());
         next();
         expectSync(COMMIT_B, TREE_B, withSuccess(tree(true), MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_TREE_INCOMPLETE"));
         assertEquals(List.of("intro.md"), activePaths());
         assertEquals(COMMIT_A, checkpoint());
+        assertEquals(succeeded + 1, meters.counter(RepositorySync.SYNCS, "outcome", "success", "code", "NONE").count());
+        assertEquals(incomplete + 1, meters.counter(RepositorySync.SYNCS, "outcome", "failure", "code", "GITHUB_TREE_INCOMPLETE").count());
+        assertEquals(documents + 1, meters.counter(RepositorySync.DOCUMENTS_SYNCED).count());
     }
 
     @Test void pathMissingFromACompleteTreeIsMarkedDeletedNotRemovedAndCanReturn() throws Exception {

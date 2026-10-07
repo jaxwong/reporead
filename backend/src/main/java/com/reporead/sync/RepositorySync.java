@@ -6,6 +6,7 @@ import com.reporead.document.Documents;
 import com.reporead.document.NoteVersions;
 import com.reporead.github.GitHubApi;
 import com.reporead.repository.RepositoryConnections;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -31,6 +32,8 @@ import java.util.Set;
 public class RepositorySync {
     private static final Logger LOG = LoggerFactory.getLogger(RepositorySync.class);
     static final int MAX_DOCUMENTS = 5_000;
+    static final String SYNCS = "reporead.github.syncs";
+    static final String DOCUMENTS_SYNCED = "reporead.documents.synced";
     /** Vanished documents plus new paths compared by content in one sync; more is skipped (each blob is one request). */
     static final int MAX_CONTENT_MOVE_CANDIDATES = 8;
     private final GitHubApi github;
@@ -38,9 +41,11 @@ public class RepositorySync {
     private final Documents documents;
     private final TransactionTemplate transaction;
     private final NoteVersions noteVersions;
+    private final MeterRegistry meters;
 
     public RepositorySync(GitHubApi github, RepositoryConnections connections, Documents documents, TransactionTemplate transaction,
-                          NoteVersions noteVersions) {
+                          NoteVersions noteVersions, MeterRegistry meters) {
+        this.meters = meters;
         this.github = github;
         this.connections = connections;
         this.documents = documents;
@@ -50,7 +55,24 @@ public class RepositorySync {
 
     public record Result(long repositoryId, String commitSha, int documentCount, Instant syncedAt) {}
 
+    /**
+     * Counts every sync in reporead.github.syncs by outcome and failure code, and the documents of each successful one in
+     * reporead.documents.synced.
+     */
     public Result sync(AppUser user, long connectionId) {
+        Result result;
+        try {
+            result = publish(user, connectionId);
+        } catch (RuntimeException failure) {
+            meters.counter(SYNCS, "outcome", "failure", "code", failure instanceof ApiFailure api ? api.code : "UNEXPECTED").increment();
+            throw failure;
+        }
+        meters.counter(SYNCS, "outcome", "success", "code", "NONE").increment();
+        meters.counter(DOCUMENTS_SYNCED).increment(result.documentCount());
+        return result;
+    }
+
+    private Result publish(AppUser user, long connectionId) {
         var connection = connections.find(user.id(), connectionId).orElseThrow(() ->
             new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Repository connection not found."));
         String token = github.userToken(user.githubUserId());
