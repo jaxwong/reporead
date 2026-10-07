@@ -20,7 +20,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Scaffold
+import com.reporead.android.R
 import com.reporead.android.Screen
+import com.reporead.android.ui.AppBar
+import com.reporead.android.ui.AppIcon
+import com.reporead.android.ui.EmptyState
+import com.reporead.android.ui.EntryRow
+import com.reporead.android.ui.folderOf
 import com.reporead.android.data.LibraryDao
 import kotlinx.coroutines.delay
 
@@ -65,7 +72,7 @@ internal suspend fun search(dao: LibraryDao, query: String): Pair<List<SearchRes
 }
 
 @Composable
-fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit) {
+fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<Pair<List<SearchResult>, Boolean>?>(null) }
     var counts by remember { mutableStateOf<Pair<Int, Int>?>(null) }
@@ -76,31 +83,28 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit) {
         delay(TYPING_PAUSE_MS)
         results = search(dao, query.trim())
     }
-    Column(Modifier.fillMaxSize()) {
-        Text("Search", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(16.dp))
+    Scaffold(topBar = { AppBar("Search", onBack = onBack) }) { padding ->
+    Column(Modifier.padding(padding).fillMaxSize()) {
         OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Search saved notes") },
+            leadingIcon = { AppIcon(R.drawable.ic_search, null) },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         val found = results
         when {
-            query.isBlank() -> Text(counts?.let { (titles, texts) ->
+            query.isBlank() -> EmptyState(counts?.let { (titles, texts) ->
                 "Searches the titles of $titles notes in lists saved on this phone, the text of $texts notes saved on this phone, " +
                     "and your highlights. Open a note online to save it for text search."
-            } ?: "", Modifier.padding(16.dp))
+            } ?: "")
             found == null -> Unit
-            found.first.isEmpty() -> Text("No saved note matches “${query.trim()}”. Only notes opened on this phone are searched by their text.",
-                Modifier.padding(16.dp))
+            found.first.isEmpty() -> EmptyState("No saved note matches “${query.trim()}”. Only notes opened on this phone are searched by their text.")
             else -> LazyColumn {
                 if (found.second) item { Text("Showing the first $SEARCH_LIMIT matches; refine the search to see others.", Modifier.padding(16.dp)) }
                 itemsIndexed(found.first) { _, result ->
-                    Column(Modifier.fillMaxWidth().clickable { push(Screen.Reader(result.documentId, result.title)) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(result.title, style = MaterialTheme.typography.bodyLarge)
-                        Text(result.detail, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
-                        Text(result.path, style = MaterialTheme.typography.bodySmall)
+                    EntryRow(result.title, result.detail, R.drawable.ic_description, listOfNotNull(folderOf(result.path).ifEmpty { null })) {
+                        push(Screen.Reader(result.documentId, result.title))
                     }
-                    HorizontalDivider()
                 }
             }
         }
+    }
     }
 }

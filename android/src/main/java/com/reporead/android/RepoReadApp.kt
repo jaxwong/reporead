@@ -31,7 +31,7 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.sync.Sync
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
-import com.reporead.android.library.RepositoriesScreen
+import com.reporead.android.library.LibraryScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
 import kotlinx.coroutines.CancellationException
@@ -134,9 +134,10 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     }
 
     val push: (Screen) -> Unit = { stack = stack + it }
+    val pop: () -> Unit = { stack = stack.dropLast(1) }
     BackHandler(enabled = stack.size > 1) { stack = stack.dropLast(1) }
     when (val screen = stack.last()) {
-        Screen.Repositories -> RepositoriesScreen(sync, dao, signedIn, onFailure, push, onSignIn = signIn, onSignOut = {
+        Screen.Repositories -> LibraryScreen(sync, dao, signedIn, onFailure, push, onSignIn = signIn, onSignOut = {
             scope.launch {
                 val message = try {
                     api.delete("/api/app-auth/session")
@@ -161,9 +162,10 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
             signInMessage = "Your RepoRead account was deleted. To also remove RepoRead's authorization on GitHub, use GitHub's Settings → Applications."
             stack = listOf(Screen.Repositories)
         })
-        Screen.Available -> AvailableScreen(api, onFailure, onConnected = { stack = listOf(Screen.Repositories, it) })
-        is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push, onDisconnected = { stack = listOf(Screen.Repositories) })
-        is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen)
-        Screen.Search -> SearchScreen(dao, push)
+        Screen.Available -> AvailableScreen(api, onFailure, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
+        is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push, onBack = pop,
+            onDisconnected = { stack = listOf(Screen.Repositories) })
+        is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen, onBack = pop)
+        Screen.Search -> SearchScreen(dao, push, onBack = pop)
     }
 }
