@@ -43,3 +43,34 @@ The next looser grid point (0.4, 16, 0.85, 0.7) is also zero-wrong on all four s
 **Cost.** Gathering evidence took at most 2.3 ms per case on the corpus. A constructed worst case at every fuzzy bound (999-character quote, 16 related 20,000-character blocks) took 335 ms. Bounds: fuzzy matching is skipped for quotes over 1,000 characters, for blocks over 20,000 characters, and when more than 16 blocks share at least half of the passage's words.
 
 To repeat: `REPOREAD_MEASURE_CORPUS=<clone> REPOREAD_MEASURE_OUT=<private file> [REPOREAD_MEASURE_SEED=<n>] ./gradlew :backend:test --tests '*AnchorMeasurement' --rerun --no-daemon`. The report and its `.samples.txt` contain private note text; keep them outside the repository.
+
+## On the phone and server (2026-10-07)
+
+Pixel 8a, debug app over `adb reverse`, backend on the Mac with the development database. Both databases were backed up before upgrading.
+
+- **Upgrades on real data:** Flyway V4 applied to the development database (V3 → V4). The phone's Room database migrated v2 → v3 on first open, keeping 4 highlights, 2 reading states, and 1 bookmark. Device tests via `am instrument`: **9 tests, OK**. JVM unit tests: 7 passing.
+- **Pre-Stage-4 highlights:** opening their note (document 70) filled the four locations' distinguishability from the current version with one GitHub blob read (16,318 bytes); all stayed `ANCHORED` at their original blocks (b142, b143), and their user-edit versions were unchanged (highlight 3 stayed at version 4).
+- **Real path-only moves in the user's own commit `20357d3`:** two notes moved into folders (`110926_rockship.md`, `210826_rockship.md`) kept their document ids 1 and 2.
+- **Scripted real edits.** With the user's approval, Claude pushed test-only notes under `scratch/` in `jaxwong/zw_obsidian` using the user's `gh` login, listing each edit before pushing. Setup `8d0cbfe`; the user then highlighted passages, bookmarked, and read on the phone. Edit commit `f16eb28`:
+
+| Edit | Server outcome | Phone |
+| --- | --- | --- |
+| Paragraph inserted above a highlighted paragraph | `BLOCK` → b4 (was b3), `REANCHORED` | user-reported: drawn in place |
+| One word changed inside a highlighted sentence ("same" → "identical") | `FUZZY` → b6, new text, `REANCHORED` | user-reported: drawn, Notes shows the new text |
+| Highlighted paragraph rewritten | `ORPHANED`; original selection and note kept | user-reported: shown with original context; **reattached** to "smoked mackerel" → `REANCHORED`, version 2 |
+| Highlighted sentence pasted into another paragraph (duplicate quote) | `BLOCK` → b10 (original paragraph), not the copy in b11 | user-reported: drawn on the original |
+| Note moved unchanged | exact move: document 1195 kept, bookmark and 100% progress kept | user-reported: Bookmarks shows the new name |
+| Note moved and one sentence edited | content move: document 1194 kept; its highlight `BLOCK` → b4 | user-reported: highlight drawn |
+| Highlighted, read note deleted | document 1193 marked deleted; reading state (100%) and highlight kept | user-reported: "Removed from the repository" in Continue reading |
+
+  The first refresh read 3 blobs (the two vanished notes with user data and one new path, within the 8-read ceiling) and logged `moves=2`; the **second refresh** logged `moves=0` with no blob reads. Opening the edited note made one blob read for resolution. The phone's Room rows matched the server (statuses, location blocks, versions; nothing pending).
+
+## Gates
+
+- **Exit gate passed (2026-10-07):** strong-evidence edits preserved identity and anchors (insertion, light edit, duplicate quote, path-only move, move with edit); a destructive rewrite produced an orphan with its original selection, and manual reattachment worked — on the real phone, backend, and repository.
+
+## Not yet verified on the real system
+
+- A branch rewind (force-push) and missing history against live GitHub — covered by automated tests only (`anOrphanIsFoundAgainWhenItsPassageReturns…`, `anOldVersionGitHubNoLongerHas…`).
+- An ambiguous duplicate-content move, a moved section, and a lightly edited passage orphaned for weak evidence — covered by automated tests and the measurement only.
+- Recall on real changed blocks (see the measurement section).
