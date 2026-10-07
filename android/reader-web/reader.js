@@ -45,9 +45,43 @@ async function render() {
     diagram.innerHTML = svg;
     status.diagrams++;
   }
+  addCodeTools();
   // The status line is for problems only; a note that rendered fully shows nothing here.
   document.getElementById('render-status').textContent = status.diagramErrors === 0 ? ''
     : `${status.diagramErrors} of ${status.diagrams + status.diagramErrors} diagrams could not be rendered; their sources are shown.`;
+}
+
+/*
+ * Each code block gets a row of tools above it — outside the block, whose text must stay canonical. Copy is a
+ * same-origin link the app intercepts (/copy-code, as /note-link), which then reads the block's text through
+ * codeText(): the page still cannot call native code. Wrap, shown only while the code is wider than the screen, is
+ * layout only.
+ */
+function addCodeTools() {
+  const toggles = [];
+  for (const pre of document.querySelectorAll('#note pre[data-block-id]:not([data-mermaid])')) {
+    const tools = document.createElement('div');
+    tools.className = 'code-tools';
+    const language = [...(pre.querySelector('code')?.classList || [])].find(name => name.startsWith('language-'))?.slice(9);
+    const label = document.createElement('span');
+    label.textContent = language || '';
+    const wrap = document.createElement('button');
+    wrap.textContent = 'Wrap';
+    wrap.addEventListener('click', () => {
+      wrap.textContent = pre.classList.toggle('wrapped') ? 'No wrap' : 'Wrap';
+    });
+    const copy = document.createElement('a');
+    copy.href = `/copy-code?block=${encodeURIComponent(pre.dataset.blockId)}`;
+    copy.textContent = 'Copy';
+    tools.append(label, wrap, copy);
+    pre.before(tools);
+    toggles.push([pre, wrap]);
+  }
+  const showWraps = () => {
+    for (const [pre, wrap] of toggles) wrap.hidden = !pre.classList.contains('wrapped') && pre.scrollWidth <= pre.clientWidth;
+  };
+  showWraps();
+  window.addEventListener('resize', showWraps);
 }
 
 /*
@@ -237,6 +271,13 @@ window.reporead.showHeading = text => {
  */
 window.reporead.outline = () => blocks.flatMap((block, index) => /^H[1-6]$/.test(block.tagName)
   ? [{blockId: block.dataset.blockId, index, level: Number(block.tagName[1]), text: block.innerText.trim()}] : []);
+
+/** A code block's text for copying: its canonical text without the final line break, so pasting a command does not run it. */
+window.reporead.codeText = blockId => {
+  const pre = blocks.find(block => block.dataset.blockId === blockId && block.tagName === 'PRE');
+  if (!pre) throw new Error(`No code block ${blockId}`);
+  return pre.dataset.anchorText.replace(/\n$/, '');
+};
 
 /** Scrolls a changed section's heading block to the top of the screen; null is the beginning of the note. */
 window.reporead.showBlock = blockId => {

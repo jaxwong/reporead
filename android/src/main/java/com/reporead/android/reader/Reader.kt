@@ -67,6 +67,8 @@ private const val ASSET_ORIGIN = "https://$ASSET_HOST"
 private const val IMAGE_PREFIX = "/repo-image/"
 private const val EMBED_PREFIX = "/repo-embed/"
 private const val NOTE_LINK = "/note-link"
+/** The reader page's Copy link on a code block (reader.js addCodeTools); the text is then read with codeText(). */
+private const val COPY_CODE = "/copy-code"
 private val IMAGE_TYPES = mapOf("png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "gif" to "image/gif",
     "webp" to "image/webp", "svg" to "image/svg+xml")
 private const val SAVE_AFTER_SCROLL_MS = 700L
@@ -363,6 +365,10 @@ private class ReaderSession(
                         onNoteLink(url.getQueryParameter("target"), url.getQueryParameter("path"), url.getQueryParameter("heading"))
                         return true
                     }
+                    if (request.hasGesture() && url.host == ASSET_HOST && url.path == COPY_CODE) {
+                        url.getQueryParameter("block")?.let { copyCode(view, it) }
+                        return true
+                    }
                     if (request.hasGesture() && (url.scheme == "https" || url.scheme == "http") && url.host != ASSET_HOST) {
                         try {
                             view.context.startActivity(Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE))
@@ -549,6 +555,17 @@ private class ReaderSession(
     fun reveal(key: String) {
         val webView = view ?: return
         if (ready) webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})", null)
+    }
+
+    /** Android 13+ confirms clipboard writes itself, so the reader shows nothing more. */
+    private fun copyCode(webView: WebView, blockId: String) {
+        if (!ready) return
+        webView.evaluateJavascript("window.reporead.codeText(${JSONObject.quote(blockId)})") { encoded ->
+            val text = JSONTokener(encoded).nextValue() as String
+            val clipboard = webView.context.getSystemService(android.content.ClipboardManager::class.java)
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Code", text))
+            Log.i("RepoRead", "Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
+        }
     }
 
     private fun captureSelection(then: (JSONObject?) -> Unit) {
