@@ -1,5 +1,6 @@
 package com.reporead.android.reader
 
+import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -22,11 +24,23 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
+import com.reporead.android.R
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.sync.Sync
+import com.reporead.android.ui.EntryRow
+import com.reporead.android.ui.folderOf
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * Saved notes that link to the open note, out of [saved] of the repository's [listed] notes saved on this phone (fewer
+ * means the list may be missing some). [listed] is 0 when the note is in no saved list.
+ */
+private data class Backlinks(val notes: List<DocumentRow>, val saved: Int, val listed: Int)
 
 /** An edit the server refused because another edit landed first: the user picks which text to keep. */
 private data class Conflict(val current: AnnotationRow, val mine: String?)
@@ -42,11 +56,25 @@ private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<S
 }
 
 @Composable
-internal fun NotesPanel(annotations: List<AnnotationRow>, displayedBlobSha: String, notShown: Set<String>, sync: Sync, dao: LibraryDao,
-                        scope: CoroutineScope, onFailure: (ApiException) -> Unit, onReveal: (AnnotationRow) -> Unit,
-                        onMessage: (String?) -> Unit, onReattach: (AnnotationRow) -> Unit, modifier: Modifier) {
+internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, displayedBlobSha: String, notShown: Set<String>, sync: Sync,
+                        dao: LibraryDao, scope: CoroutineScope, onFailure: (ApiException) -> Unit, onReveal: (AnnotationRow) -> Unit,
+                        onMessage: (String?) -> Unit, onReattach: (AnnotationRow) -> Unit, onOpenNote: (DocumentRow) -> Unit, modifier: Modifier) {
     var editing by remember { mutableStateOf<AnnotationRow?>(null) }
     var conflict by remember { mutableStateOf<Conflict?>(null) }
+    // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
+    val backlinks by produceState<Backlinks?>(null, documentId) {
+        val note = dao.document(documentId)
+        if (note == null) {
+            value = Backlinks(emptyList(), 0, 0)
+            return@produceState
+        }
+        val documents = dao.documentsOnce(note.repositoryId)
+        val pages = dao.pagesWithNoteLinks(note.repositoryId)
+        val started = System.currentTimeMillis()
+        val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, pages) }
+        Log.i("RepoRead", "Linked from found; documentId=$documentId pagesWithLinks=${pages.size} found=${found.size} ms=${System.currentTimeMillis() - started}")
+        value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
+    }
 
     // Editing and deleting acknowledged highlights need the server; offline they fail visibly and change nothing.
     fun save(row: AnnotationRow, note: String?, expectedVersion: Int) = scope.launch {
@@ -100,6 +128,22 @@ internal fun NotesPanel(annotations: List<AnnotationRow>, displayedBlobSha: Stri
                     }
                 }
                 HorizontalDivider()
+            }
+            item {
+                Text("Linked from", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp))
+                val found = backlinks
+                val summary = when {
+                    found == null -> "Finding notes that link here…"
+                    found.listed == 0 -> "This note isn't in a saved note list, so links to it can't be found. Refresh the repository."
+                    else -> listOfNotNull(
+                        if (found.notes.isEmpty()) "No saved note links here." else null,
+                        if (found.saved < found.listed) "Searched the ${found.saved} of ${found.listed} notes saved on this phone." else null,
+                    ).joinToString(" ").ifEmpty { null }
+                }
+                summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
+            }
+            items(backlinks?.notes.orEmpty(), key = { "linked-${it.id}" }) { from ->
+                EntryRow(from.title, folderOf(from.path).ifEmpty { null }, R.drawable.ic_description) { onOpenNote(from) }
             }
         }
     }
