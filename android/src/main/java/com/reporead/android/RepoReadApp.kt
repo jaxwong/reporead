@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -142,7 +143,11 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val push: (Screen) -> Unit = { stack = stack + it }
     val pop: () -> Unit = { stack = stack.dropLast(1) }
     BackHandler(enabled = stack.size > 1) { stack = stack.dropLast(1) }
-    when (val screen = stack.last()) {
+    val screen = stack.last()
+    // Keyed so each screen starts with its own remembered state, also when it follows one of the same kind (a note
+    // opened from a note, a subfolder): otherwise an open notes panel or a status line carries over.
+    key(screen) {
+    when (screen) {
         Screen.Repositories -> LibraryScreen(sync, dao, signedIn, onFailure, push, onSignIn = signIn, onSignOut = {
             scope.launch {
                 val message = try {
@@ -174,5 +179,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen, onBack = pop, push = push)
         is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
         Screen.Search -> SearchScreen(dao, push, onBack = pop)
+    }
     }
 }

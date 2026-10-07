@@ -22,6 +22,8 @@ Evidence for P2 of the [post-MVP plan](reporead-post-mvp-plan.md). Contracts and
 
 **Defect found while measuring — Markdown heading links never reached their heading** (`a50e3af`). Of 146 Markdown links with a heading in the saved notes, 145 carry GitHub's anchor, and `showHeading` compared heading text only, so the note opened at its start with "No heading …". This predates P2 (Stage 6 links) and affected Open as well as the new preview. The 146th link is broken in the notes themselves (`#recommended-learning-paths` for the heading "4. Recommended learning paths").
 
+**Defect fixed with the user's approval — state carried over between screens of the same kind.** The navigation `when` in `RepoReadApp.kt` was not keyed by screen, so a reader opened from another reader kept its remembered state (the notes panel stayed open in the next note) and a subfolder showed its parent's status line ("Saved 0 notes…"). Predates P2; P2 made reader-to-reader moves common. The switch is now keyed by the screen; on the phone a note opened from Linked from had the panel closed, and `core` no longer showed the root's status.
+
 ## Automated (2026-10-07)
 
 - `./gradlew :backend:test --no-daemon`: exit 0, **170 tests, 0 failures, 3 skipped** (the opt-in harnesses). Adds an empty note shown as empty.
@@ -51,7 +53,6 @@ Pixel 8a, debug build over the release build (same key, data kept), backend rest
 
 ## Noticed, not changed
 
-- **State carries over between screens of the same kind:** the navigation `when` in `RepoReadApp.kt` is not keyed by screen, so a reader opened from another reader keeps its `remember` state (the notes panel stays open in the next note), and a subfolder shows its parent's status line ("Saved 0 notes…"). Predates P2; P2 makes reader-to-reader moves more common.
 - **A note path containing `+`** (one in the repository) could not be reached by a link: the server leaves `+` unencoded in `/note-link?` and Android decodes it as a space. No current link uses one.
 - The preview shows the page's **Full screen** and code **Copy** controls; they are links, which the preview does not follow, so they should do nothing there (not tried).
 - The preview's subtitle shows the link's heading as written, so a GitHub anchor appears as `# 2-separate-the-contracts-and-checks`.
