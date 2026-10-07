@@ -113,6 +113,8 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var notShown by remember { mutableStateOf(emptySet<String>()) }
     /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here. */
     var reattaching by remember { mutableStateOf<AnnotationRow?>(null) }
+    /** A tapped link to one note and its heading, previewed before opening. */
+    var preview by remember { mutableStateOf<Pair<com.reporead.android.data.DocumentRow, String?>?>(null) }
     /** Notes sharing the linked name, for the reader to pick one. */
     var linkChoices by remember { mutableStateOf<Pair<String?, List<com.reporead.android.data.DocumentRow>>?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -212,7 +214,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                                     val matches = resolveNoteLink(target, path, from.path, dao.documentsOnce(from.repositoryId))
                                     when (matches.size) {
                                         0 -> message = "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
-                                        1 -> push(Screen.Reader(matches.first().id, matches.first().title, heading))
+                                        1 -> preview = matches.first() to heading
                                         else -> linkChoices = heading to matches
                                     }
                                 }
@@ -274,6 +276,12 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
         OutlineSheet(headings, section, onDismiss = { outlineOpen = false }, onJump = { entry ->
             outlineOpen = false
             sessionRef?.showBlock(entry.blockId) { shown -> if (!shown) message = "Couldn't scroll to “${entry.text}”; reopen the note." }
+        })
+    }
+    preview?.let { (target, heading) ->
+        LinkPreviewSheet(target, heading, sync, dao, onDismiss = { preview = null }, onOpen = {
+            preview = null
+            push(Screen.Reader(target.id, target.title, heading))
         })
     }
     linkChoices?.let { (heading, choices) ->
