@@ -44,6 +44,9 @@ data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val co
                    val title: String, val html: String, val fetchedAt: Long, val searchText: String? = null,
                    @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0)
 
+/** A saved note's rendered page. */
+data class SavedPage(val documentId: Long, val html: String)
+
 /** A saved note matching a search: [searchText] is set when it matched by text, for a snippet. */
 data class NoteMatch(val documentId: Long, val title: String, val path: String, val searchText: String?)
 
@@ -164,6 +167,14 @@ interface LibraryDao {
     @Query("select * from notes where documentId = :documentId")
     suspend fun note(documentId: Long): NoteRow?
 
+    /** The pages of [repositoryId]'s listed notes saved on this phone that link to any note. */
+    @Query("""select n.documentId, n.html from notes n join documents d on d.id = n.documentId
+              where d.repositoryId = :repositoryId and n.html like '%/note-link?%'""")
+    suspend fun pagesWithNoteLinks(repositoryId: Long): List<SavedPage>
+
+    @Query("select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId")
+    suspend fun savedNoteCount(repositoryId: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveNote(row: NoteRow)
 
@@ -188,7 +199,8 @@ interface LibraryDao {
     @Query("select count(*) from documents")
     suspend fun savedListCount(): Int
 
-    @Query("select count(*) from notes where searchText is not null")
+    /** Notes in the saved lists whose saved copy has search text: the part of [savedListCount] searched by text. */
+    @Query("select count(*) from notes n join documents d on d.id = n.documentId where n.searchText is not null")
     suspend fun searchableNoteCount(): Int
 
     @Query("select * from reading_states order by lastReadAt desc limit :limit")

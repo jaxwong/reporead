@@ -90,12 +90,14 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         val found = results
         when {
-            query.isBlank() -> EmptyState(counts?.let { (titles, texts) ->
-                "Searches the titles of $titles notes in lists saved on this phone, the text of $texts notes saved on this phone, " +
-                    "and your highlights. Open a note online to save it for text search."
+            query.isBlank() -> EmptyState(counts?.let { (listed, texts) ->
+                "Searching $texts of $listed notes by their text, all $listed by title and path, and your highlights." +
+                    if (texts < listed) " Notes not saved here are found by title and path only; a repository's menu has Save all notes on this phone." else ""
             } ?: "")
             found == null -> Unit
-            found.first.isEmpty() -> EmptyState("No saved note matches “${query.trim()}”. Only notes opened on this phone are searched by their text.")
+            found.first.isEmpty() -> EmptyState("No saved note matches “${query.trim()}”." + counts?.let { (listed, texts) ->
+                if (texts < listed) " Only $texts of $listed notes are saved on this phone, so only those are searched by their text." else null
+            }.orEmpty())
             else -> LazyColumn {
                 if (found.second) item { Text("Showing the first $SEARCH_LIMIT matches; refine the search to see others.", Modifier.padding(16.dp)) }
                 itemsIndexed(found.first) { _, result ->

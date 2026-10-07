@@ -261,13 +261,14 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
             if (notesOpen) {
-                NotesPanel(annotations, opened.note.blobSha, notShown, sync, dao, appScope, onFailure,
+                NotesPanel(opened.note.documentId, annotations, opened.note.blobSha, notShown, sync, dao, appScope, onFailure,
                     onReveal = { session.reveal(it.mutationId) }, onMessage = { message = it },
                     onReattach = { row ->
                         reattaching = row
                         notesOpen = false
                         message = null
                     },
+                    onOpenNote = { from -> push(Screen.Reader(from.id, from.title)) },
                     modifier = Modifier.fillMaxWidth().weight(0.7f))
             }
         }
