@@ -124,6 +124,38 @@ interface LibraryDao {
         insertDocuments(rows)
     }
 
+    @Query("delete from repositories where id = :repositoryId")
+    suspend fun deleteRepository(repositoryId: Long)
+
+    @Query("delete from notes where documentId in (:documentIds)")
+    suspend fun deleteNotes(documentIds: List<Long>)
+
+    @Query("delete from reading_states where documentId in (:documentIds)")
+    suspend fun deleteReading(documentIds: List<Long>)
+
+    @Query("delete from bookmarks where documentId in (:documentIds)")
+    suspend fun deleteBookmarks(documentIds: List<Long>)
+
+    @Query("delete from annotations where documentId in (:documentIds)")
+    suspend fun deleteAnnotations(documentIds: List<Long>)
+
+    /**
+     * Removes everything this phone saved for a disconnected repository: the repository, its note list, and the saved
+     * notes, reading states, bookmarks, and highlights (pending ones too) of [documentIds], the server's complete list.
+     */
+    @Transaction
+    suspend fun forgetRepository(repositoryId: Long, documentIds: List<Long>) {
+        // Bounded so each statement stays under SQLite's limit on bound variables.
+        for (chunk in documentIds.chunked(500)) {
+            deleteNotes(chunk)
+            deleteReading(chunk)
+            deleteBookmarks(chunk)
+            deleteAnnotations(chunk)
+        }
+        clearDocuments(repositoryId)
+        deleteRepository(repositoryId)
+    }
+
     @Query("select * from notes where documentId = :documentId")
     suspend fun note(documentId: Long): NoteRow?
 

@@ -142,6 +142,27 @@ class LocalStoreTest {
         assertEquals(2, dao.searchNotes("%s%", 2).size)
     }
 
+    @Test fun forgettingADisconnectedRepositoryRemovesOnlyItsRowsIncludingPendingOnes() = runBlocking {
+        dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 2, "c".repeat(40)), RepositoryRow(8, "o/other", 1, "c".repeat(40))))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
+        dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
+        for (id in listOf(1L, 2L, 3L)) {
+            dao.saveNote(NoteRow(id, "a".repeat(40), "c".repeat(40), "n.md", "n", "<html/>", 0, "text"))
+            dao.saveReading(readAt(id, "a".repeat(40), at = id).copy(pending = id == 2L))
+            dao.saveBookmark(bookmark(id, bookmarked = true, pending = false, at = id))
+            dao.saveAnnotation(annotation("m$id", null, null, pending = true).copy(documentId = id))
+        }
+        // Document 2 was deleted upstream: it is in the server's list of the connection's documents, not in the saved list.
+        dao.forgetRepository(7, listOf(1L, 2L))
+        assertEquals(listOf(8L), dao.repositories().first().map { it.id })
+        assertEquals(emptyList<DocumentRow>(), dao.documents(7).first())
+        assertEquals(listOf(3L), dao.documents(8).first().map { it.id })
+        assertNull(dao.note(1)); assertNull(dao.note(2)); assertEquals("text", dao.note(3)!!.searchText)
+        assertNull(dao.reading(2)); assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
+        assertEquals(listOf(3L), dao.bookmarks().first().map { it.documentId })
+        assertEquals(listOf("m3"), dao.pendingAnnotations().map { it.mutationId })
+    }
+
     private fun annotation(mutationId: String, serverId: Long?, note: String?, pending: Boolean, rejection: String? = null) =
         AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, pending, rejection)
 

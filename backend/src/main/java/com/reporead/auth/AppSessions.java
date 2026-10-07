@@ -85,6 +85,13 @@ public class AppSessions {
             .query((row, n) -> new AppUser(row.getLong(1), row.getLong(2), row.getString(3))).optional();
     }
 
+    /** Deletes the user, their sign-in codes, and every session; their other data must already be deleted. */
+    void deleteUser(long userId) {
+        db.sql("delete from app_sign_in_codes where user_id = :userId").param("userId", userId).update();
+        db.sql("delete from app_sessions where user_id = :userId").param("userId", userId).update();
+        db.sql("delete from users where id = :userId").param("userId", userId).update();
+    }
+
     void revoke(String token) {
         if (TOKEN.matcher(token).matches()) db.sql("delete from app_sessions where token_hash = :hash").param("hash", hash(token)).update();
     }

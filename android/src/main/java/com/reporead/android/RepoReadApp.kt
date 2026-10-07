@@ -153,9 +153,16 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                 signInMessage = message
                 stack = listOf(Screen.Repositories)
             }
+        }, onAccountDeleted = {
+            // The server deleted the account and its sessions, and Sync cleared this phone's copy.
+            store.clear()
+            store.dataOwner = null
+            signedIn = false
+            signInMessage = "Your RepoRead account was deleted. To also remove RepoRead's authorization on GitHub, use GitHub's Settings → Applications."
+            stack = listOf(Screen.Repositories)
         })
         Screen.Available -> AvailableScreen(api, onFailure, onConnected = { stack = listOf(Screen.Repositories, it) })
-        is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push)
+        is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push, onDisconnected = { stack = listOf(Screen.Repositories) })
         is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen)
         Screen.Search -> SearchScreen(dao, push)
     }

@@ -28,6 +28,25 @@ public class Annotations {
     private final JsonMapper json;
     private final TransactionTemplate transaction;
 
+    public record Deleted(int highlights, int bookmarks) {}
+
+    /**
+     * Deletes every annotation on a connection's documents: highlights (their anchors and locations cascade) and
+     * bookmarks. Their mutation records keep only the request hash, so a late replay is answered as deleted.
+     */
+    public Deleted deleteOnConnection(long connectionId) {
+        var types = db.sql("""
+                delete from annotations where document_id in (select id from documents where repository_connection_id = :connectionId)
+                returning type""")
+            .param("connectionId", connectionId).query(String.class).list();
+        return new Deleted((int) types.stream().filter("HIGHLIGHT"::equals).count(), (int) types.stream().filter("BOOKMARK"::equals).count());
+    }
+
+    /** Deletes a user's mutation records (request hashes); called when deleting the account, after its annotations. */
+    public void deleteMutations(long userId) {
+        db.sql("delete from annotation_mutations where user_id = :userId").param("userId", userId).update();
+    }
+
     public Annotations(JdbcClient db, JsonMapper json, TransactionTemplate transaction) {
         this.db = db;
         this.json = json;

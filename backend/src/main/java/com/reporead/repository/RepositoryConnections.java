@@ -1,7 +1,9 @@
 package com.reporead.repository;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.reporead.ApiFailure;
 import com.reporead.github.GitHubApi;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -67,13 +69,18 @@ public class RepositoryConnections {
     }
 
     /**
-     * Serializes concurrent syncs of one connection; must run inside the sync transaction. Returns whether the connection
-     * has published a snapshot before, read under the lock.
+     * Serializes syncs and disconnection of one connection; must run inside their transaction. Returns whether the
+     * connection has published a snapshot before, read under the lock. A connection disconnected meanwhile is not found.
      */
     public boolean lockForSync(long userId, long connectionId) {
         return db.sql("select last_synced_commit_sha is not null from repository_connections where id = :id and user_id = :userId for update")
             .param("id", connectionId).param("userId", userId).query(Boolean.class).optional()
-            .orElseThrow(() -> new IllegalStateException("Connection " + connectionId + " vanished during sync for user " + userId));
+            .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Repository connection not found."));
+    }
+
+    /** Deletes the connection row; its documents and their reading and annotation rows must already be deleted. */
+    void delete(long connectionId) {
+        db.sql("delete from repository_connections where id = :id").param("id", connectionId).update();
     }
 
     public void markSynced(long connectionId, String commitSha, Instant syncedAt) {
