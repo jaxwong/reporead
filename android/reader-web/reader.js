@@ -1,6 +1,5 @@
 import mermaid from 'mermaid';
 import hljs from 'highlight.js/lib/common';
-import 'highlight.js/styles/github.css';
 import './reader.css';
 
 const blocks = [...document.querySelectorAll('#note [data-block-id]')];
@@ -17,7 +16,8 @@ async function render() {
   for (const block of blocks) {
     if (block.textContent !== block.dataset.anchorText) throw new Error(`Highlighting changed canonical text in ${block.dataset.blockId}`);
   }
-  mermaid.initialize({startOnLoad: false, securityLevel: 'strict', htmlLabels: false,
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({startOnLoad: false, securityLevel: 'strict', htmlLabels: false, theme: dark ? 'dark' : 'default',
     maxTextSize: Number(document.body.dataset.maxDiagramChars), maxEdges: Number(document.body.dataset.maxEdges),
     suppressErrorRendering: true,
     secure: ['securityLevel', 'startOnLoad', 'htmlLabels', 'maxTextSize', 'maxEdges', 'flowchart']});
@@ -45,16 +45,20 @@ async function render() {
     diagram.innerHTML = svg;
     status.diagrams++;
   }
-  document.getElementById('render-status').textContent =
-    `${blocks.length} canonical blocks; ${status.diagrams} diagrams; ${status.diagramErrors} diagram errors`;
+  // The status line is for problems only; a note that rendered fully shows nothing here.
+  document.getElementById('render-status').textContent = status.diagramErrors === 0 ? ''
+    : `${status.diagramErrors} of ${status.diagrams + status.diagramErrors} diagrams could not be rendered; their sources are shown.`;
 }
 
-// Repository images come from the app's cache or the authenticated backend; when neither has one, say so in place.
+/*
+ * Repository images come from the app's cache or the authenticated backend; when neither has one, say so in place. The
+ * label is drawn by CSS from an attribute, so it adds no text to the block: canonical text must not change.
+ */
 for (const image of document.querySelectorAll('#note img')) {
   const unavailable = () => {
     const label = document.createElement('span');
     label.className = 'image-blocked';
-    label.textContent = `[Image unavailable: ${image.alt}]`;
+    label.dataset.label = `[Image unavailable: ${image.alt}]`;
     image.replaceWith(label);
   };
   if (image.complete && image.naturalWidth === 0) unavailable();
@@ -246,6 +250,8 @@ render().then(() => {
   document.body.dataset.state = 'ready';
 }, error => {
   document.body.dataset.state = 'failed';
-  document.getElementById('render-status').textContent = `Reader failed: ${error.message}`;
+  const failure = document.getElementById('render-status');
+  failure.textContent = `Reader failed: ${error.message}`;
+  failure.className = 'failed';
   console.error(error);
 });
