@@ -39,14 +39,16 @@ Pixel 8a, debug build over the release build (same key, data kept), backend rest
 - **Storage:** 653 saved notes, all in page format 3. Database **28.8 MB** (`du -sk databases` 28,840) and files 12 KB; rendered pages 21.7 MB, search text 5.1 MB, largest page 603 KB. Before the first run: 1.2 MB.
 - **Preview:** a Markdown heading link in `core/backend engineering/interview/01-api-boundaries-and-contracts.md` previewed "2. Separate the contracts and checks" (before the anchor fix it showed the start with a notice); **Open** opened the note with that heading at the top. A plain link previewed the note's start. A link tapped inside the preview did nothing; Close dismissed it.
 - **Linked from:** `core/backend engineering/01-api-boundaries-and-contracts.md` listed **30** notes, the same 30 a script computed from the phone's database; the matching took 393–677 ms over the 251 pages with links. It said "Searched the 653 of 654 notes saved on this phone." Tapping an entry opened that note.
+- **Test notes** (approved by the user; pushed to `jaxwong/zw_obsidian` under `scratch/p2/` only: `ead91e5` adds `a/dup.md`, `b/dup.md`, `later.md`, `links.md`; `8fe049b` appends one line to `links.md`). No link in the real notes is ambiguous (1,690 resolve to one note, 147 more do so with a heading, 16 to none).
+  - **Ambiguous link:** `[[dup]]` in `scratch/p2/links.md` asked "Which note?" with `scratch/p2/a/dup.md` and `scratch/p2/b/dup.md`.
+  - **No saved copy:** `[[later]]`, before Save all, previewed "Not saved on this phone yet, so there is nothing to preview. Open it to fetch it."
+  - **New notes:** after Refresh from GitHub, Save all fetched the 3 new unsaved notes (`toFetch=4` with the refused one): "Saved 3 notes on this phone; 654 were already saved."
+  - **After a laptop edit, only that note:** after the one-line edit and Refresh from GitHub, `toFetch=2`, **fetched 1**; the phone's database shows only `scratch/p2/links.md` fetched (21:05:13), with the new line in its search text.
 - **Exit gate, backend unreachable** (`adb reverse` removed; `nc` to 127.0.0.1:8081 refused; app restarted): searching "competencies", a word only in the body of `core/web/knowledge-architecture-research.md`, which had never been opened, found it with a snippet; it opened `ready`, 340 blocks, 0 canonical-text mismatches; its link to `core/web/00-orientation.md` previewed from the saved copy. Forwarding was restored afterwards.
 
 ## Not done or not verified
 
-- **After a laptop edit, only that note is fetched:** needs an edit pushed to `jaxwong/zw_obsidian` (`scratch/` only, with approval). Save all uses the saved note list, so the repository is refreshed first.
-- **An ambiguous link asks which note:** no link in the real notes is ambiguous (1,690 resolve to one note, 147 more do so with a heading, 16 to none); the chooser is unchanged from Stage 6. Needs test notes in `scratch/`.
-- **The preview of a note with no saved copy** ("Not saved on this phone yet…"): every note is saved, so it did not occur.
-- **Disconnect deletes the downloaded notes:** not run; it deletes the 653 saved copies (a new run takes about 6 minutes).
+- **Disconnect deletes the downloaded notes:** not run on `zw_obsidian`. Disconnect also deletes the repository's highlights (4), reading positions (24), and bookmarks (3) on the server for good (`RepositoryController.disconnect`), not only the phone's copies.
 - **Airplane mode** itself: the backend was made unreachable by removing `adb reverse` instead, because airplane mode drops wireless debugging.
 - **Images:** Save all does not fetch images; three notes have one embedded image each (`books/the pragmatic programmer/…` T12, T15, T33), which show "[Image unavailable]" offline until opened online once.
 - The release build is not reinstalled yet.
