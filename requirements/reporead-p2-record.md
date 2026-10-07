@@ -31,7 +31,7 @@ Evidence for P2 of the [post-MVP plan](reporead-post-mvp-plan.md). Contracts and
 
 ## On the phone (2026-10-07)
 
-Pixel 8a, debug build over the release build (same key, data kept), backend restarted on `4fa6ff3` (the user signed in again).
+Pixel 8a, debug build over the release build (same key, data kept), backend restarted on `4fa6ff3` (the user signed in again); the release build was reinstalled afterwards.
 
 - **First full run** (after the empty-note fix; 119 notes were saved before): `toFetch=535`, **534 fetched, 1 refused** (`venti/eta model/data diagnostics/negative_difference_lanes.md`, over the 4,096-block limit), in **5 min 43 s**. The screen said "Saved 534 notes on this phone; 119 were already saved. 1 can't be shown (too large): …".
 - **Second run:** `toFetch=1` (the refused note; it has no saved copy, so every run asks for it once more), **0 fetched**; "Saved 0 notes on this phone; 653 were already saved."
@@ -51,7 +51,6 @@ Pixel 8a, debug build over the release build (same key, data kept), backend rest
 
 - **Airplane mode** itself: the backend was made unreachable by removing `adb reverse` instead, because airplane mode drops wireless debugging.
 - **Images:** Save all does not fetch images; three notes have one embedded image each (`books/the pragmatic programmer/…` T12, T15, T33), which show "[Image unavailable]" offline until opened online once.
-- The release build is not reinstalled yet.
 
 ## Noticed, not changed
 
