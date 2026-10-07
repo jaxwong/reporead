@@ -375,7 +375,7 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                 val saved = sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = done to toFetch }
                 listed = true
                 listOfNotNull(
-                    "Saved ${saved.fetched} notes on this phone; ${saved.alreadySaved} were already saved.",
+                    "Saved ${saved.fetched} ${if (saved.fetched == 1) "note" else "notes"} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
                     saved.cannotShow.takeIf { it.isNotEmpty() }?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
                 ).joinToString(" ")
             } catch (failure: ApiException) {
