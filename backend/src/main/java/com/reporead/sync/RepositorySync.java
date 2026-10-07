@@ -2,7 +2,9 @@ package com.reporead.sync;
 
 import com.reporead.ApiFailure;
 import com.reporead.auth.AppUser;
+import com.reporead.document.Attachments;
 import com.reporead.document.Documents;
+import com.reporead.document.MarkdownRenderer;
 import com.reporead.document.NoteVersions;
 import com.reporead.github.GitHubApi;
 import com.reporead.repository.RepositoryConnections;
@@ -42,9 +44,11 @@ public class RepositorySync {
     private final TransactionTemplate transaction;
     private final NoteVersions noteVersions;
     private final MeterRegistry meters;
+    private final Attachments attachments;
 
     public RepositorySync(GitHubApi github, RepositoryConnections connections, Documents documents, TransactionTemplate transaction,
-                          NoteVersions noteVersions, MeterRegistry meters) {
+                          NoteVersions noteVersions, MeterRegistry meters, Attachments attachments) {
+        this.attachments = attachments;
         this.meters = meters;
         this.github = github;
         this.connections = connections;
@@ -77,12 +81,15 @@ public class RepositorySync {
             new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Repository connection not found."));
         String token = github.userToken(user.githubUserId());
         var branch = github.branch(token, connection.owner(), connection.name(), connection.defaultBranch());
-        var markdown = markdownDocuments(github.completeTree(token, connection.owner(), connection.name(), branch.treeSha()));
+        var tree = github.completeTree(token, connection.owner(), connection.name(), branch.treeSha());
+        var markdown = markdownDocuments(tree);
+        var images = imageFiles(tree);
         var contentMoves = contentMoves(user, connection, markdown);
         Instant syncedAt = Instant.now();
         var moves = transaction.execute(status -> {
             boolean previouslySynced = connections.lockForSync(user.id(), connectionId);
             var applied = documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt, contentMoves, previouslySynced);
+            attachments.replace(connectionId, images);
             connections.markSynced(connectionId, branch.commitSha(), syncedAt);
             return applied;
         });
@@ -140,6 +147,12 @@ public class RepositorySync {
             LOG.info("Content move candidate skipped; connectionId={} path={} blobSha={} code={}", connection.id(), path, blobSha, failure.code);
             return Optional.empty();
         }
+    }
+
+    /** Regular-file blobs the reader displays as images, for resolving Obsidian embeds by name. */
+    static List<String> imageFiles(List<GitHubApi.TreeEntry> tree) {
+        return tree.stream().filter(entry -> entry.type().equals("blob") && (entry.mode().equals("100644") || entry.mode().equals("100755"))
+            && MarkdownRenderer.isImagePath(entry.path())).map(GitHubApi.TreeEntry::path).toList();
     }
 
     /** Regular-file blobs ending in .md (any case). Symlinks, submodules, and other files are not documents. */

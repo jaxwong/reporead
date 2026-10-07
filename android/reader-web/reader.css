@@ -118,6 +118,11 @@ img { max-width: 100%; height: auto; border-radius: 6px; }
 details { margin: 0 0 1em; }
 summary { color: var(--muted); font-size: 0.8em; }
 
+/* Obsidian links and embeds keep their source text for canonical offsets; the brackets and targets are hidden. */
+.wl-hidden { display: none; }
+a.wikilink { text-decoration-style: dotted; }
+.embed img { display: block; margin: 0.25em 0 0.75em; }
+
 mark { background: var(--mark); color: inherit; border-radius: 3px; }
 mark.revealed { background: var(--mark-revealed); }
 

@@ -65,6 +65,8 @@ import java.io.ByteArrayInputStream
 private const val ASSET_HOST = "appassets.androidplatform.net"
 private const val ASSET_ORIGIN = "https://$ASSET_HOST"
 private const val IMAGE_PREFIX = "/repo-image/"
+private const val EMBED_PREFIX = "/repo-embed/"
+private const val NOTE_LINK = "/note-link"
 private val IMAGE_TYPES = mapOf("png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "gif" to "image/gif",
     "webp" to "image/webp", "svg" to "image/svg+xml")
 private const val SAVE_AFTER_SCROLL_MS = 700L
@@ -73,7 +75,7 @@ private const val READY_POLL_LIMIT = 100
 
 @Composable
 fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean, onFailure: (ApiException) -> Unit,
-                 screen: Screen.Reader, onBack: () -> Unit) {
+                 screen: Screen.Reader, onBack: () -> Unit, push: (Screen) -> Unit) {
     var reload by remember { mutableIntStateOf(0) }
     /*
      * The version last read when the note was opened (null: never read). Captured once, before the reader saves the
@@ -115,6 +117,11 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var notShown by remember { mutableStateOf(emptySet<String>()) }
     /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here. */
     var reattaching by remember { mutableStateOf<AnnotationRow?>(null) }
+    /** Notes sharing the linked name, for the reader to pick one. */
+    var linkChoices by remember { mutableStateOf<Pair<String?, List<com.reporead.android.data.DocumentRow>>?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    /** The displayed page's session, for scrolling to a heading linked from the same note. */
+    var sessionRef by remember { mutableStateOf<ReaderSession?>(null) }
 
     if (signedIn) {
         LaunchedEffect(screen.documentId) {
@@ -182,8 +189,28 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             }
             val lifecycle = LocalLifecycleOwner.current.lifecycle
             val session = remember(opened.note) {
-                ReaderSession(opened.note, sync, dao, appScope,
+                ReaderSession(opened.note, sync, dao, appScope, openAtHeading = screen.heading,
                     onRestoreNotice = { restoreNotice = it },
+                    onNoteLink = { target, path, heading ->
+                        scope.launch {
+                            // Resolved against the saved note list of this note's repository, so links work offline too.
+                            val from = dao.document(opened.note.documentId)
+                            when {
+                                target == null && path == null -> heading?.let { text ->
+                                    sessionRef?.showHeading(text) { shown -> if (!shown) message = "No heading “$text” in this note." }
+                                }
+                                from == null -> message = "This note isn't in a saved note list, so its links can't be followed. Refresh the repository."
+                                else -> {
+                                    val matches = resolveNoteLink(target, path, from.path, dao.documentsOnce(from.repositoryId))
+                                    when (matches.size) {
+                                        0 -> message = "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
+                                        1 -> push(Screen.Reader(matches.first().id, matches.first().title, heading))
+                                        else -> linkChoices = heading to matches
+                                    }
+                                }
+                            }
+                        }
+                    },
                     onNotShown = { notShown = it },
                     reattaching = { reattaching != null },
                     onSelection = { selection, action ->
@@ -197,6 +224,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                         }
                     })
             }
+            androidx.compose.runtime.SideEffect { sessionRef = session }
             DisposableEffect(lifecycle, session) {
                 // Process death can follow ON_STOP, so the position is captured whenever the reader leaves the screen.
                 val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) session.capture() }
@@ -230,6 +258,24 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             }
         }
     }
+    linkChoices?.let { (heading, choices) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { linkChoices = null },
+            title = { Text("Which note?") },
+            text = {
+                Column {
+                    for (choice in choices) {
+                        TextButton(onClick = {
+                            linkChoices = null
+                            push(Screen.Reader(choice.id, choice.title, heading))
+                        }) { Text(choice.path) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { linkChoices = null }) { Text("Cancel") } },
+        )
+    }
     newSelection?.let { selection ->
         NoteDialog(title = "Add a note", quote = selection.getString("exactText"), initial = "",
             onDismiss = { newSelection = null }, onSave = { note ->
@@ -253,7 +299,11 @@ private class ReaderSession(
     private val sync: Sync,
     private val dao: LibraryDao,
     private val scope: CoroutineScope,
+    /** A heading to open at instead of the saved position (the target of a note link). */
+    private val openAtHeading: String?,
     private val onRestoreNotice: (String?) -> Unit,
+    /** A tapped note link: an Obsidian [target] name or a repository [path], and an optional heading. */
+    private val onNoteLink: (target: String?, path: String?, heading: String?) -> Unit,
     private val onNotShown: (Set<String>) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
@@ -287,6 +337,10 @@ private class ReaderSession(
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val url = request.url
+                    if (request.hasGesture() && url.host == ASSET_HOST && url.path == NOTE_LINK) {
+                        onNoteLink(url.getQueryParameter("target"), url.getQueryParameter("path"), url.getQueryParameter("heading"))
+                        return true
+                    }
                     if (request.hasGesture() && (url.scheme == "https" || url.scheme == "http") && url.host != ASSET_HOST) {
                         try {
                             view.context.startActivity(Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE))
@@ -294,7 +348,7 @@ private class ReaderSession(
                             Log.w("RepoRead", "No browser for an external note link")
                         }
                     }
-                    // Links between notes are not supported yet; the reader never navigates away from the note.
+                    // The page itself never navigates away; note links are opened by the app as new reader screens.
                     return true
                 }
 
@@ -308,6 +362,14 @@ private class ReaderSession(
                         val path = url.path!!.removePrefix(IMAGE_PREFIX)
                         val type = IMAGE_TYPES[path.substringAfterLast('.', "").lowercase()]
                         val bytes = type?.let { sync.image(note.documentId, note.blobSha, path) }
+                        if (type != null && bytes != null) {
+                            return WebResourceResponse(type, null, 200, "OK", mapOf("X-Content-Type-Options" to "nosniff"), ByteArrayInputStream(bytes))
+                        }
+                    }
+                    if (url.host == ASSET_HOST && url.path?.startsWith(EMBED_PREFIX) == true) {
+                        val name = url.path!!.removePrefix(EMBED_PREFIX)
+                        val type = IMAGE_TYPES[name.substringAfterLast('.', "").lowercase()]
+                        val bytes = type?.let { sync.embedImage(note.documentId, note.blobSha, name) }
                         if (type != null && bytes != null) {
                             return WebResourceResponse(type, null, 200, "OK", mapOf("X-Content-Type-Options" to "nosniff"), ByteArrayInputStream(bytes))
                         }
@@ -344,6 +406,17 @@ private class ReaderSession(
     }
 
     private fun restore(view: WebView) {
+        val heading = openAtHeading
+        if (heading != null) {
+            view.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(heading)})") { encoded ->
+                val shown = JSONTokener(encoded).nextValue() == true
+                Log.i("RepoRead", "Reader opened at a linked heading; documentId=${note.documentId} found=$shown")
+                onRestoreNotice(if (shown) null else "No heading “$heading” in this note; showing the top.")
+                restored = true
+                capture()
+            }
+            return
+        }
         scope.launch {
             val saved = dao.reading(note.documentId)
             if (saved == null) {
@@ -426,6 +499,16 @@ private class ReaderSession(
             if (!shown) Log.w("RepoRead", "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId")
             then(shown)
         }
+    }
+
+    /** Scrolls to the first heading whose text is [text] (ignoring case), as Obsidian heading links do. */
+    fun showHeading(text: String, then: (Boolean) -> Unit) {
+        val webView = view
+        if (webView == null || !ready) {
+            then(false)
+            return
+        }
+        webView.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(text)})") { encoded -> then(JSONTokener(encoded).nextValue() == true) }
     }
 
     fun reveal(key: String) {

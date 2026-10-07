@@ -36,11 +36,13 @@ data class ChangedNote(val documentId: Long, val title: String, val path: String
 
 /**
  * The latest complete rendered copy of an opened note, identified by document and source version. [searchText] is its
- * blocks' canonical text, one per line; null for a copy saved before search existed.
+ * blocks' canonical text, one per line; null for a copy saved before search existed. [renderFormat] is the server's page
+ * format for [html]; 0 for copies saved before formats were recorded.
  */
 @Entity(tableName = "notes")
 data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val commitSha: String, val path: String,
-                   val title: String, val html: String, val fetchedAt: Long, val searchText: String? = null)
+                   val title: String, val html: String, val fetchedAt: Long, val searchText: String? = null,
+                   @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0)
 
 /** A saved note matching a search: [searchText] is set when it matched by text, for a snippet. */
 data class NoteMatch(val documentId: Long, val title: String, val path: String, val searchText: String?)
@@ -108,6 +110,9 @@ interface LibraryDao {
 
     @Query("select * from documents where repositoryId = :repositoryId order by path")
     fun documents(repositoryId: Long): Flow<List<DocumentRow>>
+
+    @Query("select * from documents where repositoryId = :repositoryId")
+    suspend fun documentsOnce(repositoryId: Long): List<DocumentRow>
 
     @Query("select * from documents where id = :id")
     suspend fun document(id: Long): DocumentRow?
@@ -291,9 +296,9 @@ interface LibraryDao {
 
 @Database(
     entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class],
-    version = 5,
+    version = 6,
     autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5)],
+        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6)],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao

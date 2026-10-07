@@ -27,6 +27,7 @@ import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -109,6 +110,7 @@ class DocumentContentTest {
                 .andExpect(jsonPath("$.path").value("backend/spring.md")).andExpect(jsonPath("$.sourceBlobSha").value(sha))
                 .andExpect(jsonPath("$.commitSha").value("c".repeat(40))).andExpect(jsonPath("$.blockCount").value(3))
                 .andExpect(jsonPath("$.text").value("Spring\nA transaction groups work.\n<script>alert(1)</script>"))
+                .andExpect(jsonPath("$.renderFormat").value(MarkdownRenderer.FORMAT))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("TOKEN"))))
                 .andReturn().getResponse().getContentAsString();
             var html = Jsoup.parse(json.readTree(body).get("html").stringValue());
@@ -294,6 +296,33 @@ class DocumentContentTest {
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string(HttpHeaders.CONTENT_TYPE, "image/png"))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("X-Content-Type-Options", "nosniff")).andReturn().getResponse();
         assertArrayEquals(png, response.getContentAsByteArray());
+    }
+
+    private void images(String... paths) {
+        for (String path : paths) db.sql("insert into repository_images (repository_connection_id, path) values (1, :path)").param("path", path).update();
+    }
+
+    private ResultActions embed(long id, String name) throws Exception {
+        return mvc.perform(get("/api/documents/" + id + "/image").param("embed", name).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice));
+    }
+
+    @Test void anObsidianEmbedIsFoundByNamePreferringTheNotesFolder() throws Exception {
+        long id = document("notes/a.md", MarkdownRenderer.blobSha(NOTE), false);
+        images("attachments/Pasted image.png", "notes/chart.png", "other/chart.png", "notes/sub/deep.gif", "x/deep.gif", "y/deep.gif");
+        byte[] png = {(byte) 0x89, 'P', 'N', 'G'};
+        for (String path : List.of("attachments/Pasted%20image.png", "notes/chart.png", "notes/sub/deep.gif")) {
+            images.expect(requestTo("https://api.github.com/repos/test-only/notes/contents/" + path + "?ref=" + "c".repeat(40)))
+                .andRespond(withSuccess(png, MediaType.APPLICATION_OCTET_STREAM));
+        }
+        embed(id, "Pasted image.png").andExpect(status().isOk());
+        embed(id, "chart.png").andExpect(status().isOk());
+        embed(id, "sub/deep.gif").andExpect(status().isOk());
+        // Not found and ambiguous are answered from the stored list, without GitHub.
+        embed(id, "missing.png").andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("IMAGE_NOT_FOUND"));
+        embed(id, "deep.gif").andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("IMAGE_AMBIGUOUS"));
+        embed(id, "notes.md").andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_IMAGE_PATH"));
+        mvc.perform(get("/api/documents/" + id + "/image").param("embed", "chart.png").param("path", "notes/chart.png")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isBadRequest());
     }
 
     @Test void imagePathOwnershipAndDeletionAreCheckedBeforeGitHub() throws Exception {
