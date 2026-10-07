@@ -56,7 +56,7 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `POST /api/repositories/{id}/sync` | 2 (branch, recursive tree) + at most 8 blob reads (moved-and-edited notes) | Publishes a complete snapshot of the default branch |
 | `GET /api/repositories/{id}/documents` | 0 | Active Markdown documents and the last synced commit; each with `contentChangedAt` (see Sync semantics) |
 | `GET /api/documents/{id}/content` | 1 (raw blob at the stored SHA) | Sanitized reader HTML; not cached on the server |
-| `GET /api/documents/{id}/image?path=` | 1 (file at the note's current commit) | A repository image referenced by the note; see below |
+| `GET /api/documents/{id}/image?path=` or `?embed=` | 1 (file at the note's current commit); 0 when an embed name is missing or ambiguous | A repository image referenced by the note, by path or by Obsidian embed name; see below |
 | `GET /api/documents/{id}/changes?since=&to=` | 2 (both versions' blobs); 0 when `since` = `to` | Sections changed between the version last read and the version on screen; see Changes since last read |
 | `GET /api/reading-states` | 0 | Most recently read first, with the version last read and the current version |
 | `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
@@ -111,11 +111,17 @@ These are chosen ceilings, not measured ones. Clients cannot change them.
 
 Sync reads the default branch's commit, then its full recursive tree. Documents are regular-file blobs ending in `.md` (any case); symlinks and submodules are skipped. A truncated or malformed tree fails without changes and is never evidence of deletion. Only after complete validation does one transaction upsert documents by path, mark paths absent from the complete tree as deleted (rows are kept), and advance the connection's commit checkpoint. Repeating a sync is idempotent; concurrent syncs of one connection are serialized by a row lock. A document whose path left the snapshot keeps its id at a path that has never had a document when both share a blob SHA unique on each side (a path-only move); identical-content duplicates are never merged, and a path that once had a document resumes it. A vanished document carrying the user's data also keeps its id at a new path whose content is alike enough (measured thresholds in the [Stage 4 record](../requirements/reporead-stage4-record.md)), checked only when vanished documents plus new paths number at most 8. Because every sync is a complete snapshot, a branch rewind is reconciled like any other: paths absent from it are marked deleted and return to their documents if they reappear.
 
+Each sync also records the snapshot's image file paths (`repository_images`), replaced every time, for resolving Obsidian embeds.
+
 `contentChangedAt` is when a sync found the note new, with a different blob, or back after being deleted (a path-only move is not a change). It is null for notes from a connection's first sync and for notes RepoRead has not seen change since Stage 5: it is when RepoRead noticed, not the commit time.
 
 ### Images
 
 The renderer resolves relative and root-relative Markdown images against the note's directory, as GitHub does, and rewrites them to the same-origin path `/repo-image/<repository path>`. The Android reader serves that path from its offline cache or from `GET /api/documents/{id}/image`, attaching the bearer token in native code; the page's JavaScript never sees a credential. Only normalized repository paths ending in png, jpg/jpeg, gif, webp, or svg are served (`nosniff`). Remote (`https:`, `//`) images, references escaping the repository, and other file types render as visible `[… blocked]`/`[Unsupported image]` text.
+
+### Obsidian links and embeds
+
+The renderer turns `[[note]]`, `[[note|alias]]`, `[[note#Heading]]` (block references `#^id` open the note), same-note `[[#Heading]]`, and relative links to `.md` files into `/note-link?target=…|path=…&heading=…` links that the app intercepts; code is never linked. `![[image.png]]` (optionally `|300` or `|300x200`) becomes an image at `/repo-embed/<name>`, fetched with `image?embed=<name>`; `![[note]]` becomes a link. The source text stays in the page and only the brackets and targets are hidden (`.wl-hidden`), so canonical block text — and every highlight anchored in it — is unchanged. An embed name resolves like Obsidian against the latest snapshot's image files: a name with a folder must match the end of a path, a bare name a file name (case-insensitively); several matches resolve to the one in the note's folder, otherwise 409 `IMAGE_AMBIGUOUS`; none is 404 `IMAGE_NOT_FOUND`. The content response's `renderFormat` (`MarkdownRenderer.FORMAT`, now 2) tells the app when a saved page predates these features.
 
 ### Reading state and bookmarks
 
