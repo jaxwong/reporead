@@ -266,6 +266,8 @@ private class ReaderSession(
                 onSelection(selection, action)
             }
         }.apply {
+            // Until the page paints its own background, the app's surface shows through instead of a white flash.
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
             settings.javaScriptEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false

@@ -1,13 +1,140 @@
-body { margin: 16px; color: #202124; font: 18px/1.6 sans-serif; overflow-wrap: anywhere; }
-.source-label, #render-status { font-size: 13px; color: #555; }
+/*
+ * Reader styles. Colors are variables with a light and a dark palette; the dark one follows the phone's dark theme
+ * (the app's DayNight window theme sets prefers-color-scheme for the WebView). Sizes are in em so the system font size,
+ * applied by the app as textZoom, scales everything.
+ */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --surface: #f6f8fa;
+  --surface-strong: #eaeef2;
+  --link: #0969da;
+  --error: #b42318;
+  --mark: #fff1a8;
+  --mark-revealed: #ffd54a;
+  --code-keyword: #cf222e;
+  --code-title: #8250df;
+  --code-constant: #0550ae;
+  --code-string: #0a3069;
+  --code-builtin: #953800;
+  --code-comment: #6e7781;
+  --code-tag: #116329;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d;
+    --fg: #d6d9de;
+    --muted: #9198a1;
+    --border: #3a414b;
+    --surface: #20242b;
+    --surface-strong: #2b313a;
+    --link: #79b8ff;
+    --error: #ff8f85;
+    --mark: rgba(242, 196, 64, 0.32);
+    --mark-revealed: rgba(242, 196, 64, 0.6);
+    --code-keyword: #ff8b80;
+    --code-title: #d2a8ff;
+    --code-constant: #79c0ff;
+    --code-string: #a5d6ff;
+    --code-builtin: #ffa657;
+    --code-comment: #8b949e;
+    --code-tag: #7ee787;
+  }
+}
+
+html { background: var(--bg); }
+body {
+  margin: 0 auto;
+  padding: 12px 18px 48px;
+  max-width: 42em;
+  background: var(--bg);
+  color: var(--fg);
+  font: 18px/1.65 system-ui, Roboto, "Noto Sans", sans-serif;
+  overflow-wrap: anywhere;
+  -webkit-text-size-adjust: none;
+}
+
+.source-label { margin: 0 0 4px; font-size: 0.75em; color: var(--muted); }
+#render-status { margin: 0 0 8px; font-size: 0.75em; color: var(--muted); }
+#render-status:empty { display: none; }
+#render-status.failed { color: var(--error); }
+
+/* Canonical block text keeps its line breaks; the reader maps selections onto it. */
 [data-block-id] { white-space: pre-wrap; }
-pre { padding: 12px; border-radius: 8px; background: #f4f5f6; overflow-x: auto; }
-pre, pre code { white-space: pre; overflow-wrap: normal; }
-code { font-size: 14px; }
-table { display: block; border-collapse: collapse; overflow-x: auto; }
-td, th { padding: 8px; border: 1px solid #bbb; min-width: 80px; }
-img, .diagram svg { max-width: 100%; height: auto; }
-.image-blocked, .diagram-error { color: #9b2424; }
-details { margin: 12px 0; }
-mark { background: #fff1a8; color: inherit; }
-mark.revealed { background: #ffd54a; }
+
+h1, h2, h3, h4, h5, h6 { margin: 1.4em 0 0.5em; line-height: 1.3; font-weight: 650; }
+h1 { font-size: 1.6em; margin-top: 0.6em; }
+h2 { font-size: 1.3em; padding-bottom: 0.25em; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.12em; }
+h4, h5, h6 { font-size: 1em; }
+h6 { color: var(--muted); }
+
+p { margin: 0 0 1em; }
+a { color: var(--link); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+
+ul, ol { margin: 0 0 1em; padding-left: 1.4em; }
+li { margin: 0.25em 0; }
+li > p { margin-bottom: 0.4em; }
+li:has(> input[type=checkbox]) { list-style: none; margin-left: -1.3em; }
+input[type=checkbox] { accent-color: var(--link); margin: 0 0.45em 0 0; transform: translateY(1px); opacity: 1; }
+
+blockquote { margin: 0 0 1em; padding: 0.1em 0 0.1em 1em; border-left: 4px solid var(--border); color: var(--muted); }
+
+code, pre { font-family: ui-monospace, "Roboto Mono", "Droid Sans Mono", monospace; }
+code { font-size: 0.85em; padding: 0.12em 0.35em; border-radius: 6px; background: var(--surface); }
+pre {
+  margin: 0 0 1em;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.8em;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+/* Code keeps its lines and indentation and scrolls sideways; wrapping would break indentation. Layout only. */
+pre[data-block-id], pre code { white-space: pre; overflow-wrap: normal; }
+pre code { padding: 0; font-size: 1em; background: none; }
+
+/* Wide tables scroll sideways instead of squeezing every cell. */
+table { display: block; margin: 0 0 1em; border-collapse: collapse; overflow-x: auto; font-size: 0.9em; }
+th, td { padding: 6px 10px; border: 1px solid var(--border); vertical-align: top; overflow-wrap: normal; }
+th { background: var(--surface-strong); font-weight: 650; text-align: left; }
+tr:nth-child(even) td { background: var(--surface); }
+
+img { max-width: 100%; height: auto; border-radius: 6px; }
+.image-blocked { color: var(--error); font-size: 0.9em; }
+.image-blocked[data-label]::before { content: attr(data-label); }
+
+.diagram { margin: 0 0 0.5em; padding: 8px; border-radius: 10px; background: var(--surface); overflow-x: auto; }
+.diagram svg { max-width: 100%; height: auto; }
+.diagram-error { margin: 0 0 0.5em; color: var(--error); }
+details { margin: 0 0 1em; }
+summary { color: var(--muted); font-size: 0.8em; }
+
+mark { background: var(--mark); color: inherit; border-radius: 3px; }
+mark.revealed { background: var(--mark-revealed); }
+
+/* Code highlighting (highlight.js classes), from the palettes above. */
+.hljs { color: var(--fg); }
+.hljs-doctag, .hljs-keyword, .hljs-meta .hljs-keyword, .hljs-template-tag, .hljs-template-variable, .hljs-type,
+.hljs-variable.language_ { color: var(--code-keyword); }
+.hljs-title, .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-title.function_ { color: var(--code-title); }
+.hljs-attr, .hljs-attribute, .hljs-literal, .hljs-meta, .hljs-number, .hljs-operator, .hljs-variable,
+.hljs-selector-attr, .hljs-selector-class, .hljs-selector-id { color: var(--code-constant); }
+.hljs-regexp, .hljs-string, .hljs-meta .hljs-string { color: var(--code-string); }
+.hljs-built_in, .hljs-symbol { color: var(--code-builtin); }
+.hljs-comment, .hljs-code, .hljs-formula { color: var(--code-comment); font-style: italic; }
+.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo { color: var(--code-tag); }
+.hljs-section { color: var(--code-constant); font-weight: 650; }
+.hljs-bullet { color: var(--code-builtin); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 650; }
+.hljs-addition { color: var(--code-tag); }
+.hljs-deletion { color: var(--code-keyword); }
