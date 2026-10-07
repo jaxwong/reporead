@@ -37,7 +37,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.webkit.WebViewAssetLoader
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.IconButton
+import com.reporead.android.R
 import com.reporead.android.Screen
+import com.reporead.android.ui.AppBar
+import com.reporead.android.ui.AppIcon
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.rememberLoad
@@ -67,7 +73,7 @@ private const val READY_POLL_LIMIT = 100
 
 @Composable
 fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean, onFailure: (ApiException) -> Unit,
-                 screen: Screen.Reader) {
+                 screen: Screen.Reader, onBack: () -> Unit) {
     var reload by remember { mutableIntStateOf(0) }
     /*
      * The version last read when the note was opened (null: never read). Captured once, before the reader saves the
@@ -148,15 +154,20 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(screen.title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+        AppBar(screen.title, onBack = onBack, actions = {
             val opened = (load as? Load.Ready)?.value
             if (opened != null) {
-                TextButton(onClick = { notesOpen = !notesOpen }) { Text("Notes (${annotations.size})") }
+                IconButton(onClick = { notesOpen = !notesOpen }) {
+                    BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
+                        AppIcon(R.drawable.ic_notes, if (notesOpen) "Hide highlights and notes" else "Highlights and notes")
+                    }
+                }
                 val marked = bookmark?.bookmarked == true
-                TextButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) { Text(if (marked) "★" else "☆") }
+                IconButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) {
+                    AppIcon(if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border, if (marked) "Remove bookmark" else "Bookmark")
+                }
             }
-        }
+        })
         LoadContent(load, onRetry = { reload++ }) { opened ->
             opened.staleReason?.let { Notice("Showing your saved copy. $it") }
             restoreNotice?.let { Notice(it) }
