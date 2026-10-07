@@ -66,6 +66,8 @@ private const val COPY_CODE = "/copy-code"
 private const val FULL_SCREEN = "/full-screen"
 private const val SAVE_AFTER_SCROLL_MS = 700L
 private const val SECTION_AFTER_SCROLL_MS = 150L
+/** How far the reader scrolls in one direction before the bars hide or come back, so small jitters do nothing. */
+private const val BARS_SCROLL_DP = 24
 
 @Composable
 fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean, onFailure: (ApiException) -> Unit,
@@ -120,6 +122,8 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var outline by remember(displayed) { mutableStateOf<List<OutlineEntry>?>(null) }
     var topBlock by remember(displayed) { mutableIntStateOf(0) }
     var outlineOpen by remember { mutableStateOf(false) }
+    var barsShown by remember { mutableStateOf(true) }
+    ReadingBars(barsShown)
     val section = outline?.sectionAt(topBlock)
 
     if (signedIn) {
@@ -160,23 +164,25 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     }
 
     Column(Modifier.fillMaxSize()) {
-        AppBar(screen.title, subtitle = section?.text?.ifBlank { null }, onBack = onBack, actions = {
-            val opened = (load as? Load.Ready)?.value
-            if (!outline.isNullOrEmpty()) {
-                IconButton(onClick = { outlineOpen = true }) { AppIcon(R.drawable.ic_toc, "Outline") }
-            }
-            if (opened != null) {
-                IconButton(onClick = { notesOpen = !notesOpen }) {
-                    BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
-                        AppIcon(R.drawable.ic_notes, if (notesOpen) "Hide highlights and notes" else "Highlights and notes")
+        androidx.compose.animation.AnimatedVisibility(barsShown) {
+            AppBar(screen.title, subtitle = section?.text?.ifBlank { null }, onBack = onBack, actions = {
+                val opened = (load as? Load.Ready)?.value
+                if (!outline.isNullOrEmpty()) {
+                    IconButton(onClick = { outlineOpen = true }) { AppIcon(R.drawable.ic_toc, "Outline") }
+                }
+                if (opened != null) {
+                    IconButton(onClick = { notesOpen = !notesOpen }) {
+                        BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
+                            AppIcon(R.drawable.ic_notes, if (notesOpen) "Hide highlights and notes" else "Highlights and notes")
+                        }
+                    }
+                    val marked = bookmark?.bookmarked == true
+                    IconButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) {
+                        AppIcon(if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border, if (marked) "Remove bookmark" else "Bookmark")
                     }
                 }
-                val marked = bookmark?.bookmarked == true
-                IconButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) {
-                    AppIcon(if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border, if (marked) "Remove bookmark" else "Bookmark")
-                }
-            }
-        })
+            })
+        }
         LoadContent(load, onRetry = { reload++ }) { opened ->
             opened.staleReason?.let { Notice("Showing your saved copy. $it") }
             restoreNotice?.let { Notice(it) }
@@ -217,6 +223,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                     onOutline = { outline = it },
                     onFigure = { figure -> push(Screen.Figure(opened.note.documentId, opened.note.blobSha, figure, opened.note.title)) },
                     onTopBlock = { topBlock = it },
+                    onBarsShown = { barsShown = it },
                     reattaching = { reattaching != null },
                     onSelection = { selection, action ->
                         val placing = reattaching
@@ -296,6 +303,23 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     }
 }
 
+/**
+ * The system bars follow the reader's top bar: hidden while reading down the note, shown briefly by a swipe from the
+ * edge, and always shown again when the reader is left.
+ */
+@Composable
+private fun ReadingBars(shown: Boolean) {
+    val activity = androidx.activity.compose.LocalActivity.current ?: error("ReaderScreen requires an activity")
+    val bars = activity.window.insetsController ?: error("ReaderScreen requires a window insets controller")
+    DisposableEffect(bars) {
+        bars.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        onDispose { bars.show(android.view.WindowInsets.Type.systemBars()) }
+    }
+    LaunchedEffect(shown) {
+        if (shown) bars.show(android.view.WindowInsets.Type.systemBars()) else bars.hide(android.view.WindowInsets.Type.systemBars())
+    }
+}
+
 @Composable
 private fun Notice(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
@@ -322,6 +346,8 @@ private class ReaderSession(
     private val onOutline: (List<OutlineEntry>) -> Unit,
     /** The index of the first block visible at the top, after scrolling settles and whenever the position is saved. */
     private val onTopBlock: (Int) -> Unit,
+    /** Whether the bars should show: false after the reader scrolls down, true after scrolling up or reaching the top. */
+    private val onBarsShown: (Boolean) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
     /** The captured selection (null when empty, {error} when it spans blocks) and the chosen action. */
@@ -336,6 +362,13 @@ private class ReaderSession(
     private var restored = false
     private val saveAfterScroll = Runnable { capture() }
     private val sectionAfterScroll = Runnable { reportTopBlock() }
+    /**
+     * Only scrolling that follows a touch on the page moves the bars; jumps made by the app (restoring the position, the
+     * outline, Show) clear it, so they never hide the bars.
+     */
+    private var touched = false
+    /** Distance scrolled in the current direction, in pixels: positive down. */
+    private var scrolledThisWay = 0
 
     fun createView(context: Context): WebView {
         val assets = readerAssets(context)
@@ -377,11 +410,24 @@ private class ReaderSession(
 
                 override fun onPageFinished(view: WebView, url: String) = awaitReady(view)
             }
-            setOnScrollChangeListener { _, _, _, _, _ ->
+            val barsThreshold = (BARS_SCROLL_DP * context.resources.displayMetrics.density).toInt()
+            setOnTouchListener { _, event ->
+                if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) touched = true
+                false
+            }
+            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
                 main.removeCallbacks(saveAfterScroll)
                 main.removeCallbacks(sectionAfterScroll)
                 if (restored) main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
                 if (ready) main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
+                val delta = scrollY - oldScrollY
+                if (!touched || delta == 0) return@setOnScrollChangeListener
+                if ((delta > 0) != (scrolledThisWay > 0)) scrolledThisWay = 0
+                scrolledThisWay += delta
+                when {
+                    scrollY <= barsThreshold || scrolledThisWay < -barsThreshold -> onBarsShown(true)
+                    scrolledThisWay > barsThreshold -> onBarsShown(false)
+                }
             }
             view = this
             loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
@@ -503,6 +549,7 @@ private class ReaderSession(
             then(false)
             return
         }
+        touched = false
         webView.evaluateJavascript("window.reporead.showBlock(${if (blockId == null) "null" else JSONObject.quote(blockId)})") { encoded ->
             val shown = JSONTokener(encoded).nextValue() == true
             if (!shown) Log.w("RepoRead", "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId")
@@ -517,12 +564,15 @@ private class ReaderSession(
             then(false)
             return
         }
+        touched = false
         webView.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(text)})") { encoded -> then(JSONTokener(encoded).nextValue() == true) }
     }
 
     fun reveal(key: String) {
         val webView = view ?: return
-        if (ready) webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})", null)
+        if (!ready) return
+        touched = false
+        webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})", null)
     }
 
     /** Android 13+ confirms clipboard writes itself, so the reader shows nothing more. */
