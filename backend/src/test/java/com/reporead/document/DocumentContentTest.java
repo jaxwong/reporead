@@ -140,6 +140,17 @@ class DocumentContentTest {
         read(alice, id).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"));
     }
 
+    @Test void anEmptyNoteIsShownAsEmpty() throws Exception {
+        // GitHub answers an empty file with a 200 and no body; its blob SHA is Git's empty-blob hash.
+        byte[] empty = new byte[0];
+        String sha = MarkdownRenderer.blobSha(empty);
+        assertEquals("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", sha);
+        long id = document("k8s/helm.md", sha, false);
+        expectBlob(sha, withSuccess(empty, MediaType.APPLICATION_OCTET_STREAM));
+        read(alice, id).andExpect(status().isOk()).andExpect(jsonPath("$.blockCount").value(0)).andExpect(jsonPath("$.text").value(""))
+            .andExpect(jsonPath("$.html").value(org.hamcrest.Matchers.containsString("This note is empty.")));
+    }
+
     @Test void oversizedAndNonUtf8NotesAreVisiblyUnsupported() throws Exception {
         byte[] large = new byte[GitHubSecurity.MAX_RESPONSE_BYTES + 1];
         java.util.Arrays.fill(large, (byte) 'x');

@@ -224,10 +224,10 @@ public class GitHubApi {
             }
             throw new ApiFailure(HttpStatus.SERVICE_UNAVAILABLE, "GITHUB_UNAVAILABLE", "The GitHub request failed or timed out; nothing was changed.");
         }
-        if (response.getStatusCode().value() != 200 || response.getBody() == null) {
-            throw invalid("GitHub did not return a complete response.");
-        }
-        return response.getBody();
+        if (response.getStatusCode().value() != 200) throw invalid("GitHub did not return a complete response.");
+        // RestTemplate gives a null body for a 200 with no bytes, which is how GitHub returns an empty file. Empty raw
+        // content is then checked like any other (a note's bytes must hash to its blob SHA); JSON callers reject it.
+        return response.getBody() == null ? new byte[0] : response.getBody();
     }
 
     private JsonNode object(byte[] body, String what) {
