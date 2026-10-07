@@ -46,6 +46,7 @@ async function render() {
     status.diagrams++;
   }
   addCodeTools();
+  addFigureTools();
   // The status line is for problems only; a note that rendered fully shows nothing here.
   document.getElementById('render-status').textContent = status.diagramErrors === 0 ? ''
     : `${status.diagramErrors} of ${status.diagrams + status.diagramErrors} diagrams could not be rendered; their sources are shown.`;
@@ -82,6 +83,34 @@ function addCodeTools() {
   };
   showWraps();
   window.addEventListener('resize', showWraps);
+}
+
+/*
+ * Tables wider than the screen and rendered diagrams get a Full screen link above them: a same-origin path the app
+ * intercepts (/full-screen) to show that figure alone with pinch zoom and rotation, through figure() below.
+ */
+function addFigureTools() {
+  const tableTools = [];
+  const tools = (element, id) => {
+    element.dataset.figure = id;
+    const row = document.createElement('div');
+    row.className = 'figure-tools';
+    const link = document.createElement('a');
+    link.href = `/full-screen?figure=${encodeURIComponent(id)}`;
+    link.textContent = 'Full screen';
+    row.append(link);
+    element.before(row);
+    return row;
+  };
+  document.querySelectorAll('#note table').forEach((table, index) => tableTools.push([table, tools(table, `table-${index}`)]));
+  for (const diagram of document.querySelectorAll('#note .diagram')) {
+    tools(diagram, `diagram-${diagram.nextElementSibling.querySelector('pre[data-mermaid]').dataset.blockId}`);
+  }
+  const showTableTools = () => {
+    for (const [table, row] of tableTools) row.hidden = table.scrollWidth <= table.clientWidth;
+  };
+  showTableTools();
+  window.addEventListener('resize', showTableTools);
 }
 
 /*
@@ -279,6 +308,18 @@ window.reporead.codeText = blockId => {
   return pre.dataset.anchorText.replace(/\n$/, '');
 };
 
+/**
+ * For the full-screen view, a separate page: keeps only the table or diagram [id] (from addFigureTools) and the footnote
+ * sheet. Returns whether it exists in this version.
+ */
+window.reporead.figure = id => {
+  const figure = note.querySelector(`[data-figure="${CSS.escape(id)}"]`);
+  if (!figure) return false;
+  document.body.replaceChildren(figure, footnoteSheet);
+  document.body.classList.add('figure');
+  return true;
+};
+
 /** Scrolls a changed section's heading block to the top of the screen; null is the beginning of the note. */
 window.reporead.showBlock = blockId => {
   if (blockId === null) {
@@ -306,13 +347,15 @@ window.reporead.reveal = key => {
  * Tapping a footnote number shows its definition in a sheet at the bottom, without scrolling away from the passage.
  * The sheet is outside #note, so nothing in it is a block: it cannot be highlighted or become the reading position.
  */
+const note = document.getElementById('note');
 const footnoteSheet = document.createElement('aside');
 footnoteSheet.id = 'footnote';
 footnoteSheet.hidden = true;
 document.body.append(footnoteSheet);
 
 function showFootnote(label) {
-  const marker = document.querySelector(`#note .fn-def[data-footnote="${CSS.escape(label)}"]`);
+  // Looked up in the note, which figure() takes out of the page: a table's footnotes still open there.
+  const marker = note.querySelector(`.fn-def[data-footnote="${CSS.escape(label)}"]`);
   if (!marker) throw new Error(`Footnote ${label} is referenced but has no definition marker`);
   const close = document.createElement('button');
   close.textContent = '×';
@@ -328,7 +371,7 @@ function showFootnote(label) {
 }
 
 // A listener on each reference also makes the browser's touch adjustment treat these small numbers as tap targets.
-for (const reference of document.querySelectorAll('#note .fn-ref')) {
+for (const reference of note.querySelectorAll('.fn-ref')) {
   reference.addEventListener('click', event => {
     event.stopPropagation();
     showFootnote(reference.dataset.footnote);

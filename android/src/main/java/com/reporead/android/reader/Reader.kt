@@ -7,7 +7,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Column
@@ -36,7 +35,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.webkit.WebViewAssetLoader
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.IconButton
@@ -60,21 +58,14 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
-import java.io.ByteArrayInputStream
 
-private const val ASSET_HOST = "appassets.androidplatform.net"
-private const val ASSET_ORIGIN = "https://$ASSET_HOST"
-private const val IMAGE_PREFIX = "/repo-image/"
-private const val EMBED_PREFIX = "/repo-embed/"
 private const val NOTE_LINK = "/note-link"
 /** The reader page's Copy link on a code block (reader.js addCodeTools); the text is then read with codeText(). */
 private const val COPY_CODE = "/copy-code"
-private val IMAGE_TYPES = mapOf("png" to "image/png", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "gif" to "image/gif",
-    "webp" to "image/webp", "svg" to "image/svg+xml")
+/** The reader page's Full screen link on a wide table or a diagram (reader.js addFigureTools). */
+private const val FULL_SCREEN = "/full-screen"
 private const val SAVE_AFTER_SCROLL_MS = 700L
 private const val SECTION_AFTER_SCROLL_MS = 150L
-private const val READY_POLL_MS = 150L
-private const val READY_POLL_LIMIT = 100
 
 @Composable
 fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean, onFailure: (ApiException) -> Unit,
@@ -224,6 +215,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                     },
                     onNotShown = { notShown = it },
                     onOutline = { outline = it },
+                    onFigure = { figure -> push(Screen.Figure(opened.note.documentId, opened.note.blobSha, figure, opened.note.title)) },
                     onTopBlock = { topBlock = it },
                     reattaching = { reattaching != null },
                     onSelection = { selection, action ->
@@ -324,6 +316,8 @@ private class ReaderSession(
     /** A tapped note link: an Obsidian [target] name or a repository [path], and an optional heading. */
     private val onNoteLink: (target: String?, path: String?, heading: String?) -> Unit,
     private val onNotShown: (Set<String>) -> Unit,
+    /** A tapped Full screen link: the page's id for that table or diagram. */
+    private val onFigure: (String) -> Unit,
     /** The page's headings, once rendering has finished. */
     private val onOutline: (List<OutlineEntry>) -> Unit,
     /** The index of the first block visible at the top, after scrolling settles and whenever the position is saved. */
@@ -344,20 +338,14 @@ private class ReaderSession(
     private val sectionAfterScroll = Runnable { reportTopBlock() }
 
     fun createView(context: Context): WebView {
-        val assets = WebViewAssetLoader.Builder().addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context)).build()
+        val assets = readerAssets(context)
         return ReaderWebView(context, reattaching) { action, finish ->
             captureSelection { selection ->
                 finish()
                 onSelection(selection, action)
             }
         }.apply {
-            // Until the page paints its own background, the app's surface shows through instead of a white flash.
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            settings.javaScriptEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.blockNetworkLoads = true
-            settings.textZoom = (context.resources.configuration.fontScale * 100).toInt()
+            isolateReaderPage()
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val url = request.url
@@ -367,6 +355,10 @@ private class ReaderSession(
                     }
                     if (request.hasGesture() && url.host == ASSET_HOST && url.path == COPY_CODE) {
                         url.getQueryParameter("block")?.let { copyCode(view, it) }
+                        return true
+                    }
+                    if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN) {
+                        url.getQueryParameter("figure")?.let(onFigure)
                         return true
                     }
                     if (request.hasGesture() && (url.scheme == "https" || url.scheme == "http") && url.host != ASSET_HOST) {
@@ -380,33 +372,10 @@ private class ReaderSession(
                     return true
                 }
 
-                // Runs on a WebView background thread, so the blocking image fetch is allowed here.
-                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
-                    val url = request.url
-                    if (url.host == ASSET_HOST && url.path?.startsWith("/assets/") == true) {
-                        assets.shouldInterceptRequest(url)?.let { return it }
-                    }
-                    if (url.host == ASSET_HOST && url.path?.startsWith(IMAGE_PREFIX) == true) {
-                        val path = url.path!!.removePrefix(IMAGE_PREFIX)
-                        val type = IMAGE_TYPES[path.substringAfterLast('.', "").lowercase()]
-                        val bytes = type?.let { sync.image(note.documentId, note.blobSha, path) }
-                        if (type != null && bytes != null) {
-                            return WebResourceResponse(type, null, 200, "OK", mapOf("X-Content-Type-Options" to "nosniff"), ByteArrayInputStream(bytes))
-                        }
-                    }
-                    if (url.host == ASSET_HOST && url.path?.startsWith(EMBED_PREFIX) == true) {
-                        val name = url.path!!.removePrefix(EMBED_PREFIX)
-                        val type = IMAGE_TYPES[name.substringAfterLast('.', "").lowercase()]
-                        val bytes = type?.let { sync.embedImage(note.documentId, note.blobSha, name) }
-                        if (type != null && bytes != null) {
-                            return WebResourceResponse(type, null, 200, "OK", mapOf("X-Content-Type-Options" to "nosniff"), ByteArrayInputStream(bytes))
-                        }
-                    }
-                    return WebResourceResponse("text/plain", "UTF-8", 404, "Unavailable", emptyMap(),
-                        ByteArrayInputStream("Unavailable in RepoRead reader".toByteArray()))
-                }
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                    readerResource(assets, sync, note, request.url)
 
-                override fun onPageFinished(view: WebView, url: String) = awaitReady(view, 0)
+                override fun onPageFinished(view: WebView, url: String) = awaitReady(view)
             }
             setOnScrollChangeListener { _, _, _, _, _ ->
                 main.removeCallbacks(saveAfterScroll)
@@ -419,9 +388,9 @@ private class ReaderSession(
         }
     }
 
-    private fun awaitReady(view: WebView, attempt: Int) {
-        view.evaluateJavascript("document.body.dataset.state || ''") { encoded ->
-            when (JSONTokener(encoded).nextValue()) {
+    private fun awaitReady(view: WebView) {
+        awaitRendered(view, main) { state, attempt ->
+            when (state) {
                 "ready" -> {
                     Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height} attempt=$attempt")
                     ready = true
@@ -432,8 +401,7 @@ private class ReaderSession(
                     restore(view)
                 }
                 "failed" -> Log.w("RepoRead", "Reader render failed; position not saved; documentId=${note.documentId}")
-                else -> if (attempt < READY_POLL_LIMIT) main.postDelayed({ awaitReady(view, attempt + 1) }, READY_POLL_MS)
-                    else Log.w("RepoRead", "Reader never became ready; position not saved; documentId=${note.documentId}")
+                else -> Log.w("RepoRead", "Reader never became ready; position not saved; documentId=${note.documentId}")
             }
         }
     }

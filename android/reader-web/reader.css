@@ -119,6 +119,16 @@ img { max-width: 100%; height: auto; border-radius: 6px; }
 .image-blocked { color: var(--error); font-size: 0.9em; }
 .image-blocked[data-label]::before { content: attr(data-label); }
 
+.figure-tools { display: flex; justify-content: flex-end; margin: 0 0 2px; font-size: 0.75em; }
+.figure-tools a { padding: 6px 10px; border-radius: 6px; color: var(--link); text-decoration: none; }
+.figure-tools a:active { background: var(--surface-strong); }
+
+/* The full-screen view: the figure alone at its natural size, columns capped so prose cells still wrap; pinch to zoom. */
+body.figure { max-width: none; padding: 12px; }
+body.figure table { display: table; width: max-content; overflow: visible; }
+body.figure th, body.figure td { max-width: 24em; }
+body.figure .diagram { margin: 0; background: none; overflow: visible; }
+
 .diagram { margin: 0 0 0.5em; padding: 8px; border-radius: 10px; background: var(--surface); overflow-x: auto; }
 .diagram svg { max-width: 100%; height: auto; }
 .diagram-error { margin: 0 0 0.5em; color: var(--error); }
