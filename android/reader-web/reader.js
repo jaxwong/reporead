@@ -285,10 +285,23 @@ window.reporead.highlight = annotations => {
   return missing;
 };
 
-/** Scrolls the first heading whose text is [text] (ignoring case and spacing), as Obsidian heading links do. */
+/**
+ * Scrolls to the heading [text] names: the first whose text it is (ignoring case and spacing), as Obsidian heading
+ * links do, or else the one whose GitHub anchor it is, as Markdown links `note.md#some-heading` do. GitHub's anchor:
+ * lowercase, punctuation removed, each space a hyphen, and repeats numbered -1, -2… in page order.
+ */
 window.reporead.showHeading = text => {
   const wanted = text.trim().toLowerCase();
-  const heading = blocks.find(block => /^H[1-6]$/.test(block.tagName) && block.dataset.anchorText.trim().toLowerCase() === wanted);
+  const headings = blocks.filter(block => /^H[1-6]$/.test(block.tagName));
+  const seen = new Map();
+  const anchor = block => {
+    const slug = block.dataset.anchorText.trim().toLowerCase().replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, '').replace(/ /g, '-');
+    const repeats = seen.get(slug) ?? 0;
+    seen.set(slug, repeats + 1);
+    return repeats === 0 ? slug : `${slug}-${repeats}`;
+  };
+  const heading = headings.find(block => block.dataset.anchorText.trim().toLowerCase() === wanted)
+    ?? headings.find(block => anchor(block) === wanted);
   if (!heading) return false;
   scrollToElement(heading, 'start');
   return true;
