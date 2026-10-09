@@ -75,7 +75,7 @@ User explicitly approved real-note UI/DevTools verification and copying the data
 
 ## Remaining verification / scope
 
-- The follow-up real-note checks below supersede the earlier pending topic/LeetCode/no-heading checks. Native rotation is a **confirmed remaining defect**, not a passing check.
+- The follow-up checks below supersede the earlier pending topic/LeetCode/no-heading checks. The native rotation defect was subsequently fixed and verified in the final section; earlier failure evidence is retained.
 - Daily-use preference, airplane mode itself, and future AI/privacy/cost/authoring decisions are not verified or implemented.
 - Known npm KaTeX advisories already documented in `reader-web/README.md` were not changed; no dependency upgrades were authorized by this stage.
 
@@ -132,3 +132,79 @@ node android/reader-web/check-restore.mjs "$(curl -s http://127.0.0.1:9333/json 
 
 - **No recognized headings: PASS.** Opened saved `scratch/p2/links.md`; a Python assertion over the approved UI dump confirmed the title and absence of both Study and Read toggles (exit **0**).
 - Restored original rotation settings (`accelerometer_rotation=1`, `user_rotation=0`). Release reinstall follows the same command recorded above; saved data is retained. No new notes, annotations, schema changes, or dependencies were introduced.
+
+## Approved rotation fix and verification (2026-10-09)
+
+The user approved fixing the shared save path. Changed only `ReaderSession.capture` in `reader/Reader.kt`: an already-captured local position starts saving undispatched and completes inside `withContext(NonCancellable)`, even when Activity teardown has cancelled its UI scope. The completion callback (including final WebView destruction) and success log run after the Room write. No retry, alternate save path, new scope owner, network call, dependency, or schema/API change. Process termination before the local write completes is not covered by this Activity-rotation guarantee.
+
+Build/typecheck/unit tests (exit **0**):
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 20s
+130 actionable tasks: 22 executed, 108 up-to-date
+```
+
+Unit XML results: **25 tests, 0 failures, 0 errors, 0 skipped**. Release vital lint passed. Repeated the debug/test installs and instrumentation command recorded above (each exit **0**):
+
+```text
+Success
+Success
+com.reporead.android.data.LocalStoreTest:.............
+com.reporead.android.reader.StudyReaderTest:..
+Time: 2.386
+OK (15 tests)
+```
+
+### Native regression checks, failing workflow now passing
+
+Real saved `core/backend engineering/02-data-and-persistence.md` (document 71), opened from its topic queue. A temporary local DevTools runner (`node /private/tmp/reporead-eval.mjs '<Runtime.evaluate expression>'`) invoked the real bundled reader and asserted count/anchor/mode after native Activity recreation. The runner and snapshots stayed outside the repo; no new native-lifecycle instrumentation test was added. Existing isolated WebView tests alone do not cover this defect.
+
+Rotation commands (exit **0**), first preserving the original settings:
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s 192.168.1.214:34499 shell settings put system accelerometer_rotation 0
+~/Library/Android/sdk/platform-tools/adb -s 192.168.1.214:34499 shell settings put system user_rotation 1
+# After asserting landscape, change question again, then rotate back:
+~/Library/Android/sdk/platform-tools/adb -s 192.168.1.214:34499 shell settings put system user_rotation 0
+```
+
+- Previous changed Question 14 to Question 13 without scrolling; immediately rotated to landscape. Assertion exited **0**:
+
+```text
+{"rotationRestore":"PASS","count":"Question 13 of 18","block":207,"landscape":true,"recall":true,"canonicalMismatches":0}
+```
+
+- Next changed back to Question 14; rotated to portrait. Assertion exited **0**:
+
+```text
+{"reverseRotation":"PASS","count":"Question 14 of 18","block":208,"portrait":true}
+```
+
+- Read the answer, jumped to an ordinary paragraph, then rotated to landscape. Assertion exited **0**:
+
+```text
+{"ordinaryReadingRotation":"PASS","block":81,"recall":false,"landscape":true,"canonicalMismatches":0}
+```
+
+Boundary logs now confirm the database write completed before the new reader restored the same anchor (logcat command recorded above, exit **0**):
+
+```text
+10:51:01.160 Reading position saved; documentId=71 percent=97 block=207 viewHeight=2052
+10:51:01.657 Reader restored; documentId=71 mode=exact savedPercent=97 savedBlock=207 viewHeight=711
+10:51:35.583 Reading position saved; documentId=71 percent=96 block=208 viewHeight=711
+10:51:36.117 Reader restored; documentId=71 mode=exact savedPercent=96 savedBlock=208 viewHeight=1942
+10:51:46.498 Reading position saved; documentId=71 percent=35 block=81 viewHeight=1942
+10:51:47.020 Reader restored; documentId=71 mode=exact savedPercent=35 savedBlock=81 viewHeight=711
+```
+
+Full-note restore checker, using the documented `node android/reader-web/check-restore.mjs ...` command above, exited **0**:
+
+```text
+{"blocks":221,"same":147,"sameRow":69,"collapsed":0,"endOfNote":5,"wrong":[],"approximate":[]}
+```
+
+Reinstalled the rebuilt release with the recorded `adb install -r android/build/outputs/apk/release/app-release.apk` command (exit **0**, `Success`) and started MainActivity (exit **0**, `Status: ok`, `LaunchState: COLD`). Saved data was preserved. Restored and read back `accelerometer_rotation=1`, `user_rotation=0` (exit **0**). `git diff --check` exited **0**, no output. Backend tests were not rerun for this reader-only fix; daily-use preference and abrupt process termination remain unverified.
