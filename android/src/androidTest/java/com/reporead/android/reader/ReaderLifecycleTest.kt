@@ -22,6 +22,7 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -89,8 +90,12 @@ class ReaderLifecycleTest {
             // ActivityScenario.close does not await WebView callbacks or Room writes. Dispose the reader first,
             // while its Activity scope is alive, and observe the final save before closing the database.
             scenario.onActivity { showingReader.value = false }
-            withTimeout(5_000) {
-                while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(10)
+            try {
+                withTimeout(5_000) {
+                    while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(10)
+                }
+            } catch (error: TimeoutCancellationException) {
+                throw AssertionError("Reader teardown did not save after $lastSavedAt; current=${store.library().reading(1)}", error)
             }
         }
         if (::scenario.isInitialized) scenario.close()
@@ -144,13 +149,20 @@ class ReaderLifecycleTest {
         awaitText("Make a question")
         awaitText("An identical question?")
         clickText("Save")
-        withTimeout(5_000) { while (store.library().pendingAnnotations().isEmpty()) delay(20) }
+        try {
+            withTimeout(5_000) { while (store.library().pendingAnnotations().isEmpty()) delay(20) }
+        } catch (error: TimeoutCancellationException) {
+            throw AssertionError("Save did not create a pending card after authoring-dialog recreation", error)
+        }
         val card = store.library().pendingAnnotations().single()
         assertEquals("CARD", card.type)
         assertEquals("An identical question?", card.question)
         assertEquals(selected.getString("exactText"), card.exactText)
         assertEquals("b12", card.blockId)
         assertEquals(sha, card.checkedBlobSha)
+        // The restored dialog can save before its reader has rendered. Teardown must observe a ready reader.
+        awaitReader(12, recall = false)
+        awaitSaved(12)
     }
 
     private fun findText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
@@ -160,12 +172,18 @@ class ReaderLifecycleTest {
     }
 
     private fun awaitText(text: String): AccessibilityNodeInfo = runBlocking {
-        withTimeout(5_000) {
-            while (true) {
-                instrumentation.uiAutomation.rootInActiveWindow?.let { root -> findText(root, text)?.let { return@withTimeout it } }
-                delay(50)
+        try {
+            withTimeout(5_000) {
+                while (true) {
+                    instrumentation.uiAutomation.rootInActiveWindow?.let { root -> findText(root, text)?.let { return@withTimeout it } }
+                    delay(50)
+                }
+                error("Unreachable")
             }
-            error("Unreachable")
+        } catch (error: TimeoutCancellationException) {
+            fun texts(node: AccessibilityNodeInfo): List<String> = listOfNotNull(node.text?.toString()) +
+                (0 until node.childCount).flatMap { index -> node.getChild(index)?.let { texts(it) }.orEmpty() }
+            throw AssertionError("Timed out waiting for '$text'; visible texts=${instrumentation.uiAutomation.rootInActiveWindow?.let { texts(it) }}", error)
         }
     }
 
