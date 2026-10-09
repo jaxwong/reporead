@@ -57,7 +57,8 @@ public class Annotations {
      * A passage in one source version. The last four fields say how distinguishable it was in that version:
      * [blockSha] is the SHA-256 of its block's text when no other block has that text, [quoteOccurrences] how often its
      * exact text occurs, [rivalContext] how similar the best other exact occurrence's context is (0 when unique), and
-     * [rivalQuote] how similar the closest look-alike in another block is (0 when none). They are null where unknown
+     * [rivalQuote] how similar the closest look-alike in another block is (0 when none, 1 when there were too many to
+     * compare). They are null where unknown
      * (anchors made before Stage 4); the resolver then treats the passage as indistinguishable.
      */
     public record Anchor(String sourceBlobSha, String blockId, String exactText, String prefixText, String suffixText,
