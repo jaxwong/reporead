@@ -2,6 +2,8 @@
 
 Implementation and verification record, 2026-10-09. The daily-use exit gate is **pending**: the user still needs to report whether this is preferable to rereading.
 
+The subsequent AGENTS.md review fixes and committed native lifecycle regression checks are recorded in [P3 review fixes](reporead-p3-review-fixes-record.md). That record supersedes the earlier text-only targeting and absence of a native lifecycle test; the original failure evidence below is retained.
+
 ## Decisions and ownership
 
 - P3 remains recall from authored notes, without AI, multiple choice, scores, scheduling, source edits, or schema/API changes. The user confirmed future AI intent; it is recorded separately in the post-MVP plan, not implemented here.
