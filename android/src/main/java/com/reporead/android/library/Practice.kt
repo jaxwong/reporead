@@ -1,5 +1,6 @@
 package com.reporead.android.library
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
@@ -70,6 +71,8 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
             PracticeSnapshot(saved, questions)
         }
     }
+    // Back from a topic's questions returns to the topics, not out of the app.
+    BackHandler(enabled = topic != null) { topic = null }
     val questions = remember(extracted, topic, shuffle) {
         topic?.let { folder -> extracted?.questions?.let { all -> interleaveQuestions(all.filter { inPracticeFolder(it.path, folder) }, shuffle) } }
     }

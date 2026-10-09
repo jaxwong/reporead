@@ -62,6 +62,8 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
                         onMessage: (String?) -> Unit, onMakeQuestion: (AnnotationRow) -> Unit, onReattach: (AnnotationRow) -> Unit, onOpenNote: (DocumentRow) -> Unit, modifier: Modifier) {
     var editing by remember { mutableStateOf<AnnotationRow?>(null) }
     var conflict by remember { mutableStateOf<Conflict?>(null) }
+    /** The highlight or card the user asked to delete, until they confirm. */
+    var deleting by remember { mutableStateOf<AnnotationRow?>(null) }
     // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
     val backlinks by produceState<Backlinks?>(null, documentId) {
         val note = dao.document(documentId)
@@ -132,18 +134,7 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
                         // Online: the server verifies the new selection against the version it was made on.
                         if (row.serverId != null && !shown) TextButton(onClick = { onReattach(row) }) { Text("Reattach") }
                         if (row.serverId != null) TextButton(onClick = { editing = row }) { Text("Edit note") }
-                        TextButton(onClick = {
-                            scope.launch {
-                                try {
-                                    sync.deleteAnnotation(row)
-                                    onMessage(null)
-                                } catch (error: ApiException) {
-                                    onFailure(error)
-                                    onMessage(if (error.code == "ANNOTATION_CONFLICT") "This highlight was changed elsewhere; sync and review it before deleting."
-                                        else "Not deleted. ${error.describe()}")
-                                }
-                            }
-                        }) { Text("Delete") }
+                        TextButton(onClick = { deleting = row }) { Text("Delete") }
                     }
                 }
                 HorizontalDivider()
@@ -173,6 +164,35 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
             save(row, text.ifBlank { null }, row.version)
         })
     }
+    deleting?.let { row ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text(if (row.type == "CARD") "Delete this card?" else "Delete this highlight?") },
+            text = {
+                Text("“${row.drawn.exactText}”" + when {
+                    row.type == "CARD" -> "\n\nIts question and its review history are deleted too. This cannot be undone."
+                    row.note != null -> "\n\nIts note is deleted too. This cannot be undone."
+                    else -> "\n\nThis cannot be undone."
+                }, maxLines = 8, overflow = TextOverflow.Ellipsis)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleting = null
+                    scope.launch {
+                        try {
+                            sync.deleteAnnotation(row)
+                            onMessage(null)
+                        } catch (error: ApiException) {
+                            onFailure(error)
+                            onMessage(if (error.code == "ANNOTATION_CONFLICT") "This highlight was changed elsewhere; sync and review it before deleting."
+                                else "Not deleted. ${error.describe()}")
+                        }
+                    }
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
     conflict?.let { (current, mine) ->
         AlertDialog(
             onDismissRequest = { conflict = null },
@@ -198,7 +218,8 @@ internal fun NoteDialog(title: String, quote: String, initial: String, onDismiss
         text = {
             Column {
                 Text("“$quote”", maxLines = 4, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(text, { if (it.length <= 10_000) text = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(label) })
+                // No length cap here: the server owns it (AnnotationController.MAX_TEXT_CHARS) and its refusal is shown.
+                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(label) })
             }
         },
         confirmButton = { TextButton(enabled = allowBlank || text.isNotBlank(), onClick = { onSave(text) }) { Text("Save") } },
