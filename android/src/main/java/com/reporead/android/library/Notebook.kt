@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,7 @@ import com.reporead.android.sync.exportDirectory
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.StatusLine
+import com.reporead.android.ui.counted
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -51,6 +53,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.time.ZoneId
 import java.util.UUID
 import kotlin.random.Random
 
@@ -162,9 +165,14 @@ internal fun ReviewScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () ->
             val cards = ready.filter { it.annotation.type == "CARD" }
             val blocked = cards.count { cardCheckReason(it) != null }
             StatusLine(notice)
-            Text("$blocked cards need checking or a current saved note. Offline review uses the last known repository version.")
+            if (blocked > 0) Text("${counted(blocked, "card")} need checking or a current saved note. Offline review uses the last known repository version.")
             val refused = log.filter { it.rejection != null }
-            for (row in refused) Text("Grade not synced: ${row.rejection}")
+            if (refused.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                // A refused grade never reached the server and is not part of the schedule; dismissing only forgets it.
+                Text("${counted(refused.size, "grade")} not accepted by the server, so not counted: ${refused.last().rejection}",
+                    modifier = Modifier.weight(1f))
+                TextButton(onClick = { scope.launch { dao.dismissRefusedReviews() } }) { Text("Dismiss") }
+            }
             val pending = log.count { it.pending && it.rejection == null }
             if (pending > 0) Text("$pending grades saved on this phone; waiting for Library sync.")
             val ids = session
@@ -173,11 +181,11 @@ internal fun ReviewScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () ->
                 if (cap == null) Text("Sync in Library once to receive the server's session limit.")
                 else {
                     val now = System.currentTimeMillis()
-                    val due = dueSession(ready, log, now, cap, 0)
+                    val due = dueSession(ready, log, now, cap, 0, ZoneId.systemDefault())
                     Text("${due.size} cards in the next session (at most $cap).")
                     Button(enabled = due.isNotEmpty(), onClick = {
                         startedAt = System.currentTimeMillis()
-                        session = ArrayList(dueSession(ready, log, startedAt, cap, Random.nextInt()).map { it.annotation.mutationId })
+                        session = ArrayList(dueSession(ready, log, startedAt, cap, Random.nextInt(), ZoneId.systemDefault()).map { it.annotation.mutationId })
                         skipped = arrayListOf()
                         revealed = null
                     }) { Text("Start review") }

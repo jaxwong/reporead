@@ -4,30 +4,43 @@ import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
 import org.jsoup.Jsoup
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.math.ceil
 import kotlin.random.Random
 
-private const val DAY_MS = 86_400_000L
 internal data class ReviewSchedule(val dueAt: Long, val repetitions: Int, val intervalDays: Long, val ease: Double)
 
-/** The sole scheduler: SM-2 intervals/ease over the immutable log, ordered independently of arrival order. */
-internal fun scheduleReviews(createdAt: Long, reviews: List<ReviewRow>): ReviewSchedule {
+/**
+ * The sole scheduler: SM-2 over the immutable log, ordered independently of arrival order (Wozniak's description,
+ * super-memory.com/english/ol/sm2.htm). Intervals are 1, 6, then ceil(previous × ease) days; a grade of 3 or more
+ * adjusts the ease, floored at 1.3; a grade below 3 restarts repetitions without changing the ease. A card is due from
+ * the start of the local day in [zone] that its interval ends on, so an evening review is due the next morning.
+ */
+internal fun scheduleReviews(createdAt: Long, reviews: List<ReviewRow>, zone: ZoneId): ReviewSchedule {
     var state = ReviewSchedule(createdAt, 0, 0, 2.5)
     for (review in reviews.filter { it.rejection == null }.sortedWith(compareBy({ it.reviewedAt }, { it.mutationId }))) {
         require(review.grade in 0..5) { "Review ${review.mutationId} has grade ${review.grade}; expected 0..5" }
+        val lapse = review.grade < 3
         val interval = when {
-            review.grade < 3 || state.repetitions == 0 -> 1L
+            lapse || state.repetitions == 0 -> 1L
             state.repetitions == 1 -> 6L
             else -> ceil(state.intervalDays * state.ease).toLong()
         }
         val distance = 5 - review.grade
-        val ease = (state.ease + 0.1 - distance * (0.08 + distance * 0.02)).coerceAtLeast(1.3)
-        // Saturate at the epoch-millisecond range instead of wrapping a distant due date into the past.
-        val dueAt = if (interval > (Long.MAX_VALUE - review.reviewedAt.coerceAtLeast(0)) / DAY_MS) Long.MAX_VALUE
-            else review.reviewedAt + interval * DAY_MS
-        state = ReviewSchedule(dueAt, if (review.grade < 3) 0 else state.repetitions + 1, interval, ease)
+        val ease = if (lapse) state.ease else (state.ease + 0.1 - distance * (0.08 + distance * 0.02)).coerceAtLeast(1.3)
+        state = ReviewSchedule(dueDay(review.reviewedAt, interval, zone), if (lapse) 0 else state.repetitions + 1, interval, ease)
     }
     return state
+}
+
+/** The start of the local day [interval] days after [reviewedAt]'s; saturates instead of wrapping a distant date into the past. */
+private fun dueDay(reviewedAt: Long, interval: Long, zone: ZoneId): Long {
+    val day = Instant.ofEpochMilli(reviewedAt).atZone(zone).toLocalDate()
+    if (interval > LocalDate.MAX.toEpochDay() - day.toEpochDay()) return Long.MAX_VALUE
+    val start = day.plusDays(interval).atStartOfDay(zone).toInstant()
+    return if (start.isAfter(Instant.ofEpochMilli(Long.MAX_VALUE))) Long.MAX_VALUE else start.toEpochMilli()
 }
 
 internal fun cardCheckReason(item: NotebookItem): String? {
@@ -45,12 +58,12 @@ internal fun cardCheckReason(item: NotebookItem): String? {
     }
 }
 
-/** Interleaves shuffled note groups; the cap comes only from the server's notebook response. */
-internal fun dueSession(items: List<NotebookItem>, reviews: List<ReviewRow>, now: Long, limit: Int, seed: Int): List<NotebookItem> {
+/** Due cards, interleaving shuffled note groups; the cap comes only from the server's notebook response. */
+internal fun dueSession(items: List<NotebookItem>, reviews: List<ReviewRow>, now: Long, limit: Int, seed: Int, zone: ZoneId): List<NotebookItem> {
     require(limit > 0) { "Expected positive server sessionLimit, got $limit" }
     val logs = reviews.groupBy { it.cardMutationId }
     val due = items.filter { it.annotation.type == "CARD" && cardCheckReason(it) == null &&
-        scheduleReviews(it.annotation.createdAt, logs[it.annotation.mutationId].orEmpty()).dueAt <= now }
+        scheduleReviews(it.annotation.createdAt, logs[it.annotation.mutationId].orEmpty(), zone).dueAt <= now }
     val random = Random(seed)
     val groups = due.groupBy { it.annotation.documentId }.values.shuffled(random).map { it.shuffled(random) }
     return (0 until (groups.maxOfOrNull { it.size } ?: 0)).flatMap { round -> groups.mapNotNull { it.getOrNull(round) } }.take(limit)

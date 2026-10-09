@@ -388,6 +388,10 @@ interface LibraryDao {
     @Query("update review_log set rejection = :reason where mutationId = :mutationId")
     suspend fun rejectReview(mutationId: String, reason: String)
 
+    /** Forgets grades the server refused; they never reached it and the schedule already ignores them. */
+    @Query("delete from review_log where rejection is not null")
+    suspend fun dismissRefusedReviews()
+
     @Query("select sessionLimit from review_limits where id = 1")
     fun reviewLimit(): Flow<Int?>
 
