@@ -127,6 +127,32 @@ class DataControlTest {
         return db.sql(sql).query(Integer.class).single();
     }
 
+    private void cardWithReview(long userId, long documentId, String mutationId) {
+        highlight(userId, documentId, mutationId);
+        long id = db.sql("select annotation_id from annotation_mutations where user_id = :user and mutation_id = cast(:mutation as uuid)")
+            .param("user", userId).param("mutation", mutationId).query(Long.class).single();
+        db.sql("update annotations set type = 'CARD', question = 'Test-only question?', checked_blob_sha = :sha where id = :id")
+            .param("sha", SHA).param("id", id).update();
+        db.sql("insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha) values (:user, cast(:mutation as uuid), :id, 4, now(), :sha)")
+            .param("user", userId).param("mutation", mutationId).param("id", id).param("sha", SHA).update();
+    }
+
+    @Test void cardsAndReviewLogsAreDeletedOnDisconnectAndAccountDeletionWithoutTouchingOtherUsers() throws Exception {
+        cardWithReview(1, active, "44444444-4444-4444-4444-444444444444");
+        cardWithReview(1, otherNote, "55555555-5555-5555-5555-555555555555");
+        cardWithReview(2, bobNote, "66666666-6666-6666-6666-666666666666");
+        mvc.perform(get("/api/repositories/" + notes + "/stored-data").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+            .andExpect(jsonPath("$.cards").value(1));
+        mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+            .andExpect(jsonPath("$.cards").value(1));
+        assertEquals(2, count("select count(*) from review_log"));
+        mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.cards").value(1));
+        assertEquals(0, count("select count(*) from review_log where user_id = 1"));
+        assertEquals(1, count("select count(*) from review_log where user_id = 2"));
+        assertEquals(1, count("select count(*) from annotations where user_id = 2 and type = 'CARD'"));
+    }
+
     @Test void disconnectingDeletesOnlyThatRepositorysDataAfterShowingWhatWillGo() throws Exception {
         mvc.perform(get("/api/repositories/" + notes + "/stored-data").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
             .andExpect(status().isOk()).andExpect(jsonPath("$.documents").value(2)).andExpect(jsonPath("$.readingStates").value(2))

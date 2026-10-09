@@ -19,7 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Owns HIGHLIGHT annotations: their original anchors, their current locations and status, and the idempotency record
+ * Owns HIGHLIGHT and CARD annotations: their original anchors, their current locations and status, and the idempotency record
  * of each client creation.
  */
 @Component
@@ -28,7 +28,7 @@ public class Annotations {
     private final JsonMapper json;
     private final TransactionTemplate transaction;
 
-    public record Deleted(int highlights, int bookmarks) {}
+    public record Deleted(int highlights, int bookmarks, int cards) {}
 
     /**
      * Deletes every annotation on a connection's documents: highlights (their anchors and locations cascade) and
@@ -39,7 +39,7 @@ public class Annotations {
                 delete from annotations where document_id in (select id from documents where repository_connection_id = :connectionId)
                 returning type""")
             .param("connectionId", connectionId).query(String.class).list();
-        return new Deleted((int) types.stream().filter("HIGHLIGHT"::equals).count(), (int) types.stream().filter("BOOKMARK"::equals).count());
+        return new Deleted((int) types.stream().filter("HIGHLIGHT"::equals).count(), (int) types.stream().filter("BOOKMARK"::equals).count(), (int) types.stream().filter("CARD"::equals).count());
     }
 
     /** Deletes a user's mutation records (request hashes); called when deleting the account, after its annotations. */
@@ -72,7 +72,8 @@ public class Annotations {
      * in that version; {@code location} is the last place the passage was known to be).
      */
     public record Annotation(long id, String mutationId, long documentId, String type, String note, String status, int version,
-                             Instant createdAt, Instant updatedAt, Anchor anchor, Anchor location, String resolvedBlobSha) {}
+                             Instant createdAt, Instant updatedAt, Anchor anchor, Anchor location, String resolvedBlobSha, String question, String checkedBlobSha,
+                             String title, String path, String currentBlobSha, boolean deleted) {}
 
     /** The result of a creation request, and whether it was the replay of an earlier identical request. */
     record Created(Annotation annotation, boolean replayed) {}
@@ -81,11 +82,16 @@ public class Annotations {
         select a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at, m.mutation_id, a.resolved_blob_sha,
                n.source_blob_sha, n.block_id, n.exact_text, n.prefix_text, n.suffix_text, n.start_offset, n.end_offset, n.heading_path::text,
                l.source_blob_sha, l.block_id, l.exact_text, l.prefix_text, l.suffix_text, l.start_offset, l.end_offset, l.heading_path::text,
-               l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote
-        from annotations a join annotation_anchors n on n.annotation_id = a.id
+               l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote, a.question, a.checked_blob_sha,
+               d.title, d.path, d.current_blob_sha, d.deleted_at is not null
+        from annotations a join documents d on d.id = a.document_id join annotation_anchors n on n.annotation_id = a.id
         join annotation_locations l on l.annotation_id = a.id
         join annotation_mutations m on m.annotation_id = a.id and m.user_id = a.user_id
-        where a.type = 'HIGHLIGHT' and a.user_id = :userId""";
+        where a.type in ('HIGHLIGHT', 'CARD') and a.user_id = :userId""";
+
+    List<Annotation> notebook(long userId) {
+        return db.sql(SELECT + " order by a.created_at, a.id").param("userId", userId).query(this::annotation).list();
+    }
 
     List<Annotation> list(long userId, long documentId) {
         return db.sql(SELECT + " and a.document_id = :documentId order by a.created_at, a.id")
@@ -120,7 +126,7 @@ public class Annotations {
      * Creates the annotation, its anchor, and the mutation record in one transaction. A concurrent request with the same
      * mutation id waits on the primary key and then resolves as a replay.
      */
-    Created create(long userId, long documentId, UUID mutationId, byte[] requestHash, Anchor anchor, String note) {
+    Created create(long userId, long documentId, UUID mutationId, byte[] requestHash, Anchor anchor, String note, String type, String question) {
         return transaction.execute(status -> {
             Instant now = Instant.now();
             int claimed = db.sql("""
@@ -129,10 +135,10 @@ public class Annotations {
                 .param("userId", userId).param("mutationId", mutationId).param("hash", requestHash).param("now", Timestamp.from(now)).update();
             if (claimed == 0) return new Created(replay(userId, mutationId, requestHash).orElseThrow(), true);
             long id = db.sql("""
-                    insert into annotations (user_id, document_id, source_blob_sha, type, note, created_at, updated_at, resolved_blob_sha)
-                    values (:userId, :documentId, :sha, 'HIGHLIGHT', :note, :now, :now, :sha) returning id""")
+                    insert into annotations (user_id, document_id, source_blob_sha, type, note, created_at, updated_at, resolved_blob_sha, question, checked_blob_sha)
+                    values (:userId, :documentId, :sha, :type, :note, :now, :now, :sha, :question, case when :type = 'CARD' then :sha end) returning id""")
                 .param("userId", userId).param("documentId", documentId).param("sha", anchor.sourceBlobSha())
-                .param("note", note).param("now", Timestamp.from(now)).query(Long.class).single();
+                .param("note", note).param("type", type).param("question", question).param("now", Timestamp.from(now)).query(Long.class).single();
             db.sql("""
                     insert into annotation_anchors (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text,
                                                     start_offset, end_offset, heading_path)
@@ -151,7 +157,7 @@ public class Annotations {
     Annotation updateNote(long userId, long id, int expectedVersion, String note) {
         int updated = db.sql("""
                 update annotations set note = :note, version = version + 1, updated_at = :now
-                where id = :id and user_id = :userId and type = 'HIGHLIGHT' and version = :expected""")
+                where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
             .param("note", note).param("now", Timestamp.from(Instant.now())).param("id", id).param("userId", userId)
             .param("expected", expectedVersion).update();
         if (updated == 0) throw missingOrConflict(userId, id);
@@ -159,7 +165,7 @@ public class Annotations {
     }
 
     void delete(long userId, long id, int expectedVersion) {
-        int deleted = db.sql("delete from annotations where id = :id and user_id = :userId and type = 'HIGHLIGHT' and version = :expected")
+        int deleted = db.sql("delete from annotations where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected")
             .param("id", id).param("userId", userId).param("expected", expectedVersion).update();
         if (deleted == 0) throw missingOrConflict(userId, id);
     }
@@ -173,8 +179,8 @@ public class Annotations {
         String status = found.map(location -> sameSelection(location, annotation.anchor()) ? "ANCHORED" : "REANCHORED").orElse("ORPHANED");
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             int updated = db.sql("""
-                    update annotations set status = :status, resolved_blob_sha = :sha
-                    where id = :id and type = 'HIGHLIGHT' and resolved_blob_sha = :expected""")
+                    update annotations set status = :status, resolved_blob_sha = :sha, checked_blob_sha = null
+                    where id = :id and type in ('HIGHLIGHT', 'CARD') and resolved_blob_sha = :expected""")
                 .param("status", status).param("sha", blobSha).param("id", annotation.id()).param("expected", annotation.resolvedBlobSha()).update();
             if (updated == 0) return false;
             found.ifPresent(location -> writeLocation(annotation.id(), location));
@@ -197,13 +203,27 @@ public class Annotations {
     Annotation reattach(long userId, long id, int expectedVersion, Anchor location) {
         transaction.executeWithoutResult(tx -> {
             int updated = db.sql("""
-                    update annotations set status = 'REANCHORED', resolved_blob_sha = :sha, version = version + 1, updated_at = :now
-                    where id = :id and user_id = :userId and type = 'HIGHLIGHT' and version = :expected""")
+                    update annotations set status = 'REANCHORED', resolved_blob_sha = :sha, checked_blob_sha = null, version = version + 1, updated_at = :now
+                    where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
                 .param("sha", location.sourceBlobSha()).param("now", Timestamp.from(Instant.now())).param("id", id)
                 .param("userId", userId).param("expected", expectedVersion).update();
             if (updated == 0) throw missingOrConflict(userId, id);
             writeLocation(id, location);
         });
+        return find(userId, id).orElseThrow();
+    }
+
+    Annotation checkCard(long userId, long id, int expectedVersion, String blobSha) {
+        int updated = db.sql("""
+                update annotations a set checked_blob_sha = :sha, version = version + 1, updated_at = now()
+                from documents d where a.document_id = d.id and a.id = :id and a.user_id = :userId and a.type = 'CARD'
+                and a.version = :expected and a.resolved_blob_sha = :sha and a.status <> 'ORPHANED'
+                and d.current_blob_sha = :sha and d.deleted_at is null""")
+            .param("sha", blobSha).param("id", id).param("userId", userId).param("expected", expectedVersion).update();
+        if (updated == 0) {
+            if (find(userId, id).filter(a -> a.type().equals("CARD")).isEmpty()) throw new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found.");
+            throw new ApiFailure(HttpStatus.CONFLICT, "CARD_CHANGED", "Check this card in its current version; reattach an orphan before confirming.");
+        }
         return find(userId, id).orElseThrow();
     }
 
@@ -241,7 +261,8 @@ public class Annotations {
             location.suffixText(), location.startOffset(), location.endOffset(), location.headingPath(), row.getString(27),
             (Integer) row.getObject(28), (Double) row.getObject(29), (Double) row.getObject(30));
         return new Annotation(row.getLong(1), row.getString(9), row.getLong(2), row.getString(3), row.getString(4), row.getString(5),
-            row.getInt(6), row.getTimestamp(7).toInstant(), row.getTimestamp(8).toInstant(), anchor(row, 11), location, row.getString(10));
+            row.getInt(6), row.getTimestamp(7).toInstant(), row.getTimestamp(8).toInstant(), anchor(row, 11), location, row.getString(10), row.getString(31), row.getString(32),
+            row.getString(33), row.getString(34), row.getString(35), row.getBoolean(36));
     }
 
     /** The eight anchor columns starting at [first]; distinguishability is not part of an original anchor. */

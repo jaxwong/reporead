@@ -32,7 +32,7 @@ public class AccountController {
         this.transaction = transaction;
     }
 
-    record Deleted(int repositories, int readingStates, int bookmarks, int highlights) {}
+    record Deleted(int repositories, int readingStates, int bookmarks, int highlights, int cards) {}
 
     /**
      * Deletes everything RepoRead holds for the signed-in user in one transaction — every connection and its data, the
@@ -47,6 +47,7 @@ public class AccountController {
             int reading = 0;
             int bookmarks = 0;
             int highlights = 0;
+            int cards = 0;
             for (var connection : connections.list(user.id())) {
                 connections.lockForSync(user.id(), connection.id());
                 var removed = data.delete(connection.id());
@@ -54,14 +55,15 @@ public class AccountController {
                 reading += removed.readingStates();
                 bookmarks += removed.bookmarks();
                 highlights += removed.highlights();
+                cards += removed.cards();
             }
             annotations.deleteMutations(user.id());
             sessions.deleteUser(user.id());
-            return new Deleted(repositories, reading, bookmarks, highlights);
+            return new Deleted(repositories, reading, bookmarks, highlights, cards);
         });
         clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
-        LOG.info("Account deleted; userId={} repositories={} readingStates={} bookmarks={} highlights={}",
-            user.id(), deleted.repositories(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights());
+        LOG.info("Account deleted; userId={} repositories={} readingStates={} bookmarks={} highlights={} cards={}",
+            user.id(), deleted.repositories(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights(), deleted.cards());
         return deleted;
     }
 }

@@ -432,6 +432,9 @@ let studyQuestions = [];
 let studyIndex = 0;
 let studyPanel = null;
 
+// P4 reads the displayed question's identity, including after its answer was revealed.
+window.reporead.currentStudyQuestion = () => studyQuestions[studyIndex]?.blockId ?? null;
+
 function revealStudyBlock(block) {
   document.body.classList.remove('study-recall');
   for (let section = block.closest('.study-section'); section; section = section.parentElement.closest('.study-section')) {

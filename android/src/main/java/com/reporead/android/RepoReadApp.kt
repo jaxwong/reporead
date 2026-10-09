@@ -34,6 +34,8 @@ import com.reporead.android.sync.Sync
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
+import com.reporead.android.library.NotebookScreen
+import com.reporead.android.library.ReviewScreen
 import com.reporead.android.reader.FigureScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.reader.StudyTarget
@@ -49,9 +51,11 @@ sealed interface Screen {
     data object Available : Screen
     data class Folder(val repositoryId: Long, val repositoryName: String, val path: String) : Screen
     /** [heading]: open at this heading (from a note link) instead of the saved reading position. */
-    data class Reader(val documentId: Long, val title: String, val heading: String? = null, val question: StudyTarget? = null) : Screen
+    data class Reader(val documentId: Long, val title: String, val heading: String? = null, val question: StudyTarget? = null, val annotation: String? = null, val reviewPrompt: String? = null) : Screen
     /** One table or diagram ([figure], the page's id for it) of the saved version [blobSha] of a note, full screen. */
     data class Figure(val documentId: Long, val blobSha: String, val figure: String, val title: String) : Screen
+    data object Notebook : Screen
+    data object Review : Screen
     data object Search : Screen
 }
 
@@ -60,8 +64,10 @@ private fun encode(screen: Screen): List<String> = when (screen) {
     Screen.Available -> listOf("available")
     is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
     is Screen.Reader -> listOf("reader", screen.documentId.toString(), screen.title, screen.heading.orEmpty(),
-        screen.question?.blobSha.orEmpty(), screen.question?.blockId.orEmpty())
+        screen.question?.blobSha.orEmpty(), screen.question?.blockId.orEmpty(), screen.annotation.orEmpty(), screen.reviewPrompt.orEmpty())
     is Screen.Figure -> listOf("figure", screen.documentId.toString(), screen.blobSha, screen.figure, screen.title)
+    Screen.Notebook -> listOf("notebook")
+    Screen.Review -> listOf("review")
     Screen.Search -> listOf("search")
 }
 
@@ -70,8 +76,11 @@ private fun decode(parts: List<String>): Screen = when (parts[0]) {
     "available" -> Screen.Available
     "folder" -> Screen.Folder(parts[1].toLong(), parts[2], parts[3])
     "reader" -> Screen.Reader(parts[1].toLong(), parts[2], parts.getOrNull(3)?.ifEmpty { null },
-        parts.getOrNull(5)?.ifEmpty { null }?.let { StudyTarget(parts[4], it) })
+        parts.getOrNull(5)?.ifEmpty { null }?.let { StudyTarget(parts[4], it) },
+        parts.getOrNull(6)?.ifEmpty { null }, parts.getOrNull(7)?.ifEmpty { null })
     "figure" -> Screen.Figure(parts[1].toLong(), parts[2], parts[3], parts[4])
+    "notebook" -> Screen.Notebook
+    "review" -> Screen.Review
     "search" -> Screen.Search
     else -> error("Unknown saved screen ${parts[0]}")
 }
@@ -192,6 +201,8 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
             onDisconnected = { stack = listOf(Screen.Repositories) })
         is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen, onBack = pop, push = push)
         is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
+        Screen.Notebook -> NotebookScreen(dao, push, onBack = pop)
+        Screen.Review -> ReviewScreen(dao, push, onBack = pop)
         Screen.Search -> SearchScreen(dao, push, onBack = pop)
     }
     }

@@ -38,7 +38,7 @@ import java.util.function.Function;
 @RestController
 public class AnnotationController {
     private static final Logger LOG = LoggerFactory.getLogger(AnnotationController.class);
-    /** Metrics: highlights created (not replays); re-anchoring outcomes (method or ORPHANED) and the time each resolution took. */
+    /** Metrics: anchored annotations created (not replays); re-anchoring outcomes (method or ORPHANED) and the time each resolution took. */
     static final String CREATED = "reporead.annotations.created";
     static final String REANCHOR = "reporead.annotation.reanchor";
     static final String REANCHOR_DURATION = "reporead.annotation.reanchor.duration";
@@ -112,27 +112,32 @@ public class AnnotationController {
 
     /** What the client selected; the server verifies it and derives everything else from the canonical text. */
     record Selection(String sourceBlobSha, String blockId, Integer startOffset, Integer endOffset, String exactText) {}
-    record CreateRequest(String mutationId, Selection anchor, String note) {}
+    record CreateRequest(String mutationId, Selection anchor, String note, String type, String question) {}
     /** The content a mutation id is bound to. */
     private record Fingerprint(long documentId, Selection anchor, String note) {}
+    private record CardFingerprint(long documentId, Selection anchor, String note, String type, String question) {}
 
     @PostMapping("/api/documents/{id}/annotations")
     ResponseEntity<Annotations.Annotation> create(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CreateRequest body) {
         UUID mutationId = mutationId(body.mutationId());
         var selection = body.anchor();
-        if (!validSelection(selection) || !validNote(body.note())) {
+        String type = body.type() == null ? "HIGHLIGHT" : body.type();
+        if (!(type.equals("HIGHLIGHT") || type.equals("CARD"))
+            || (type.equals("CARD") ? body.question() == null || body.question().isBlank() || !validNote(body.question()) : body.question() != null)
+            || !validSelection(selection) || !validNote(body.note())) {
             throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION",
-                "An annotation needs a source blob SHA, a block id, a non-empty UTF-16 range matching exactText (at most 10000 characters), and an optional note of at most 10000 characters.");
+                "An annotation needs a source blob SHA, a block id, a non-empty UTF-16 range matching exactText (at most 10000 characters), an optional note of at most 10000 characters, and a non-blank question for type CARD.");
         }
         var document = documents.find(user.id(), id).orElseThrow(AnnotationController::notFound);
-        byte[] hash = sha256(json.writeValueAsBytes(new Fingerprint(id, selection, body.note())));
+        // Preserve existing highlight mutation hashes, including replays of pre-P4 offline creations.
+        byte[] hash = sha256(json.writeValueAsBytes(type.equals("CARD") ? new CardFingerprint(id, selection, body.note(), type, body.question()) : new Fingerprint(id, selection, body.note())));
         var replayed = annotations.replay(user.id(), mutationId, hash);
         if (replayed.isPresent()) {
             LOG.info("Annotation creation replayed; userId={} annotationId={}", user.id(), replayed.get().id());
             return ResponseEntity.ok(replayed.get());
         }
         var anchor = verifiedAnchor(selection, noteVersions.render(user, document, selection.sourceBlobSha()).note());
-        var created = annotations.create(user.id(), id, mutationId, hash, anchor, body.note());
+        var created = annotations.create(user.id(), id, mutationId, hash, anchor, body.note(), type, body.question());
         if (!created.replayed()) meters.counter(CREATED).increment();
         LOG.info("Annotation {}; userId={} documentId={} annotationId={}", created.replayed() ? "creation replayed" : "created",
             user.id(), id, created.annotation().id());
@@ -156,6 +161,18 @@ public class AnnotationController {
         LOG.info("Highlight reattached; userId={} documentId={} annotationId={} blobSha={} version={}", user.id(), document.id(), id,
             location.sourceBlobSha(), reattached.version());
         return reattached;
+    }
+
+    record CheckRequest(Integer expectedVersion, String blobSha) {}
+
+    @PostMapping("/api/annotations/{id}/check")
+    Annotations.Annotation checkCard(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CheckRequest body) {
+        if (body.expectedVersion() == null || body.expectedVersion() < 1 || body.blobSha() == null || !body.blobSha().matches("[0-9a-f]{40}")) {
+            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION", "Card confirmation needs expectedVersion and a blob SHA.");
+        }
+        var checked = annotations.checkCard(user.id(), id, body.expectedVersion(), body.blobSha());
+        LOG.info("Card checked; userId={} annotationId={} blobSha={}", user.id(), id, body.blobSha());
+        return checked;
     }
 
     record EditRequest(String note, Integer expectedVersion) {}

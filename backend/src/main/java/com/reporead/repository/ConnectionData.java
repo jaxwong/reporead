@@ -30,9 +30,9 @@ public class ConnectionData {
         this.annotations = annotations;
     }
 
-    public record Counts(int documents, int readingStates, int bookmarks, int highlights) {}
+    public record Counts(int documents, int readingStates, int bookmarks, int highlights, int cards) {}
     /** [documentIds]: every deleted document, so the phone can delete its own rows for them. */
-    public record Deleted(List<Long> documentIds, int readingStates, int bookmarks, int highlights) {}
+    public record Deleted(List<Long> documentIds, int readingStates, int bookmarks, int highlights, int cards) {}
 
     /** What disconnecting would delete; a read-only projection of the owners' tables. */
     public Counts count(long connectionId) {
@@ -40,8 +40,9 @@ public class ConnectionData {
                 select (select count(*) from documents d where d.repository_connection_id = :id),
                        (select count(*) from reading_states r join documents d on d.id = r.document_id where d.repository_connection_id = :id),
                        (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'BOOKMARK'),
-                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'HIGHLIGHT')""")
-            .param("id", connectionId).query((row, n) -> new Counts(row.getInt(1), row.getInt(2), row.getInt(3), row.getInt(4))).single();
+                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'HIGHLIGHT'),
+                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'CARD')""")
+            .param("id", connectionId).query((row, n) -> new Counts(row.getInt(1), row.getInt(2), row.getInt(3), row.getInt(4), row.getInt(5))).single();
     }
 
     /** Deletes the connection and everything stored for it. Must run in a transaction holding the connection's sync lock. */
@@ -50,6 +51,6 @@ public class ConnectionData {
         int deletedReading = readingStates.deleteOnConnection(connectionId);
         var documentIds = documents.deleteConnection(connectionId);
         connections.delete(connectionId);
-        return new Deleted(documentIds, deletedReading, deletedAnnotations.bookmarks(), deletedAnnotations.highlights());
+        return new Deleted(documentIds, deletedReading, deletedAnnotations.bookmarks(), deletedAnnotations.highlights(), deletedAnnotations.cards());
     }
 }

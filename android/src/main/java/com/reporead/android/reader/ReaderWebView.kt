@@ -13,6 +13,8 @@ internal enum class SelectionAction(val id: Int, val label: String) {
     HIGHLIGHT(0x5245_0001, "Highlight"),
     ADD_NOTE(0x5245_0002, "Add note"),
     REATTACH(0x5245_0003, "Reattach here"),
+    MAKE_QUESTION(0x5245_0004, "Make a question"),
+    ANSWER(0x5245_0005, "Use as answer"),
 }
 
 /**
@@ -23,6 +25,7 @@ internal enum class SelectionAction(val id: Int, val label: String) {
 internal class ReaderWebView(
     context: Context,
     private val reattaching: () -> Boolean,
+    private val selectingAnswer: () -> Boolean = { false },
     private val onAction: (action: SelectionAction, finish: () -> Unit) -> Unit,
 ) : WebView(context) {
     override fun startActionMode(callback: ActionMode.Callback, type: Int): ActionMode? =
@@ -31,7 +34,11 @@ internal class ReaderWebView(
     private inner class SelectionActions(private val wrapped: ActionMode.Callback) : ActionMode.Callback2() {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
             val created = wrapped.onCreateActionMode(mode, menu)
-            val actions = if (reattaching()) listOf(SelectionAction.REATTACH) else listOf(SelectionAction.HIGHLIGHT, SelectionAction.ADD_NOTE)
+            val actions = when {
+                reattaching() -> listOf(SelectionAction.REATTACH)
+                selectingAnswer() -> listOf(SelectionAction.ANSWER)
+                else -> listOf(SelectionAction.HIGHLIGHT, SelectionAction.ADD_NOTE, SelectionAction.MAKE_QUESTION)
+            }
             actions.forEachIndexed { order, action -> menu.add(Menu.NONE, action.id, order, action.label) }
             return created
         }

@@ -79,3 +79,14 @@ The decisions that shape RepoRead's MVP, as built. Each says what was decided, w
 **Decision** (the user's, Stage 6). Every build is signed with one personal key kept outside the repository, so release and development builds install over each other. The release build keeps the loopback backend address reached through `adb reverse`; no hosted deployment for the MVP.
 
 **Consequences.** Refresh and sync need the phone on wireless debugging with the Mac; reading saved notes and annotating work anywhere. Losing the key means uninstalling to update. Hosting the backend is a separate future decision.
+
+
+## ADR-12 — Anchored cards; server review log, phone-only SM-2 scheduling
+
+**Decision** (the user's, P4, 2026-10-09). CARD annotations reuse highlight anchors, re-anchoring, orphaning and idempotent offline creation. The question is written by the developer, or kept from a P3 prompt whose answer the developer selects explicitly. The server owns the immutable review log and the session ceiling (40); the phone owns the one pure SM-2 scheduler over the log so offline grading works. No scheduler dependency, persisted due dates, AI, inferred answers, background sync, or GitHub writes.
+
+**Safety.** A card's confirmed answer SHA must match both the current note and its trusted location. Re-anchoring/reattachment clears confirmation. Every known note-version change blocks review until explicitly checked; this conservative rule includes changed-section uncertainty. A new grade of an outdated answer is rejected, but an identical already-committed replay remains successful. Grade writes use client UUIDs and serialize with the existing connection/sync lock. Offline review cannot know about edits that have not been refreshed.
+
+**Data controls.** ADR-11 includes cards and review logs. Card deletion cascades its grades, disconnect removes the repository's cards/logs and phone copies (pending work and private export files included), and account deletion removes everything. Markdown share attachments leave GitHub untouched; copies delivered to other apps cannot be revoked.
+
+**Evidence.** [P4 record](reporead-p4-record.md); its device and two-week real-use checks are separately stated, never inferred from a build.

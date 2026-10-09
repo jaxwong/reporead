@@ -13,6 +13,7 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
+import com.reporead.android.data.ReviewRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException
@@ -39,6 +40,7 @@ const val RENDER_FORMAT = 3
 class Sync(private val api: Api, private val store: LocalStore, filesDir: File) {
     private val dao = store.library()
     private val imageRoot = File(filesDir, "images")
+    private val exportRoot = File(filesDir, "exports")
 
     private fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else getString(name)
 
@@ -169,12 +171,12 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         }
     }
 
-    data class StoredData(val documents: Int, val readingStates: Int, val bookmarks: Int, val highlights: Int)
+    data class StoredData(val documents: Int, val readingStates: Int, val bookmarks: Int, val highlights: Int, val cards: Int)
 
     /** What disconnecting [repositoryId] would delete on the server, for the confirmation. */
     suspend fun storedData(repositoryId: Long): StoredData {
         val json = api.get("/api/repositories/$repositoryId/stored-data")
-        return contract { StoredData(json.getInt("documents"), json.getInt("readingStates"), json.getInt("bookmarks"), json.getInt("highlights")) }
+        return contract { StoredData(json.getInt("documents"), json.getInt("readingStates"), json.getInt("bookmarks"), json.getInt("highlights"), json.getInt("cards")) }
     }
 
     /**
@@ -185,6 +187,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         val json = api.delete("/api/repositories/$repositoryId") ?: throw ApiException(204, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
         val documentIds = contract { json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } } }
         dao.forgetRepository(repositoryId, documentIds)
+        check(!exportRoot.exists() || exportRoot.deleteRecursively()) { "Could not remove private notebook exports at $exportRoot" }
         for (id in documentIds) File(imageRoot, id.toString()).deleteRecursively()
         Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
     }
@@ -208,6 +211,8 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
      */
     suspend fun syncLocalChanges() {
         pushAnnotations()
+        pushReviews()
+        refreshNotebook()
         for (row in dao.pendingReading()) {
             val body = JSONObject().put("lastReadBlobSha", row.lastReadBlobSha).put("progressPercent", row.progressPercent)
                 .put("anchor", JSONObject(row.anchorJson)).put("lastReadAt", Instant.ofEpochMilli(row.lastReadAt).toString())
@@ -255,11 +260,16 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
     }
 
     /** Saves a new highlight locally as a pending creation; it is sent with this mutation id until acknowledged. */
-    suspend fun createAnnotation(selection: JSONObject, documentId: Long, note: String?) {
+    suspend fun createAnnotation(selection: JSONObject, documentId: Long, note: String?, question: String? = null) {
+        val saved = checkNotNull(dao.note(documentId)) { "Cannot create an annotation without its displayed saved note; documentId=$documentId" }
+        val current = dao.document(documentId)
         val row = contract {
             AnnotationRow(UUID.randomUUID().toString(), null, documentId, selection.getString("sourceBlobSha"), selection.getString("blockId"),
                 selection.getInt("startOffset"), selection.getInt("endOffset"), selection.getString("exactText"), note, 1,
-                System.currentTimeMillis(), pending = true, rejection = null)
+                System.currentTimeMillis(), pending = true, rejection = null,
+                type = if (question == null) "HIGHLIGHT" else "CARD", question = question,
+                checkedBlobSha = if (question == null) null else selection.getString("sourceBlobSha"),
+                cachedTitle = saved.title, cachedPath = saved.path, cachedCurrentBlobSha = current?.blobSha)
         }
         dao.saveAnnotation(row)
     }
@@ -270,14 +280,15 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
      */
     suspend fun pushAnnotations() {
         for (row in dao.pendingAnnotations()) {
-            val body = JSONObject().put("mutationId", row.mutationId).put("note", row.note ?: JSONObject.NULL).put("anchor",
+            val body = JSONObject().put("mutationId", row.mutationId).put("type", row.type).put("question", row.question ?: JSONObject.NULL)
+                .put("note", row.note ?: JSONObject.NULL).put("anchor",
                 JSONObject().put("sourceBlobSha", row.sourceBlobSha).put("blockId", row.blockId).put("startOffset", row.startOffset)
                     .put("endOffset", row.endOffset).put("exactText", row.exactText))
             val created = try {
                 api.post("/api/documents/${row.documentId}/annotations", body)
             } catch (error: ApiException) {
                 when (error.code) {
-                    "ANNOTATION_DELETED" -> dao.deleteAnnotation(row.mutationId)
+                    "ANNOTATION_DELETED" -> dao.removeAnnotation(row.mutationId)
                     "INVALID_ANCHOR", "INVALID_ANNOTATION", "MUTATION_ID_REUSED", "NOT_FOUND" -> dao.rejectAnnotation(row.mutationId, error.describe())
                     else -> throw error
                 }
@@ -330,7 +341,56 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         } else {
             check(row.pending) { "Highlight ${row.mutationId} has no server id but is not pending" }
         }
-        dao.deleteAnnotation(row.mutationId)
+        dao.removeAnnotation(row.mutationId)
+    }
+
+    /** One database-only read; complete responses replace acknowledged projections, never pending work. */
+    suspend fun refreshNotebook() {
+        val json = api.get("/api/notebook")
+        val (annotations, reviews, limit) = contract {
+            val annotations = json.getJSONArray("annotations")
+            val reviews = json.getJSONArray("reviews")
+            val limit = json.getInt("sessionLimit")
+            if (limit <= 0) throw JSONException("Expected a positive server sessionLimit, got $limit")
+            Triple(List(annotations.length()) { annotationRow(annotations.getJSONObject(it)) },
+                List(reviews.length()) { reviewRow(reviews.getJSONObject(it)) }, limit)
+        }
+        dao.replaceRemoteNotebook(annotations, reviews, limit)
+    }
+
+    suspend fun pushReviews() {
+        for (row in dao.pendingReviews()) {
+            val card = dao.annotation(row.cardMutationId)
+            if (card == null) error("Review ${row.mutationId} references missing local card ${row.cardMutationId}")
+            if (card.rejection != null) {
+                dao.rejectReview(row.mutationId, "Card creation was refused: ${card.rejection}")
+                continue
+            }
+            val id = checkNotNull(card.serverId) { "Push annotations before reviews; card ${card.mutationId} is pending" }
+            val remote = try {
+                api.post("/api/annotations/$id/reviews", JSONObject().put("mutationId", row.mutationId).put("grade", row.grade)
+                    .put("reviewedAt", Instant.ofEpochMilli(row.reviewedAt).toString()).put("blobSha", row.blobSha))
+            } catch (error: ApiException) {
+                if (error.code !in setOf("CARD_CHANGED", "MUTATION_ID_REUSED", "INVALID_REVIEW", "NOT_FOUND")) throw error
+                dao.rejectReview(row.mutationId, error.describe())
+                Log.w("RepoRead", "Review refused; cardId=$id mutationId=${row.mutationId} code=${error.code}")
+                continue
+            }
+            dao.saveReview(reviewRow(remote))
+        }
+    }
+
+    suspend fun checkCard(row: AnnotationRow, blobSha: String) {
+        val id = checkNotNull(row.serverId) { "Only acknowledged cards can be confirmed; ${row.mutationId} is pending" }
+        dao.saveAnnotation(annotationRow(api.post("/api/annotations/$id/check",
+            JSONObject().put("expectedVersion", row.version).put("blobSha", blobSha))))
+    }
+
+    private fun reviewRow(json: JSONObject) = contract {
+        val grade = json.getInt("grade")
+        if (grade !in 0..5) throw JSONException("Invalid review grade $grade")
+        ReviewRow(json.getString("mutationId"), json.getString("cardMutationId"), grade,
+            Instant.parse(json.getString("reviewedAt")).toEpochMilli(), json.getString("blobSha"), pending = false)
     }
 
     private fun annotationRow(json: JSONObject) = contract {
@@ -342,7 +402,10 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
             pending = false, rejection = null, prefixText = anchor.getString("prefixText"), suffixText = anchor.getString("suffixText"),
             status = json.getString("status"), resolvedBlobSha = json.getString("resolvedBlobSha"),
             location = Passage(location.getString("sourceBlobSha"), location.getString("blockId"), location.getInt("startOffset"),
-                location.getInt("endOffset"), location.getString("exactText")))
+                location.getInt("endOffset"), location.getString("exactText")),
+            type = json.getString("type"), question = json.nullableString("question"), checkedBlobSha = json.nullableString("checkedBlobSha"),
+            cachedTitle = json.getString("title"), cachedPath = json.getString("path"),
+            cachedCurrentBlobSha = json.getString("currentBlobSha"), cachedDeleted = json.getBoolean("deleted"))
     }
 
     private fun readingRow(json: JSONObject) = contract {
@@ -382,6 +445,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
     fun clearAll() {
         store.clearAllTables()
         imageRoot.deleteRecursively()
+        check(!exportRoot.exists() || exportRoot.deleteRecursively()) { "Could not remove private notebook exports at $exportRoot" }
     }
 
     private fun sha256(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }

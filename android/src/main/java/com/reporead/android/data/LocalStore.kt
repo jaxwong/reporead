@@ -89,13 +89,31 @@ data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?
                          @ColumnInfo(defaultValue = "") val prefixText: String = "",
                          @ColumnInfo(defaultValue = "") val suffixText: String = "",
                          val status: String? = null, val resolvedBlobSha: String? = null,
-                         @Embedded(prefix = "location") val location: Passage? = null) {
+                         @Embedded(prefix = "location") val location: Passage? = null,
+                         @ColumnInfo(defaultValue = "'HIGHLIGHT'") val type: String = "HIGHLIGHT",
+                         val question: String? = null, val checkedBlobSha: String? = null,
+                         @ColumnInfo(defaultValue = "''") val cachedTitle: String = "",
+                         @ColumnInfo(defaultValue = "''") val cachedPath: String = "",
+                         val cachedCurrentBlobSha: String? = null,
+                         @ColumnInfo(defaultValue = "0") val cachedDeleted: Boolean = false) {
     /** Where to draw it: the server's current location, or the original selection while the creation is pending. */
     val drawn: Passage get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
     /** The server could not find it reliably in [blobSha]. */
     fun orphanedIn(blobSha: String) = status == "ORPHANED" && resolvedBlobSha == blobSha
 }
+
+/** Pending grades and the server log share the same immutable client mutation id. */
+@Entity(tableName = "review_log", indices = [Index("cardMutationId")])
+data class ReviewRow(@PrimaryKey val mutationId: String, val cardMutationId: String, val grade: Int,
+                     val reviewedAt: Long, val blobSha: String, val pending: Boolean, val rejection: String? = null)
+
+/** The server supplies this ceiling; a phone without a complete notebook response cannot start a session. */
+@Entity(tableName = "review_limits")
+data class ReviewLimitRow(@PrimaryKey val id: Int = 1, val sessionLimit: Int)
+
+data class NotebookItem(@Embedded val annotation: AnnotationRow, val title: String, val path: String,
+                        val currentBlobSha: String?, val savedBlobSha: String?, val removed: Boolean)
 
 @Dao
 interface LibraryDao {
@@ -161,6 +179,7 @@ interface LibraryDao {
             deleteNotes(chunk)
             deleteReading(chunk)
             deleteBookmarks(chunk)
+            deleteReviewsOnDocuments(chunk)
             deleteAnnotations(chunk)
         }
         clearDocuments(repositoryId)
@@ -282,6 +301,76 @@ interface LibraryDao {
     @Query("select * from annotations where pending and rejection is null order by createdAt")
     suspend fun pendingAnnotations(): List<AnnotationRow>
 
+    @Query("""select a.*, coalesce(d.title, n.title, a.cachedTitle) as title,
+              coalesce(d.path, n.path, a.cachedPath) as path, d.blobSha as currentBlobSha,
+              n.blobSha as savedBlobSha, a.cachedDeleted as removed
+              from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
+              order by a.createdAt, a.mutationId""")
+    fun notebook(): Flow<List<NotebookItem>>
+
+    @Query("select * from review_log order by reviewedAt, mutationId")
+    fun reviews(): Flow<List<ReviewRow>>
+
+    @Query("select * from review_log where pending and rejection is null order by reviewedAt, mutationId")
+    suspend fun pendingReviews(): List<ReviewRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveReview(row: ReviewRow)
+
+    /** A concurrent sync may invalidate/delete a card after it was revealed; never persist that stale grade. */
+    @Transaction
+    suspend fun recordReview(row: ReviewRow): Boolean {
+        require(row.grade in 0..5 && row.pending && row.rejection == null) { "Invalid local review ${row.mutationId}" }
+        val card = annotation(row.cardMutationId) ?: return false
+        val current = document(card.documentId) ?: return false
+        val saved = note(card.documentId) ?: return false
+        if (card.type != "CARD" || card.rejection != null || card.cachedDeleted || card.status == "ORPHANED" ||
+            card.checkedBlobSha != row.blobSha || card.drawn.blobSha != row.blobSha || current.blobSha != row.blobSha ||
+            saved.blobSha != row.blobSha || (card.cachedCurrentBlobSha != null && card.cachedCurrentBlobSha != row.blobSha)) return false
+        saveReview(row)
+        return true
+    }
+
+    @Query("update review_log set rejection = :reason where mutationId = :mutationId")
+    suspend fun rejectReview(mutationId: String, reason: String)
+
+    @Query("select sessionLimit from review_limits where id = 1")
+    fun reviewLimit(): Flow<Int?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveReviewLimit(row: ReviewLimitRow)
+
+    @Query("delete from review_log where cardMutationId = :mutationId")
+    suspend fun deleteCardReviews(mutationId: String)
+
+    @Query("delete from review_log where cardMutationId in (select mutationId from annotations where documentId in (:ids))")
+    suspend fun deleteReviewsOnDocuments(ids: List<Long>)
+
+    @Query("delete from review_log where not pending")
+    suspend fun clearAcknowledgedReviews()
+
+    @Query("delete from review_log where cardMutationId not in (select mutationId from annotations)")
+    suspend fun deleteMissingCardReviews()
+
+    @Query("delete from annotations where not pending")
+    suspend fun clearAcknowledgedNotebook()
+
+    @Transaction
+    suspend fun replaceRemoteNotebook(rows: List<AnnotationRow>, reviews: List<ReviewRow>, limit: Int) {
+        clearAcknowledgedNotebook()
+        rows.forEach { saveAnnotation(it) }
+        clearAcknowledgedReviews()
+        reviews.forEach { saveReview(it) }
+        deleteMissingCardReviews()
+        saveReviewLimit(ReviewLimitRow(sessionLimit = limit))
+    }
+
+    @Transaction
+    suspend fun removeAnnotation(mutationId: String) {
+        deleteCardReviews(mutationId)
+        deleteAnnotation(mutationId)
+    }
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveAnnotation(row: AnnotationRow)
 
@@ -302,6 +391,7 @@ interface LibraryDao {
     suspend fun replaceRemoteAnnotations(documentId: Long, remote: List<AnnotationRow>) {
         clearAcknowledgedAnnotations(documentId)
         for (row in remote) saveAnnotation(row.copy(pending = false, rejection = null))
+        deleteMissingCardReviews()
     }
 
     /** The server's complete bookmark list replaces acknowledged rows; pending local toggles are kept. */
@@ -314,10 +404,11 @@ interface LibraryDao {
 }
 
 @Database(
-    entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class],
-    version = 6,
+    entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class,
+        ReviewRow::class, ReviewLimitRow::class],
+    version = 7,
     autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6)],
+        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7)],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao

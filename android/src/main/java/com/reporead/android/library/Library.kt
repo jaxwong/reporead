@@ -3,6 +3,7 @@ package com.reporead.android.library
 import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -141,6 +142,10 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                 FilledTonalButton(onClick = onSignIn, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Sign in with GitHub") }
             }
             StatusLine(status)
+            Row {
+                TextButton(onClick = { push(Screen.Review) }) { Text("Review cards") }
+                TextButton(onClick = { push(Screen.Notebook) }) { Text("Notebook") }
+            }
             val content: @Composable () -> Unit = {
                 when (tab) {
                     LibraryTab.READING -> ReadingTab(dao, push)
@@ -254,7 +259,7 @@ private fun DeleteAccountDialog(repositories: List<String>, onDismiss: () -> Uni
         text = {
             Text("RepoRead will delete, on its server and this phone, your connections" +
                 (if (repositories.isEmpty()) "" else " (${repositories.joinToString()})") +
-                ", note lists, reading progress, bookmarks, highlights and notes, and sign this phone out. This cannot be undone. " +
+                ", note lists, reading progress, bookmarks, highlights and notes, cards and review logs, and sign this phone out. This cannot be undone. " +
                 "Your GitHub repositories are not changed. To also remove RepoRead's GitHub authorization and App, use GitHub's " +
                 "Settings → Applications.")
         },
@@ -452,7 +457,7 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
             title = { Text("Disconnect ${screen.repositoryName}?") },
             text = {
                 Text("RepoRead will delete, on its server and this phone, its list of ${stored.documents} notes, your reading progress on " +
-                    "${stored.readingStates}, ${stored.bookmarks} bookmarks, and ${stored.highlights} highlights with their notes. " +
+                    "${stored.readingStates}, ${stored.bookmarks} bookmarks, and ${stored.highlights} highlights with their notes, and ${stored.cards} cards with their review logs. " +
                     "This cannot be undone. The repository on GitHub is not changed; to remove " +
                     "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub.")
             },

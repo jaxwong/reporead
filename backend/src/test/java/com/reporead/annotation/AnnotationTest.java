@@ -402,4 +402,121 @@ class AnnotationTest {
         String response = create(alice, note, json).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return Long.parseLong(response.replaceAll("^\\{\"id\":(\\d+),.*$", "$1"));
     }
+
+    // P4 fixtures are test-only; these exercise the real HTTP, transaction, and anchor paths.
+    private String cardBody() {
+        return body(UUID.randomUUID().toString(), "b2", START, EXACT, null)
+            .replace("\"note\":null", "\"type\":\"CARD\",\"question\":\"How are transactions implemented?\",\"note\":null");
+    }
+
+    private ResultActions grade(String bearer, long id, String mutation, int grade, String sha) throws Exception {
+        return mvc.perform(post("/api/annotations/" + id + "/reviews").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"mutationId\":\"" + mutation + "\",\"grade\":" + grade
+                + ",\"reviewedAt\":\"2026-01-01T00:00:00Z\",\"blobSha\":\"" + sha + "\"}"));
+    }
+
+    @Test void cardsReuseAnchorsAndCreationIdempotencyAndGradesAreStoredOnce() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        String body = cardBody();
+        long id = createdId(body);
+        create(alice, note, body).andExpect(status().isOk()).andExpect(jsonPath("$.type").value("CARD"))
+            .andExpect(jsonPath("$.question").value("How are transactions implemented?"));
+        String mutation = UUID.randomUUID().toString();
+        for (int i = 0; i < 10; i++) {
+            grade(alice, id, i == 0 ? mutation : UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isOk());
+        }
+        grade(alice, id, mutation, 4, OLD_SHA).andExpect(status().isOk());
+        grade(alice, id, mutation, 5, OLD_SHA).andExpect(status().isConflict());
+        assertEquals(10, count("review_log"));
+        mvc.perform(get("/api/notebook").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.sessionLimit").value(40))
+            .andExpect(jsonPath("$.annotations[0].type").value("CARD"))
+            .andExpect(jsonPath("$.reviews.length()").value(10));
+        remove(alice, id, 1).andExpect(status().isNoContent());
+        assertEquals(0, count("review_log"));
+        grade(alice, id, mutation, 4, OLD_SHA).andExpect(status().isNotFound());
+    }
+
+    @Test void changedCardsCannotBeGradedUntilExplicitlyCheckedAndOrphansCanBeReattached() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long id = createdId(cardBody());
+        next();
+        moveNoteTo(CURRENT_SHA);
+        grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isConflict());
+        expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
+        list(alice).andExpect(jsonPath("$.annotations[0].status").value("REANCHORED"))
+            .andExpect(jsonPath("$.annotations[0].checkedBlobSha").isEmpty());
+        grade(alice, id, UUID.randomUUID().toString(), 4, CURRENT_SHA).andExpect(status().isConflict());
+        mvc.perform(post("/api/annotations/" + id + "/check").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":1,\"blobSha\":\"" + CURRENT_SHA + "\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.checkedBlobSha").value(CURRENT_SHA));
+        grade(alice, id, UUID.randomUUID().toString(), 4, CURRENT_SHA).andExpect(status().isOk());
+        next();
+        moveNoteTo(REWRITTEN_SHA);
+        expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
+        list(alice).andExpect(jsonPath("$.annotations[0].status").value("ORPHANED"));
+        next();
+        expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
+        reattach(alice, id, 2, REWRITTEN_SHA, "b2", 8, "weaves advice").andExpect(status().isOk());
+        grade(alice, id, UUID.randomUUID().toString(), 4, REWRITTEN_SHA).andExpect(status().isConflict());
+    }
+
+    @Test void cardAndReviewBoundariesRejectInvalidAndForeignRequestsWithoutGitHub() throws Exception {
+        create(alice, note, cardBody().replace("How are transactions implemented?", "")).andExpect(status().isBadRequest());
+        create(alice, note, cardBody().replace("CARD", "UNKNOWN")).andExpect(status().isBadRequest());
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long id = createdId(cardBody());
+        String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB");
+        grade(bob, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isNotFound());
+        grade(alice, id, UUID.randomUUID().toString(), 6, OLD_SHA).andExpect(status().isBadRequest());
+        grade(alice, id, "bad", 4, OLD_SHA).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/notebook").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob))
+            .andExpect(jsonPath("$.annotations.length()").value(0)).andExpect(jsonPath("$.reviews.length()").value(0));
+        assertEquals(0, count("review_log"));
+    }
+
+    @Test void concurrentCardCreationsAndGradeReplaysAreIdempotentEvenAfterANoteEdit() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.between(1, 4));
+        String body = cardBody();
+        Callable<Integer> creating = () -> create(alice, note, body).andReturn().getResponse().getStatus();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var results = executor.invokeAll(List.of(creating, creating, creating, creating));
+            int created = 0;
+            for (var result : results) {
+                int status = result.get();
+                if (status == 201) created++;
+                else assertEquals(200, status);
+            }
+            assertEquals(1, created);
+        }
+        long id = db.sql("select id from annotations").query(Long.class).single();
+        String mutation = UUID.randomUUID().toString();
+        Callable<Integer> grading = () -> grade(alice, id, mutation, 4, OLD_SHA).andReturn().getResponse().getStatus();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (var result : executor.invokeAll(List.of(grading, grading, grading, grading))) assertEquals(200, result.get());
+        }
+        assertEquals(1, count("review_log"));
+        moveNoteTo(CURRENT_SHA);
+        grade(alice, id, mutation, 4, OLD_SHA).andExpect(status().isOk());
+        grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isConflict());
+        assertEquals(1, count("review_log"));
+    }
+
+    @Test void reviewTimesAndMissingFieldsAreValidatedAndHighlightsCannotBeGraded() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
+        grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isNotFound());
+        for (String body : List.of("{}", "{\"mutationId\":\"" + UUID.randomUUID() + "\",\"grade\":4,\"blobSha\":\"" + OLD_SHA
+            + "\",\"reviewedAt\":\"2999-01-01T00:00:00Z\"}", "{\"mutationId\":\"" + UUID.randomUUID()
+            + "\",\"grade\":4,\"blobSha\":\"" + OLD_SHA + "\",\"reviewedAt\":\"2026-01-01T00:00:00.000001Z\"}")) {
+            mvc.perform(post("/api/annotations/" + id + "/reviews").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
+        }
+        assertEquals(0, count("review_log"));
+    }
 }
