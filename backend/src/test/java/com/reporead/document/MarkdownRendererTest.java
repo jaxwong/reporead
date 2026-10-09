@@ -65,6 +65,12 @@ class MarkdownRendererTest {
         assertEquals(path, Jsoup.parse(result.html()).selectFirst("[data-block-id=b1]").attr("data-heading-2"));
     }
 
+    /** The phone decodes this exact href (BacklinksTest.theRenderersEncodingOfAPlusDecodesToAPlus): "+" stays a literal plus. */
+    @Test void aPlusInALinkNameStaysLiteral() {
+        var html = Jsoup.parse(render("See [[C++ templates#A+B]].").html());
+        assertEquals("/note-link?target=C++%20templates&heading=A+B", html.selectFirst("a.wikilink").attr("href"));
+    }
+
     @Test void obsidianLinksBecomeNoteLinksWithoutChangingCanonicalText() {
         String source = "See [[stack]], [[queues|the queue note]], [[stack#Push#Pop]], [[#Local]] and [[fifo#^block1]]. Code `[[not]]`.\n\n"
             + "```\n[[not a link]]\n```\n";

@@ -14,8 +14,15 @@ class BacklinksTest {
     @Test fun linksAreDecodedLikeTheReaderAndSameNoteHeadingsAreLeftOut() {
         val html = link("target=T1.%20It's%20Your%20Life") + link("path=core/backend%20engineering/01.md&amp;heading=2-separate") +
             link("heading=Defaults") + link("target=a+b") + """<a href="https://example.com/note-link?target=x">y</a>"""
-        assertEquals(listOf("T1. It's Your Life" to null, null to "core/backend engineering/01.md", "a b" to null), noteLinks(html))
+        // The server encodes per RFC 3986 (a space is %20), so "+" is a literal plus.
+        assertEquals(listOf("T1. It's Your Life" to null, null to "core/backend engineering/01.md", "a+b" to null), noteLinks(html))
         assertEquals(emptyList<Pair<String?, String?>>(), noteLinks("<p>No links</p>"))
+    }
+
+    /** The exact href MarkdownRendererTest.aPlusInALinkNameStaysLiteral pins for [[C++ templates#A+B]]. */
+    @Test fun theRenderersEncodingOfAPlusDecodesToAPlus() {
+        assertEquals(mapOf("target" to "C++ templates", "heading" to "A+B"), noteLinkParameters("target=C++%20templates&heading=A+B"))
+        assertEquals(mapOf("target" to "C++"), noteLinkParameters("target=C%2B%2B"))
     }
 
     @Test fun aNoteIsLinkedFromPagesWhoseLinksResolveToIt() {

@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -99,7 +100,13 @@ private val StackSaver = listSaver<List<Screen>, String>(
     },
 )
 
-private const val LIBRARY_STATE = "library"
+/**
+ * The key of one back-stack entry's saved UI state. The index tells repeated screens apart (a note linking to a note that
+ * links back), so each entry keeps its own state while it is in the stack.
+ */
+private fun entryKey(index: Int, screen: Screen) = "$index:" + encode(screen).joinToString("\u001f")
+
+private val ROOT_STATE = entryKey(0, Screen.Repositories)
 
 @Composable
 fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
@@ -113,7 +120,10 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     var signInMessage by remember { mutableStateOf<String?>(null) }
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     val scope = rememberCoroutineScope()
-    val libraryState = rememberSaveableStateHolder()
+    // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a summary
+    // starts from) while covered, as they do across recreation; it is dropped once the entry leaves the stack.
+    val screenStates = rememberSaveableStateHolder()
+    var keptStates by remember { mutableStateOf(emptySet<String>()) }
     val savedRepositories by dao.repositories().collectAsState(null)
 
     // Any 401 means the app session or the server's GitHub token is gone. Saved notes stay readable; only refreshing
@@ -134,7 +144,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         try {
             completeSignIn(code, api, store) {
                 withContext(Dispatchers.IO) { sync.clearAll() }
-                libraryState.removeState(LIBRARY_STATE)
+                screenStates.removeState(ROOT_STATE)
             }
             signedIn = true
             signInMessage = null
@@ -163,11 +173,17 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val pop: () -> Unit = { stack = stack.dropLast(1) }
     BackHandler(enabled = stack.size > 1) { stack = stack.dropLast(1) }
     val screen = stack.last()
-    // Keyed so each screen starts with its own remembered state, also when it follows one of the same kind (a note
-    // opened from a note, a subfolder): otherwise an open notes panel or a status line carries over.
-    key(screen) {
+    val current = stack.mapIndexed(::entryKey)
+    SideEffect {
+        (keptStates - current.toSet()).forEach(screenStates::removeState)
+        keptStates = current.toSet()
+    }
+    // Keyed by entry so each screen starts with its own remembered state, also when it follows one of the same kind (a
+    // note opened from a note, a subfolder): otherwise an open notes panel or a status line carries over.
+    key(current.last()) {
+    screenStates.SaveableStateProvider(current.last()) {
     when (screen) {
-        Screen.Repositories -> libraryState.SaveableStateProvider(LIBRARY_STATE) {
+        Screen.Repositories ->
         LibraryScreen(sync, dao, signedIn, onFailure, push, onSignIn = signIn, onSignOut = {
             scope.launch {
                 val message = try {
@@ -179,7 +195,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                 }
                 // Explicit sign-out removes this phone's copy of private notes, including unsynced changes.
                 withContext(Dispatchers.IO) { sync.clearAll() }
-                libraryState.removeState(LIBRARY_STATE)
+                screenStates.removeState(ROOT_STATE)
                 store.clear()
                 store.dataOwner = null
                 signedIn = false
@@ -190,12 +206,11 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
             // The server deleted the account and its sessions, and Sync cleared this phone's copy.
             store.clear()
             store.dataOwner = null
-            libraryState.removeState(LIBRARY_STATE)
+            screenStates.removeState(ROOT_STATE)
             signedIn = false
             signInMessage = "Your RepoRead account was deleted. To also remove RepoRead's authorization on GitHub, use GitHub's Settings → Applications."
             stack = listOf(Screen.Repositories)
         })
-        }
         Screen.Available -> AvailableScreen(api, onFailure, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
         is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push, onBack = pop,
             onDisconnected = { stack = listOf(Screen.Repositories) })
@@ -204,6 +219,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         Screen.Notebook -> NotebookScreen(dao, push, onBack = pop)
         Screen.Review -> ReviewScreen(dao, push, onBack = pop)
         Screen.Search -> SearchScreen(dao, push, onBack = pop)
+    }
     }
     }
 }

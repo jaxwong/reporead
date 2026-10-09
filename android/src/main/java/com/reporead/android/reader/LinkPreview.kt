@@ -63,8 +63,8 @@ internal fun LinkPreviewSheet(target: DocumentRow, heading: String?, sync: Sync,
                 Saved.Missing -> Text("Not saved on this phone yet, so there is nothing to preview. Open it to fetch it.",
                     style = MaterialTheme.typography.bodyMedium)
                 is Saved.Copy -> {
-                    if (copy.note.blobSha != target.blobSha) notice = "The saved copy is an older version of this note."
-                    notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    val older = if (copy.note.blobSha != target.blobSha) "The saved copy is an older version of this note." else null
+                    for (line in listOfNotNull(older, notice)) Text(line, style = MaterialTheme.typography.bodySmall)
                     AndroidView(
                         factory = { context -> previewView(context, sync, copy.note, heading) { notice = it } },
                         onRelease = { it.destroy() },

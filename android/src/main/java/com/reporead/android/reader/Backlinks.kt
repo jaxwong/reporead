@@ -2,18 +2,15 @@ package com.reporead.android.reader
 
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.SavedPage
-import java.net.URLDecoder
 
 private val NOTE_LINK_HREF = Regex("""href="/note-link\?([^"]*)"""")
 
 /**
- * The links to other notes in a saved page, as (target, path), decoded as the reader decodes a tapped link (Android's
- * query parameters: percent escapes, and + as a space). Links to a heading of the same note have neither and are left out.
+ * The links to other notes in a saved page, as (target, path), decoded as the reader decodes a tapped link
+ * ([noteLinkParameters]). Links to a heading of the same note have neither and are left out.
  */
 internal fun noteLinks(html: String): List<Pair<String?, String?>> = NOTE_LINK_HREF.findAll(html).mapNotNull { match ->
-    val parameters = match.groupValues[1].replace("&amp;", "&").split('&').associate { parameter ->
-        URLDecoder.decode(parameter.substringBefore('='), Charsets.UTF_8) to URLDecoder.decode(parameter.substringAfter('=', ""), Charsets.UTF_8)
-    }
+    val parameters = noteLinkParameters(match.groupValues[1].replace("&amp;", "&"))
     val target = parameters["target"]
     val path = parameters["path"]
     if (target == null && path == null) null else target to path

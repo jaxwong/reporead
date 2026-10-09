@@ -98,7 +98,11 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     val displayed = (load as? Load.Ready)?.value?.opened?.note?.blobSha
     val study = (load as? Load.Ready)?.value?.study
     var studying by rememberSaveable(screen.documentId) { mutableStateOf(screen.question != null) }
-    var questionOpened by rememberSaveable(screen.documentId) { mutableStateOf(false) }
+    /*
+     * The screen's one-shot target — a linked heading, a practice question, or a notebook passage — has been shown. Saved,
+     * so rotating or returning to this screen restores the reading position instead of jumping back to the target.
+     */
+    var targetShown by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var changesReload by remember { mutableIntStateOf(0) }
     var changesExpanded by rememberSaveable(screen.documentId) { mutableStateOf(true) }
     // Null when there is nothing to compare: never read, or reading the same version again. The baseline is used up only
@@ -130,7 +134,6 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var answerPrompt by rememberSaveable(screen.documentId) { mutableStateOf(screen.reviewPrompt) }
     var newCardSelection by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var newCardPrompt by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
-    var annotationOpened by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var newSelection by remember { mutableStateOf<JSONObject?>(null) }
     var notShown by remember { mutableStateOf(emptySet<String>()) }
     /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here. */
@@ -255,11 +258,12 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             }
             val lifecycle = LocalLifecycleOwner.current.lifecycle
             val session = remember(opened.note) {
-                ReaderSession(opened.note, sync, dao, appScope, openAtHeading = screen.heading,
+                ReaderSession(opened.note, sync, dao, appScope, openAtHeading = screen.heading.takeUnless { targetShown },
+                    onHeadingOpened = { targetShown = true },
                     study = page.study, studying = { studying },
-                    openAtAnnotation = screen.annotation.takeUnless { annotationOpened },
-                    onAnnotationOpened = { annotationOpened = true; notesOpen = true }, openAtQuestion = screen.question.takeUnless { questionOpened },
-                    onQuestionOpened = { questionOpened = true },
+                    openAtAnnotation = screen.annotation.takeUnless { targetShown },
+                    onAnnotationOpened = { targetShown = true; notesOpen = true }, openAtQuestion = screen.question.takeUnless { targetShown },
+                    onQuestionOpened = { targetShown = true },
                     onQuestionMissing = { studying = false },
                     onRestoreNotice = { restoreNotice = it },
                     onNoteLink = { target, path, heading ->
@@ -289,22 +293,28 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                     onBarsShown = { barsShown = it },
                     reattaching = { reattaching != null },
                     selectingAnswer = { answerPrompt != null },
+                    onMessage = { message = it },
                     onSelection = { selection, action ->
+                        // The menu was built for the state at the time; Cancel may have ended that mode since.
                         val placing = reattaching
+                        val prompt = answerPrompt
                         when {
                             selection == null -> message = "Select some text first."
                             selection.has("error") -> message = selection.getString("error")
-                            action == SelectionAction.REATTACH && placing != null -> reattach(placing, selection)
-                            action == SelectionAction.ANSWER -> {
-                                newCardSelection = selection.toString()
-                                newCardPrompt = checkNotNull(answerPrompt)
+                            else -> when (action) {
+                                SelectionAction.REATTACH ->
+                                    if (placing != null) reattach(placing, selection) else message = "Reattaching was cancelled; choose Reattach again in Notes."
+                                SelectionAction.ANSWER -> if (prompt == null) message = "Choosing an answer was cancelled." else {
+                                    newCardSelection = selection.toString()
+                                    newCardPrompt = prompt
+                                }
+                                SelectionAction.MAKE_QUESTION -> {
+                                    newCardSelection = selection.toString()
+                                    newCardPrompt = null
+                                }
+                                SelectionAction.ADD_NOTE -> newSelection = selection
+                                SelectionAction.HIGHLIGHT -> save(selection, null, null)
                             }
-                            action == SelectionAction.MAKE_QUESTION -> {
-                                newCardSelection = selection.toString()
-                                newCardPrompt = null
-                            }
-                            action == SelectionAction.ADD_NOTE -> newSelection = selection
-                            else -> save(selection, null, null)
                         }
                     })
             }
@@ -427,8 +437,9 @@ private class ReaderSession(
     private val sync: Sync,
     private val dao: LibraryDao,
     private val scope: CoroutineScope,
-    /** A heading to open at instead of the saved position (the target of a note link). */
+    /** A heading to open at instead of the saved position (the target of a note link), until [onHeadingOpened]. */
     private val openAtHeading: String?,
+    private val onHeadingOpened: () -> Unit,
     private val study: StudyNote,
     private val studying: () -> Boolean,
     private var openAtAnnotation: String?,
@@ -451,6 +462,8 @@ private class ReaderSession(
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
     private val selectingAnswer: () -> Boolean,
+    /** A short message about something the page could not do (a link, the browser, rendering). */
+    private val onMessage: (String) -> Unit,
     /** The captured selection (null when empty, {error} when it spans blocks) and the chosen action. */
     private val onSelection: (JSONObject?, SelectionAction) -> Unit,
 ) {
@@ -480,7 +493,8 @@ private class ReaderSession(
         val assets = readerAssets(context)
         return ReaderWebView(context, reattaching, selectingAnswer) { action, finish ->
             captureSelection { selection ->
-                finish()
+                // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
+                if (selection != null && !selection.has("error")) finish()
                 onSelection(selection, action)
             }
         }.apply {
@@ -489,7 +503,8 @@ private class ReaderSession(
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val url = request.url
                     if (request.hasGesture() && url.host == ASSET_HOST && url.path == NOTE_LINK) {
-                        onNoteLink(url.getQueryParameter("target"), url.getQueryParameter("path"), url.getQueryParameter("heading"))
+                        val link = noteLinkParameters(url.encodedQuery.orEmpty())
+                        onNoteLink(link["target"], link["path"], link["heading"])
                         return true
                     }
                     if (request.hasGesture() && url.host == ASSET_HOST && url.path == COPY_CODE) {
@@ -500,11 +515,13 @@ private class ReaderSession(
                         url.getQueryParameter("figure")?.let(onFigure)
                         return true
                     }
-                    if (request.hasGesture() && (url.scheme == "https" || url.scheme == "http") && url.host != ASSET_HOST) {
+                    val external = (url.scheme == "https" || url.scheme == "http") && url.host != ASSET_HOST
+                    if (request.hasGesture() && (external || url.scheme == "mailto")) {
                         try {
                             view.context.startActivity(Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE))
                         } catch (error: ActivityNotFoundException) {
-                            Log.w("RepoRead", "No browser for an external note link")
+                            Log.w("RepoRead", "No app for an external note link; scheme=${url.scheme}")
+                            onMessage(if (external) "No browser is installed to open this link." else "No email app is installed to open this link.")
                         }
                     }
                     // The page itself never navigates away; note links are opened by the app as new reader screens.
@@ -563,8 +580,12 @@ private class ReaderSession(
                         restore(view)
                     }
                 }
+                // The page itself shows why rendering failed.
                 "failed" -> Log.w("RepoRead", "Reader render failed; position not saved; documentId=${note.documentId}")
-                else -> Log.w("RepoRead", "Reader never became ready; position not saved; documentId=${note.documentId}")
+                else -> {
+                    Log.w("RepoRead", "Reader never became ready; position not saved; documentId=${note.documentId}")
+                    onMessage("This note did not finish rendering, so highlights and your reading position are off here. Reopen it to try again.")
+                }
             }
         }
     }
@@ -589,6 +610,7 @@ private class ReaderSession(
         if (heading != null) {
             view.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(heading)})") { encoded ->
                 val shown = JSONTokener(encoded).nextValue() == true
+                onHeadingOpened()
                 Log.i("RepoRead", "Reader opened at a linked heading; documentId=${note.documentId} found=$shown")
                 onRestoreNotice(if (shown) null else "No heading “$heading” in this note; showing the top.")
                 restored = true
@@ -745,22 +767,32 @@ private class ReaderSession(
     private fun copyCode(webView: WebView, blockId: String) {
         if (!ready) return
         webView.evaluateJavascript("window.reporead.codeText(${JSONObject.quote(blockId)})") { encoded ->
-            val text = JSONTokener(encoded).nextValue() as String
+            // A link in the note's own text can name /copy-code with something that is not a code block.
+            val text = JSONTokener(encoded).nextValue() as? String ?: run {
+                Log.w("RepoRead", "Copy link names no code block; documentId=${note.documentId} block=$blockId")
+                return@evaluateJavascript
+            }
             val clipboard = webView.context.getSystemService(android.content.ClipboardManager::class.java)
             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Code", text))
             Log.i("RepoRead", "Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
         }
     }
 
+    /**
+     * The selection as capture() reads it: null when nothing is selected, {error} when it is not inside one block. A
+     * broken canonical mapping is an invariant failure, raised here, never an approximate anchor.
+     */
     private fun captureSelection(then: (JSONObject?) -> Unit) {
         val webView = view
         if (webView == null || !ready) {
-            then(null)
+            onMessage("The note is still loading; select the text again in a moment.")
             return
         }
-        webView.evaluateJavascript("JSON.stringify(window.reporead.capture())") { encoded ->
-            val value = JSONTokener(encoded).nextValue()
-            then(if (value is String && value != "null") JSONObject(value) else null)
+        webView.evaluateJavascript("(() => { try { return JSON.stringify({selection: window.reporead.capture()}); } " +
+            "catch (error) { return JSON.stringify({invariant: error.message}); } })()") { encoded ->
+            val result = JSONObject(JSONTokener(encoded).nextValue() as String)
+            check(!result.has("invariant")) { "Selection capture failed; documentId=${note.documentId}: ${result.getString("invariant")}" }
+            then(result.optJSONObject("selection"))
         }
     }
 }
