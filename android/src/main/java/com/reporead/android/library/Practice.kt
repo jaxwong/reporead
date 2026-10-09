@@ -22,6 +22,7 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.PracticePage
 import com.reporead.android.reader.studyNote
 import com.reporead.android.reader.StudyQuestion
+import com.reporead.android.reader.StudyTarget
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.StatusLine
@@ -30,7 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
-internal data class PracticeQuestion(val documentId: Long, val title: String, val path: String, val question: StudyQuestion)
+internal data class PracticeQuestion(val documentId: Long, val title: String, val path: String, val blobSha: String, val question: StudyQuestion)
 private data class PracticeSnapshot(val pages: List<PracticePage>, val questions: List<PracticeQuestion>)
 
 /** Shuffled note groups, then one question per note per round; remaining questions never disappear. */
@@ -63,7 +64,8 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
         val saved = pages ?: return@LaunchedEffect
         extracted = withContext(Dispatchers.Default) {
             val questions = saved.flatMap { page -> page.html?.let { html ->
-                studyNote(html).questions.map { PracticeQuestion(page.documentId, page.title, page.path, it) }
+                val blobSha = checkNotNull(page.blobSha) { "Saved Practice page ${page.documentId} has HTML without its blob SHA" }
+                studyNote(html).questions.map { PracticeQuestion(page.documentId, page.title, page.path, blobSha, it) }
             }.orEmpty() }
             PracticeSnapshot(saved, questions)
         }
@@ -102,7 +104,7 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
             else -> LazyColumn {
                 items(ready, key = { "${it.documentId}:${it.question.blockId}" }) { question ->
                     EntryRow(question.question.text, question.path, R.drawable.ic_notes) {
-                        push(Screen.Reader(question.documentId, question.title, question = question.question.prompt))
+                        push(Screen.Reader(question.documentId, question.title, question = StudyTarget(question.blobSha, question.question.blockId)))
                     }
                 }
             }

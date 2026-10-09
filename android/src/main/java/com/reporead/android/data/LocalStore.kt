@@ -48,7 +48,7 @@ data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val co
 data class SavedPage(val documentId: Long, val html: String)
 
 /** One listed note for practice; null HTML means its questions are not available on this phone. */
-data class PracticePage(val documentId: Long, val title: String, val path: String, val html: String?)
+data class PracticePage(val documentId: Long, val title: String, val path: String, val html: String?, val blobSha: String?)
 
 /** A saved note matching a search: [searchText] is set when it matched by text, for a snippet. */
 data class NoteMatch(val documentId: Long, val title: String, val path: String, val searchText: String?)
@@ -170,7 +170,7 @@ interface LibraryDao {
     @Query("select * from notes where documentId = :documentId")
     suspend fun note(documentId: Long): NoteRow?
 
-    @Query("""select d.id as documentId, d.title, d.path, n.html
+    @Query("""select d.id as documentId, d.title, d.path, n.html, n.blobSha
               from documents d left join notes n on n.documentId = d.id order by d.id""")
     fun practicePages(): Flow<List<PracticePage>>
 

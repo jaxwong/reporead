@@ -34,7 +34,7 @@ class StudyReaderTest {
         val body = block(0, "h1", "Test-only study fixture") + block(1, "h2", "Problem") + block(2, "p", "Solve this problem.") +
             block(3, "h2", "Approach") + block(4, "p", "The revealed answer.") + block(5, "h3", "Mistakes") +
             block(6, "p", "A nested mistake.") + block(7, "h2", "Complexities") + block(8, "p", "Linear time.") +
-            (if (questions) block(9, "h2", "Questions this file answers") + "<ul>" + block(10, "li", "First question?") + block(11, "li", "Second question?") + "</ul>" +
+            (if (questions) block(9, "h2", "Questions this file answers") + "<ul>" + block(10, "li", "First question?") + block(11, "li", "Second question?") + block(44, "li", "First question?") + "</ul>" +
                 block(41, "h2", "Review and practice") + block(42, "p", "Trace a request, then test:") + "<ul>" + block(43, "li", "empty input") + "</ul>" else "") +
             block(12, "h2", "Context") + (13..40).joinToString("") { block(it, "p", "Test-only context paragraph $it. ".repeat(10)) }
         val html = """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -122,10 +122,14 @@ class StudyReaderTest {
             check(document.querySelector('.study-question').textContent === 'Second question?', 'Restored question');
             document.querySelector('.study-answer').click();
             check(getComputedStyle(document.getElementById('note')).display !== 'none', 'Read the answer shows note');
-            check(api.studyQuestion('First question?'), 'Queue question opens');
-            check(api.studyQuestion('Trace a request, then test:\n\nempty input'), 'Queue opens an instruction-aware prompt');
+            const sha = 'a'.repeat(40);
+            check(api.studyQuestion(sha, 'b10'), 'Queue question opens');
+            check(api.studyQuestion(sha, 'b44'), 'Duplicate prompt opens by its own block');
+            check(api.position().anchor.blockIndex === [...document.querySelectorAll('#note [data-block-id]')].findIndex(b => b.dataset.blockId === 'b44'), 'Second identical prompt must not open first');
+            check(!api.studyQuestion('b'.repeat(40), 'b44'), 'A different source version must reject the block identity');
+            check(api.studyQuestion(sha, 'b43'), 'Queue opens an instruction-aware prompt');
             check(document.querySelector('.study-question').textContent === 'Trace a request, then test:\n\nempty input', 'Prompt retains leading instruction');
-            check(!api.studyQuestion('Removed question?'), 'Changed question must not silently open another');
+            check(!api.studyQuestion(sha, 'removed'), 'Missing question must not silently open another');
             check([...document.querySelectorAll('#note [data-block-id]')].every(b => b.textContent === b.dataset.anchorText), 'Canonical text after recall');
             return true;
         """.trimIndent())

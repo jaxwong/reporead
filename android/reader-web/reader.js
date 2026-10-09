@@ -516,9 +516,10 @@ window.reporead.setStudy = enabled => {
   else window.reporead.restore(saved.anchor, saved.progressPercent);
 };
 
-/** Open by question text, not a version-specific block id: an edited/deleted question must not open a different item. */
-window.reporead.studyQuestion = text => {
-  const index = studyQuestions.findIndex(question => question.text === text);
+/** Block identity is valid only in its source version; repeated prompt text is not an identity. */
+window.reporead.studyQuestion = (blobSha, blockId) => {
+  if (blobSha !== document.body.dataset.sourceBlobSha) return false;
+  const index = studyQuestions.findIndex(question => question.blockId === blockId);
   if (index < 0) return false;
   studyIndex = index;
   document.body.classList.add('study-active', 'study-recall');
