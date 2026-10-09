@@ -78,4 +78,28 @@ User explicitly approved real-note UI/DevTools verification and copying the data
 - Final native rotation retest and additional real LeetCode/no-heading/topic queue checks are pending; isolated WebView cases pass. Device UI changed during the attempted retest, so that attempt is not reported as a pass.
 - Daily-use preference, airplane mode itself, and future AI/privacy/cost/authoring decisions are not verified or implemented.
 - Known npm KaTeX advisories already documented in `reader-web/README.md` were not changed; no dependency upgrades were authorized by this stage.
-- Release reinstall and final phone status will be recorded below when complete.
+
+## Final phone state
+
+The tested production source was committed as `43534a0`. The final non-debug release was reinstalled over the debug app, preserving saved data. Backend forwarding was restored (backend availability itself was not checked), and original rotation settings were confirmed: `accelerometer_rotation=1`, `user_rotation=0`.
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s 192.168.1.214:34499 install -r android/build/outputs/apk/release/app-release.apk
+~/Library/Android/sdk/platform-tools/adb -s 192.168.1.214:34499 reverse tcp:8081 tcp:8081
+~/Library/Android/sdk/platform-tools/adb -s 192.168.1.214:34499 shell am start -W -n com.reporead.android/.MainActivity
+~/Library/Android/sdk/platform-tools/adb -s 192.168.1.214:34499 shell settings get system accelerometer_rotation
+~/Library/Android/sdk/platform-tools/adb -s 192.168.1.214:34499 shell settings get system user_rotation
+```
+
+All exit **0**:
+
+```text
+Performing Streamed Install
+Success
+8081
+Status: ok
+LaunchState: COLD
+Complete
+1
+0
+```
