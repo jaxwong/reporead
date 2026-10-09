@@ -65,7 +65,9 @@ class ReaderLifecycleTest {
             block(4, "h2", "Answer") + (5..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) } +
             // A same-note link, and a block whose 64-unit prefix would end inside an emoji.
             """<p data-block-id="b61" data-anchor-text="Back to the answer"><a href="#answer">Back to the answer</a></p>""" +
-            block(62, "p", "x".repeat(63) + "\uD83D\uDE00 after the emoji")
+            block(62, "p", "x".repeat(63) + "\uD83D\uDE00 after the emoji") +
+            // Enough text below, so those blocks can reach the top of the screen.
+            (63..80).joinToString("") { block(it, "p", "Test-only closing paragraph $it. ".repeat(20)) }
         val html = """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
             <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
             <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
