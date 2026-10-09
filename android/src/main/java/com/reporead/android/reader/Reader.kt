@@ -54,7 +54,9 @@ import com.reporead.android.data.ReadingRow
 import com.reporead.android.sync.Changes
 import com.reporead.android.sync.Sync
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -68,6 +70,9 @@ private const val SAVE_AFTER_SCROLL_MS = 700L
 private const val SECTION_AFTER_SCROLL_MS = 150L
 /** How far one swipe must scroll before the bars hide or come back, so small jitters do nothing. */
 private const val BARS_SCROLL_DP = 24
+
+/** The displayed copy and its study model are published together, so reloads cannot use a previous version's blocks. */
+private data class StudyPage(val opened: Sync.Opened, val study: StudyNote)
 
 @Composable
 fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean, onFailure: (ApiException) -> Unit,
@@ -84,9 +89,13 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             since = dao.reading(screen.documentId)?.lastReadBlobSha
             sinceCaptured = true
         }
-        sync.openNote(screen.documentId)
+        val opened = sync.openNote(screen.documentId)
+        StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html) })
     }
-    val displayed = (load as? Load.Ready)?.value?.note?.blobSha
+    val displayed = (load as? Load.Ready)?.value?.opened?.note?.blobSha
+    val study = (load as? Load.Ready)?.value?.study
+    var studying by rememberSaveable(screen.documentId) { mutableStateOf(screen.question != null) }
+    var questionOpened by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var changesReload by remember { mutableIntStateOf(0) }
     var changesExpanded by rememberSaveable(screen.documentId) { mutableStateOf(true) }
     // Null when there is nothing to compare: never read, or reading the same version again.
@@ -168,11 +177,17 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     Column(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedVisibility(barsShown) {
             AppBar(screen.title, subtitle = section?.text?.ifBlank { null }, onBack = onBack, actions = {
-                val opened = (load as? Load.Ready)?.value
+                val opened = (load as? Load.Ready)?.value?.opened
                 if (!outline.isNullOrEmpty()) {
                     IconButton(onClick = { outlineOpen = true }) { AppIcon(R.drawable.ic_toc, "Outline") }
                 }
                 if (opened != null) {
+                    if (study?.recognized == true) {
+                        TextButton(onClick = {
+                            studying = !studying
+                            sessionRef?.setStudy(studying)
+                        }) { Text(if (studying) "Read" else "Study") }
+                    }
                     IconButton(onClick = { notesOpen = !notesOpen }) {
                         BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
                             AppIcon(R.drawable.ic_notes, if (notesOpen) "Hide highlights and notes" else "Highlights and notes")
@@ -185,7 +200,8 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                 }
             })
         }
-        LoadContent(load, onRetry = { reload++ }) { opened ->
+        LoadContent(load, onRetry = { reload++ }) { page ->
+            val opened = page.opened
             opened.staleReason?.let { Notice("Showing your saved copy. $it") }
             restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
@@ -200,6 +216,9 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             val lifecycle = LocalLifecycleOwner.current.lifecycle
             val session = remember(opened.note) {
                 ReaderSession(opened.note, sync, dao, appScope, openAtHeading = screen.heading,
+                    study = page.study, studying = { studying }, openAtQuestion = screen.question.takeUnless { questionOpened },
+                    onQuestionOpened = { questionOpened = true },
+                    onQuestionMissing = { studying = false },
                     onRestoreNotice = { restoreNotice = it },
                     onNoteLink = { target, path, heading ->
                         scope.launch {
@@ -345,6 +364,11 @@ private class ReaderSession(
     private val scope: CoroutineScope,
     /** A heading to open at instead of the saved position (the target of a note link). */
     private val openAtHeading: String?,
+    private val study: StudyNote,
+    private val studying: () -> Boolean,
+    private val openAtQuestion: String?,
+    private val onQuestionOpened: () -> Unit,
+    private val onQuestionMissing: () -> Unit,
     private val onRestoreNotice: (String?) -> Unit,
     /** A tapped note link: an Obsidian [target] name or a repository [path], and an optional heading. */
     private val onNoteLink: (target: String?, path: String?, heading: String?) -> Unit,
@@ -460,13 +484,16 @@ private class ReaderSession(
         awaitRendered(view, main) { state, attempt ->
             when (state) {
                 "ready" -> {
-                    Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height} attempt=$attempt")
-                    ready = true
-                    applyHighlights()
-                    view.evaluateJavascript("JSON.stringify(window.reporead.outline())") { outline ->
-                        onOutline(parseOutline(JSONTokener(outline).nextValue() as String))
+                    view.evaluateJavascript("window.reporead.configureStudy(${study.json()}); window.reporead.setStudy(${studying()}); true") { encoded ->
+                        check(JSONTokener(encoded).nextValue() == true) { "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}" }
+                        Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height} attempt=$attempt")
+                        ready = true
+                        applyHighlights()
+                        view.evaluateJavascript("JSON.stringify(window.reporead.outline())") { outline ->
+                            onOutline(parseOutline(JSONTokener(outline).nextValue() as String))
+                        }
+                        restore(view)
                     }
-                    restore(view)
                 }
                 "failed" -> Log.w("RepoRead", "Reader render failed; position not saved; documentId=${note.documentId}")
                 else -> Log.w("RepoRead", "Reader never became ready; position not saved; documentId=${note.documentId}")
@@ -475,6 +502,21 @@ private class ReaderSession(
     }
 
     private fun restore(view: WebView) {
+        val question = openAtQuestion
+        if (question != null) {
+            view.evaluateJavascript("window.reporead.studyQuestion(${JSONObject.quote(question)})") { encoded ->
+                val shown = JSONTokener(encoded).nextValue() == true
+                onQuestionOpened()
+                onRestoreNotice(if (shown) null else "This question is no longer in the displayed note; showing the note instead.")
+                if (!shown) {
+                    onQuestionMissing()
+                    view.evaluateJavascript("window.reporead.setStudy(false)", null)
+                }
+                restored = true
+                capture()
+            }
+            return
+        }
         val heading = openAtHeading
         if (heading != null) {
             view.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(heading)})") { encoded ->
@@ -498,6 +540,7 @@ private class ReaderSession(
                 Log.i("RepoRead", "Reader restored; documentId=${note.documentId} mode=$mode savedPercent=${saved.progressPercent} " +
                     "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}")
                 onRestoreNotice(when {
+                    mode == "collapsed" -> "Resumed at a collapsed study section; tap Show / hide section to reveal it."
                     mode == "section" -> "Resumed at the start of the section you were reading; the exact passage changed."
                     mode == "block" || mode == "percent" -> "Resumed near your last position; the exact passage could not be found."
                     saved.lastReadBlobSha != note.blobSha -> "This note changed since you last read it; resumed at the same passage."
@@ -595,6 +638,14 @@ private class ReaderSession(
         if (!ready) return
         touched = false
         webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})", null)
+    }
+
+    fun setStudy(enabled: Boolean) {
+        val webView = view ?: return
+        if (!ready) return
+        touched = false
+        webView.evaluateJavascript("window.reporead.setStudy($enabled)") { capture() }
+        Log.i("RepoRead", "Study view changed; documentId=${note.documentId} enabled=$enabled")
     }
 
     /** Android 13+ confirms clipboard writes itself, so the reader shows nothing more. */

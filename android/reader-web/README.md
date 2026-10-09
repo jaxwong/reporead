@@ -17,7 +17,7 @@ Restoring depends on real layout, so it is checked in the debug app on the phone
 node android/reader-web/check-restore.mjs "$(curl -s http://127.0.0.1:9333/json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["webSocketDebuggerUrl"])')"
 ```
 
-It restores each block's saved position and reads it back; `same` and `sameRow` (another cell of the same table row at the top) are passes, `endOfNote` blocks cannot reach the top of the screen, and any `wrong` or `approximate` entry exits 1.
+It restores each block's saved position and reads it back; `same`, `sameRow` (another cell of the same table row at the top), and `collapsed` (the visible study-section heading standing in for its hidden content) are passes, `endOfNote` blocks cannot reach the top of the screen, and any `wrong` or `approximate` entry exits 1. In question study view, tap **Read the answer** first: the check needs the note visible.
 
 Audit verified on 2026-10-02: **0 vulnerabilities** after the approved targeted update of transitive lodash-es from 4.17.23 to 4.18.1; Mermaid is pinned to 11.17.2. Commands were `npm update lodash-es --ignore-scripts --no-audit`, `npm ci --ignore-scripts`, `npm audit`, all exit 0. That is an audit result at verification time, not a guarantee against future advisories.
 

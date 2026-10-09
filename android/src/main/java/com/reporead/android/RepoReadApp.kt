@@ -47,7 +47,7 @@ sealed interface Screen {
     data object Available : Screen
     data class Folder(val repositoryId: Long, val repositoryName: String, val path: String) : Screen
     /** [heading]: open at this heading (from a note link) instead of the saved reading position. */
-    data class Reader(val documentId: Long, val title: String, val heading: String? = null) : Screen
+    data class Reader(val documentId: Long, val title: String, val heading: String? = null, val question: String? = null) : Screen
     /** One table or diagram ([figure], the page's id for it) of the saved version [blobSha] of a note, full screen. */
     data class Figure(val documentId: Long, val blobSha: String, val figure: String, val title: String) : Screen
     data object Search : Screen
@@ -57,7 +57,7 @@ private fun encode(screen: Screen): List<String> = when (screen) {
     Screen.Repositories -> listOf("repositories")
     Screen.Available -> listOf("available")
     is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
-    is Screen.Reader -> listOfNotNull("reader", screen.documentId.toString(), screen.title, screen.heading)
+    is Screen.Reader -> listOf("reader", screen.documentId.toString(), screen.title, screen.heading.orEmpty(), screen.question.orEmpty())
     is Screen.Figure -> listOf("figure", screen.documentId.toString(), screen.blobSha, screen.figure, screen.title)
     Screen.Search -> listOf("search")
 }
@@ -66,7 +66,7 @@ private fun decode(parts: List<String>): Screen = when (parts[0]) {
     "repositories" -> Screen.Repositories
     "available" -> Screen.Available
     "folder" -> Screen.Folder(parts[1].toLong(), parts[2], parts[3])
-    "reader" -> Screen.Reader(parts[1].toLong(), parts[2], parts.getOrNull(3))
+    "reader" -> Screen.Reader(parts[1].toLong(), parts[2], parts.getOrNull(3)?.ifEmpty { null }, parts.getOrNull(4)?.ifEmpty { null })
     "figure" -> Screen.Figure(parts[1].toLong(), parts[2], parts[3], parts[4])
     "search" -> Screen.Search
     else -> error("Unknown saved screen ${parts[0]}")
