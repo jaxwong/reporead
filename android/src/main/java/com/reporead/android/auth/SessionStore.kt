@@ -17,7 +17,8 @@ private const val PREFS = "reporead-session"
 
 /**
  * Owns the app's bearer session on this device. The token is encrypted with an Android Keystore AES-GCM key;
- * only ciphertext is written to private preferences (backups are disabled in the manifest).
+ * only ciphertext is written to private preferences, which neither cloud backup nor device-to-device transfer copies
+ * (allowBackup and data_extraction_rules in the manifest).
  * The pending PKCE verifier is short-lived and kept only so sign-in survives process death while the browser is open.
  */
 class SessionStore(context: Context) {

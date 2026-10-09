@@ -27,20 +27,15 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
 /**
  * Exchanges the code from reporead://auth for a bearer session. The verifier is single-use either way. Data saved on
  * this phone belongs to the account that saved it: signing in as a different account runs [clearSavedData] first, so
- * one account never sees another's notes. If the account cannot be confirmed, the new session is discarded.
+ * one account never sees another's notes. The new session is stored last, so a process death part-way leaves the phone
+ * signed out rather than signed in beside another account's data.
  */
 suspend fun completeSignIn(code: String, api: Api, store: SessionStore, clearSavedData: suspend () -> Unit) {
     val verifier = store.pendingVerifier
         ?: throw ApiException(0, "SIGN_IN_NOT_STARTED", "This sign-in was not started from this app. Tap Sign in again.")
     store.pendingVerifier = null
     val session = api.post("/api/app-auth/token", JSONObject().put("code", code).put("codeVerifier", verifier))
-    store.save(contract { session.getString("accessToken") })
-    val userId = try {
-        api.get("/api/auth/me").let { me -> contract { me.getLong("id") } }
-    } catch (error: ApiException) {
-        store.clear()
-        throw error
-    }
+    val (token, userId) = contract { session.getString("accessToken") to session.getJSONObject("user").getLong("id") }
     val owner = store.dataOwner
     if (owner != null && owner != userId) {
         Log.i("RepoRead", "Signed in as a different account; clearing saved data")
@@ -48,4 +43,5 @@ suspend fun completeSignIn(code: String, api: Api, store: SessionStore, clearSav
     }
     // A phone that saved data before owners were recorded has owner null; its data is taken to be this account's.
     store.dataOwner = userId
+    store.save(token)
 }

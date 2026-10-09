@@ -96,7 +96,8 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
                                 val file = File(directory, "notebook-${UUID.randomUUID()}.md")
                                 val partial = File(directory, "${file.name}.part")
                                 try {
-                                    Files.writeString(partial.toPath(), notebookMarkdown(snapshot), Charsets.UTF_8)
+                                    // Not Files.writeString: it needs API 36.1 and the app supports 34.
+                                    partial.writeText(notebookMarkdown(snapshot), Charsets.UTF_8)
                                     Files.move(partial.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
                                 } finally { Files.deleteIfExists(partial.toPath()) }
                                 FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
