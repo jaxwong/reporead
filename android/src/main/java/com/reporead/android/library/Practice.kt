@@ -28,13 +28,15 @@ import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.folderOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 
 internal data class PracticeQuestion(val documentId: Long, val title: String, val path: String, val question: StudyQuestion)
 private data class PracticeSnapshot(val pages: List<PracticePage>, val questions: List<PracticeQuestion>)
 
 /** Shuffled note groups, then one question per note per round; remaining questions never disappear. */
-internal fun interleaveQuestions(questions: List<PracticeQuestion>): List<PracticeQuestion> {
-    val groups = questions.groupBy { it.documentId }.values.shuffled().map { it.shuffled() }
+internal fun interleaveQuestions(questions: List<PracticeQuestion>, seed: Int): List<PracticeQuestion> {
+    val random = Random(seed)
+    val groups = questions.groupBy { it.documentId }.values.shuffled(random).map { it.shuffled(random) }
     return (0 until (groups.maxOfOrNull { it.size } ?: 0)).flatMap { round -> groups.mapNotNull { it.getOrNull(round) } }
 }
 
@@ -54,7 +56,7 @@ internal fun practiceTopics(paths: List<String>): List<String> = paths.flatMap {
 internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
     val pages by dao.practicePages().collectAsState(null)
     var topic by rememberSaveable { mutableStateOf<String?>(null) }
-    var shuffle by remember { mutableIntStateOf(0) }
+    var shuffle by rememberSaveable { mutableIntStateOf(Random.nextInt()) }
     var extracted by remember { mutableStateOf<PracticeSnapshot?>(null) }
     LaunchedEffect(pages) {
         extracted = null
@@ -67,7 +69,7 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
         }
     }
     val questions = remember(extracted, topic, shuffle) {
-        topic?.let { folder -> extracted?.questions?.let { all -> interleaveQuestions(all.filter { inPracticeFolder(it.path, folder) }) } }
+        topic?.let { folder -> extracted?.questions?.let { all -> interleaveQuestions(all.filter { inPracticeFolder(it.path, folder) }, shuffle) } }
     }
     Column(Modifier.fillMaxSize()) {
         val snapshot = extracted
