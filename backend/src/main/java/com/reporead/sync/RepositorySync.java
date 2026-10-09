@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -87,8 +88,15 @@ public class RepositorySync {
         var contentMoves = contentMoves(user, connection, markdown);
         Instant syncedAt = Instant.now();
         var moves = transaction.execute(status -> {
-            boolean previouslySynced = connections.lockForSync(user.id(), connectionId);
-            var applied = documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt, contentMoves, previouslySynced);
+            String checkpoint = connections.lockForSync(user.id(), connectionId).commitSha();
+            // Another sync published while this one fetched; its snapshot may be newer, so this one must not replace it.
+            if (!Objects.equals(checkpoint, connection.lastSyncedCommitSha()) && !branch.commitSha().equals(checkpoint)) {
+                LOG.info("Sync superseded; connectionId={} fetched={} startedFrom={} published={}", connectionId, branch.commitSha(),
+                    connection.lastSyncedCommitSha(), checkpoint);
+                throw new ApiFailure(HttpStatus.CONFLICT, "SYNC_SUPERSEDED",
+                    "Another refresh of this repository finished first; refresh again to get the latest notes.");
+            }
+            var applied = documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt, contentMoves, checkpoint != null);
             attachments.replace(connectionId, images);
             connections.markSynced(connectionId, branch.commitSha(), syncedAt);
             return applied;

@@ -43,6 +43,8 @@ public class AccountController {
     @DeleteMapping("/api/account")
     Deleted delete(@AuthenticationPrincipal AppUser user) {
         var deleted = transaction.execute(status -> {
+            // First, so a connection being added concurrently commits before the list below, or waits and then fails.
+            sessions.lockUserForDeletion(user.id());
             int repositories = 0;
             int reading = 0;
             int bookmarks = 0;

@@ -68,14 +68,31 @@ public class RepositoryConnections {
             .query(Long.class).single();
     }
 
+    /** The commit a connection last published (null before its first sync), read under its lock. */
+    public record Checkpoint(String commitSha) {}
+
     /**
-     * Serializes syncs and disconnection of one connection; must run inside their transaction. Returns whether the
-     * connection has published a snapshot before, read under the lock. A connection disconnected meanwhile is not found.
+     * Serializes syncs and disconnection of one connection; must run inside their transaction. Returns the published
+     * checkpoint, read under the lock. A connection disconnected meanwhile is not found.
      */
-    public boolean lockForSync(long userId, long connectionId) {
-        return db.sql("select last_synced_commit_sha is not null from repository_connections where id = :id and user_id = :userId for update")
-            .param("id", connectionId).param("userId", userId).query(Boolean.class).optional()
+    public Checkpoint lockForSync(long userId, long connectionId) {
+        return db.sql("select last_synced_commit_sha from repository_connections where id = :id and user_id = :userId for update")
+            .param("id", connectionId).param("userId", userId).query((row, n) -> new Checkpoint(row.getString(1))).optional()
             .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Repository connection not found."));
+    }
+
+    /**
+     * Holds off a sync or disconnection of the connection that owns [documentId] while a write referencing the document
+     * commits; must run inside that write's transaction, before it writes. Writes share the lock, so they do not wait for
+     * each other. Without it, a row committed after a disconnect's deletes ran would break the disconnect.
+     * A document disconnected meanwhile is not found.
+     */
+    public void lockForDocumentWrite(long userId, long documentId) {
+        db.sql("""
+                select c.id from repository_connections c join documents d on d.repository_connection_id = c.id
+                where d.id = :documentId and c.user_id = :userId for share of c""")
+            .param("documentId", documentId).param("userId", userId).query(Long.class).optional()
+            .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found."));
     }
 
     /** Deletes the connection row; its documents and their reading and annotation rows must already be deleted. */

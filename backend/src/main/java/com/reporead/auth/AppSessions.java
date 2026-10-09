@@ -86,6 +86,11 @@ public class AppSessions {
     }
 
     /** Deletes the user, their sign-in codes, and every session; their other data must already be deleted. */
+    /** Locks the user's row for account deletion; must run inside that transaction, before listing what to delete. */
+    void lockUserForDeletion(long userId) {
+        db.sql("select id from users where id = :userId for update").param("userId", userId).query(Long.class).single();
+    }
+
     void deleteUser(long userId) {
         db.sql("delete from app_sign_in_codes where user_id = :userId").param("userId", userId).update();
         db.sql("delete from app_sessions where user_id = :userId").param("userId", userId).update();

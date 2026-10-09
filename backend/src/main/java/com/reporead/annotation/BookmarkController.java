@@ -3,6 +3,7 @@ package com.reporead.annotation;
 import com.reporead.ApiFailure;
 import com.reporead.auth.AppUser;
 import com.reporead.document.Documents;
+import com.reporead.repository.RepositoryConnections;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -20,10 +22,14 @@ import java.util.List;
 public class BookmarkController {
     private final Bookmarks bookmarks;
     private final Documents documents;
+    private final RepositoryConnections connections;
+    private final TransactionTemplate transaction;
 
-    public BookmarkController(Bookmarks bookmarks, Documents documents) {
+    public BookmarkController(Bookmarks bookmarks, Documents documents, RepositoryConnections connections, TransactionTemplate transaction) {
         this.bookmarks = bookmarks;
         this.documents = documents;
+        this.connections = connections;
+        this.transaction = transaction;
     }
 
     record BookmarkList(List<Bookmarks.Bookmark> bookmarks) {}
@@ -41,7 +47,10 @@ public class BookmarkController {
             throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_BOOKMARK", "sourceBlobSha must be the Git blob SHA of the version bookmarked.");
         }
         requireOwned(user, id);
-        return bookmarks.set(user.id(), id, body.sourceBlobSha());
+        return transaction.execute(status -> {
+            connections.lockForDocumentWrite(user.id(), id);
+            return bookmarks.set(user.id(), id, body.sourceBlobSha());
+        });
     }
 
     @DeleteMapping("/api/documents/{id}/bookmark")

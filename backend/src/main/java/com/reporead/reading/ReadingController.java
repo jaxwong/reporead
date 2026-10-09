@@ -3,12 +3,14 @@ package com.reporead.reading;
 import com.reporead.ApiFailure;
 import com.reporead.auth.AppUser;
 import com.reporead.document.Documents;
+import com.reporead.repository.RepositoryConnections;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
@@ -25,10 +27,14 @@ public class ReadingController {
     private static final int MAX_BLOCK_INDEX = 4_095;
     private final ReadingStates states;
     private final Documents documents;
+    private final RepositoryConnections connections;
+    private final TransactionTemplate transaction;
 
-    public ReadingController(ReadingStates states, Documents documents) {
+    public ReadingController(ReadingStates states, Documents documents, RepositoryConnections connections, TransactionTemplate transaction) {
         this.states = states;
         this.documents = documents;
+        this.connections = connections;
+        this.transaction = transaction;
     }
 
     record ReadingStateList(List<ReadingStates.State> readingStates) {}
@@ -44,7 +50,10 @@ public class ReadingController {
     ReadingStates.State save(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SaveRequest body) {
         validate(body);
         documents.find(user.id(), id).orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found."));
-        return states.save(user.id(), id, body.lastReadBlobSha(), body.progressPercent(), body.anchor(), body.lastReadAt());
+        return transaction.execute(status -> {
+            connections.lockForDocumentWrite(user.id(), id);
+            return states.save(user.id(), id, body.lastReadBlobSha(), body.progressPercent(), body.anchor(), body.lastReadAt());
+        });
     }
 
     private static void validate(SaveRequest body) {
