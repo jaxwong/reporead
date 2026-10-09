@@ -75,7 +75,7 @@ User explicitly approved real-note UI/DevTools verification and copying the data
 
 ## Remaining verification / scope
 
-- Final native rotation retest and additional real LeetCode/no-heading/topic queue checks are pending; isolated WebView cases pass. Device UI changed during the attempted retest, so that attempt is not reported as a pass.
+- The follow-up real-note checks below supersede the earlier pending topic/LeetCode/no-heading checks. Native rotation is a **confirmed remaining defect**, not a passing check.
 - Daily-use preference, airplane mode itself, and future AI/privacy/cost/authoring decisions are not verified or implemented.
 - Known npm KaTeX advisories already documented in `reader-web/README.md` were not changed; no dependency upgrades were authorized by this stage.
 
@@ -103,3 +103,32 @@ Complete
 1
 0
 ```
+
+## Follow-up phone verification (2026-10-09)
+
+The user confirmed the phone was left untouched. Temporarily reinstalled the same debug APK with `adb install -r`, preserving data; no production code changed in this follow-up.
+
+- **Topic queue: PASS.** Selected `core/backend engineering` from the topic picker. UI text reported 36/36 notes saved; a Python assertion over the approved UI dump verified every visible `.md` path starts with `core/backend engineering/`.
+- **Instruction context: PASS.** Opened the “final telemetry flushes…” item in `05-configuration-and-observability.md`. DevTools confirmed its prompt contains the leading instruction separated by blank lines, zero canonical mismatches, and Previous changed Question 17 of 17 to Question 16 of 17 (block 183).
+- **Native rotation: FAIL.** After rotating to landscape, the assertion expecting Question 16/block 183 exited **1**: actual Question 17/block 184. The queue target was correctly consumed (logs show the normal restore branch), but the persisted position remained older. Boundary logs from `adb -s 192.168.1.214:34499 logcat -d -s RepoRead:I '*:S'` (exit **0**):
+
+```text
+10:40:49.428 Reading position saved; documentId=74 percent=97 block=183 viewHeight=1942
+10:40:49.429 Reading position saved; documentId=74 percent=97 block=183 viewHeight=1942
+10:40:49.902 Reader restored; documentId=74 mode=exact savedPercent=97 savedBlock=184 viewHeight=711
+```
+
+Those “saved” logs occur before the database write. `ReaderSession.capture` launches that write in the Activity-bound `rememberCoroutineScope` passed by `RepoReadApp`; teardown cancels that scope. The write lifetime and premature success log need correction. Work stopped for user approval because this is the shared reading-position save path; no second speculative fix was applied.
+
+- **Real LeetCode: PASS.** `leetcode/1d dp/house robber.md`: ready; Problem visible; `Brute Force Approach` and `Mistakes` collapsed; zero canonical mismatches. Documented checker command (exit **0**):
+
+```sh
+node android/reader-web/check-restore.mjs "$(curl -s http://127.0.0.1:9333/json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["webSocketDebuggerUrl"])')"
+```
+
+```text
+{"blocks":34,"same":23,"sameRow":0,"collapsed":6,"endOfNote":5,"wrong":[],"approximate":[]}
+```
+
+- **No recognized headings: PASS.** Opened saved `scratch/p2/links.md`; a Python assertion over the approved UI dump confirmed the title and absence of both Study and Read toggles (exit **0**).
+- Restored original rotation settings (`accelerometer_rotation=1`, `user_rotation=0`). Release reinstall follows the same command recorded above; saved data is retained. No new notes, annotations, schema changes, or dependencies were introduced.
