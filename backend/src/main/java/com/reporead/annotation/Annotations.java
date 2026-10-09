@@ -1,6 +1,7 @@
 package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
+import com.reporead.repository.RepositoryConnections;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -27,12 +28,14 @@ public class Annotations {
     private final JdbcClient db;
     private final JsonMapper json;
     private final TransactionTemplate transaction;
+    private final RepositoryConnections connections;
 
     public record Deleted(int highlights, int bookmarks, int cards) {}
 
     /**
-     * Deletes every annotation on a connection's documents: highlights (their anchors and locations cascade) and
-     * bookmarks. Their mutation records keep only the request hash, so a late replay is answered as deleted.
+     * Deletes every annotation on a connection's documents: highlights and cards (their anchors, locations, and review
+     * logs cascade) and bookmarks. Their mutation records keep only the request hash, so a late replay is answered as
+     * deleted.
      */
     public Deleted deleteOnConnection(long connectionId) {
         var types = db.sql("""
@@ -47,10 +50,11 @@ public class Annotations {
         db.sql("delete from annotation_mutations where user_id = :userId").param("userId", userId).update();
     }
 
-    public Annotations(JdbcClient db, JsonMapper json, TransactionTemplate transaction) {
+    public Annotations(JdbcClient db, JsonMapper json, TransactionTemplate transaction, RepositoryConnections connections) {
         this.db = db;
         this.json = json;
         this.transaction = transaction;
+        this.connections = connections;
     }
 
     /**
@@ -125,10 +129,11 @@ public class Annotations {
 
     /**
      * Creates the annotation, its anchor, and the mutation record in one transaction. A concurrent request with the same
-     * mutation id waits on the primary key and then resolves as a replay.
+     * mutation id waits on the primary key and then resolves as a replay; a concurrent disconnect is waited for (404).
      */
     Created create(long userId, long documentId, UUID mutationId, byte[] requestHash, Anchor anchor, String note, String type, String question) {
         return transaction.execute(status -> {
+            connections.lockForDocumentWrite(userId, documentId);
             Instant now = Instant.now();
             int claimed = db.sql("""
                     insert into annotation_mutations (user_id, mutation_id, request_hash, created_at)
@@ -172,17 +177,19 @@ public class Annotations {
     }
 
     /**
-     * Records resolving a highlight in version [blobSha], only while it is still resolved against [expectedBlobSha], so
-     * a concurrent resolution or a reattachment wins. Empty [found] orphans it and keeps its last location. The user-edit
-     * version is unchanged: re-anchoring is not an edit. Returns whether this call applied.
+     * Records resolving a highlight in version [blobSha], only while it is still resolved against the version and at the
+     * user-edit version [annotation] was read with, so a concurrent resolution, a reattachment, or a confirmation wins.
+     * Empty [found] orphans it and keeps its last location. The user-edit version is unchanged: re-anchoring is not an
+     * edit. Returns whether this call applied.
      */
     boolean resolved(Annotation annotation, String blobSha, Optional<Anchor> found) {
         String status = found.map(location -> sameSelection(location, annotation.anchor()) ? "ANCHORED" : "REANCHORED").orElse("ORPHANED");
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             int updated = db.sql("""
                     update annotations set status = :status, resolved_blob_sha = :sha, checked_blob_sha = null
-                    where id = :id and type in ('HIGHLIGHT', 'CARD') and resolved_blob_sha = :expected""")
-                .param("status", status).param("sha", blobSha).param("id", annotation.id()).param("expected", annotation.resolvedBlobSha()).update();
+                    where id = :id and type in ('HIGHLIGHT', 'CARD') and resolved_blob_sha = :expected and version = :version""")
+                .param("status", status).param("sha", blobSha).param("id", annotation.id()).param("expected", annotation.resolvedBlobSha())
+                .param("version", annotation.version()).update();
             if (updated == 0) return false;
             found.ifPresent(location -> writeLocation(annotation.id(), location));
             return true;
@@ -222,7 +229,10 @@ public class Annotations {
                 and d.current_blob_sha = :sha and d.deleted_at is null""")
             .param("sha", blobSha).param("id", id).param("userId", userId).param("expected", expectedVersion).update();
         if (updated == 0) {
-            if (find(userId, id).filter(a -> a.type().equals("CARD")).isEmpty()) throw new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found.");
+            var card = find(userId, id).filter(a -> a.type().equals("CARD"))
+                .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found."));
+            // A stale version is another edit landing first, as for edit, delete, and reattach.
+            if (card.version() != expectedVersion) throw missingOrConflict(userId, id);
             throw new ApiFailure(HttpStatus.CONFLICT, "CARD_CHANGED", "Check this card in its current version; reattach an orphan before confirming.");
         }
         return find(userId, id).orElseThrow();

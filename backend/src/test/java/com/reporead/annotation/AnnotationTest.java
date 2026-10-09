@@ -4,6 +4,8 @@ import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.document.MarkdownRenderer;
+import com.reporead.repository.ConnectionData;
+import com.reporead.repository.RepositoryConnections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,15 +25,21 @@ import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServiceUnavailable;
@@ -68,6 +76,10 @@ class AnnotationTest {
     @Autowired AppSessions sessions;
     @Autowired JdbcClient db;
     @Autowired io.micrometer.core.instrument.MeterRegistry meters;
+    @Autowired TransactionTemplate transaction;
+    @Autowired RepositoryConnections connections;
+    @Autowired ConnectionData data;
+    @Autowired Annotations annotations;
 
     /** Sum of a counter across its tags; meters are shared by every test in the context, so tests compare deltas. */
     private double total(String name) {
@@ -504,6 +516,56 @@ class AnnotationTest {
         grade(alice, id, mutation, 4, OLD_SHA).andExpect(status().isOk());
         grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isConflict());
         assertEquals(1, count("review_log"));
+    }
+
+    @Test void aCreationRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
+        expectSource(ExpectedCount.once());
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            // Holds the connection's lock as RepositoryController.disconnect does while the creation arrives.
+            var disconnect = executor.submit(() -> transaction.execute(status -> {
+                connections.lockForSync(1, 1);
+                locked.countDown();
+                try {
+                    assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                    throw new IllegalStateException("Interrupted while holding the test disconnect", interrupted);
+                }
+                return data.delete(1);
+            }));
+            assertTrue(locked.await(10, TimeUnit.SECONDS));
+            var creating = executor.submit(() -> create(alice, note, body(UUID.randomUUID().toString(), "b2", START, EXACT, null))
+                .andReturn().getResponse().getStatus());
+            Thread.sleep(300);
+            assertFalse(creating.isDone(), "the creation must wait for the disconnect");
+            release.countDown();
+            disconnect.get(10, TimeUnit.SECONDS);
+            assertEquals(404, creating.get(10, TimeUnit.SECONDS));
+        }
+        assertEquals(0, count("annotations"));
+    }
+
+    @Test void aResolutionReadBeforeTheUsersReattachmentDoesNotOverwriteIt() throws Exception {
+        expectSource(ExpectedCount.times(2));
+        long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
+        var readByListing = annotations.find(1, id).orElseThrow();
+        // The user reattaches in the version they are reading, so the resolved version is unchanged.
+        reattach(alice, id, 1, OLD_SHA, "b2", 0, "By default").andExpect(status().isOk());
+        assertFalse(annotations.resolved(readByListing, CURRENT_SHA, Optional.empty()), "the listing's stale resolution must not apply");
+        var kept = annotations.find(1, id).orElseThrow();
+        assertEquals("REANCHORED", kept.status());
+        assertEquals("By default", kept.location().exactText());
+    }
+
+    @Test void confirmingACardWithAStaleVersionIsAnEditConflictNotAChangedCard() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long id = createdId(cardBody());
+        edit(alice, id, "an edit from another phone", 1).andExpect(status().isOk());
+        mvc.perform(post("/api/annotations/" + id + "/check").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+            .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":1,\"blobSha\":\"" + OLD_SHA + "\"}"))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ANNOTATION_CONFLICT"));
     }
 
     @Test void reviewTimesAndMissingFieldsAreValidatedAndHighlightsCannotBeGraded() throws Exception {

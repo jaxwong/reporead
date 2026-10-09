@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
@@ -18,13 +19,20 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -44,6 +52,9 @@ class DataControlTest {
     @Autowired ClientRegistrationRepository registrations;
     @Autowired AppSessions sessions;
     @Autowired JdbcClient db;
+    @Autowired TransactionTemplate transaction;
+    @Autowired RepositoryConnections connections;
+    @Autowired ConnectionData data;
     MockRestServiceServer github;
     String alice;
     String bob;
@@ -178,6 +189,73 @@ class DataControlTest {
         mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isNotFound());
         mvc.perform(get("/api/repositories").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
             .andExpect(jsonPath("$.repositories.length()").value(1)).andExpect(jsonPath("$.repositories[0].id").value(other));
+    }
+
+    /**
+     * Runs [write] while a disconnect of [notes] holds its lock, as RepositoryController.disconnect does, and returns the
+     * write's HTTP status. A write that did not wait would commit rows the disconnect's deletes no longer see.
+     */
+    private int writeDuringDisconnect(Callable<ResultActions> write) throws Exception {
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var disconnect = executor.submit(() -> transaction.execute(status -> {
+                connections.lockForSync(1, notes);
+                locked.countDown();
+                await(release);
+                return data.delete(notes);
+            }));
+            assertTrue(locked.await(10, TimeUnit.SECONDS));
+            var written = executor.submit(write);
+            Thread.sleep(300);
+            assertFalse(written.isDone(), "the write must wait for the disconnect");
+            release.countDown();
+            disconnect.get(10, TimeUnit.SECONDS);
+            return written.get(10, TimeUnit.SECONDS).andReturn().getResponse().getStatus();
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            assertTrue(latch.await(10, TimeUnit.SECONDS));
+        } catch (InterruptedException interrupted) {
+            throw new IllegalStateException("Interrupted while holding the test disconnect", interrupted);
+        }
+    }
+
+    @Test void readingAndBookmarkWritesRacingADisconnectWaitAndFindNothingInsteadOfBreakingIt() throws Exception {
+        assertEquals(404, writeDuringDisconnect(() -> mvc.perform(put("/api/documents/" + active + "/reading-state")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"lastReadBlobSha\":\"" + SHA + "\",\"progressPercent\":50,\"anchor\":{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0},"
+                + "\"lastReadAt\":\"2026-01-01T00:00:00Z\"}"))));
+        notes = connection(1, 11, "notes");
+        active = document(notes, "a.md", false);
+        assertEquals(404, writeDuringDisconnect(() -> mvc.perform(put("/api/documents/" + active + "/bookmark")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"sourceBlobSha\":\"" + SHA + "\"}"))));
+        assertEquals(0, count("select count(*) from documents where repository_connection_id = " + notes));
+    }
+
+    @Test void deletingTheAccountWaitsForAConnectionBeingAddedAndDeletesItToo() throws Exception {
+        var inserted = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var connecting = executor.submit(() -> transaction.execute(status -> {
+                long id = connection(1, 13, "new");
+                inserted.countDown();
+                await(release);
+                return id;
+            }));
+            assertTrue(inserted.await(10, TimeUnit.SECONDS));
+            var deleting = executor.submit(() -> mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andReturn().getResponse().getStatus());
+            Thread.sleep(300);
+            release.countDown();
+            connecting.get(10, TimeUnit.SECONDS);
+            assertEquals(200, deleting.get(10, TimeUnit.SECONDS));
+        }
+        assertEquals(0, count("select count(*) from repository_connections where user_id = 1"));
+        assertEquals(0, count("select count(*) from users where id = 1"));
     }
 
     @Test void anotherUsersRepositoryCannotBeInspectedOrDisconnected() throws Exception {

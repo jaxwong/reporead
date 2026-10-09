@@ -501,6 +501,27 @@ class RepositorySyncTest {
         mvc.perform(post("/api/repositories/" + connection + "/sync")).andExpect(status().isUnauthorized());
     }
 
+    @Test void aSyncThatFetchedBeforeANewerSyncPublishedDoesNotOverwriteIt() throws Exception {
+        String older = tree(false, entry("a.md", "100644", "blob", BLOB_1));
+        String newer = tree(false, entry("a.md", "100644", "blob", BLOB_2), entry("b.md", "100644", "blob", BLOB_1));
+        user.expect(ExpectedCount.once(), requestTo(BRANCH)).andRespond(withSuccess(branch(COMMIT_A, TREE_A), MediaType.APPLICATION_JSON));
+        user.expect(ExpectedCount.once(), requestTo(BRANCH)).andRespond(withSuccess(branch(COMMIT_B, TREE_B), MediaType.APPLICATION_JSON));
+        trees.expect(requestTo("https://api.github.com/repos/test-only/notes/git/trees/" + TREE_B + "?recursive=1"))
+            .andRespond(withSuccess(newer, MediaType.APPLICATION_JSON));
+        // While the first sync still fetches COMMIT_A's tree, a second sync reads COMMIT_B and publishes it.
+        trees.expect(requestTo("https://api.github.com/repos/test-only/notes/git/trees/" + TREE_A + "?recursive=1")).andRespond(request -> {
+            try {
+                sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.commitSha").value(COMMIT_B));
+            } catch (Exception failure) {
+                throw new AssertionError("The interleaved sync failed", failure);
+            }
+            return withSuccess(older, MediaType.APPLICATION_JSON).createResponse(request);
+        });
+        sync(alice, connection).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("SYNC_SUPERSEDED"));
+        assertEquals(COMMIT_B, checkpoint());
+        assertEquals(List.of("a.md", "b.md"), activePaths());
+    }
+
     @Test void concurrentSyncsOfOneConnectionDoNotDuplicateDocuments() throws Exception {
         String body = tree(false, entry("a.md", "100644", "blob", BLOB_1), entry("b.md", "100644", "blob", BLOB_2));
         user.expect(ExpectedCount.times(4), requestTo(BRANCH)).andRespond(withSuccess(branch(COMMIT_A, TREE_A), MediaType.APPLICATION_JSON));
