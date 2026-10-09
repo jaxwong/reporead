@@ -54,7 +54,9 @@ import com.reporead.android.data.ReadingRow
 import com.reporead.android.sync.Changes
 import com.reporead.android.sync.Sync
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -562,13 +564,19 @@ private class ReaderSession(
         }
         webView.evaluateJavascript("JSON.stringify(window.reporead.position())") { encoded ->
             val position = JSONObject(JSONTokener(encoded).nextValue() as String)
-            Log.i("RepoRead", "Reading position saved; documentId=${note.documentId} percent=${position.getInt("progressPercent")} " +
-                "block=${position.getJSONObject("anchor").getInt("blockIndex")} viewHeight=${webView.height}")
             val row = ReadingRow(note.documentId, note.title, note.path, note.blobSha, position.getInt("progressPercent"),
                 position.getJSONObject("anchor").toString(), System.currentTimeMillis(), pending = true)
-            scope.launch { sync.saveReading(row) }
+            val viewHeight = webView.height
+            // Teardown can cancel the UI scope before this callback. Finish this captured local write, not a network sync.
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                withContext(NonCancellable) {
+                    sync.saveReading(row)
+                    Log.i("RepoRead", "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} " +
+                        "block=${position.getJSONObject("anchor").getInt("blockIndex")} viewHeight=$viewHeight")
+                    then()
+                }
+            }
             onTopBlock(position.getJSONObject("anchor").getInt("blockIndex"))
-            then()
         }
     }
 
