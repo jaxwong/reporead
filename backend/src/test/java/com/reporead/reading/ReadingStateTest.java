@@ -4,6 +4,8 @@ import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.document.Documents;
+import com.reporead.document.MarkdownRenderer;
+import org.jsoup.Jsoup;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -136,6 +139,15 @@ class ReadingStateTest {
             save(alice, note, json).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_READING_STATE"));
         }
         assertEquals(0, db.sql("select count(*) from reading_states").query(Integer.class).single());
+    }
+
+    @Test void everyHeadingPathTheRenderedPageCarriesIsAValidReadingState() throws Exception {
+        // A paragraph directly followed by "---" is a setext heading of any length; the reader sends the page's path back.
+        String markdown = "word ".repeat(150).strip() + "\n---\n\nThe section's first paragraph.\n";
+        var rendered = MarkdownRenderer.render(markdown, MarkdownRenderer.blobSha(markdown.getBytes(StandardCharsets.UTF_8)), "notes/long.md");
+        String heading = Jsoup.parse(rendered.html()).selectFirst("[data-block-id=b1]").attr("data-heading-2");
+        String anchor = "{\"headingPath\":[\"" + heading + "\"],\"textPrefix\":\"The section\",\"blockIndex\":1}";
+        save(alice, note, body(SHA_A, 10, Instant.now(), anchor)).andExpect(status().isOk());
     }
 
     @Test void readingStateIsPrivateToItsUser() throws Exception {

@@ -157,7 +157,8 @@ public class GitHubApi {
 
     /** Raw blob bytes, bounded by the shared 1 MiB response ceiling, which equals the reader's note limit. */
     public byte[] blob(String token, String owner, String name, String sha) {
-        var tooLarge = new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", "This note exceeds the 1 MiB reader limit.");
+        var tooLarge = new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT",
+            "This note exceeds the " + com.reporead.document.MarkdownRenderer.MAX_NOTE_MIB + " MiB reader limit.");
         byte[] bytes;
         try {
             bytes = get(githubUserApi, uri("/repos/{owner}/{name}/git/blobs/{sha}", owner, name, sha), token, RAW,

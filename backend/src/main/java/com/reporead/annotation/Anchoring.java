@@ -276,17 +276,11 @@ final class Anchoring {
     /** Context windows never end inside a surrogate pair: half a character is stored as '?' and never matches again. */
     private static String prefix(String text, int start) {
         int from = Math.max(0, start - CONTEXT_CHARS);
-        return text.substring(splitsCharacter(text, from) ? from + 1 : from, start);
+        return text.substring(MarkdownRenderer.splitsCharacter(text, from) ? from + 1 : from, start);
     }
 
     private static String suffix(String text, int end) {
         int to = Math.min(text.length(), end + CONTEXT_CHARS);
-        return text.substring(end, splitsCharacter(text, to) ? to - 1 : to);
-    }
-
-    /** Whether a UTF-16 index falls between the two halves of a surrogate pair. */
-    static boolean splitsCharacter(String text, int index) {
-        return index > 0 && index < text.length() && Character.isHighSurrogate(text.charAt(index - 1))
-            && Character.isLowSurrogate(text.charAt(index));
+        return text.substring(end, MarkdownRenderer.splitsCharacter(text, to) ? to - 1 : to);
     }
 }

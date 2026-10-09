@@ -52,6 +52,19 @@ class MarkdownRendererTest {
         assertEquals(java.util.List.of("a", "", "b"), MarkdownRenderer.sourceLines("a\n\rb\n"));
     }
 
+    @Test void aLongHeadingKeepsItsTextButItsPathIsCappedWithoutSplittingACharacter() {
+        // A paragraph directly followed by "---" is a setext heading of any length.
+        String heading = "😀" + "x".repeat(MarkdownRenderer.MAX_HEADING_CHARS);
+        var result = render(heading + "\n---\n\nBody.\n");
+        assertEquals(heading, result.blocks().get(0).text(), "canonical text is unchanged");
+        String path = result.blocks().get(1).headingPath().getFirst();
+        assertTrue(path.length() <= MarkdownRenderer.MAX_HEADING_CHARS, "length " + path.length());
+        assertTrue(path.endsWith("…"));
+        assertTrue(heading.startsWith(path.substring(0, path.length() - 1)));
+        assertEquals(path, new String(path.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
+        assertEquals(path, Jsoup.parse(result.html()).selectFirst("[data-block-id=b1]").attr("data-heading-2"));
+    }
+
     @Test void obsidianLinksBecomeNoteLinksWithoutChangingCanonicalText() {
         String source = "See [[stack]], [[queues|the queue note]], [[stack#Push#Pop]], [[#Local]] and [[fifo#^block1]]. Code `[[not]]`.\n\n"
             + "```\n[[not a link]]\n```\n";

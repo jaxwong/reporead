@@ -30,10 +30,10 @@ import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * Highlights with optional notes. External-call ceilings: create and reattach 1 GitHub request (the selected version's
- * blob, to verify the anchor), or 0 when replaying a known mutation id; list 0 when every highlight is resolved against
- * the note's current version, else 1 (the current version) plus 1 per older version holding a pre-Stage-4 location;
- * edit and delete 0. Source Markdown is never written.
+ * Highlights and cards with optional notes. External-call ceilings: create and reattach 1 GitHub request (the selected
+ * version's blob, to verify the anchor), or 0 when replaying a known mutation id; list 0 when every highlight is resolved
+ * against the note's current version, else 1 (the current version) plus 1 per older version holding a pre-Stage-4
+ * location; edit, delete, and card confirmation 0. Source Markdown is never written.
  */
 @RestController
 public class AnnotationController {
@@ -46,15 +46,18 @@ public class AnnotationController {
     private final Annotations annotations;
     private final Documents documents;
     private final NoteVersions noteVersions;
-    private final JsonMapper json;
     private final MeterRegistry meters;
+    /**
+     * Serializes mutation fingerprints. Its own mapper, not the application's: a change to the shared JSON settings
+     * would change every hash, and offline replays of already-recorded mutations would then be refused as reused.
+     */
+    private static final JsonMapper FINGERPRINT_JSON = JsonMapper.builder().build();
 
-    public AnnotationController(Annotations annotations, Documents documents, NoteVersions noteVersions, JsonMapper json, MeterRegistry meters) {
+    public AnnotationController(Annotations annotations, Documents documents, NoteVersions noteVersions, MeterRegistry meters) {
         this.meters = meters;
         this.annotations = annotations;
         this.documents = documents;
         this.noteVersions = noteVersions;
-        this.json = json;
     }
 
     record AnnotationList(List<Annotations.Annotation> annotations) {}
@@ -114,8 +117,14 @@ public class AnnotationController {
     record Selection(String sourceBlobSha, String blockId, Integer startOffset, Integer endOffset, String exactText) {}
     record CreateRequest(String mutationId, Selection anchor, String note, String type, String question) {}
     /** The content a mutation id is bound to. */
-    private record Fingerprint(long documentId, Selection anchor, String note) {}
-    private record CardFingerprint(long documentId, Selection anchor, String note, String type, String question) {}
+    record Fingerprint(long documentId, Selection anchor, String note) {}
+    record CardFingerprint(long documentId, Selection anchor, String note, String type, String question) {}
+
+    /** SHA-256 of the request content a mutation id is bound to; highlights keep their pre-P4 fingerprint shape. */
+    static byte[] fingerprint(long documentId, Selection anchor, String note, String type, String question) {
+        return sha256(FINGERPRINT_JSON.writeValueAsBytes(type.equals("CARD")
+            ? new CardFingerprint(documentId, anchor, note, type, question) : new Fingerprint(documentId, anchor, note)));
+    }
 
     @PostMapping("/api/documents/{id}/annotations")
     ResponseEntity<Annotations.Annotation> create(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CreateRequest body) {
@@ -126,11 +135,11 @@ public class AnnotationController {
             || (type.equals("CARD") ? body.question() == null || body.question().isBlank() || !validNote(body.question()) : body.question() != null)
             || !validSelection(selection) || !validNote(body.note())) {
             throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION",
-                "An annotation needs a source blob SHA, a block id, a non-empty UTF-16 range matching exactText (at most 10000 characters), an optional note of at most 10000 characters, and a non-blank question for type CARD.");
+                "An annotation needs a source blob SHA, a block id, a non-empty UTF-16 range matching exactText (at most " + MAX_TEXT_CHARS
+                    + " characters), an optional note of at most " + MAX_TEXT_CHARS + " characters, and a non-blank question for type CARD.");
         }
         var document = documents.find(user.id(), id).orElseThrow(AnnotationController::notFound);
-        // Preserve existing highlight mutation hashes, including replays of pre-P4 offline creations.
-        byte[] hash = sha256(json.writeValueAsBytes(type.equals("CARD") ? new CardFingerprint(id, selection, body.note(), type, body.question()) : new Fingerprint(id, selection, body.note())));
+        byte[] hash = fingerprint(id, selection, body.note(), type, body.question());
         var replayed = annotations.replay(user.id(), mutationId, hash);
         if (replayed.isPresent()) {
             LOG.info("Annotation creation replayed; userId={} annotationId={}", user.id(), replayed.get().id());
@@ -151,7 +160,8 @@ public class AnnotationController {
     Annotations.Annotation reattach(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody ReattachRequest body) {
         if (body.expectedVersion() == null || body.expectedVersion() < 1 || !validSelection(body.anchor())) {
             throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION",
-                "A reattachment needs expectedVersion and a selection: source blob SHA, block id, and a non-empty UTF-16 range matching exactText (at most 10000 characters).");
+                "A reattachment needs expectedVersion and a selection: source blob SHA, block id, and a non-empty UTF-16 range matching exactText (at most "
+                    + MAX_TEXT_CHARS + " characters).");
         }
         var annotation = annotations.find(user.id(), id).orElseThrow(AnnotationController::notFound);
         var document = documents.find(user.id(), annotation.documentId()).orElseThrow(() -> new IllegalStateException(
@@ -180,7 +190,7 @@ public class AnnotationController {
     @PatchMapping("/api/annotations/{id}")
     Annotations.Annotation edit(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody EditRequest body) {
         if (body.expectedVersion() == null || body.expectedVersion() < 1 || !validNote(body.note())) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION", "An edit needs expectedVersion and a note of at most 10000 characters (or null).");
+            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION", "An edit needs expectedVersion and a note of at most " + MAX_TEXT_CHARS + " characters (or null).");
         }
         return annotations.updateNote(user.id(), id, body.expectedVersion(), body.note());
     }
