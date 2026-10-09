@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,7 +59,7 @@ private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<S
 @Composable
 internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, displayedBlobSha: String, notShown: Set<String>, sync: Sync,
                         dao: LibraryDao, scope: CoroutineScope, onFailure: (ApiException) -> Unit, onReveal: (AnnotationRow) -> Unit,
-                        onMessage: (String?) -> Unit, onReattach: (AnnotationRow) -> Unit, onOpenNote: (DocumentRow) -> Unit, modifier: Modifier) {
+                        onMessage: (String?) -> Unit, onMakeQuestion: (AnnotationRow) -> Unit, onReattach: (AnnotationRow) -> Unit, onOpenNote: (DocumentRow) -> Unit, modifier: Modifier) {
     var editing by remember { mutableStateOf<AnnotationRow?>(null) }
     var conflict by remember { mutableStateOf<Conflict?>(null) }
     // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
@@ -104,12 +105,30 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
         LazyColumn {
             items(annotations, key = { it.mutationId }) { row ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text("“${row.exactText}”", style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text("“${if (row.type == "CARD") row.drawn.exactText else row.exactText}”", style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+                    if (row.type == "CARD" && row.checkedBlobSha != displayedBlobSha) Text("Check this card", style = MaterialTheme.typography.labelLarge)
                     row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
                     status(row, displayedBlobSha, notShown)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    val shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown
                     Row {
-                        val shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown
                         if (shown) TextButton(onClick = { onReveal(row) }) { Text("Show") }
+                        if (shown && row.type == "HIGHLIGHT") TextButton(onClick = { onMakeQuestion(row) }) { Text("Make a question") }
+                        if (shown && row.type == "CARD" && row.status != "ORPHANED" && row.serverId != null && row.checkedBlobSha != displayedBlobSha) {
+                            TextButton(onClick = {
+                                scope.launch {
+                                    try {
+                                        sync.checkCard(row, displayedBlobSha)
+                                        onMessage("Card confirmed for this version.")
+                                    } catch (error: ApiException) {
+                                        onFailure(error)
+                                        onMessage("Card not confirmed. ${error.describe()}")
+                                    }
+                                }
+                            }) { Text("Answer is correct") }
+                        }
+                    }
+                    Row {
                         // Online: the server verifies the new selection against the version it was made on.
                         if (row.serverId != null && !shown) TextButton(onClick = { onReattach(row) }) { Text("Reattach") }
                         if (row.serverId != null) TextButton(onClick = { editing = row }) { Text("Edit note") }
@@ -171,18 +190,18 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
 }
 
 @Composable
-internal fun NoteDialog(title: String, quote: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var text by remember { mutableStateOf(initial) }
+internal fun NoteDialog(title: String, quote: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit, label: String = "Note", allowBlank: Boolean = true) {
+    var text by rememberSaveable(title, quote, initial) { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
                 Text("“$quote”", maxLines = 4, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(text, { if (it.length <= 10_000) text = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text("Note") })
+                OutlinedTextField(text, { if (it.length <= 10_000) text = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(label) })
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(text) }) { Text("Save") } },
+        confirmButton = { TextButton(enabled = allowBlank || text.isNotBlank(), onClick = { onSave(text) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

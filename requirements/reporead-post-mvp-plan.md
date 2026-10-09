@@ -193,6 +193,8 @@ P3 stores no scores and no schedule; spacing is P4.
 
 ## P4 — Spaced review of chosen passages, and the highlights notebook
 
+Approved 2026-10-09: new CARD annotation plus backend/Room migrations, SM-2 without a new dependency, and deletion of cards/logs on disconnect/account deletion. P3 prompts require a user-selected answer passage; no automatic mapping. Implementation and verification: [P4 record](reporead-p4-record.md). The two-week real-review exit gate remains pending.
+
 **Goal:** schedule review of what the developer chooses to remember, and survive note edits as highlights already do.
 
 ### Build

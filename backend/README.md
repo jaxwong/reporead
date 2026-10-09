@@ -62,8 +62,11 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
 | `GET /api/bookmarks` | 0 | Document bookmarks, each with `deleted` when the note left the repository (the bookmark is kept) |
 | `PUT` / `DELETE /api/documents/{id}/bookmark` | 0 | `PUT {sourceBlobSha}`; both idempotent |
-| `GET /api/documents/{id}/annotations` | 0 when every highlight is resolved against the current version; else 1 (that version) plus 1 per older version holding a pre-Stage-4 location | This user's highlights: original `anchor`, current `location`, `status` (`ANCHORED`, `REANCHORED`, `ORPHANED`) for `resolvedBlobSha`, and the creating `mutationId` |
-| `POST /api/documents/{id}/annotations` | 1 (the selected version's blob); 0 on replay | `{mutationId, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}, note?}`; 201 created, 200 replay |
+| `GET /api/documents/{id}/annotations` | 0 when every highlight is resolved against the current version; else 1 (that version) plus 1 per older version holding a pre-Stage-4 location | This user's highlights and cards: original `anchor`, current `location`, `status` (`ANCHORED`, `REANCHORED`, `ORPHANED`) for `resolvedBlobSha`, and the creating `mutationId` |
+| `POST /api/documents/{id}/annotations` | 1 (the selected version's blob); 0 on replay | `{mutationId, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}, note?, type?, question?}`; 201 created, 200 replay |
+| `GET /api/notebook` | 0 | Complete highlight/card projection and durable review log; `sessionLimit` is server-owned (40) |
+| `POST /api/annotations/{id}/reviews` | 0 | `{mutationId, grade:0..5, reviewedAt, blobSha}`; idempotent, changed/unconfirmed answers rejected |
+| `POST /api/annotations/{id}/check` | 0 | `{expectedVersion, blobSha}`; explicitly confirms a resolved, non-orphaned card in the current version |
 | `PATCH /api/annotations/{id}` | 0 | `{note, expectedVersion}`; 409 `ANNOTATION_CONFLICT` if another edit landed first |
 | `DELETE /api/annotations/{id}?expectedVersion=` | 0 | 409 on a stale version |
 | `POST /api/annotations/{id}/reattach` | 1 (the selected version's blob) | `{expectedVersion, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}}`; places the highlight on the user's selection, `REANCHORED`; 409 on a stale version |
@@ -83,7 +86,7 @@ Logs name ids, SHAs, counts, outcomes, and repository paths; never tokens, autho
 | `reporead.github.requests` | `outcome`: `2xx`/`3xx`/`4xx`/`5xx`, `too_large`, `failed` | Every GitHub HTTP request, including sign-in |
 | `reporead.github.syncs` | `outcome`: `success`/`failure`; `code`: the failure code or `NONE` | Repository syncs (the spec's sync total and sync failures) |
 | `reporead.documents.synced` | — | Documents in each successful sync |
-| `reporead.annotations.created` | — | New highlights (replays are not counted) |
+| `reporead.annotations.created` | — | New anchored annotations (highlights/cards; replays are not counted) |
 | `reporead.annotation.reanchor` | `outcome`: `BLOCK`/`POSITION`/`QUOTE`/`FUZZY`/`ORPHANED` | Applied re-anchoring decisions (the spec's orphaned total is `outcome=ORPHANED`) |
 | `reporead.annotation.reanchor.duration` | — | Time per resolution (timer) |
 
@@ -103,7 +106,8 @@ Meters appear after their first use. They are in memory and reset when the serve
 | Markdown documents per repository | 5,000 | 422 `DOCUMENT_LIMIT` |
 | Note render | 1 MiB UTF-8, 4,096 blocks, 16 diagrams of 20,000 UTF-16 units, 200 Mermaid edges | 422 `UNSUPPORTED_CONTENT` |
 | Repository images | 64 per note; 5 MiB each | Extra images render as `[Image limit reached]`; larger images 422 `UNSUPPORTED_CONTENT` |
-| Annotation | selection and note at most 10,000 UTF-16 units each; one block per selection | 400 `INVALID_ANNOTATION` |
+| Annotation | selection, note, and card question at most 10,000 UTF-16 units each; one block per selection | 400 `INVALID_ANNOTATION` |
+| Review | grades 0–5; client UUID; millisecond timestamp from 1970 through 5 minutes ahead; session ceiling 40 | 400 `INVALID_REVIEW`; changed answers 409 `CARD_CHANGED` |
 | Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
 | Changes comparison | 20,000 lines per version; 1,000 inserted plus deleted lines | `TOO_LARGE` status, no sections |
 
@@ -146,6 +150,16 @@ Creation is idempotent per client `mutationId` (a UUID): the first request recor
 **Re-anchoring.** The original anchor never changes. Each highlight also has a current `location` (where it was made, re-anchored, or reattached) and a `status` for `resolvedBlobSha`. Listing a document's highlights resolves any that were resolved against an older version, using `Anchoring`: the location's block unchanged anywhere, then unchanged position, then the exact quote singled out by context and heading, then a bounded fuzzy match. Anything weaker is `ORPHANED`, keeping its last location so the next version is resolved from there; the user can reattach it. Re-anchoring does not change the user-edit `version`. Thresholds and their measurement on a real notes repository are in the [Stage 4 record](../requirements/reporead-stage4-record.md). A deleted document's highlights are listed as last resolved, without GitHub calls.
 
 The server does not yet check that `sourceBlobSha` is a version of this particular document, only that it is a blob in the document's repository that renders to the selected text.
+
+### Review cards (P4)
+
+`CARD` is an anchored annotation with a required, non-blank `question` (10,000 UTF-16 units maximum); `HIGHLIGHT` remains the default when `type` is omitted. Existing highlight creation fingerprints are unchanged so old mutation ids still replay. Cards use the same verification, original anchor, current location, optimistic edit/delete, and orphan/reattach path as highlights. V7 adds the type, question, `checked_blob_sha`, and `review_log`; no source Markdown is changed and no note bodies are retained.
+
+`GET /api/notebook` returns a complete, repeatable database snapshot of this user's anchored annotations (including title/path/current SHA/deletion metadata), review log and `sessionLimit=40`. It does **not** fetch versions or re-anchor: opening a note uses the existing annotation listing to resolve it. A card whose checked answer SHA differs from the current document SHA cannot be graded, even before re-anchoring has run. Any re-anchoring or reattachment clears confirmation. `POST .../check` confirms only a non-orphaned location resolved against the current, non-deleted document and increments the optimistic version. Conservatively, **every note-version change requires checking its cards**, including edits outside their answer section; this also covers changed-section uncertainty without fetching extra versions. Confirmation preserves review history.
+
+`POST .../reviews` persists one immutable grade, timestamp and verified SHA per user/client UUID. Repeating an identical mutation returns the same log entry; different content is 409 `MUTATION_ID_REUSED`. A committed replay still succeeds after the note changes; a new stale grade rolls back with 409 `CARD_CHANGED`. Grades serialize with repository refresh/disconnect via the existing connection lock, then with annotation changes. Deleting a card cascades its review log; a late submission is 404 and cannot recreate a deleted card. Disconnect counts cards and deletes them/logs; account deletion also removes mutation records. These routes have **no alternate strategy or retry** on failure.
+
+The server stores no due dates, scores derived from history, or scheduling state. The phone alone computes SM-2 intervals/ease from the log, retaining pending grades until acknowledgement. Logs use millisecond timestamps so PostgreSQL timestamp precision cannot change an idempotent replay's content. The bounded phone session reviews each chosen card once; grades below 3 restart its interval at one day rather than adding unbounded same-day repeats. No AI, FSRS dependency, or background sync is included.
 
 ## Verify
 

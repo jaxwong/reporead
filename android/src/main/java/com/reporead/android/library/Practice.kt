@@ -103,8 +103,13 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
             ready.isEmpty() -> EmptyState("No question items in this folder's saved notes. Practice uses Questions this file answers and Review and practice.")
             else -> LazyColumn {
                 items(ready, key = { "${it.documentId}:${it.question.blockId}" }) { question ->
-                    EntryRow(question.question.text, question.path, R.drawable.ic_notes) {
-                        push(Screen.Reader(question.documentId, question.title, question = StudyTarget(question.blobSha, question.question.blockId)))
+                    Column {
+                        EntryRow(question.question.text, question.path, R.drawable.ic_notes) {
+                            push(Screen.Reader(question.documentId, question.title, question = StudyTarget(question.blobSha, question.question.blockId)))
+                        }
+                        TextButton(onClick = { push(Screen.Reader(question.documentId, question.title, reviewPrompt = question.question.prompt)) }) {
+                            Text("Add to review")
+                        }
                     }
                 }
             }

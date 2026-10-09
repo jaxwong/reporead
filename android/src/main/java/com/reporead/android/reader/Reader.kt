@@ -120,6 +120,10 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var restoreNotice by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var notesOpen by remember { mutableStateOf(false) }
+    var answerPrompt by rememberSaveable(screen.documentId) { mutableStateOf(screen.reviewPrompt) }
+    var newCardSelection by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
+    var newCardPrompt by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
+    var annotationOpened by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var newSelection by remember { mutableStateOf<JSONObject?>(null) }
     var notShown by remember { mutableStateOf(emptySet<String>()) }
     /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here. */
@@ -158,6 +162,21 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             } catch (error: ApiException) {
                 onFailure(error)
                 "Highlight saved on this phone; it will sync later. ${error.describe()}"
+            }
+        }
+    }
+
+    val makeCard: (JSONObject, String) -> Unit = { selection, question ->
+        appScope.launch {
+            withContext(NonCancellable) { sync.createAnnotation(selection, screen.documentId, null, question) }
+            answerPrompt = null
+            message = "Card saved on this phone; waiting for Library sync."
+            if (signedIn) {
+                try { sync.pushAnnotations() }
+                catch (error: ApiException) {
+                    onFailure(error)
+                    message = "Card saved on this phone; it will sync later. ${error.describe()}"
+                }
             }
         }
     }
@@ -208,6 +227,25 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
             if (since != null && since != opened.note.blobSha && !signedIn) Notice("This note changed since you last read it. Sign in to see what changed.")
+            answerPrompt?.let { prompt ->
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Question: $prompt\nSelect its answer passage, then choose Use as answer.",
+                        modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { answerPrompt = null }) { Text("Cancel") }
+                }
+            }
+            if (studying && page.study.questions.isNotEmpty()) {
+                TextButton(onClick = {
+                    sessionRef?.currentQuestion { blockId ->
+                        val prompt = page.study.questions.firstOrNull { it.blockId == blockId }?.prompt
+                        if (prompt != null) {
+                            answerPrompt = prompt
+                            studying = false
+                            sessionRef?.setStudy(false)
+                        } else message = "Choose a question from Practice to add it to review."
+                    }
+                }) { Text("Add question to review") }
+            }
             reattaching?.let { row ->
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Select the passage for “${row.exactText}”, then choose Reattach here.", style = MaterialTheme.typography.bodySmall,
@@ -218,7 +256,9 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             val lifecycle = LocalLifecycleOwner.current.lifecycle
             val session = remember(opened.note) {
                 ReaderSession(opened.note, sync, dao, appScope, openAtHeading = screen.heading,
-                    study = page.study, studying = { studying }, openAtQuestion = screen.question.takeUnless { questionOpened },
+                    study = page.study, studying = { studying },
+                    openAtAnnotation = screen.annotation.takeUnless { annotationOpened },
+                    onAnnotationOpened = { annotationOpened = true; notesOpen = true }, openAtQuestion = screen.question.takeUnless { questionOpened },
                     onQuestionOpened = { questionOpened = true },
                     onQuestionMissing = { studying = false },
                     onRestoreNotice = { restoreNotice = it },
@@ -248,12 +288,21 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                     onTopBlock = { topBlock = it },
                     onBarsShown = { barsShown = it },
                     reattaching = { reattaching != null },
+                    selectingAnswer = { answerPrompt != null },
                     onSelection = { selection, action ->
                         val placing = reattaching
                         when {
                             selection == null -> message = "Select some text first."
                             selection.has("error") -> message = selection.getString("error")
                             action == SelectionAction.REATTACH && placing != null -> reattach(placing, selection)
+                            action == SelectionAction.ANSWER -> {
+                                newCardSelection = selection.toString()
+                                newCardPrompt = checkNotNull(answerPrompt)
+                            }
+                            action == SelectionAction.MAKE_QUESTION -> {
+                                newCardSelection = selection.toString()
+                                newCardPrompt = null
+                            }
                             action == SelectionAction.ADD_NOTE -> newSelection = selection
                             else -> create(selection, null)
                         }
@@ -284,6 +333,12 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             if (notesOpen) {
                 NotesPanel(opened.note.documentId, annotations, opened.note.blobSha, notShown, sync, dao, appScope, onFailure,
                     onReveal = { session.reveal(it.mutationId) }, onMessage = { message = it },
+                    onMakeQuestion = { row ->
+                        val passage = row.drawn
+                        newCardSelection = JSONObject().put("sourceBlobSha", passage.blobSha).put("blockId", passage.blockId)
+                            .put("startOffset", passage.startOffset).put("endOffset", passage.endOffset).put("exactText", passage.exactText).toString()
+                        newCardPrompt = null
+                    },
                     onReattach = { row ->
                         reattaching = row
                         notesOpen = false
@@ -323,6 +378,14 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             confirmButton = {},
             dismissButton = { TextButton(onClick = { linkChoices = null }) { Text("Cancel") } },
         )
+    }
+    newCardSelection?.let { encoded ->
+        val selection = JSONObject(encoded)
+        NoteDialog(title = "Make a question", quote = selection.getString("exactText"), initial = newCardPrompt.orEmpty(),
+            label = "Question", allowBlank = false, onDismiss = { newCardSelection = null }, onSave = { question ->
+                newCardSelection = null
+                makeCard(selection, question)
+            })
     }
     newSelection?.let { selection ->
         NoteDialog(title = "Add a note", quote = selection.getString("exactText"), initial = "",
@@ -368,6 +431,8 @@ private class ReaderSession(
     private val openAtHeading: String?,
     private val study: StudyNote,
     private val studying: () -> Boolean,
+    private var openAtAnnotation: String?,
+    private val onAnnotationOpened: () -> Unit,
     private val openAtQuestion: StudyTarget?,
     private val onQuestionOpened: () -> Unit,
     private val onQuestionMissing: () -> Unit,
@@ -385,6 +450,7 @@ private class ReaderSession(
     private val onBarsShown: (Boolean) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
+    private val selectingAnswer: () -> Boolean,
     /** The captured selection (null when empty, {error} when it spans blocks) and the chosen action. */
     private val onSelection: (JSONObject?, SelectionAction) -> Unit,
 ) {
@@ -412,7 +478,7 @@ private class ReaderSession(
 
     fun createView(context: Context): WebView {
         val assets = readerAssets(context)
-        return ReaderWebView(context, reattaching) { action, finish ->
+        return ReaderWebView(context, reattaching, selectingAnswer) { action, finish ->
             captureSelection { selection ->
                 finish()
                 onSelection(selection, action)
@@ -556,6 +622,7 @@ private class ReaderSession(
 
     /** Saves the current position for the version on screen, then runs [then]. */
     fun capture(then: () -> Unit = {}) {
+        jumpToAnnotation()
         main.removeCallbacks(saveAfterScroll)
         val webView = view
         if (webView == null || !restored) {
@@ -612,6 +679,7 @@ private class ReaderSession(
         webView.evaluateJavascript("JSON.stringify(window.reporead.highlight($payload))") { encoded ->
             val missing = JSONArray(JSONTokener(encoded).nextValue() as String)
             onNotShown(List(missing.length()) { missing.getString(it) }.toSet())
+            jumpToAnnotation()
         }
     }
 
@@ -646,6 +714,23 @@ private class ReaderSession(
         if (!ready) return
         touched = false
         webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})", null)
+    }
+
+    private fun jumpToAnnotation() {
+        val key = openAtAnnotation ?: return
+        val webView = view ?: return
+        if (!ready || !restored || highlights.none { it.mutationId == key }) return
+        openAtAnnotation = null
+        webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})") { onAnnotationOpened() }
+    }
+
+    fun currentQuestion(then: (String?) -> Unit) {
+        val webView = view
+        if (webView == null || !ready) { then(null); return }
+        webView.evaluateJavascript("window.reporead.currentStudyQuestion()") { encoded ->
+            val blockId = JSONTokener(encoded).nextValue() as? String
+            then(blockId)
+        }
     }
 
     fun setStudy(enabled: Boolean) {

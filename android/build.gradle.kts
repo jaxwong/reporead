@@ -61,6 +61,9 @@ android {
         buildConfig = true
     }
 
+    // Migration tests construct the exact previously shipped schema; these assets are test-only.
+    sourceSets.getByName("androidTest").assets.directories.add(file("schemas").absolutePath)
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

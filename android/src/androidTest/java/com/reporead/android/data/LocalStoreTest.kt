@@ -212,4 +212,40 @@ class LocalStoreTest {
         connection.requestMethod = "PATCH"
         assertEquals("PATCH", connection.requestMethod)
     }
+
+    @Test fun gradesSurviveNotebookRefreshAndAcknowledgementAndOnlyCurrentAnswersCanBeGraded() = runBlocking {
+        val sha = "a".repeat(40)
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
+        dao.saveNote(NoteRow(1, sha, sha, "a.md", "a", "<html/>", 0))
+        val card = annotation("card", null, null, true).copy(type = "CARD", question = "Why?", checkedBlobSha = sha)
+        dao.saveAnnotation(card)
+        val grades = (1..10).map { ReviewRow("g$it", "card", 4, it.toLong(), sha, true) }
+        grades.forEach { assertTrue(dao.recordReview(it)) }
+        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, pending = false)), emptyList(), 40)
+        assertEquals(10, dao.pendingReviews().size)
+        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, pending = false)), grades.map { it.copy(pending = false) }, 40)
+        assertTrue(dao.pendingReviews().isEmpty())
+        assertEquals(10, dao.reviews().first().size)
+        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, pending = false)), grades.map { it.copy(pending = false) }, 40)
+        assertEquals(10, dao.reviews().first().size)
+        dao.saveAnnotation(card.copy(checkedBlobSha = null))
+        assertEquals(false, dao.recordReview(grades[0].copy(mutationId = "stale")))
+        dao.replaceRemoteNotebook(emptyList(), emptyList(), 40)
+        // Pending offline creations stay; acknowledged deletions remove associated logs.
+        assertTrue(dao.annotation("card")!!.pending)
+        dao.removeAnnotation("card")
+        assertTrue(dao.reviews().first().isEmpty())
+    }
+
+    @Test fun disconnectRemovesCardsAndPendingGradesButKeepsOtherRepositories() = runBlocking {
+        for (id in listOf(1L, 2L)) {
+            dao.saveAnnotation(annotation("card$id", id, null, false).copy(documentId = id, type = "CARD", question = "Why?"))
+            dao.saveReview(ReviewRow("grade$id", "card$id", 4, id, "a".repeat(40), true))
+        }
+        dao.forgetRepository(7, listOf(1L))
+        assertNull(dao.annotation("card1"))
+        assertEquals(listOf("grade2"), dao.pendingReviews().map { it.mutationId })
+        dao.replaceRemoteAnnotations(2, emptyList())
+        assertTrue(dao.reviews().first().isEmpty())
+    }
 }

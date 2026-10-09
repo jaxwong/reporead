@@ -2,6 +2,10 @@ package com.reporead.android.reader
 
 import android.view.View
 import android.view.ViewGroup
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
+import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
@@ -113,6 +117,63 @@ class ReaderLifecycleTest {
         scenario.recreate()
         awaitReader(12, recall = false)
         awaitSaved(12)
+    }
+
+    @Test fun addingAP3QuestionRequiresASelectedAnswerAndSurvivesRecreationBeforeSaving() = runBlocking {
+        clickText("Add question to review")
+        val selected = evaluate("""
+            const block = document.querySelector('[data-block-id="b12"]');
+            window.reporead.showBlock('b12');
+            const range = document.createRange(); range.setStart(block.firstChild, 0); range.setEnd(block.firstChild, 23);
+            getSelection().removeAllRanges(); getSelection().addRange(range);
+            return window.reporead.capture();
+        """.trimIndent())
+        scenario.onActivity { activity ->
+            val view = checkNotNull(findWebView(activity.window.decorView))
+            val mode = checkNotNull(view.startActionMode(object : ActionMode.Callback {
+                override fun onCreateActionMode(mode: ActionMode, menu: Menu) = true
+                override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = true
+                override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
+                override fun onDestroyActionMode(mode: ActionMode) = Unit
+            }, ActionMode.TYPE_FLOATING))
+            assertEquals("Use as answer", mode.menu.findItem(SelectionAction.ANSWER.id).title.toString())
+            assertTrue(mode.menu.performIdentifierAction(SelectionAction.ANSWER.id, 0))
+        }
+        awaitText("Make a question")
+        scenario.recreate()
+        awaitText("Make a question")
+        awaitText("An identical question?")
+        clickText("Save")
+        withTimeout(5_000) { while (store.library().pendingAnnotations().isEmpty()) delay(20) }
+        val card = store.library().pendingAnnotations().single()
+        assertEquals("CARD", card.type)
+        assertEquals("An identical question?", card.question)
+        assertEquals(selected.getString("exactText"), card.exactText)
+        assertEquals("b12", card.blockId)
+        assertEquals(sha, card.checkedBlobSha)
+    }
+
+    private fun findText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
+        if (node.text?.toString() == text) return node
+        for (i in 0 until node.childCount) node.getChild(i)?.let { findText(it, text)?.let { found -> return found } }
+        return null
+    }
+
+    private fun awaitText(text: String): AccessibilityNodeInfo = runBlocking {
+        withTimeout(5_000) {
+            while (true) {
+                instrumentation.uiAutomation.rootInActiveWindow?.let { root -> findText(root, text)?.let { return@withTimeout it } }
+                delay(50)
+            }
+            error("Unreachable")
+        }
+    }
+
+    private fun clickText(text: String) {
+        var node = awaitText(text)
+        while (!node.isClickable) node = checkNotNull(node.parent) { "No clickable parent for $text" }
+        assertTrue("Could not click $text", node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        instrumentation.waitForIdleSync()
     }
 
     private fun awaitSaved(block: Int) = runBlocking {

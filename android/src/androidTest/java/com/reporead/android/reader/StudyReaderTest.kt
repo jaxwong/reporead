@@ -122,9 +122,11 @@ class StudyReaderTest {
             check(document.querySelector('.study-question').textContent === 'Second question?', 'Restored question');
             document.querySelector('.study-answer').click();
             check(getComputedStyle(document.getElementById('note')).display !== 'none', 'Read the answer shows note');
+            check(api.currentStudyQuestion() === 'b11', 'Add to review keeps the authored question after revealing');
             const sha = 'a'.repeat(40);
             check(api.studyQuestion(sha, 'b10'), 'Queue question opens');
             check(api.studyQuestion(sha, 'b44'), 'Duplicate prompt opens by its own block');
+            check(api.currentStudyQuestion() === 'b44', 'Duplicate questions retain distinct review identities');
             check(api.position().anchor.blockIndex === [...document.querySelectorAll('#note [data-block-id]')].findIndex(b => b.dataset.blockId === 'b44'), 'Second identical prompt must not open first');
             check(!api.studyQuestion('b'.repeat(40), 'b44'), 'A different source version must reject the block identity');
             check(api.studyQuestion(sha, 'b43'), 'Queue opens an instruction-aware prompt');

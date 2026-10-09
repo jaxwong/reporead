@@ -60,8 +60,8 @@ public class RepositoryController {
             connections.lockForSync(user.id(), id);
             return data.delete(id);
         });
-        LOG.info("Repository disconnected; userId={} connectionId={} documents={} readingStates={} bookmarks={} highlights={}",
-            user.id(), id, deleted.documentIds().size(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights());
+        LOG.info("Repository disconnected; userId={} connectionId={} documents={} readingStates={} bookmarks={} highlights={} cards={}",
+            user.id(), id, deleted.documentIds().size(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights(), deleted.cards());
         return deleted;
     }
 
