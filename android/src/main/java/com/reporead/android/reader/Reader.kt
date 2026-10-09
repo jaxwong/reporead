@@ -81,14 +81,15 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                  screen: Screen.Reader, onBack: () -> Unit, push: (Screen) -> Unit) {
     var reload by remember { mutableIntStateOf(0) }
     /*
-     * The version last read when the note was opened (null: never read). Captured once, before the reader saves the
-     * displayed version as read, and kept across activity recreation; reopening the note captures it again.
+     * The version whose changes the summary starts from (null: never read): the oldest version read whose changes have
+     * not been shown yet, else the version last read. Captured once, before the reader saves the displayed version as
+     * read, and kept across activity recreation; reopening the note captures it again.
      */
     var since by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var sinceCaptured by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     val load by rememberLoad(screen.documentId to reload, onFailure) {
         if (!sinceCaptured) {
-            since = dao.reading(screen.documentId)?.lastReadBlobSha
+            since = dao.changeBaseline(screen.documentId) ?: dao.reading(screen.documentId)?.lastReadBlobSha
             sinceCaptured = true
         }
         val opened = sync.openNote(screen.documentId)
@@ -100,16 +101,22 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var questionOpened by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var changesReload by remember { mutableIntStateOf(0) }
     var changesExpanded by rememberSaveable(screen.documentId) { mutableStateOf(true) }
-    // Null when there is nothing to compare: never read, or reading the same version again.
+    // Null when there is nothing to compare: never read, or reading the same version again. The baseline is used up only
+    // once the server's answer is on screen; offline or failing, it is kept for the next opening.
     val changes by produceState<Load<Changes>?>(null, since, displayed, signedIn, changesReload) {
         val from = since
-        if (from == null || displayed == null || from == displayed || !signedIn) {
+        if (from == null || displayed == null || !signedIn) {
+            value = null
+            return@produceState
+        }
+        if (from == displayed) {
+            dao.changesSeen(screen.documentId, from)
             value = null
             return@produceState
         }
         value = Load.Loading
         value = try {
-            Load.Ready(sync.changes(screen.documentId, from, displayed))
+            Load.Ready(sync.changes(screen.documentId, from, displayed)).also { dao.changesSeen(screen.documentId, from) }
         } catch (error: ApiException) {
             onFailure(error)
             Load.Failed(error)

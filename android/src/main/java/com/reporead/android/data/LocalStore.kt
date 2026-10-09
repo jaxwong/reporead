@@ -78,6 +78,8 @@ data class Passage(val blobSha: String, val blockId: String, val startOffset: In
  * A highlight, keyed by the client mutation id that created it (the server returns it for every highlight).
  * [pending] is a creation the backend has not acknowledged; the row is the local annotation and its pending mutation
  * in one write. [rejection] is the server's reason for refusing a creation; such rows are shown, not retried.
+ * [deleting]: the user deleted it before the server acknowledged its creation. It is hidden at once and stays, pending,
+ * until a sync has replayed the creation (the server may already have it) and deleted it there.
  * The source/block/offset/exact fields and [prefixText]/[suffixText] are the original selection. [location], [status]
  * and [resolvedBlobSha] are the server's: where the highlight is now and what that means for that version (ANCHORED,
  * REANCHORED, ORPHANED). A pending creation has none of them and is drawn where it was made.
@@ -95,13 +97,22 @@ data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?
                          @ColumnInfo(defaultValue = "''") val cachedTitle: String = "",
                          @ColumnInfo(defaultValue = "''") val cachedPath: String = "",
                          val cachedCurrentBlobSha: String? = null,
-                         @ColumnInfo(defaultValue = "0") val cachedDeleted: Boolean = false) {
+                         @ColumnInfo(defaultValue = "0") val cachedDeleted: Boolean = false,
+                         @ColumnInfo(defaultValue = "0") val deleting: Boolean = false) {
     /** Where to draw it: the server's current location, or the original selection while the creation is pending. */
     val drawn: Passage get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
     /** The server could not find it reliably in [blobSha]. */
     fun orphanedIn(blobSha: String) = status == "ORPHANED" && resolvedBlobSha == blobSha
 }
+
+/**
+ * The version a note was last read in before a newer one was shown, kept until a change summary from it has been shown,
+ * so opening the note offline or leaving before the summary loads does not use it up. Phone-only: what the user has
+ * not seen yet is not the server's.
+ */
+@Entity(tableName = "change_baselines")
+data class ChangeBaselineRow(@PrimaryKey val documentId: Long, val sinceBlobSha: String)
 
 /** Pending grades and the server log share the same immutable client mutation id. */
 @Entity(tableName = "review_log", indices = [Index("cardMutationId")])
@@ -184,6 +195,9 @@ interface LibraryDao {
     @Query("delete from annotations where documentId in (:documentIds)")
     suspend fun deleteAnnotations(documentIds: List<Long>)
 
+    @Query("delete from change_baselines where documentId in (:documentIds)")
+    suspend fun deleteBaselines(documentIds: List<Long>)
+
     /**
      * Removes everything this phone saved for a disconnected repository: the repository, its note list, and the saved
      * notes, reading states, bookmarks, and highlights (pending ones too) of [documentIds], the server's complete list.
@@ -197,6 +211,7 @@ interface LibraryDao {
             deleteBookmarks(chunk)
             deleteReviewsOnDocuments(chunk)
             deleteAnnotations(chunk)
+            deleteBaselines(chunk)
         }
         clearDocuments(repositoryId)
         deleteRepository(repositoryId)
@@ -262,7 +277,7 @@ interface LibraryDao {
 
     @Query("""select a.documentId, coalesce(d.title, n.title, '') as title, coalesce(d.path, n.path, '') as path, a.exactText, a.note
               from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
-              where a.exactText like :pattern escape '\' or a.note like :pattern escape '\'
+              where not a.deleting and (a.exactText like :pattern escape '\' or a.note like :pattern escape '\')
               order by a.createdAt desc limit :limit""")
     suspend fun searchHighlights(pattern: String, limit: Int): List<HighlightMatch>
 
@@ -279,18 +294,46 @@ interface LibraryDao {
     @Query("select * from reading_states where documentId = :documentId")
     suspend fun reading(documentId: Long): ReadingRow?
 
-    /** Read notes whose current version in the saved note lists is not the one last read; most recently changed first. */
-    @Query("""select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
-              from reading_states r join documents d on d.id = r.documentId
-              where d.blobSha != r.lastReadBlobSha order by d.changedAt is null, d.changedAt desc, r.lastReadAt desc""")
+    /**
+     * Read notes whose current version in the saved note lists is not the one last read, or whose changes since an older
+     * version have not been shown yet; most recently changed first. [ChangedNote.lastReadBlobSha] is that baseline.
+     */
+    @Query("""select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, coalesce(b.sinceBlobSha, r.lastReadBlobSha) as lastReadBlobSha
+              from reading_states r join documents d on d.id = r.documentId left join change_baselines b on b.documentId = d.id
+              where d.blobSha != r.lastReadBlobSha or b.sinceBlobSha is not null
+              order by d.changedAt is null, d.changedAt desc, r.lastReadAt desc""")
     fun updatedSinceRead(): Flow<List<ChangedNote>>
 
-    /** The most recently changed notes other than those updated since read: never read, or read in their current version. */
+    /** The most recently changed notes other than those updated since read: never read, or read (and seen) in their current version. */
     @Query("""select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
               from documents d left join reading_states r on r.documentId = d.id
               where d.changedAt is not null and (r.lastReadBlobSha is null or r.lastReadBlobSha = d.blobSha)
+              and d.id not in (select documentId from change_baselines)
               order by d.changedAt desc limit :limit""")
     fun recentlyChanged(limit: Int): Flow<List<ChangedNote>>
+
+    @Query("select sinceBlobSha from change_baselines where documentId = :documentId")
+    suspend fun changeBaseline(documentId: Long): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveBaseline(row: ChangeBaselineRow)
+
+    /** The summary of changes since [since] has been shown; a different baseline set meanwhile stays. */
+    @Query("delete from change_baselines where documentId = :documentId and sinceBlobSha = :since")
+    suspend fun changesSeen(documentId: Long, since: String)
+
+    /**
+     * Saves the reader's position in the version it displayed. Moving to another version keeps the version left behind
+     * as the change baseline, unless an older one is still unseen, so the next summary covers every change not yet seen.
+     */
+    @Transaction
+    suspend fun saveDisplayedReading(row: ReadingRow) {
+        val previous = reading(row.documentId)
+        if (previous != null && previous.lastReadBlobSha != row.lastReadBlobSha && changeBaseline(row.documentId) == null) {
+            saveBaseline(ChangeBaselineRow(row.documentId, previous.lastReadBlobSha))
+        }
+        saveReading(row)
+    }
 
     @Query("select * from reading_states where pending")
     suspend fun pendingReading(): List<ReadingRow>
@@ -346,7 +389,7 @@ interface LibraryDao {
     @Query("select documentId from bookmarks where pending")
     suspend fun pendingBookmarkIds(): List<Long>
 
-    @Query("select * from annotations where documentId = :documentId order by createdAt")
+    @Query("select * from annotations where documentId = :documentId and not deleting order by createdAt")
     fun annotations(documentId: Long): Flow<List<AnnotationRow>>
 
     @Query("select * from annotations where mutationId = :mutationId")
@@ -359,7 +402,7 @@ interface LibraryDao {
               coalesce(d.path, n.path, a.cachedPath) as path, d.blobSha as currentBlobSha,
               n.blobSha as savedBlobSha, a.cachedDeleted as removed
               from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
-              order by a.createdAt, a.mutationId""")
+              where not a.deleting order by a.createdAt, a.mutationId""")
     fun notebook(): Flow<List<NotebookItem>>
 
     @Query("select * from review_log order by reviewedAt, mutationId")
@@ -378,7 +421,7 @@ interface LibraryDao {
         val card = annotation(row.cardMutationId) ?: return false
         val current = document(card.documentId) ?: return false
         val saved = note(card.documentId) ?: return false
-        if (card.type != "CARD" || card.rejection != null || card.cachedDeleted || card.status == "ORPHANED" ||
+        if (card.type != "CARD" || card.deleting || card.rejection != null || card.cachedDeleted || card.status == "ORPHANED" ||
             card.checkedBlobSha != row.blobSha || card.drawn.blobSha != row.blobSha || current.blobSha != row.blobSha ||
             saved.blobSha != row.blobSha || (card.cachedCurrentBlobSha != null && card.cachedCurrentBlobSha != row.blobSha)) return false
         saveReview(row)
@@ -416,7 +459,7 @@ interface LibraryDao {
     @Transaction
     suspend fun replaceRemoteNotebook(rows: List<AnnotationRow>, reviews: List<ReviewRow>, limit: Int) {
         clearAcknowledgedNotebook()
-        rows.forEach { saveAnnotation(it) }
+        rows.forEach { saveServerAnnotation(it) }
         clearAcknowledgedReviews()
         reviews.forEach { saveReview(it) }
         deleteMissingCardReviews()
@@ -431,6 +474,29 @@ interface LibraryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveAnnotation(row: AnnotationRow)
+
+    /**
+     * Saves the server's copy of an annotation, acknowledging a pending creation of it. One the user deleted meanwhile
+     * stays marked for deletion, now with the server's id, so a sync or an answer arriving late cannot bring it back.
+     */
+    @Transaction
+    suspend fun saveServerAnnotation(row: AnnotationRow) {
+        val deleting = annotation(row.mutationId)?.deleting == true
+        saveAnnotation(if (deleting) row.copy(pending = true, rejection = null, deleting = true) else row.copy(pending = false, rejection = null))
+    }
+
+    @Query("update annotations set deleting = 1 where mutationId = :mutationId")
+    suspend fun setDeleting(mutationId: String)
+
+    @Query("delete from review_log where cardMutationId = :mutationId and pending")
+    suspend fun deletePendingCardReviews(mutationId: String)
+
+    /** The user deleted a creation the server has not acknowledged: hide it now and send the deletion at the next sync. */
+    @Transaction
+    suspend fun markDeleting(mutationId: String) {
+        deletePendingCardReviews(mutationId)
+        setDeleting(mutationId)
+    }
 
     @Query("delete from annotations where mutationId = :mutationId")
     suspend fun deleteAnnotation(mutationId: String)
@@ -448,7 +514,7 @@ interface LibraryDao {
     @Transaction
     suspend fun replaceRemoteAnnotations(documentId: Long, remote: List<AnnotationRow>) {
         clearAcknowledgedAnnotations(documentId)
-        for (row in remote) saveAnnotation(row.copy(pending = false, rejection = null))
+        for (row in remote) saveServerAnnotation(row)
         deleteMissingCardReviews()
     }
 
@@ -463,10 +529,10 @@ interface LibraryDao {
 
 @Database(
     entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class,
-        ReviewRow::class, ReviewLimitRow::class],
-    version = 7,
+        ReviewRow::class, ReviewLimitRow::class, ChangeBaselineRow::class],
+    version = 8,
     autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7)],
+        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8)],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao
