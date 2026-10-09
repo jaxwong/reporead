@@ -4,3 +4,5 @@ plugins {
     id("com.google.devtools.ksp") version "2.3.12" apply false
     id("org.springframework.boot") version "4.1.1" apply false
 }
+
+extra["jsoupVersion"] = "1.23.2"

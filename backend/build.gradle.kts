@@ -22,7 +22,7 @@ dependencies {
     implementation("org.commonmark:commonmark-ext-gfm-tables:$commonmarkVersion")
     implementation("org.commonmark:commonmark-ext-gfm-strikethrough:$commonmarkVersion")
     implementation("org.commonmark:commonmark-ext-task-list-items:$commonmarkVersion")
-    implementation("org.jsoup:jsoup:1.23.2")
+    implementation("org.jsoup:jsoup:${rootProject.extra["jsoupVersion"]}")
     testImplementation(enforcedPlatform("org.junit:junit-bom:6.0.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

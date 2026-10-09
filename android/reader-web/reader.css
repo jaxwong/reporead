@@ -167,6 +167,19 @@ p:has(> .fn-def:first-child) { font-size: 0.85em; color: var(--muted); }
 mark { background: var(--mark); color: inherit; border-radius: 3px; }
 mark.revealed { background: var(--mark-revealed); }
 
+.study-section > button { display: none; }
+.study-active .study-section > button { display: inline-block; }
+.study-active .study-section:not(.study-revealed) > .study-body { display: none; }
+.study-recall #note { display: none; }
+#study-questions { margin-bottom: 1em; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.study-question { white-space: pre-wrap; }
+.study-count { color: var(--muted); font-size: 0.8em; margin-bottom: 0.5em; }
+.study-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.study-section > button, .study-actions button {
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--link); font: inherit;
+}
+.study-actions button:disabled { color: var(--muted); opacity: 0.6; }
+
 /* Code highlighting (highlight.js classes), from the palettes above. */
 .hljs { color: var(--fg); }
 .hljs-doctag, .hljs-keyword, .hljs-meta .hljs-keyword, .hljs-template-tag, .hljs-template-variable, .hljs-type,

@@ -170,10 +170,12 @@ Recommended order: P1, then P3's in-note study view, then P2, then the rest of P
      - Saving and restoring the reading position must handle collapsed blocks, as it already does for Mermaid sources ([reader.js:83-89](../android/reader-web/reader.js#L83-L89)).
      - Highlighting works inside revealed sections.
 2. **Practice queue in the Library.**
-   - A list of question items from saved notes, shuffled across notes (interleaving), with a folder filter.
+   - Choose a topic from the repository’s folder hierarchy first (including descendant folders); **All topics** explicitly selects the mixed queue. Questions within the selected topic are shuffled across notes (interleaving).
    - Each item opens its note at that question.
    - It is complete only once P2 has saved every note; until then it says how many notes it covers.
 3. **Recognized headings.** A fixed list taken from the measurement in §2.1, not a user setting. Change it only when the notes change.
+
+Approved extraction: `Review and practice` uses each list item with its leading instruction; prose-only sections use the first paragraph as one prompt. Navigation and trailing worked-solution prose are not separate questions. Questions remain as authored; no automatic answer mapping.
 
 P3 stores no scores and no schedule; spacing is P4.
 
@@ -240,7 +242,7 @@ These can be built any time after the MVP.
 - **Math (KaTeX).** About 4 notes use it, and KaTeX already carries an open advisory through Mermaid ([reader-web README](../android/reader-web/README.md)). It is also an MVP exclusion.
 - **Text-to-speech** that announces or skips code and tables.
 - **A home-screen widget.**
-- **AI-drafted questions:** about a third were unusable in the 2026 evaluation, and they need the network. If built, they produce drafts the developer edits; nothing enters review automatically.
+- **AI-drafted questions and multiple choice:** the user confirmed future AI intent during P3. Deferred, not part of P3; provider, privacy, cost, and acceptance rules still need a separate decision. About a third were unusable in the 2026 evaluation, and they need the network. If built, they produce drafts the developer edits; nothing enters review automatically.
 
 **Not planned:**
 

@@ -87,6 +87,7 @@ private fun RefreshOnEntry(key: Any, onFailure: (ApiException) -> Unit, onRefres
 private enum class LibraryTab(val label: String, val icon: Int) {
     READING("Reading", R.drawable.ic_book),
     BOOKMARKS("Bookmarks", R.drawable.ic_bookmark),
+    PRACTICE("Practice", R.drawable.ic_notes),
     REPOSITORIES("Repositories", R.drawable.ic_folder),
 }
 
@@ -144,6 +145,7 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                 when (tab) {
                     LibraryTab.READING -> ReadingTab(dao, push)
                     LibraryTab.BOOKMARKS -> BookmarksTab(dao, push)
+                    LibraryTab.PRACTICE -> PracticeTab(dao, push)
                     LibraryTab.REPOSITORIES -> RepositoriesTab(repositories, signedIn, push)
                 }
             }
