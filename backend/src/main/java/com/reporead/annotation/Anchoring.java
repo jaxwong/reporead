@@ -75,8 +75,9 @@ final class Anchoring {
         }
         var located = new Annotations.Anchor(sourceBlobSha, block.id(), quote, prefix, suffix, start, end, block.headingPath(),
             null, null, null, null);
-        double lookAlike = fuzzyCandidates(located, blocks).stream().filter(candidate -> candidate.block() != block)
-            .mapToDouble(Candidate::quote).max().orElse(0);
+        // Look-alikes too many (or too long) to compare are unknown, so the passage counts as indistinguishable from them.
+        double lookAlike = fuzzyCandidates(located, blocks).map(candidates -> candidates.stream()
+            .filter(candidate -> candidate.block() != block).mapToDouble(Candidate::quote).max().orElse(0)).orElse(1.0);
         return new Annotations.Anchor(sourceBlobSha, block.id(), quote, prefix, suffix, start, end, block.headingPath(),
             sameBlocks == 1 ? sha256(text) : null, occurrences, rival, lookAlike);
     }
@@ -104,7 +105,8 @@ final class Anchoring {
             if (same.size() == 1) unchanged = candidate(from, same.getFirst(), from.startOffset(), from.endOffset());
         }
         boolean decided = position != null || unchanged != null || exact.stream().anyMatch(candidate -> candidate.context() == 1.0);
-        return new Evidence(from, position, unchanged, List.copyOf(exact), decided ? List.of() : fuzzyCandidates(from, blocks));
+        // Unsearched (bounded) look-alikes are ambiguous, so they offer no fuzzy candidate.
+        return new Evidence(from, position, unchanged, List.copyOf(exact), decided ? List.of() : fuzzyCandidates(from, blocks).orElse(List.of()));
     }
 
     record Found(Method method, Candidate candidate) {}
@@ -155,14 +157,15 @@ final class Anchoring {
     }
 
     /**
-     * The best approximate occurrence of context + quote in each block that shares most of its words. Bounded: none when
-     * the quote is long or too many blocks qualify (which is ambiguous anyway); oversized blocks are not searched.
+     * The best approximate occurrence of context + quote in each block that shares most of its words. Bounded: empty
+     * (not searched) when the quote is long or too many blocks qualify (which is ambiguous anyway); oversized blocks are
+     * not searched.
      */
-    private static List<Candidate> fuzzyCandidates(Annotations.Anchor from, List<MarkdownRenderer.Block> blocks) {
-        if (from.exactText().length() > MAX_FUZZY_QUOTE_CHARS) return List.of();
+    private static Optional<List<Candidate>> fuzzyCandidates(Annotations.Anchor from, List<MarkdownRenderer.Block> blocks) {
+        if (from.exactText().length() > MAX_FUZZY_QUOTE_CHARS) return Optional.empty();
         String pattern = from.prefixText() + from.exactText() + from.suffixText();
         Set<String> words = words(pattern);
-        if (words.isEmpty()) return List.of();
+        if (words.isEmpty()) return Optional.of(List.of());
         var related = blocks.stream()
             .filter(block -> block.text().length() <= MAX_FUZZY_BLOCK_CHARS)
             .filter(block -> {
@@ -170,13 +173,13 @@ final class Anchoring {
                 shared.retainAll(words);
                 return shared.size() * 2 >= words.size();
             }).toList();
-        if (related.size() > MAX_FUZZY_BLOCKS) return List.of();
+        if (related.size() > MAX_FUZZY_BLOCKS) return Optional.empty();
         var candidates = new ArrayList<Candidate>();
         for (var block : related) {
             int[] span = align(pattern, from.prefixText().length(), from.prefixText().length() + from.exactText().length(), block.text());
             if (span != null) candidates.add(candidate(from, block, span[0], span[1]));
         }
-        return List.copyOf(candidates);
+        return Optional.of(List.copyOf(candidates));
     }
 
     /**
@@ -270,11 +273,20 @@ final class Anchoring {
         return words;
     }
 
+    /** Context windows never end inside a surrogate pair: half a character is stored as '?' and never matches again. */
     private static String prefix(String text, int start) {
-        return text.substring(Math.max(0, start - CONTEXT_CHARS), start);
+        int from = Math.max(0, start - CONTEXT_CHARS);
+        return text.substring(splitsCharacter(text, from) ? from + 1 : from, start);
     }
 
     private static String suffix(String text, int end) {
-        return text.substring(end, Math.min(text.length(), end + CONTEXT_CHARS));
+        int to = Math.min(text.length(), end + CONTEXT_CHARS);
+        return text.substring(end, splitsCharacter(text, to) ? to - 1 : to);
+    }
+
+    /** Whether a UTF-16 index falls between the two halves of a surrogate pair. */
+    static boolean splitsCharacter(String text, int index) {
+        return index > 0 && index < text.length() && Character.isHighSurrogate(text.charAt(index - 1))
+            && Character.isLowSurrogate(text.charAt(index));
     }
 }

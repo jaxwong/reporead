@@ -3,6 +3,7 @@ package com.reporead.annotation;
 import com.reporead.document.MarkdownRenderer.Block;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -153,6 +154,31 @@ class AnchoringTest {
         var crowded = blocks(many.toArray());
         var fromCrowded = anchor(blocks(PROXY, PROXIES), 0, "implements declarative transactions using a proxy");
         assertTrue(resolve(fromCrowded, crowded).isEmpty());
+    }
+
+    @Test void aPassageAmongTooManyLookAlikesToCompareIsNotMovedOntoOneOfThemLater() {
+        var rows = new ArrayList<Object>();
+        for (int i = 0; i <= Anchoring.MAX_FUZZY_BLOCKS; i++) {
+            rows.add("Read chapter " + i + " of SICP and do the exercises at the end.");
+            rows.add(PROXIES);
+        }
+        var from = anchor(blocks(rows.toArray()), 7, "chapter 7 of SICP");
+        // Too many rows resembled it to compare when it was made, so how alike they are is unknown, not zero.
+        assertEquals(1.0, from.rivalQuote());
+        // Every other row is deleted except one: resembling the passage is no evidence that it is the passage.
+        assertTrue(resolve(from, blocks("Read chapter 3 of SICP and do the exercises at the end.", PROXIES)).isEmpty());
+    }
+
+    @Test void contextNeverSplitsACharacterSoStoredContextIsValidText() {
+        String quote = "quoted passage";
+        // The 32-unit windows on both sides would end inside an emoji's surrogate pair.
+        String text = "😀" + "x".repeat(31) + quote + "y".repeat(31) + "😀";
+        var from = anchor(blocks(text, PROXIES), 0, quote);
+        for (String context : List.of(from.prefixText(), from.suffixText())) {
+            assertEquals(context, new String(context.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
+        }
+        assertEquals("x".repeat(31), from.prefixText());
+        assertEquals("y".repeat(31), from.suffixText());
     }
 
     @Test void alignmentMapsTheQuoteAndKeepsBoundaryInsertionsOutside() {
