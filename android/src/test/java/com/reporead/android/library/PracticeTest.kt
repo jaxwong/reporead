@@ -8,7 +8,7 @@ import org.junit.Test
 
 class PracticeTest {
     @Test fun shuffleInterleavesNotesAndKeepsEveryQuestionExactlyOnceOnRepeatRuns() {
-        val questions = (1L..3L).flatMap { id -> (0..3).map { i -> PracticeQuestion(id, "note", "core/note.md", StudyQuestion("b$i", "Question $id:$i")) } }
+        val questions = (1L..3L).flatMap { id -> (0..3).map { i -> PracticeQuestion(id, "note", "core/note.md", "a".repeat(40), StudyQuestion("b$i", "Question $id:$i")) } }
         repeat(20) {
             val mixed = interleaveQuestions(questions, it)
             assertEquals(questions.toSet(), mixed.toSet())

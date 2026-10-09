@@ -9,6 +9,9 @@ import org.json.JSONObject
 private val QUESTION_HEADINGS = setOf("questions this file answers", "review and practice")
 private val COLLAPSED_HEADINGS = setOf("approach", "brute force approach", "optimized approach", "complexities", "mistakes")
 
+/** A Practice selection names a canonical block only within the saved version it came from. */
+data class StudyTarget(val blobSha: String, val blockId: String)
+
 internal data class StudyQuestion(val blockId: String, val text: String, val instruction: String? = null) {
     val prompt: String get() = listOfNotNull(instruction, text).joinToString("\n\n")
 }

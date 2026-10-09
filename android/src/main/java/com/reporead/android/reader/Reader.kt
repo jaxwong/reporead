@@ -368,7 +368,7 @@ private class ReaderSession(
     private val openAtHeading: String?,
     private val study: StudyNote,
     private val studying: () -> Boolean,
-    private val openAtQuestion: String?,
+    private val openAtQuestion: StudyTarget?,
     private val onQuestionOpened: () -> Unit,
     private val onQuestionMissing: () -> Unit,
     private val onRestoreNotice: (String?) -> Unit,
@@ -506,10 +506,10 @@ private class ReaderSession(
     private fun restore(view: WebView) {
         val question = openAtQuestion
         if (question != null) {
-            view.evaluateJavascript("window.reporead.studyQuestion(${JSONObject.quote(question)})") { encoded ->
+            view.evaluateJavascript("window.reporead.studyQuestion(${JSONObject.quote(question.blobSha)}, ${JSONObject.quote(question.blockId)})") { encoded ->
                 val shown = JSONTokener(encoded).nextValue() == true
                 onQuestionOpened()
-                onRestoreNotice(if (shown) null else "This question is no longer in the displayed note; showing the note instead.")
+                onRestoreNotice(if (shown) null else "This practice question isn't in the displayed version; showing the note. Choose it again from Practice.")
                 if (!shown) {
                     onQuestionMissing()
                     view.evaluateJavascript("window.reporead.setStudy(false)", null)

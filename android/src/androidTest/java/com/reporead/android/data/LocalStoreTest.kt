@@ -100,6 +100,8 @@ class LocalStoreTest {
         assertEquals(listOf(1L, 2L), partial.map { it.documentId })
         assertEquals("core/a.md", partial.first().path)
         assertEquals("a", partial.first().title)
+        assertEquals("a".repeat(40), partial.first().blobSha)
+        assertNull(partial.last().blobSha)
         assertEquals(1, partial.count { it.html != null })
         dao.saveNote(NoteRow(2, "b".repeat(40), "c".repeat(40), "core/b.md", "b", "<main>complete</main>", 0))
         assertEquals(2, dao.practicePages().first().count { it.html != null })
