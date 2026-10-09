@@ -6,9 +6,16 @@ import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
 import org.junit.Assert.*
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 class ReviewTest {
     private val day = 86_400_000L
+    private val utc = ZoneOffset.UTC
+    private fun scheduleReviews(createdAt: Long, reviews: List<ReviewRow>) = scheduleReviews(createdAt, reviews, utc)
+    private fun dueSession(items: List<NotebookItem>, reviews: List<ReviewRow>, now: Long, limit: Int, seed: Int) =
+        dueSession(items, reviews, now, limit, seed, utc)
     private fun grade(id: Int, value: Int, at: Long) = ReviewRow("g$id", "card", value, at, "sha", false)
     private fun card(id: Int, document: Long = 1) = NotebookItem(AnnotationRow("m$id", id.toLong(), document, "sha", "b1", 0, 4,
         "text", null, 1, 0, false, null, type = "CARD", question = "Why?", checkedBlobSha = "sha"), "Note", "topic/a.md", "sha", "sha", false)
@@ -23,14 +30,38 @@ class ReviewTest {
         assertEquals(17L, scheduleReviews(0, easy).intervalDays)
     }
 
-    @Test fun lapseResetsRepetitionsEaseHasAFloorAndArrivalOrderDoesNotChangeTheSchedule() {
+    @Test fun lapseResetsRepetitionsWithoutChangingEaseAndArrivalOrderDoesNotChangeTheSchedule() {
+        // SM-2 step 6: a grade below 3 restarts repetitions "without changing the E-Factor".
         val log = (1..10).map { grade(it, 0, it * day) }
-        assertEquals(1.3, scheduleReviews(0, log).ease, 0.00001)
+        assertEquals(2.5, scheduleReviews(0, log).ease, 0.00001)
         assertEquals(0, scheduleReviews(0, log).repetitions)
         assertEquals(11 * day, scheduleReviews(0, log).dueAt)
         assertEquals(scheduleReviews(0, log), scheduleReviews(0, log.reversed()))
         assertEquals(1L, scheduleReviews(0, log + grade(11, 4, 11 * day)).intervalDays)
         assertEquals(0L, scheduleReviews(0, listOf(grade(1, 4, 0).copy(rejection = "refused"))).dueAt)
+    }
+
+    @Test fun recalledWithDifficultyLowersEaseToItsFloor() {
+        val hard = (1..20).map { grade(it, 3, it * day) }
+        assertEquals(1.3, scheduleReviews(0, hard).ease, 0.00001)
+        assertEquals(20, scheduleReviews(0, hard).repetitions)
+    }
+
+    @Test fun aCardIsDueFromTheStartOfTheLocalDayItsIntervalEnds() {
+        val bangkok = ZoneId.of("Asia/Bangkok")
+        val evening = LocalDateTime.of(2026, 10, 9, 21, 0).atZone(bangkok).toInstant().toEpochMilli()
+        val nextMorning = LocalDateTime.of(2026, 10, 10, 8, 0).atZone(bangkok).toInstant().toEpochMilli()
+        val schedule = scheduleReviews(0, listOf(grade(1, 4, evening)), bangkok)
+        assertEquals(LocalDateTime.of(2026, 10, 10, 0, 0).atZone(bangkok).toInstant().toEpochMilli(), schedule.dueAt)
+        assertEquals(listOf("m1"), dueSession(listOf(card(1)), listOf(grade(1, 4, evening).copy(cardMutationId = "m1")),
+            nextMorning, 40, 1, bangkok).map { it.annotation.mutationId })
+    }
+
+    @Test fun aDistantDueDateSaturatesInsteadOfWrappingIntoThePast() {
+        val easy = (1..60).map { grade(it, 5, it * day) }
+        val schedule = scheduleReviews(0, easy)
+        assertEquals(Long.MAX_VALUE, schedule.dueAt)
+        assertTrue(dueSession(listOf(card(1)), easy.map { it.copy(cardMutationId = "m1") }, 61 * day, 40, 1).isEmpty())
     }
 
     @Test fun staleOrOrphanedOrUnconfirmedAnswersAndMissingSavedPagesAreNeverScheduled() {
