@@ -1,6 +1,17 @@
 package com.reporead.android.reader
 
 import com.reporead.android.data.DocumentRow
+import java.net.URLDecoder
+
+/**
+ * The parameters of a /note-link query as the server writes them (MarkdownRenderer.noteLink, RFC 3986 encoding): only
+ * percent escapes are decoded and "+" is a literal plus, so `[[C++ templates]]` keeps its name. Not form decoding, which
+ * would read "+" as a space.
+ */
+internal fun noteLinkParameters(query: String): Map<String, String> = query.split('&').filter { it.isNotEmpty() }.associate { parameter ->
+    fun decode(part: String) = URLDecoder.decode(part.replace("+", "%2B"), Charsets.UTF_8)
+    decode(parameter.substringBefore('=')) to decode(parameter.substringAfter('=', ""))
+}
 
 /**
  * The notes a link from the note at [fromPath] can mean, among one repository's saved notes, following Obsidian:

@@ -8,6 +8,7 @@ import android.view.MenuItem
 import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.room.Room
@@ -46,6 +47,9 @@ class ReaderLifecycleTest {
     private lateinit var files: File
     private lateinit var scenario: ActivityScenario<ReaderTestActivity>
     private val showingReader = mutableStateOf(true)
+    private val title = "Test-only lifecycle fixture"
+    /** The screen shown; a new one is a new reader screen, as when the app navigates. */
+    private val screenUnderTest = mutableStateOf(Screen.Reader(1, title, question = StudyTarget(sha, "b2")))
     private var readerReady = false
 
     @Before fun open() = runBlocking {
@@ -55,11 +59,13 @@ class ReaderLifecycleTest {
         check(files.mkdirs() || files.isDirectory) { "Cannot create test-only directory $files" }
         val dao = store.library()
         val path = "test-only/lifecycle.md"
-        val title = "Test-only lifecycle fixture"
         fun block(id: Int, tag: String, text: String) = """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
         val body = block(0, "h1", title) + block(1, "h2", "Questions this file answers") + "<ul>" +
             block(2, "li", "An identical question?") + block(3, "li", "An identical question?") + "</ul>" +
-            block(4, "h2", "Answer") + (5..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) }
+            block(4, "h2", "Answer") + (5..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) } +
+            // A same-note link, and a block whose 64-unit prefix would end inside an emoji.
+            """<p data-block-id="b61" data-anchor-text="Back to the answer"><a href="#answer">Back to the answer</a></p>""" +
+            block(62, "p", "x".repeat(63) + "\uD83D\uDE00 after the emoji")
         val html = """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
             <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
             <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
@@ -71,10 +77,9 @@ class ReaderLifecycleTest {
         ReaderTestActivity.content = {
             MaterialTheme {
                 val activityScope = rememberCoroutineScope()
-                if (showingReader.value) {
+                if (showingReader.value) key(screenUnderTest.value) {
                     ReaderScreen(sync, dao, activityScope, signedIn = false, onFailure = { throw it },
-                        screen = Screen.Reader(1, title, question = StudyTarget(sha, "b2")),
-                        onBack = {}, push = { error("Lifecycle fixture must not navigate") })
+                        screen = screenUnderTest.value, onBack = {}, push = { error("Lifecycle fixture must not navigate") })
                 }
             }
         }
@@ -114,6 +119,28 @@ class ReaderLifecycleTest {
         scenario.recreate()
         awaitReader(2, recall = true)
         awaitSaved(2)
+    }
+
+    @Test fun aLinkedHeadingIsShownOnceAndRecreationRestoresTheReadingPositionInstead() {
+        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, heading = "Answer") }
+        awaitReader(4, recall = false)
+        awaitSaved(4)
+        evaluate("window.reporead.showBlock('b12'); return {};")
+        awaitSaved(12)
+        scenario.recreate()
+        awaitReader(12, recall = false)
+        awaitSaved(12)
+    }
+
+    @Test fun aSameNoteLinkScrollsToItsHeadingAndPrefixesKeepWholeCharacters() {
+        evaluate("document.querySelector('.study-answer').click(); return {};")
+        val prefix = evaluate("window.reporead.showBlock('b62'); return {prefix: window.reporead.position().anchor.textPrefix};").getString("prefix")
+        assertEquals("x".repeat(63), prefix)
+        evaluate("window.reporead.showBlock('b61'); document.querySelector('a[href=\"#answer\"]').click(); return {};")
+        awaitReader(4, recall = false)
+        awaitSaved(4)
+        // A Copy link in the note's own text can name a block that is not code; the page answers null instead of throwing.
+        assertTrue(evaluate("return {text: window.reporead.codeText('b5')};").isNull("text"))
     }
 
     @Test fun ordinaryReadingSurvivesActivityRecreation() {

@@ -139,6 +139,13 @@ function headingPath(block) {
 
 const PREFIX_CHARS = 64;
 
+/** A block's first PREFIX_CHARS UTF-16 units, never ending inside a surrogate pair: half a character is stored as '?'. */
+function textPrefix(text) {
+  const end = Math.min(PREFIX_CHARS, text.length);
+  const last = text.charCodeAt(end - 1);
+  return text.slice(0, end < text.length && last >= 0xD800 && last <= 0xDBFF ? end - 1 : end);
+}
+
 /*
  * Where a block appears on screen. A Mermaid source sits collapsed under its rendered diagram, and scrolling to
  * collapsed content does nothing, so the diagram stands in for it. The anchor still names the canonical source block.
@@ -200,7 +207,7 @@ window.reporead = {
       progressPercent,
       anchor: {
         headingPath: block ? headingPath(block) : [],
-        textPrefix: block ? block.dataset.anchorText.slice(0, PREFIX_CHARS) : null,
+        textPrefix: block ? textPrefix(block.dataset.anchorText) : null,
         blockIndex: Math.max(index, 0),
       },
     };
@@ -208,7 +215,7 @@ window.reporead = {
   /** Restores by heading and text, then text alone, then section, then block index, then percent. Returns how. */
   restore(anchor, progressPercent) {
     const section = JSON.stringify(anchor.headingPath);
-    const sameText = block => anchor.textPrefix !== null && block.dataset.anchorText.slice(0, PREFIX_CHARS) === anchor.textPrefix;
+    const sameText = block => anchor.textPrefix !== null && textPrefix(block.dataset.anchorText) === anchor.textPrefix;
     const inSection = blocks.filter(block => JSON.stringify(headingPath(block)) === section);
     const nearest = candidates => candidates.reduce((best, block) =>
       Math.abs(blocks.indexOf(block) - anchor.blockIndex) < Math.abs(blocks.indexOf(best) - anchor.blockIndex) ? block : best);
@@ -344,11 +351,13 @@ window.reporead.showHeading = text => {
 window.reporead.outline = () => blocks.flatMap((block, index) => /^H[1-6]$/.test(block.tagName)
   ? [{blockId: block.dataset.blockId, index, level: Number(block.tagName[1]), text: block.innerText.trim()}] : []);
 
-/** A code block's text for copying: its canonical text without the final line break, so pasting a command does not run it. */
+/**
+ * A code block's text for copying: its canonical text without the final line break, so pasting a command does not run it.
+ * Null when [blockId] is no code block: a link in the note itself can point at /copy-code.
+ */
 window.reporead.codeText = blockId => {
-  const pre = blocks.find(block => block.dataset.blockId === blockId && block.tagName === 'PRE');
-  if (!pre) throw new Error(`No code block ${blockId}`);
-  return pre.dataset.anchorText.replace(/\n$/, '');
+  const pre = blocks.find(block => block.dataset.blockId === blockId && block.tagName === 'PRE' && !block.hasAttribute('data-mermaid'));
+  return pre ? pre.dataset.anchorText.replace(/\n$/, '') : null;
 };
 
 /**
@@ -425,6 +434,37 @@ for (const reference of note.querySelectorAll('.fn-ref')) {
 }
 document.addEventListener('click', event => {
   if (!footnoteSheet.contains(event.target)) footnoteSheet.hidden = true;
+});
+
+/** A short message in the bottom sheet, for what a tap inside the page could not do. */
+function showSheetMessage(text) {
+  const close = document.createElement('button');
+  close.textContent = '×';
+  close.setAttribute('aria-label', 'Close');
+  close.addEventListener('click', () => { footnoteSheet.hidden = true; });
+  const message = document.createElement('p');
+  message.textContent = text;
+  footnoteSheet.replaceChildren(close, message);
+  footnoteSheet.hidden = false;
+}
+
+/*
+ * A same-note Markdown link ([text](#heading)) scrolls to its heading here: the sanitized page keeps no ids, so the
+ * browser's own jump would find nothing. Its fragment is a GitHub anchor or a heading's text, as showHeading accepts.
+ */
+note.addEventListener('click', event => {
+  const link = event.target.closest?.('a[href^="#"]');
+  if (!link) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const raw = link.getAttribute('href').slice(1);
+  let wanted = raw;
+  try {
+    wanted = decodeURIComponent(raw);
+  } catch (malformed) {
+    console.warn(`Same-note link with a malformed escape; matching it as written: ${malformed.name}`);
+  }
+  if (!window.reporead.showHeading(wanted)) showSheetMessage(`No heading “${wanted}” in this note.`);
 });
 
 /* P3 recognition belongs to Study.kt. The page only lays out that model, without changing any block's text. */
