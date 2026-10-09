@@ -238,6 +238,49 @@ class LocalStoreTest {
         assertEquals(6, dao.unsentCount())
     }
 
+    @Test fun aNewVersionKeepsTheOldOneAsBaselineUntilItsChangesAreShown() = runBlocking {
+        val (a, b, c) = listOf("a".repeat(40), "b".repeat(40), "c".repeat(40))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "n", c, changedAt = 5)))
+        dao.saveDisplayedReading(readAt(1, a, at = 1).copy(pending = true))
+        assertNull(dao.changeBaseline(1))
+        // Opened version b (the summary never loaded, e.g. offline), then c: the summary still starts from a.
+        dao.saveDisplayedReading(readAt(1, b, at = 2).copy(pending = true))
+        dao.saveDisplayedReading(readAt(1, c, at = 3).copy(pending = true))
+        assertEquals(a, dao.changeBaseline(1))
+        // Server merges never touch it, and the note stays in Updated since you read even though c is current.
+        dao.replaceRemoteReading(listOf(readAt(1, c, at = 4)))
+        assertEquals(listOf(1L to a), dao.updatedSinceRead().first().map { it.documentId to it.lastReadBlobSha })
+        assertTrue(dao.recentlyChanged(5).first().isEmpty())
+        dao.changesSeen(1, b)
+        assertEquals(a, dao.changeBaseline(1))
+        dao.changesSeen(1, a)
+        assertNull(dao.changeBaseline(1))
+        assertTrue(dao.updatedSinceRead().first().isEmpty())
+        assertEquals(listOf(1L), dao.recentlyChanged(5).first().map { it.documentId })
+    }
+
+    @Test fun aCreationDeletedBeforeItsAcknowledgementStaysDeletedThroughServerLists() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
+        dao.saveAnnotation(annotation("deleted", null, null, pending = true).copy(type = "CARD", question = "Why?"))
+        dao.saveReview(ReviewRow("grade", "deleted", 4, 1, "a".repeat(40), pending = true))
+        dao.markDeleting("deleted")
+        assertTrue(dao.annotations(1).first().isEmpty())
+        assertTrue(dao.notebook().first().isEmpty())
+        assertTrue(dao.searchHighlights("%text%", 10).isEmpty())
+        assertTrue(dao.pendingReviews().isEmpty())
+        assertEquals(listOf("deleted"), dao.pendingAnnotations().map { it.mutationId })
+        // The server had it after all (a lost acknowledgement), from a listing, the notebook, or a late answer.
+        val serverCopy = annotation("deleted", 9, null, pending = false)
+        dao.replaceRemoteAnnotations(1, listOf(serverCopy))
+        dao.replaceRemoteNotebook(listOf(serverCopy), emptyList(), 40)
+        dao.saveServerAnnotation(serverCopy)
+        val kept = dao.annotation("deleted")!!
+        assertTrue(kept.deleting && kept.pending)
+        assertEquals(9L, kept.serverId)
+        assertTrue(dao.annotations(1).first().isEmpty())
+        assertEquals(1, dao.unsentInRepository(7))
+    }
+
     private fun annotation(mutationId: String, serverId: Long?, note: String?, pending: Boolean, rejection: String? = null) =
         AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, pending, rejection)
 

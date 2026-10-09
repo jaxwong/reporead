@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.sync.Sync
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
@@ -102,6 +103,29 @@ class LocalSyncTest {
             assertTrue(dao.pendingReading().isEmpty())
         }
     }
+
+    @Test fun aDeletedCreationIsReplayedThenDeletedOnTheServer() = runBlocking {
+        dao.saveAnnotation(AnnotationRow("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, pending = true, rejection = null))
+        Sync(Api("http://127.0.0.1:9") { "TEST_ONLY_SESSION" }, store, directory).deleteAnnotation(dao.annotation("deleted")!!)
+        assertTrue(dao.annotations(1).first().isEmpty())
+        val created = JSONObject().put("id", 9).put("mutationId", "deleted").put("documentId", 1).put("type", "HIGHLIGHT").put("note", JSONObject.NULL)
+            .put("status", "ANCHORED").put("version", 1).put("createdAt", "1970-01-01T00:00:00Z").put("updatedAt", "1970-01-01T00:00:00Z")
+            .put("anchor", passage()).put("location", passage()).put("resolvedBlobSha", sha).put("question", JSONObject.NULL)
+            .put("checkedBlobSha", JSONObject.NULL).put("title", "n").put("path", "n.md").put("currentBlobSha", sha).put("deleted", false)
+        LoopbackServer(emptyLists + mapOf(
+            "POST /api/documents/1/annotations" to (200 to created.toString()),
+            "DELETE /api/annotations/9?expectedVersion=1" to (204 to ""),
+        )).use { server ->
+            val result = Sync(Api(server.url) { "TEST_ONLY_SESSION" }, store, directory).syncLocalChanges()
+            assertNull(result.notSent)
+            assertEquals(listOf("POST /api/documents/1/annotations", "DELETE /api/annotations/9?expectedVersion=1", "GET /api/reading-states",
+                "GET /api/bookmarks", "GET /api/notebook"), server.requests)
+            assertNull(dao.annotation("deleted"))
+        }
+    }
+
+    private fun passage() = JSONObject().put("sourceBlobSha", sha).put("blockId", "b1").put("exactText", "text").put("prefixText", "")
+        .put("suffixText", "").put("startOffset", 0).put("endOffset", 4).put("headingPath", org.json.JSONArray())
 
     @Test fun anUnreachableServerEndsTheSyncWithEverythingPending() = runBlocking {
         dao.saveAnnotation(AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, pending = true, rejection = null))
