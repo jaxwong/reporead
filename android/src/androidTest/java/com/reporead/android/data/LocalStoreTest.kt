@@ -184,6 +184,60 @@ class LocalStoreTest {
         assertEquals(listOf("m3"), dao.pendingAnnotations().map { it.mutationId })
     }
 
+    @Test fun aRepositoryMissingFromTheServersListIsForgottenWithItsNotesAndUnsentWork() = runBlocking {
+        dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, "c".repeat(40)), RepositoryRow(8, "o/other", 1, "c".repeat(40))))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
+        dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
+        for (id in listOf(1L, 3L)) {
+            dao.saveNote(NoteRow(id, "a".repeat(40), "c".repeat(40), "n.md", "n", "<html/>", 0, "text"))
+            dao.saveReading(readAt(id, "a".repeat(40), at = id).copy(pending = true))
+            dao.saveAnnotation(annotation("m$id", null, null, pending = true).copy(documentId = id))
+        }
+        // Disconnected with its answer lost, or from another device: the server no longer lists repository 7.
+        assertEquals(listOf(1L), dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40)))))
+        assertEquals(listOf(8L), dao.repositories().first().map { it.id })
+        assertNull(dao.note(1)); assertNull(dao.reading(1)); assertNull(dao.annotation("m1"))
+        assertEquals("text", dao.note(3)!!.searchText)
+        assertEquals(listOf(3L), dao.pendingReading().map { it.documentId })
+        assertEquals(emptyList<Long>(), dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40)))))
+    }
+
+    @Test fun theServersReadingListReplacesAcknowledgedRowsAndKeepsPendingSaves() = runBlocking {
+        dao.saveReading(readAt(1, "a".repeat(40), at = 10))
+        dao.saveReading(readAt(2, "a".repeat(40), at = 10).copy(pending = true))
+        dao.saveReading(readAt(3, "a".repeat(40), at = 10))
+        dao.replaceRemoteReading(listOf(readAt(3, "b".repeat(40), at = 20), readAt(4, "a".repeat(40), at = 5)))
+        assertNull(dao.reading(1))
+        assertTrue(dao.reading(2)!!.pending)
+        assertEquals("b".repeat(40), dao.reading(3)!!.lastReadBlobSha)
+        assertEquals(setOf(2L, 3L, 4L), dao.recentReading(5).first().map { it.documentId }.toSet())
+    }
+
+    @Test fun onlySavedCopiesThatNothingListsOrRefersToAreForgotten() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "listed.md", "listed", "a".repeat(40))))
+        for (id in 1L..5L) dao.saveNote(NoteRow(id, "a".repeat(40), "c".repeat(40), "n$id.md", "n", "<html/>", 0))
+        dao.saveReading(readAt(2, "a".repeat(40), at = 1))
+        dao.saveBookmark(bookmark(3, bookmarked = true, pending = false, at = 1))
+        dao.saveAnnotation(annotation("m4", 4, null, pending = false).copy(documentId = 4))
+        assertEquals(listOf(5L), dao.forgetUnreferencedNotes())
+        assertEquals(listOf(1L, 2L, 3L, 4L), (1L..5L).filter { dao.note(it) != null })
+    }
+
+    @Test fun unsentCountsIncludeRefusedWorkAndStayWithinTheirRepository() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
+        dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
+        dao.saveAnnotation(annotation("pending", null, null, pending = true).copy(documentId = 1))
+        dao.saveAnnotation(annotation("refused", null, null, pending = true, rejection = "Refused").copy(documentId = 1))
+        dao.saveAnnotation(annotation("card", 9, null, pending = false).copy(documentId = 1, type = "CARD", question = "Why?"))
+        dao.saveReview(ReviewRow("grade", "card", 4, 1, "a".repeat(40), true))
+        dao.saveAnnotation(annotation("elsewhere", null, null, pending = true).copy(documentId = 3))
+        dao.saveReading(readAt(3, "a".repeat(40), at = 1).copy(pending = true))
+        dao.saveBookmark(bookmark(3, bookmarked = true, pending = true, at = 1))
+        assertEquals(3, dao.unsentInRepository(7))
+        assertEquals(1, dao.unsentInRepository(8))
+        assertEquals(6, dao.unsentCount())
+    }
+
     private fun annotation(mutationId: String, serverId: Long?, note: String?, pending: Boolean, rejection: String? = null) =
         AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, pending, rejection)
 

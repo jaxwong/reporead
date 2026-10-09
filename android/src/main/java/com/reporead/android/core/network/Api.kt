@@ -1,5 +1,6 @@
 package com.reporead.android.core.network
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException
@@ -55,8 +56,15 @@ class Api(private val baseUrl: String, private val accessToken: () -> String?) {
             val status = connection.responseCode
             if (status == 204) return null
             if (status in 200..299) return connection.inputStream.use { readBounded(it, maxBytes) }
-            val error = connection.errorStream?.use { readBounded(it, MAX_JSON_BYTES) }
-                ?.let { runCatching { JSONObject(it.toString(Charsets.UTF_8)) }.getOrNull() }
+            // A body that is not RepoRead's {code, message} leaves the code HTTP_<status>, which nothing treats as RepoRead's answer.
+            val error = connection.errorStream?.use { readBounded(it, MAX_JSON_BYTES) }?.let { bytes ->
+                try {
+                    JSONObject(bytes.toString(Charsets.UTF_8))
+                } catch (unreadable: JSONException) {
+                    Log.w("RepoRead", "Error response is not RepoRead's JSON; method=$method path=$path status=$status")
+                    null
+                }
+            }
             throw ApiException(status, error?.optString("code")?.ifEmpty { null } ?: "HTTP_$status",
                 error?.optString("message")?.ifEmpty { null } ?: "RepoRead's server returned HTTP $status.")
         } catch (error: IOException) {

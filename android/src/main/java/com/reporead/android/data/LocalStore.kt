@@ -126,10 +126,26 @@ interface LibraryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRepositories(rows: List<RepositoryRow>)
 
+    @Query("select id from repositories")
+    suspend fun repositoryIds(): List<Long>
+
+    /**
+     * The server's complete list replaces the saved one. A repository no longer listed was disconnected — here with its
+     * answer lost, or on another device — so everything saved for its listed notes is forgotten too. Returns those
+     * notes' ids, for the files kept beside the database.
+     */
     @Transaction
-    suspend fun replaceRepositories(rows: List<RepositoryRow>) {
+    suspend fun replaceRepositories(rows: List<RepositoryRow>): List<Long> {
+        val listed = rows.map { it.id }.toSet()
+        val forgotten = mutableListOf<Long>()
+        for (gone in repositoryIds().filter { it !in listed }) {
+            val ids = documentsOnce(gone).map { it.id }
+            forgetRepository(gone, ids)
+            forgotten += ids
+        }
         clearRepositories()
         insertRepositories(rows)
+        return forgotten
     }
 
     @Query("select * from documents where repositoryId = :repositoryId order by path")
@@ -204,6 +220,34 @@ interface LibraryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveNote(row: NoteRow)
 
+    @Query("""select documentId from notes where documentId not in (select id from documents)
+              and documentId not in (select documentId from reading_states) and documentId not in (select documentId from bookmarks)
+              and documentId not in (select documentId from annotations)""")
+    suspend fun unreferencedNoteIds(): List<Long>
+
+    /**
+     * Deletes saved copies of notes that are in no saved note list and that no reading, bookmark, or annotation row
+     * refers to — for example a disconnected repository's removed notes. Run only after those rows were replaced from
+     * the server's complete lists. Returns the deleted ids, for their images.
+     */
+    @Transaction
+    suspend fun forgetUnreferencedNotes(): List<Long> {
+        val ids = unreferencedNoteIds()
+        for (chunk in ids.chunked(500)) deleteNotes(chunk)
+        return ids
+    }
+
+    /** Highlights, cards, and grades on [repositoryId]'s listed notes that exist only on this phone (unsent or refused). */
+    @Query("""select (select count(*) from annotations a join documents d on d.id = a.documentId where d.repositoryId = :repositoryId and a.pending)
+              + (select count(*) from review_log l join annotations a on a.mutationId = l.cardMutationId join documents d on d.id = a.documentId
+                 where d.repositoryId = :repositoryId and l.pending)""")
+    suspend fun unsentInRepository(repositoryId: Long): Int
+
+    /** Every change on this phone that the server has not acknowledged (unsent or refused): what signing out loses. */
+    @Query("""select (select count(*) from annotations where pending) + (select count(*) from review_log where pending)
+              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)""")
+    suspend fun unsentCount(): Int
+
     /**
      * Notes in the saved lists whose title or path matches, and saved copies whose title, path, or text matches.
      * [pattern] is a LIKE pattern with \ as the escape character (ASCII letters match case-insensitively).
@@ -263,6 +307,16 @@ interface LibraryDao {
     suspend fun mergeRemoteReading(remote: ReadingRow) {
         val local = reading(remote.documentId)
         if (local == null || !local.pending || remote.lastReadAt >= local.lastReadAt) saveReading(remote.copy(pending = false))
+    }
+
+    @Query("delete from reading_states where not pending")
+    suspend fun clearAcknowledgedReading()
+
+    /** The server's complete list replaces acknowledged rows; pending local saves are kept or yield as [mergeRemoteReading] says. */
+    @Transaction
+    suspend fun replaceRemoteReading(remote: List<ReadingRow>) {
+        clearAcknowledgedReading()
+        remote.forEach { mergeRemoteReading(it) }
     }
 
     @Query("select * from bookmarks where bookmarked order by changedAt desc")

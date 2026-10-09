@@ -39,6 +39,7 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.sync.exportDirectory
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.StatusLine
@@ -90,7 +91,7 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
                     scope.launch {
                         try {
                             val uri = withContext(Dispatchers.IO) {
-                                val directory = File(context.filesDir, "exports")
+                                val directory = exportDirectory(context.filesDir)
                                 if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create RepoRead export directory")
                                 val file = File(directory, "notebook-${UUID.randomUUID()}.md")
                                 val partial = File(directory, "${file.name}.part")

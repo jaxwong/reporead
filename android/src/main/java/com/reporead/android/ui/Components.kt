@@ -64,6 +64,9 @@ fun OverflowMenu(items: List<MenuAction>) {
     }
 }
 
+/** "1 note", "2 notes": a count with its noun in the right number. */
+fun counted(count: Int, one: String, many: String = one + "s") = "$count ${if (count == 1) one else many}"
+
 /** The folder part of a repository path ("" at the root), shown under a note's title instead of the whole path. */
 fun folderOf(path: String) = path.substringBeforeLast('/', "")
 

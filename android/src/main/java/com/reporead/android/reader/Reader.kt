@@ -153,30 +153,23 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             }
         }
     }
-    val create: (JSONObject, String?) -> Unit = { selection, note ->
+    /**
+     * Saves a highlight (or, with a question, a card) on this phone — finished even if rotation cancels the screen — then
+     * sends it now when signed in. The message says where it stands: nothing when it reached the server.
+     */
+    val save: (selection: JSONObject, note: String?, question: String?) -> Unit = { selection, note, question ->
         appScope.launch {
-            sync.createAnnotation(selection, screen.documentId, note)
-            message = try {
-                sync.pushAnnotations()
-                null
+            val id = withContext(NonCancellable) { sync.createAnnotation(selection, screen.documentId, note, question) }
+            if (question != null) answerPrompt = null
+            val kind = if (question == null) "Highlight" else "Card"
+            message = if (!signedIn) "$kind saved on this phone; it is sent after you sign in." else try {
+                val notSent = sync.pushAnnotations()
+                notSent?.let(onFailure)
+                notSent?.let { "$kind saved on this phone; it will sync later. ${it.describe()}" }
+                    ?: dao.annotation(id)?.rejection?.let { "$kind kept on this phone only; the server refused it: $it" }
             } catch (error: ApiException) {
                 onFailure(error)
-                "Highlight saved on this phone; it will sync later. ${error.describe()}"
-            }
-        }
-    }
-
-    val makeCard: (JSONObject, String) -> Unit = { selection, question ->
-        appScope.launch {
-            withContext(NonCancellable) { sync.createAnnotation(selection, screen.documentId, null, question) }
-            answerPrompt = null
-            message = "Card saved on this phone; waiting for Library sync."
-            if (signedIn) {
-                try { sync.pushAnnotations() }
-                catch (error: ApiException) {
-                    onFailure(error)
-                    message = "Card saved on this phone; it will sync later. ${error.describe()}"
-                }
+                "$kind saved on this phone; it will sync later. ${error.describe()}"
             }
         }
     }
@@ -304,7 +297,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                                 newCardPrompt = null
                             }
                             action == SelectionAction.ADD_NOTE -> newSelection = selection
-                            else -> create(selection, null)
+                            else -> save(selection, null, null)
                         }
                     })
             }
@@ -384,14 +377,14 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
         NoteDialog(title = "Make a question", quote = selection.getString("exactText"), initial = newCardPrompt.orEmpty(),
             label = "Question", allowBlank = false, onDismiss = { newCardSelection = null }, onSave = { question ->
                 newCardSelection = null
-                makeCard(selection, question)
+                save(selection, null, question)
             })
     }
     newSelection?.let { selection ->
         NoteDialog(title = "Add a note", quote = selection.getString("exactText"), initial = "",
             onDismiss = { newSelection = null }, onSave = { note ->
                 newSelection = null
-                create(selection, note.ifBlank { null })
+                save(selection, note.ifBlank { null }, null)
             })
     }
 }

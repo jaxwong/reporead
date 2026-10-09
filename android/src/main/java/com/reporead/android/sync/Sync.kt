@@ -30,17 +30,37 @@ data class ChangedSection(val change: String, val headingPath: List<String>, val
 /** The server's comparison: [status] CHANGED (with [sections]), UNCHANGED, SINCE_UNAVAILABLE (with [reason]), or TOO_LARGE. */
 data class Changes(val status: String, val reason: String?, val addedLines: Int, val removedLines: Int, val sections: List<ChangedSection>)
 
+/** The page format this app needs from the server (MarkdownRenderer.FORMAT): 2 adds note links and Obsidian embeds, 3 footnotes. */
+const val RENDER_FORMAT = 3
+
+/** Where notebook exports are written; res/xml/export_paths.xml shares exactly this directory and nothing else. */
+fun exportDirectory(filesDir: File) = File(filesDir, "exports")
+
+private val REFUSAL_STATUSES = setOf(400, 404, 409, 410, 422)
+
+/**
+ * The server answered and refused this one request for a reason resending it cannot change (invalid, gone, a
+ * conflicting edit): the item is marked or dropped and the run goes on. Any other failure — unreachable, signed out,
+ * access denied, GitHub or the server failing, or an answer that is not RepoRead's — says nothing about the item, which
+ * stays pending.
+ */
+internal fun ApiException.refusesItem() = status in REFUSAL_STATUSES && !code.startsWith("HTTP_")
+
+/**
+ * What one explicit sync could not do. [refused]: reading positions and bookmark changes the server refused; a refused
+ * position stays on this phone only, a refused bookmark change is undone. [notSent]: why pending highlights and cards
+ * were not sent this time; they wait for the next sync.
+ */
+data class LocalSync(val refused: List<String>, val notSent: ApiException?)
+
 /**
  * Owns how the offline cache and the backend meet. Every network operation is explicit and foreground; a failed
  * call ends that operation and leaves the previous complete cache untouched. Nothing here retries.
  */
-/** The page format this app needs from the server (MarkdownRenderer.FORMAT): 2 adds note links and Obsidian embeds, 3 footnotes. */
-const val RENDER_FORMAT = 3
-
 class Sync(private val api: Api, private val store: LocalStore, filesDir: File) {
     private val dao = store.library()
     private val imageRoot = File(filesDir, "images")
-    private val exportRoot = File(filesDir, "exports")
+    private val exportRoot = exportDirectory(filesDir)
 
     private fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else getString(name)
 
@@ -53,7 +73,8 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                 RepositoryRow(item.getLong("id"), item.getString("fullName"), item.getInt("documentCount"), item.nullableString("lastSyncedCommitSha"))
             }
         }
-        dao.replaceRepositories(rows)
+        // A repository missing from the server's complete list was disconnected: here with its answer lost, or elsewhere.
+        deleteImages(dao.replaceRepositories(rows))
     }
 
     suspend fun refreshDocuments(repositoryId: Long) {
@@ -113,7 +134,9 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                 json.getString("title"), json.getString("html"), System.currentTimeMillis(), json.getString("text"), json.getInt("renderFormat"))
         }
         dao.saveNote(note)
-        File(imageRoot, documentId.toString()).listFiles()?.filter { it.name != note.blobSha }?.forEach { it.deleteRecursively() }
+        File(imageRoot, documentId.toString()).listFiles()?.filter { it.name != note.blobSha }?.forEach { old ->
+            check(old.deleteRecursively()) { "Could not remove images of an older version at $old" }
+        }
         return note
     }
 
@@ -173,23 +196,55 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
 
     data class StoredData(val documents: Int, val readingStates: Int, val bookmarks: Int, val highlights: Int, val cards: Int)
 
-    /** What disconnecting [repositoryId] would delete on the server, for the confirmation. */
-    suspend fun storedData(repositoryId: Long): StoredData {
-        val json = api.get("/api/repositories/$repositoryId/stored-data")
-        return contract { StoredData(json.getInt("documents"), json.getInt("readingStates"), json.getInt("bookmarks"), json.getInt("highlights"), json.getInt("cards")) }
+    /**
+     * What disconnecting would delete: [stored] on the server, counted after sending what can be sent, and [unsent]
+     * highlights, cards, and grades only on this phone (unsent or refused), deleted too; [notSent] says why some were
+     * not sent.
+     */
+    data class DisconnectPreview(val stored: StoredData, val unsent: Int, val notSent: String?)
+
+    /**
+     * Sends pending work, then counts what disconnecting [repositoryId] would delete, for the confirmation. Null when the
+     * server no longer has the repository (an earlier disconnect whose answer was lost, or another device): this
+     * phone's copies are then removed by reconciling with the server's list.
+     */
+    suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? {
+        val synced = syncLocalChanges()
+        val json = try {
+            api.get("/api/repositories/$repositoryId/stored-data")
+        } catch (error: ApiException) {
+            if (error.code != "NOT_FOUND") throw error
+            Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
+            refreshRepositories()
+            return null
+        }
+        val stored = contract { StoredData(json.getInt("documents"), json.getInt("readingStates"), json.getInt("bookmarks"), json.getInt("highlights"), json.getInt("cards")) }
+        return DisconnectPreview(stored, dao.unsentInRepository(repositoryId), synced.notSent?.describe())
     }
 
     /**
      * Online only: the server deletes the connection and everything stored for it, then this phone deletes its copies,
-     * including unsynced changes for those notes. A failure changes nothing on the phone.
+     * including unsynced changes for those notes. A failure changes nothing on the phone. When the server no longer has
+     * the repository (an earlier answer was lost), the phone reconciles with the server's complete list instead.
      */
     suspend fun disconnect(repositoryId: Long) {
-        val json = api.delete("/api/repositories/$repositoryId") ?: throw ApiException(204, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
+        val json = try {
+            api.delete("/api/repositories/$repositoryId") ?: throw ApiException(204, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
+        } catch (error: ApiException) {
+            if (error.code != "NOT_FOUND") throw error
+            Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
+            refreshRepositories()
+            return
+        }
         val documentIds = contract { json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } } }
         dao.forgetRepository(repositoryId, documentIds)
         check(!exportRoot.exists() || exportRoot.deleteRecursively()) { "Could not remove private notebook exports at $exportRoot" }
-        for (id in documentIds) File(imageRoot, id.toString()).deleteRecursively()
+        deleteImages(documentIds)
         Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
+    }
+
+    private fun deleteImages(documentIds: List<Long>) {
+        for (id in documentIds) File(imageRoot, id.toString()).let { check(!it.exists() || it.deleteRecursively()) { "Could not remove saved images at $it" } }
     }
 
     /** Online only: the server deletes the account and everything it stored; then this phone's copy is cleared. */
@@ -205,24 +260,30 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         dao.saveBookmark(BookmarkRow(note.documentId, note.title, note.path, note.blobSha, bookmarked, pending = true, System.currentTimeMillis()))
 
     /**
-     * Pushes pending highlight creations, reading saves, and bookmark toggles, then replaces acknowledged local reading
-     * and bookmark rows with the server's complete lists. Stops at the first failure; unacknowledged changes stay pending
-     * for the next explicit sync.
+     * The explicit foreground sync: sends pending work, then replaces acknowledged local reading, bookmark, and notebook
+     * rows with the server's complete lists. Highlight and card creations need GitHub; when GitHub, or access to it,
+     * fails they wait, and the database-only work still runs (ADR-03). A refused item is marked and the run goes on; any
+     * other failure ends the run with unacknowledged changes still pending. The notebook, which grows without paging, is
+     * read last so its failure cannot hold back the rest.
      */
-    suspend fun syncLocalChanges() {
-        pushAnnotations()
+    suspend fun syncLocalChanges(): LocalSync {
+        val notSent = pushAnnotations()
+        // Nothing else can reach the server either.
+        if (notSent?.status == 0) throw notSent
         pushReviews()
-        refreshNotebook()
+        val refused = mutableListOf<String>()
         for (row in dao.pendingReading()) {
             val body = JSONObject().put("lastReadBlobSha", row.lastReadBlobSha).put("progressPercent", row.progressPercent)
                 .put("anchor", JSONObject(row.anchorJson)).put("lastReadAt", Instant.ofEpochMilli(row.lastReadAt).toString())
             val current = try {
                 api.put("/api/documents/${row.documentId}/reading-state", body)
             } catch (error: ApiException) {
-                if (error.status != 404) throw error
-                // The document is no longer this user's on the server; the local history stays, but cannot be sent.
-                Log.w("RepoRead", "Reading state rejected as not found; documentId=${row.documentId}")
-                dao.acknowledgeReading(row.documentId, row.lastReadAt)
+                if (!error.refusesItem()) throw error
+                Log.w("RepoRead", "Reading state refused; documentId=${row.documentId} code=${error.code}")
+                // Not this user's note on the server any more: the position goes with it when the lists are replaced below.
+                // Any other refusal keeps the position on this phone, pending, and offers it again at the next sync.
+                if (error.status == 404) dao.acknowledgeReading(row.documentId, row.lastReadAt)
+                refused += "Your place in “${row.title}” (${error.describe()})"
                 continue
             }
             dao.acknowledgeReading(row.documentId, row.lastReadAt)
@@ -238,14 +299,15 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                     dao.acknowledgeBookmarkCleared(row.documentId, row.changedAt)
                 }
             } catch (error: ApiException) {
-                if (error.status != 404) throw error
-                Log.w("RepoRead", "Bookmark rejected as not found; documentId=${row.documentId}")
+                if (!error.refusesItem()) throw error
+                Log.w("RepoRead", "Bookmark refused; documentId=${row.documentId} code=${error.code}")
                 dao.dropBookmark(row.documentId, row.changedAt)
+                refused += "The bookmark on “${row.title}” (${error.describe()})"
             }
         }
         val states = api.get("/api/reading-states")
         val remoteReading = contract { states.getJSONArray("readingStates").let { array -> List(array.length()) { readingRow(array.getJSONObject(it)) } } }
-        remoteReading.forEach { dao.mergeRemoteReading(it) }
+        dao.replaceRemoteReading(remoteReading)
         val bookmarks = api.get("/api/bookmarks")
         dao.replaceRemoteBookmarks(contract {
             bookmarks.getJSONArray("bookmarks").let { array ->
@@ -257,10 +319,17 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                 }
             }
         })
+        refreshNotebook()
+        // Last, once every list is the server's complete one: copies nothing refers to any more.
+        deleteImages(dao.forgetUnreferencedNotes())
+        return LocalSync(refused, notSent)
     }
 
-    /** Saves a new highlight locally as a pending creation; it is sent with this mutation id until acknowledged. */
-    suspend fun createAnnotation(selection: JSONObject, documentId: Long, note: String?, question: String? = null) {
+    /**
+     * Saves a new highlight (or, with [question], a card) locally as a pending creation; it is sent with the returned
+     * mutation id until acknowledged.
+     */
+    suspend fun createAnnotation(selection: JSONObject, documentId: Long, note: String?, question: String? = null): String {
         val saved = checkNotNull(dao.note(documentId)) { "Cannot create an annotation without its displayed saved note; documentId=$documentId" }
         val current = dao.document(documentId)
         val row = contract {
@@ -272,13 +341,15 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                 cachedTitle = saved.title, cachedPath = saved.path, cachedCurrentBlobSha = current?.blobSha)
         }
         dao.saveAnnotation(row)
+        return row.mutationId
     }
 
     /**
-     * Sends pending creations. The same mutation id is replayed until the server answers, so a lost acknowledgement
-     * cannot create a duplicate. A refusal is kept on the row and shown; it is not retried.
+     * Sends pending creations and returns the failure that stopped it, if any: the rest wait, unsent, for the next sync.
+     * The same mutation id is replayed until the server answers, so a lost acknowledgement cannot create a duplicate. A
+     * refusal is kept on the row and shown; it is not retried.
      */
-    suspend fun pushAnnotations() {
+    suspend fun pushAnnotations(): ApiException? {
         for (row in dao.pendingAnnotations()) {
             val body = JSONObject().put("mutationId", row.mutationId).put("type", row.type).put("question", row.question ?: JSONObject.NULL)
                 .put("note", row.note ?: JSONObject.NULL).put("anchor",
@@ -287,21 +358,25 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
             val created = try {
                 api.post("/api/documents/${row.documentId}/annotations", body)
             } catch (error: ApiException) {
-                when (error.code) {
-                    "ANNOTATION_DELETED" -> dao.removeAnnotation(row.mutationId)
-                    "INVALID_ANCHOR", "INVALID_ANNOTATION", "MUTATION_ID_REUSED", "NOT_FOUND" -> dao.rejectAnnotation(row.mutationId, error.describe())
-                    else -> throw error
+                when {
+                    error.code == "ANNOTATION_DELETED" -> dao.removeAnnotation(row.mutationId)
+                    error.refusesItem() -> dao.rejectAnnotation(row.mutationId, error.describe())
+                    else -> {
+                        Log.w("RepoRead", "Highlight creations stopped; documentId=${row.documentId} code=${error.code}")
+                        return error
+                    }
                 }
                 Log.w("RepoRead", "Highlight creation refused; documentId=${row.documentId} code=${error.code}")
                 continue
             }
             dao.saveAnnotation(annotationRow(created))
         }
+        return null
     }
 
     /** Pending creations are sent first, so the server's list already contains them where possible. */
     suspend fun refreshAnnotations(documentId: Long) {
-        pushAnnotations()
+        pushAnnotations()?.let { throw it }
         val json = api.get("/api/documents/$documentId/annotations")
         dao.replaceRemoteAnnotations(documentId, contract {
             json.getJSONArray("annotations").let { array -> List(array.length()) { annotationRow(array.getJSONObject(it)) } }
@@ -366,12 +441,13 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                 dao.rejectReview(row.mutationId, "Card creation was refused: ${card.rejection}")
                 continue
             }
-            val id = checkNotNull(card.serverId) { "Push annotations before reviews; card ${card.mutationId} is pending" }
+            // Its card has not reached the server yet (its creation waits for GitHub), so the grade waits with it.
+            val id = card.serverId ?: continue
             val remote = try {
                 api.post("/api/annotations/$id/reviews", JSONObject().put("mutationId", row.mutationId).put("grade", row.grade)
                     .put("reviewedAt", Instant.ofEpochMilli(row.reviewedAt).toString()).put("blobSha", row.blobSha))
             } catch (error: ApiException) {
-                if (error.code !in setOf("CARD_CHANGED", "MUTATION_ID_REUSED", "INVALID_REVIEW", "NOT_FOUND")) throw error
+                if (!error.refusesItem()) throw error
                 dao.rejectReview(row.mutationId, error.describe())
                 Log.w("RepoRead", "Review refused; cardId=$id mutationId=${row.mutationId} code=${error.code}")
                 continue
@@ -444,7 +520,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
     /** Explicit sign-out removes every cached note, image, and pending change from this phone. */
     fun clearAll() {
         store.clearAllTables()
-        imageRoot.deleteRecursively()
+        check(!imageRoot.exists() || imageRoot.deleteRecursively()) { "Could not remove saved images at $imageRoot" }
         check(!exportRoot.exists() || exportRoot.deleteRecursively()) { "Could not remove private notebook exports at $exportRoot" }
     }
 
