@@ -47,6 +47,22 @@ class StudyTest {
         assertEquals(listOf("First task", "Second task"), study.questions.map { it.text })
     }
 
+    @Test fun aTightItemWithNestedPointsIsStillAQuestionPlacedAtItsFirstBlock() {
+        // In "- Why?\n  - hint" the item's own text is in no block; the nested point is its first one.
+        val study = studyNote(page(heading(0, "Questions this file answers") + "<ul><li>Why does <code>x</code> win?<ul>" +
+            block(1, "A hint") + "</ul></li>" + block(2, "A plain item?") + "</ul>"))
+        assertEquals(listOf("Why does x win?", "A plain item?"), study.questions.map { it.text })
+        assertEquals(listOf("b1", "b2"), study.questions.map { it.blockId })
+    }
+
+    @Test fun questionsReadAsShownWithoutTheHiddenLinkSource() {
+        val linked = "<li data-block-id=\"b1\" data-anchor-text=\"How does [[raft|Raft]] elect?[^1]\">How does " +
+            "<a class=\"wikilink\" href=\"/note-link?target=raft\"><span class=\"wl-hidden\">[[raft|</span>Raft<span class=\"wl-hidden\">]]</span></a>" +
+            " elect?<sup class=\"fn-ref\" data-footnote=\"1\"><span class=\"wl-hidden\">[^1]</span></sup></li>"
+        val study = studyNote(page(heading(0, "Questions this file answers") + "<ul>$linked</ul>"))
+        assertEquals(listOf("How does Raft elect?"), study.questions.map { it.text })
+    }
+
     @Test fun reviewListItemsKeepTheirLeadingInstructionsButNotTrailingNavigation() {
         val study = studyNote(page(heading(0, "Review and practice") + block(1, "Trace one endpoint.", "p") +
             block(2, "Then test:", "p") + "<ul>" + block(3, "empty input") + block(4, "duplicate requests") + "</ul>" +
