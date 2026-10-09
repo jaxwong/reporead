@@ -54,6 +54,9 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `GET /api/repositories/available` | 1 + installations, at most 11 | Repositories GitHub says this user and the App can both access |
 | `POST /api/repositories/{githubRepositoryId}/connect` `{installationId}` | 1 | GitHub re-verifies eligibility; connecting twice returns the same connection |
 | `POST /api/repositories/{id}/sync` | 2 (branch, recursive tree) + at most 8 blob reads (moved-and-edited notes) | Publishes a complete snapshot of the default branch |
+| `GET /api/repositories/{id}/stored-data` | 0 | What disconnecting would delete: counts of documents, reading states, bookmarks, highlights, and cards |
+| `DELETE /api/repositories/{id}` | 0 | Disconnects: deletes the connection and everything stored for it (documents, reading states, bookmarks, highlights, cards and their review logs) in one transaction; returns the deleted document ids and counts; 404 once already disconnected. GitHub and the App installation are unchanged |
+| `DELETE /api/account` | 0 | Deletes every connection and its data, the annotation mutation records, sign-in codes, sessions, and the user, then drops the in-memory GitHub token |
 | `GET /api/repositories/{id}/documents` | 0 | Active Markdown documents and the last synced commit; each with `contentChangedAt` (see Sync semantics) |
 | `GET /api/documents/{id}/content` | 1 (raw blob at the stored SHA) | Sanitized reader HTML; not cached on the server |
 | `GET /api/documents/{id}/image?path=` or `?embed=` | 1 (file at the note's current commit); 0 when an embed name is missing or ambiguous | A repository image referenced by the note, by path or by Obsidian embed name; see below |
@@ -73,7 +76,7 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 
 **Saving every note on the phone** uses `GET /api/documents/{id}/content` once per note whose saved copy is missing or outdated, one request at a time; there is no batch route. One run therefore makes at most one GitHub call per such note, bounded by the repository's Markdown document count (server limit 5,000), and none for notes already saved; a note the server refuses to render (`UNSUPPORTED_CONTENT`) has no saved copy, so every run asks for it again. The phone owns which notes it lacks; the server owns the per-request ceiling and the document limit. A first run on a 654-note repository makes 654 calls, within GitHub's documented 5,000 requests per hour for user tokens (not measured for this App's token).
 
-Every GitHub call uses the user's token, 15-second connect/read timeouts, no redirects, no retries, no pagination, and no installation-token fallback. A failed call ends the operation. Failures are `{code, message}`: `SIGN_IN_REQUIRED` 401, `GITHUB_ACCESS_DENIED`/`REPOSITORY_NOT_AUTHORIZED` 403, `NOT_FOUND`/`DEFAULT_BRANCH_NOT_FOUND`/`SOURCE_NOT_FOUND` 404, `SYNC_SUPERSEDED` 409, `DOCUMENT_DELETED` 410, `UNSUPPORTED_CONTENT`/`DOCUMENT_LIMIT` 422, `GITHUB_INVALID_RESPONSE`/`GITHUB_RESPONSE_LIMIT`/`GITHUB_TREE_INCOMPLETE`/`GITHUB_*_LIMIT` 502, `GITHUB_UNAVAILABLE` 503. Upstream error bodies are not exposed.
+Every GitHub call uses the user's token, 15-second connect/read timeouts, no redirects, no retries, no pagination, and no installation-token fallback. A failed call ends the operation. Failures are `{code, message}`, including requests a route cannot read (malformed JSON, a missing parameter, a mistyped path value: 400 `INVALID_REQUEST`): `SIGN_IN_REQUIRED` 401, `GITHUB_ACCESS_DENIED`/`REPOSITORY_NOT_AUTHORIZED` 403, `NOT_FOUND`/`DEFAULT_BRANCH_NOT_FOUND`/`SOURCE_NOT_FOUND` 404, `SYNC_SUPERSEDED` 409, `DOCUMENT_DELETED` 410, `UNSUPPORTED_CONTENT`/`DOCUMENT_LIMIT` 422, `GITHUB_INVALID_RESPONSE`/`GITHUB_RESPONSE_LIMIT`/`GITHUB_TREE_INCOMPLETE`/`GITHUB_*_LIMIT` 502, `GITHUB_UNAVAILABLE` 503. Upstream error bodies are not exposed.
 
 Every connection, document, and content request is scoped to the signed-in user; another user's ids return 404 without a GitHub call.
 
@@ -106,10 +109,13 @@ Meters appear after their first use. They are in memory and reset when the serve
 | Recursive tree response | 8 MiB (GitHub's own maximum is 7 MB) | 502 `GITHUB_RESPONSE_LIMIT` |
 | Installations / repositories per installation | 10 / 100, complete lists only | 502 `GITHUB_INSTALLATION_LIMIT` / `GITHUB_REPOSITORY_LIMIT` |
 | Markdown documents per repository | 5,000 | 422 `DOCUMENT_LIMIT` |
-| Note render | 1 MiB UTF-8, 4,096 blocks, 16 diagrams of 20,000 UTF-16 units, 200 Mermaid edges | 422 `UNSUPPORTED_CONTENT` |
+| Note render | 1 MiB UTF-8, 4,096 blocks, 16 diagrams of 20,000 UTF-16 units | 422 `UNSUPPORTED_CONTENT` |
+| Mermaid edges | 200 per diagram, passed to the reader as `data-max-edges` | Enforced by Mermaid on the phone: that diagram shows as an error with its source; the note itself renders (200) |
+| Heading paths | Each heading in a block's path at most 500 UTF-16 units; a longer heading (for example a long paragraph directly followed by `---`) is cut and ends in `…`. The heading's own block text is not cut | None: rendered pages always fit the reading-state limit below |
 | Repository images | 64 per note; 5 MiB each | Extra images render as `[Image limit reached]`; larger images 422 `UNSUPPORTED_CONTENT` |
 | Annotation | selection, note, and card question at most 10,000 UTF-16 units each; one block per selection | 400 `INVALID_ANNOTATION` |
-| Review | grades 0–5; client UUID; millisecond timestamp from 1970 through 5 minutes ahead; session ceiling 40 | 400 `INVALID_REVIEW`; changed answers 409 `CARD_CHANGED` |
+| Review | grades 0–5; client UUID; millisecond timestamp from 1970 through 5 minutes ahead | 400 `INVALID_REVIEW`; changed answers 409 `CARD_CHANGED` |
+| Review session | 40 cards, reported as `sessionLimit` in the notebook; the phone starts no session without it | None on the server: grades are not counted per session |
 | Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
 | Changes comparison | 20,000 lines per version; 1,000 inserted plus deleted lines | `TOO_LARGE` status, no sections |
 

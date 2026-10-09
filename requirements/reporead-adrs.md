@@ -81,7 +81,7 @@ The decisions that shape RepoRead's MVP, as built. Each says what was decided, w
 **Consequences.** Refresh and sync need the phone on wireless debugging with the Mac; reading saved notes and annotating work anywhere. Losing the key means uninstalling to update. Hosting the backend is a separate future decision.
 
 
-## ADR-12 — Anchored cards; server review log, phone-only SM-2 scheduling
+## ADR-13 — Anchored cards; server review log, phone-only SM-2 scheduling
 
 **Decision** (the user's, P4, 2026-10-09). CARD annotations reuse highlight anchors, re-anchoring, orphaning and idempotent offline creation. The question is written by the developer, or kept from a P3 prompt whose answer the developer selects explicitly. The server owns the immutable review log and the session ceiling (40); the phone owns the one pure SM-2 scheduler over the log so offline grading works. No scheduler dependency, persisted due dates, AI, inferred answers, background sync, or GitHub writes.
 

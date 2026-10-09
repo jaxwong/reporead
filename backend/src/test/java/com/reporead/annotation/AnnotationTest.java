@@ -208,6 +208,15 @@ class AnnotationTest {
         assertEquals(0, count("annotation_mutations"));
     }
 
+    @Test void requestsTheRoutesCannotReadAreTypedFailuresLikeEveryOther() throws Exception {
+        create(alice, note, "{not json").andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mvc.perform(delete("/api/annotations/1").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mvc.perform(get("/api/documents/not-a-number/annotations").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        assertEquals(0, count("annotations"));
+    }
+
     @Test void malformedRequestsAreRejectedBeforeGitHub() throws Exception {
         String valid = body(UUID.randomUUID().toString(), "b2", START, EXACT, null);
         for (String json : List.of(

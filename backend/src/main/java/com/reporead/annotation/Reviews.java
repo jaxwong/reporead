@@ -1,6 +1,7 @@
 package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
+import com.reporead.ClientClock;
 import com.reporead.auth.AppUser;
 import com.reporead.repository.RepositoryConnections;
 import org.slf4j.Logger;
@@ -62,8 +63,9 @@ public class Reviews {
         try { mutation = UUID.fromString(body.mutationId() == null ? "" : body.mutationId()); }
         catch (IllegalArgumentException error) { throw invalid("mutationId must be a UUID."); }
         if (body.grade() == null || body.grade() < 0 || body.grade() > 5 || body.reviewedAt() == null
-            || (body.reviewedAt().isBefore(Instant.EPOCH) || body.reviewedAt().getNano() % 1_000_000 != 0 || body.reviewedAt().isAfter(Instant.now().plusSeconds(300))) || body.blobSha() == null || !body.blobSha().matches("[0-9a-f]{40}")) {
-            throw invalid("A review needs grade 0–5, a millisecond reviewedAt from 1970 through five minutes ahead, and the verified answer's blob SHA.");
+            || (body.reviewedAt().isBefore(Instant.EPOCH) || body.reviewedAt().getNano() % 1_000_000 != 0 || body.reviewedAt().isAfter(Instant.now().plus(ClientClock.MAX_AHEAD))) || body.blobSha() == null || !body.blobSha().matches("[0-9a-f]{40}")) {
+            throw invalid("A review needs grade 0–5, a millisecond reviewedAt from 1970 through " + ClientClock.MAX_AHEAD.toMinutes()
+                + " minutes ahead, and the verified answer's blob SHA.");
         }
         var result = transaction.execute(tx -> {
             // Same lock order as repository refresh/disconnect: connection first, then annotations.

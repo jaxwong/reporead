@@ -53,8 +53,8 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 public class GitHubSecurity {
     static final String GITHUB_REQUESTS = "reporead.github.requests";
     private static final Logger LOG = LoggerFactory.getLogger(GitHubSecurity.class);
-    /** Ceiling for OAuth, metadata, and raw note responses; equals MarkdownRenderer.MAX_NOTE_BYTES. */
-    public static final int MAX_RESPONSE_BYTES = 1_048_576;
+    /** Ceiling for OAuth, metadata, and raw note responses: the reader's note limit, so any note it can show fits. */
+    public static final int MAX_RESPONSE_BYTES = com.reporead.document.MarkdownRenderer.MAX_NOTE_BYTES;
     /** Above GitHub's documented 7 MB recursive-tree maximum, so only GitHub's own truncation can make a tree incomplete. */
     public static final int MAX_TREE_RESPONSE_BYTES = 8 * 1_048_576;
     /** Repository images shown in notes; larger images are visibly unavailable rather than fetched. */

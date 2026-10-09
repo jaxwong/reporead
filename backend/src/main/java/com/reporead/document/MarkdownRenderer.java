@@ -29,6 +29,8 @@ import java.util.Optional;
 
 public final class MarkdownRenderer {
     public static final int MAX_NOTE_BYTES = 1_048_576;
+    /** [MAX_NOTE_BYTES] in MiB, for messages. */
+    public static final int MAX_NOTE_MIB = MAX_NOTE_BYTES / 1_048_576;
     public static final int MAX_DIAGRAM_CHARS = 20_000;
     public static final int MAX_DIAGRAMS = 16;
     public static final int MAX_EDGES = 200;
@@ -53,7 +55,9 @@ public final class MarkdownRenderer {
     private static final java.util.regex.Pattern WIKILINK = java.util.regex.Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
     /** A footnote reference {@code [^label]}, or with {@code :} a definition marker. */
     private static final java.util.regex.Pattern FOOTNOTE = java.util.regex.Pattern.compile("\\[\\^([^\\[\\]\\s]+)\\](:?)");
-    private static final int MAX_BLOCKS = 4_096;
+    public static final int MAX_BLOCKS = 4_096;
+    /** Heading path entries are cut to this many UTF-16 units; the reading endpoint accepts exactly what pages carry. */
+    public static final int MAX_HEADING_CHARS = 500;
     private static final String BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,pre,td,th,li";
     private static final String ORIGIN = "https://appassets.androidplatform.net";
     private static final List<org.commonmark.Extension> EXTENSIONS = List.of(
@@ -102,7 +106,7 @@ public final class MarkdownRenderer {
             throw new IllegalArgumentException("MarkdownRenderer sourceBlobSha must be a lowercase Git SHA-1");
         }
         byte[] bytes = markdown.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length > MAX_NOTE_BYTES) throw new ContentRejected("Markdown exceeds the 1 MiB reader limit");
+        if (bytes.length > MAX_NOTE_BYTES) throw new ContentRejected("Markdown exceeds the " + MAX_NOTE_MIB + " MiB reader limit");
         if (!blobSha(bytes).equals(sourceBlobSha)) throw new ContentRejected("Markdown bytes do not match sourceBlobSha");
 
         var parsed = PARSER.parse(markdown);
@@ -151,12 +155,12 @@ public final class MarkdownRenderer {
             String tag = element.tagName();
             if (tag.matches("h[1-6]")) {
                 int level = tag.charAt(1) - '1';
-                headings[level] = nodeText(element);
+                headings[level] = headingPathEntry(nodeText(element));
                 Arrays.fill(headings, level + 1, headings.length, null);
             }
             if (!element.is(BLOCK_SELECTOR) || element.select(BLOCK_SELECTOR).size() != 1) continue;
             String text = nodeText(element);
-            if (blocks.size() == MAX_BLOCKS) throw new ContentRejected("Markdown exceeds the 4096-block reader limit");
+            if (blocks.size() == MAX_BLOCKS) throw new ContentRejected("Markdown exceeds the " + MAX_BLOCKS + "-block reader limit");
             String id = "b" + blocks.size();
             element.attr("data-block-id", id).attr("data-anchor-text", text);
             var headingPath = new ArrayList<String>();
@@ -167,8 +171,8 @@ public final class MarkdownRenderer {
                 }
             }
             if (tag.equals("pre") && element.selectFirst("code.language-mermaid") != null) {
-                if (text.length() > MAX_DIAGRAM_CHARS) throw new ContentRejected("Mermaid exceeds the 20000 UTF-16-unit limit");
-                if (++diagrams > MAX_DIAGRAMS) throw new ContentRejected("Markdown exceeds the 16-diagram reader limit");
+                if (text.length() > MAX_DIAGRAM_CHARS) throw new ContentRejected("Mermaid exceeds the " + MAX_DIAGRAM_CHARS + " UTF-16-unit limit");
+                if (++diagrams > MAX_DIAGRAMS) throw new ContentRejected("Markdown exceeds the " + MAX_DIAGRAMS + "-diagram reader limit");
                 element.attr("data-mermaid", "");
             }
             blocks.add(new Block(id, text, List.copyOf(headingPath)));
@@ -355,6 +359,22 @@ public final class MarkdownRenderer {
         for (var node : replacement) text.before(node);
         text.remove();
         return marked;
+    }
+
+    /**
+     * A heading as heading paths (and the page's data-heading attributes) carry it: whole when short enough, otherwise
+     * cut so that, with a closing ellipsis, it is [MAX_HEADING_CHARS] long. The heading block's own text is not cut.
+     */
+    private static String headingPathEntry(String heading) {
+        if (heading.length() <= MAX_HEADING_CHARS) return heading;
+        int cut = MAX_HEADING_CHARS - 1;
+        return heading.substring(0, splitsCharacter(heading, cut) ? cut - 1 : cut) + "…";
+    }
+
+    /** Whether a UTF-16 index falls between the two halves of a surrogate pair: half a character is stored as '?'. */
+    public static boolean splitsCharacter(String text, int index) {
+        return index > 0 && index < text.length() && Character.isHighSurrogate(text.charAt(index - 1))
+            && Character.isLowSurrogate(text.charAt(index));
     }
 
     private static Element hidden(String text) {

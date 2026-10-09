@@ -10,8 +10,9 @@ import java.util.List;
 
 /**
  * Everything RepoRead stores for one repository connection: its documents (paths, titles, versions) and the user's
- * reading progress, bookmarks, and highlights on them, which quote the notes. Disconnecting deletes all of it, each table
- * through its owner; GitHub is never modified. Note bodies are never stored on the server.
+ * reading progress, bookmarks, highlights, and cards with their review logs on them, which quote the notes.
+ * Disconnecting deletes all of it, each table through its owner; GitHub is never modified. Note bodies are never stored
+ * on the server.
  */
 @Component
 public class ConnectionData {
