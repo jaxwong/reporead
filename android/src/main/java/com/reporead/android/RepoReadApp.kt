@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -86,6 +87,8 @@ private val StackSaver = listSaver<List<Screen>, String>(
     },
 )
 
+private const val LIBRARY_STATE = "library"
+
 @Composable
 fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val context = LocalContext.current
@@ -98,6 +101,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     var signInMessage by remember { mutableStateOf<String?>(null) }
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     val scope = rememberCoroutineScope()
+    val libraryState = rememberSaveableStateHolder()
     val savedRepositories by dao.repositories().collectAsState(null)
 
     // Any 401 means the app session or the server's GitHub token is gone. Saved notes stay readable; only refreshing
@@ -116,7 +120,10 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         val code = signInCode ?: return@LaunchedEffect
         signInMessage = "Finishing sign-in…"
         try {
-            completeSignIn(code, api, store) { withContext(Dispatchers.IO) { sync.clearAll() } }
+            completeSignIn(code, api, store) {
+                withContext(Dispatchers.IO) { sync.clearAll() }
+                libraryState.removeState(LIBRARY_STATE)
+            }
             signedIn = true
             signInMessage = null
         } catch (error: ApiException) {
@@ -148,7 +155,8 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     // opened from a note, a subfolder): otherwise an open notes panel or a status line carries over.
     key(screen) {
     when (screen) {
-        Screen.Repositories -> LibraryScreen(sync, dao, signedIn, onFailure, push, onSignIn = signIn, onSignOut = {
+        Screen.Repositories -> libraryState.SaveableStateProvider(LIBRARY_STATE) {
+        LibraryScreen(sync, dao, signedIn, onFailure, push, onSignIn = signIn, onSignOut = {
             scope.launch {
                 val message = try {
                     api.delete("/api/app-auth/session")
@@ -159,6 +167,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                 }
                 // Explicit sign-out removes this phone's copy of private notes, including unsynced changes.
                 withContext(Dispatchers.IO) { sync.clearAll() }
+                libraryState.removeState(LIBRARY_STATE)
                 store.clear()
                 store.dataOwner = null
                 signedIn = false
@@ -169,10 +178,12 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
             // The server deleted the account and its sessions, and Sync cleared this phone's copy.
             store.clear()
             store.dataOwner = null
+            libraryState.removeState(LIBRARY_STATE)
             signedIn = false
             signInMessage = "Your RepoRead account was deleted. To also remove RepoRead's authorization on GitHub, use GitHub's Settings → Applications."
             stack = listOf(Screen.Repositories)
         })
+        }
         Screen.Available -> AvailableScreen(api, onFailure, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
         is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push, onBack = pop,
             onDisconnected = { stack = listOf(Screen.Repositories) })
