@@ -167,6 +167,8 @@ The server does not yet check that `sourceBlobSha` is a version of this particul
 
 `POST .../reviews` persists one immutable grade, timestamp and verified SHA per user/client UUID. Repeating an identical mutation returns the same log entry; different content is 409 `MUTATION_ID_REUSED`. A committed replay still succeeds after the note changes; a new stale grade rolls back with 409 `CARD_CHANGED`. Grades serialize with repository refresh/disconnect via the existing connection lock, then with annotation changes. Deleting a card cascades its review log; a late submission is 404 and cannot recreate a deleted card. Disconnect counts cards and deletes them/logs; account deletion also removes mutation records. These routes have **no alternate strategy or retry** on failure.
 
+**Known limit (recorded, not paged).** `GET /api/notebook` returns every annotation and every grade in one response, and the phone reads at most 8 MiB of JSON per response. At about 200 bytes per grade that is roughly 40,000 grades (about 3 years at 40 a day). Past it, the phone's notebook refresh fails visibly; it runs last in a sync, so reading positions and bookmarks still sync. Paging is deferred until the log approaches the limit.
+
 The server stores no due dates, scores derived from history, or scheduling state. The phone alone computes SM-2 intervals/ease from the log, retaining pending grades until acknowledgement. Logs use millisecond timestamps so PostgreSQL timestamp precision cannot change an idempotent replay's content. The bounded phone session reviews each chosen card once; grades below 3 restart its interval at one day rather than adding unbounded same-day repeats. No AI, FSRS dependency, or background sync is included.
 
 ## Verify

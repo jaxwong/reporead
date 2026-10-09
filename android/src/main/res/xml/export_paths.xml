@@ -1,3 +1,4 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Exactly Sync.kt's exportDirectory(); the only files this provider may share. -->
     <files-path name="notebook" path="exports/" />
 </paths>

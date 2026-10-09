@@ -17,6 +17,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -54,6 +55,7 @@ import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.MenuAction
 import com.reporead.android.ui.OverflowMenu
 import com.reporead.android.ui.StatusLine
+import com.reporead.android.ui.counted
 import com.reporead.android.ui.folderOf
 import com.reporead.android.ui.sectionTitle
 import kotlinx.coroutines.launch
@@ -67,15 +69,17 @@ private fun seenChanged(note: ChangedNote) = note.changedAt?.let {
     "Seen changed ${DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)}"
 }
 
-/** Runs [block] when the screen appears (and on [key] changes), reporting a failure as text; cached data stays visible. */
+/**
+ * Runs [block] when the screen appears (and on [key] changes) and shows what it returns, or a failure, as the status;
+ * cached data stays visible.
+ */
 @Composable
 private fun RefreshOnEntry(key: Any, onFailure: (ApiException) -> Unit, onRefreshing: (Boolean) -> Unit, onStatus: (String?) -> Unit,
-                           block: suspend () -> Unit) {
+                           block: suspend () -> String?) {
     LaunchedEffect(key) {
         onRefreshing(true)
         try {
-            block()
-            onStatus(null)
+            onStatus(block())
         } catch (error: ApiException) {
             onFailure(error)
             onStatus("Showing saved data. ${error.describe()}")
@@ -98,6 +102,8 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                   onSignIn: () -> Unit, onSignOut: () -> Unit, onAccountDeleted: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(LibraryTab.READING) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
+    /** Changes the server has not acknowledged, counted for the sign-out confirmation; non-null while it is shown. */
+    var confirmSignOut by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
@@ -107,7 +113,12 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
         // Pushes pending reading saves and bookmarks, then pulls the server's view: the explicit foreground sync point.
         RefreshOnEntry(refresh, onFailure, { refreshing = it }, { status = it }) {
             sync.refreshRepositories()
-            sync.syncLocalChanges()
+            val synced = sync.syncLocalChanges()
+            synced.notSent?.let(onFailure)
+            listOfNotNull(
+                synced.notSent?.let { "New highlights and cards stay on this phone for now. ${it.describe()}" },
+                synced.refused.takeIf { it.isNotEmpty() }?.let { "The server refused: ${it.joinToString("; ")}. A refused place stays on this phone." },
+            ).joinToString(" ").ifEmpty { null }
         }
     }
     Scaffold(
@@ -116,7 +127,7 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                 IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
                 OverflowMenu(if (signedIn) listOf(
                     MenuAction("Sync now") { refresh++ },
-                    MenuAction("Sign out", onSignOut),
+                    MenuAction("Sign out") { scope.launch { confirmSignOut = dao.unsentCount() } },
                     MenuAction("Delete account…") { confirmDeleteAccount = true },
                 ) else listOf(MenuAction("Sign in with GitHub", onSignIn)))
             })
@@ -168,10 +179,31 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                     onAccountDeleted()
                 } catch (failure: ApiException) {
                     onFailure(failure)
-                    status = "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
+                    status = if (failure.status == 401) {
+                        // A lost answer to an earlier deletion also ends the session, so this cannot tell the two apart.
+                        "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
+                            "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
+                    } else "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
                 }
             }
         })
+    }
+    confirmSignOut?.let { unsent ->
+        AlertDialog(
+            onDismissRequest = { confirmSignOut = null },
+            title = { Text("Sign out of RepoRead?") },
+            text = {
+                Text("This phone's saved notes, highlights, cards, and reading progress are deleted from it; what the server has stays " +
+                    "there for your next sign-in." + if (unsent == 0) "" else
+                    " ${counted(unsent, "change")} on this phone never reached the server and will be lost. Cancel and use Sync now to keep them.")
+            },
+            confirmButton = {
+                TextButton(onClick = { confirmSignOut = null; onSignOut() }) {
+                    Text(if (unsent == 0) "Sign out" else "Sign out and lose them", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmSignOut = null }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -342,7 +374,7 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                  onBack: () -> Unit, onDisconnected: () -> Unit) {
     var status by remember { mutableStateOf<String?>(null) }
     /** What disconnecting would delete, fetched for the confirmation; non-null while it is shown. */
-    var confirmDisconnect by remember { mutableStateOf<Sync.StoredData?>(null) }
+    var confirmDisconnect by remember { mutableStateOf<Sync.DisconnectPreview?>(null) }
     var disconnecting by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var listed by remember { mutableStateOf(false) }
@@ -357,6 +389,7 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
         RefreshOnEntry(screen.repositoryId, onFailure, { refreshing = it }, { status = it }) {
             sync.refreshDocuments(screen.repositoryId)
             listed = true
+            null
         }
     }
     val refreshFromGitHub = {
@@ -382,7 +415,7 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                 val saved = sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = done to toFetch }
                 listed = true
                 listOfNotNull(
-                    "Saved ${saved.fetched} ${if (saved.fetched == 1) "note" else "notes"} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
+                    "Saved ${counted(saved.fetched, "note")} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
                     saved.cannotShow.takeIf { it.isNotEmpty() }?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
                 ).joinToString(" ")
             } catch (failure: ApiException) {
@@ -409,9 +442,9 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                         status = null
                         scope.launch {
                             try {
-                                // Unsent changes are sent first, so the confirmation counts everything that will be deleted.
-                                sync.syncLocalChanges()
-                                confirmDisconnect = sync.storedData(screen.repositoryId)
+                                // Null: the server had already disconnected it, and this phone's copies are now gone too.
+                                val preview = sync.disconnectPreview(screen.repositoryId)
+                                if (preview == null) onDisconnected() else confirmDisconnect = preview
                             } catch (failure: ApiException) {
                                 onFailure(failure)
                                 status = "Can't disconnect now. ${failure.describe()}"
@@ -451,13 +484,17 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
             }
         }
     }
-    confirmDisconnect?.let { stored ->
+    confirmDisconnect?.let { preview ->
+        val stored = preview.stored
         AlertDialog(
             onDismissRequest = { confirmDisconnect = null },
             title = { Text("Disconnect ${screen.repositoryName}?") },
             text = {
-                Text("RepoRead will delete, on its server and this phone, its list of ${stored.documents} notes, your reading progress on " +
-                    "${stored.readingStates}, ${stored.bookmarks} bookmarks, and ${stored.highlights} highlights with their notes, and ${stored.cards} cards with their review logs. " +
+                Text("RepoRead will delete, on its server and this phone, its list of ${counted(stored.documents, "note")}, your reading progress on " +
+                    "${counted(stored.readingStates, "note")}, ${counted(stored.bookmarks, "bookmark")}, ${counted(stored.highlights, "highlight")} with their notes, " +
+                    "and ${counted(stored.cards, "card")} with their review logs. " +
+                    (if (preview.unsent == 0) "" else "${counted(preview.unsent, "highlight, card, or grade", "highlights, cards, or grades")} only on this phone " +
+                        "go too${preview.notSent?.let { " (not sent: $it)" } ?: ""}. ") +
                     "This cannot be undone. The repository on GitHub is not changed; to remove " +
                     "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub.")
             },
