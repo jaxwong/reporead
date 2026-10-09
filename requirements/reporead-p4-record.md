@@ -1,6 +1,6 @@
 # P4 — Anchored review cards and highlights notebook
 
-Implementation and verification record, 2026-10-09. **Device execution and the two-week real-review exit gate remain pending.** Implementation is not evidence of that gate passing.
+Implementation and verification record, 2026-10-09. **Device fixture tests passed twice; the two-week real-review exit gate remains pending.** Implementation is not evidence of that gate passing.
 
 ## Approved decisions and scope
 
@@ -91,25 +91,48 @@ PASS: release test-host packaging = False
 PASS: release manifest excludes the test host and includes the private export provider
 ```
 
-## Device checks: compiled, not executed
+## Device checks: executed on Pixel 8a
+
+The user separately approved same-key debug/test installs over the existing app, fixture-only tests, and release restoration without clearing app data. Initial attempts found an offline/missing phone; one install exited **1**, device not found, before changing an APK. After reconnecting, the safe Android README procedure ran on serial `adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp`. **Never** use connectedDebugAndroidTest on this phone.
+
+The first device run and two diagnostic runs reported **23 tests, 1 failure**. Card-authoring assertions passed, but fixture teardown expected a final position save before the recreated WebView was ready. Added named timeout diagnostics and assertions that the reader restores block 12 in ordinary-reading mode before teardown. The existing final-save and card assertions remain unchanged; no production behavior was changed to satisfy the test.
+
+Build after the fixture correction, exit **0**:
 
 ```sh
-~/Library/Android/sdk/platform-tools/adb devices -l
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :backend:test --no-daemon
 ```
-
-Exit **0**:
 
 ```text
-192.168.1.214:34499    offline product:akita model:Pixel_8a device:akita transport_id:3
+BUILD SUCCESSFUL in 8s
+134 actionable tasks: 8 executed, 126 up-to-date
 ```
 
-The phone was offline. No APK was installed, no app data was read/cleared, and no release restoration was needed. Device-install approval was requested separately; execution was not assumed. The existing safe `adb install -r`/`shell am instrument` procedure is in the Android README; **never** use connectedDebugAndroidTest on this phone.
+Exact device commands (each exit **0**; instrumentation command executed twice consecutively after the correction):
 
-Compiled but **unexecuted** regressions include: v6→v7 migration from the exported schema retaining saved notes/unsent highlights; Room pending-grade merge/deletion/current-answer rules; test-only loopback HTTP Sync with five successes then failure, subsequent completion, duplicate replay and zero-call empty run; native selection-based P3 card authoring with dialog recreation; ten native offline grades with reveal/session recreation; and the existing reader/canonical-text lifecycle suite.
+```sh
+~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r android/build/outputs/apk/debug/app-debug.apk
+~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w com.reporead.android.test/androidx.test.runner.AndroidJUnitRunner
+~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r android/build/outputs/apk/release/app-release.apk
+```
+
+```text
+Debug install: Performing Streamed Install / Success / EXIT 0
+Test install: Performing Streamed Install / Success / EXIT 0
+Run 1: Time: 14.433 / OK (23 tests) / EXIT 0
+Run 2: Time: 13.935 / OK (23 tests) / EXIT 0
+Release restoration: Performing Streamed Install / Success / EXIT 0
+PASS: requested fixture runs succeeded; release restored; no uninstall or data clear.
+```
+
+The bounded runner (`python3 -u /private/tmp/reporead-p4-device-run.py 2`, exit **0**) checks the terminal `OK (23 tests)` result because adb itself exits 0 even on test failures. A `finally` block restores release on failure as well as success; every installed diagnostic run restored it successfully. Full output is outside the repo at `/private/tmp/reporead-p4-device-tests.log`. The test APK remains installed; no uninstall or app-data clearing was performed. No real app database was opened or account/backend session used by these fixtures.
+
+Passed twice: v6→v7 migration from the exported schema retaining saved notes/unsent highlights; Room pending-grade merge/deletion/current-answer rules; test-only loopback HTTP Sync with five successes then failure, subsequent completion, duplicate replay and zero-call empty run; native selection-based P3 card authoring with dialog and reader recreation; ten native offline grades with reveal/session recreation; and the existing reader/canonical-text lifecycle suite.
 
 ## Still unverified / out of scope
 
-- Device execution, real airplane-mode grading/reconnection, real laptop edits, share-sheet delivery to another app, large-font/rotation visual checks of the new screens, and two weeks of actual review sessions. Compiled tests do not establish these outcomes.
-- The new migrations were exercised only in test databases, not applied to the live backend or the phone. Deployment and restarting the real backend are not performed here; the running old backend needs the new build before it can serve these APIs.
+- Real airplane-mode grading/reconnection, real laptop edits, share-sheet delivery to another app, large-font/rotation visual checks of the new screens, and two weeks of actual review sessions. Fixture tests do not establish these outcomes.
+- The new migrations were exercised only in test databases, including a test-only database on the phone, not the live backend or real app database. Release is installed, but deployment/restarting the real backend and launching the real app are not performed here; the running old backend needs the new build before it can serve these APIs.
 - No real-account cards or grades were created. No GitHub source was changed. AI question generation/multiple choice, FSRS, arbitrary question editing, log pagination/history pruning and background synchronization are not included.
 - Existing source-SHA provenance limitation (the server verifies a blob in the repository, not its membership in that particular document's history), documented dependency advisories and SDK XML-version warning were noticed but not changed. No new vulnerability audit is claimed.
