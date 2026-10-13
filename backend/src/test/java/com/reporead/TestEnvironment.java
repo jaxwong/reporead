@@ -26,6 +26,7 @@ public final class TestEnvironment {
             throw new ExceptionInInitializerError(error);
         }
         properties.add("reporead.github.client-id", () -> "test-only-not-a-github-app");
+        properties.add("reporead.public-url", () -> "http://127.0.0.1:8081");
         properties.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         properties.add("spring.datasource.username", POSTGRES::getUsername);
         properties.add("spring.datasource.password", POSTGRES::getPassword);

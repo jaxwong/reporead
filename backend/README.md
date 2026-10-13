@@ -20,6 +20,7 @@ Save the GitHub App client secret as a single token in a file **outside any Git 
 
 ```sh
 DEBUG=false \
+REPOREAD_PUBLIC_URL='http://127.0.0.1:8081' \
 REPOREAD_GITHUB_CLIENT_ID='<your-app-client-id>' \
 REPOREAD_GITHUB_CLIENT_SECRET_FILE='/absolute/private/path/client-secret' \
 REPOREAD_DB_URL='jdbc:postgresql://127.0.0.1:5435/reporead' \
@@ -30,11 +31,27 @@ REPOREAD_DB_PASSWORD='reporead-local-dev' \
 
 `DEBUG=false` overrides this Mac's inherited `DEBUG=release`, which otherwise enables verbose framework logging. Do not enable HTTP/security debug logging with real credentials.
 
-The server binds to `127.0.0.1:8081` (an unrelated Docker service owns 8080). Register this GitHub App callback: `http://127.0.0.1:8081/login/oauth2/code/github`. The phone reaches the same loopback address through adb, so the callback is identical on the Mac and phone:
+The server always binds to `127.0.0.1:8081` (an unrelated Docker service owns 8080) and refuses any other address. `REPOREAD_PUBLIC_URL` is where the phone and GitHub reach it, and the OAuth callback is `<REPOREAD_PUBLIC_URL>/login/oauth2/code/github` — never derived from a request's `Host`. It must be `http://127.0.0.1:<server.port>` or an `https://` origin without a path; anything else fails startup. Both callbacks are registered on the GitHub App:
 
-```sh
-~/Library/Android/sdk/platform-tools/adb -s <device-serial> reverse tcp:8081 tcp:8081
-```
+| Where | `REPOREAD_PUBLIC_URL` | Phone reaches it through |
+| --- | --- | --- |
+| Mac (debug builds) | `http://127.0.0.1:8081` | `adb -s <device-serial> reverse tcp:8081 tcp:8081` |
+| Hosted VM (release builds) | `https://reporead.duckdns.org` | Caddy on the VM, which terminates HTTPS and forwards to loopback |
+
+Behind Caddy, `server.forward-headers-strategy=native` lets Tomcat honour `X-Forwarded-Proto` from loopback, so redirects stay on HTTPS and the session cookie is `Secure`.
+
+## Hosted VM
+
+Oracle Cloud Always Free (ADR-14): `VM.Standard.A1.Flex`, 1 OCPU / 6 GB, Oracle Linux 9, home region `ap-singapore-1`, `ssh opc@152.69.219.238`. Only 22, 80 and 443 are open (Oracle security list and `firewalld`); PostgreSQL, 8081 and Actuator 8082 listen on loopback only.
+
+| Piece | Where |
+| --- | --- |
+| PostgreSQL 17.11 | Podman Quadlet `/etc/containers/systemd/reporead-postgres.container` (service `reporead-postgres`, volume `reporead-postgres`, health-gated `Notify=healthy`) |
+| Backend | `/opt/reporead/backend.jar` (root-owned), service `/etc/systemd/system/reporead-backend.service`, user `reporead`, starts after the database is healthy |
+| Configuration | `/etc/reporead/backend.env` (root 0600, includes the database password), `/etc/reporead/github-client-secret` (`reporead` 0600), `/etc/reporead/db-password` (root 0600, also the Podman secret `reporead-db-password`) |
+| HTTPS | Caddy (`/etc/caddy/Caddyfile`), Let's Encrypt via HTTP-01, proxies only to `127.0.0.1:8081` |
+
+Deploy a jar built from a merged commit with `./gradlew :backend:bootJar --no-daemon`: copy `backend/build/libs/backend.jar` to `/opt/reporead/backend.jar` (root 0644), then `sudo systemctl restart reporead-backend` and `curl -s http://127.0.0.1:8082/actuator/health` on the VM. Logs: `sudo journalctl -u reporead-backend`. A restart drops the in-memory GitHub token, so the phone asks to sign in again before its next GitHub-backed request.
 
 ## Sign-in contract (Android)
 

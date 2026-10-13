@@ -1,6 +1,7 @@
 package com.reporead.android.core.network
 
 import android.util.Log
+import com.reporead.android.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException
@@ -92,7 +93,9 @@ inline fun <T> contract(read: () -> T): T = try {
 
 /** A short, user-facing explanation of a failure, distinguishing the states the reader must show explicitly. */
 fun ApiException.describe(): String = when (code) {
-    "BACKEND_UNAVAILABLE" -> "Can't reach RepoRead's server. Is it running, and is adb reverse set up?"
+    "BACKEND_UNAVAILABLE" ->
+        if (BuildConfig.DEBUG) "Can't reach RepoRead's server. Is it running, and is adb reverse set up?"
+        else "Can't reach RepoRead's server. Check your internet connection."
     "GITHUB_UNAVAILABLE" -> "GitHub is unavailable or rate limited. Nothing was changed."
     "GITHUB_ACCESS_DENIED", "REPOSITORY_NOT_AUTHORIZED" -> "Access denied: $message"
     "UNSUPPORTED_CONTENT" -> "This note can't be shown: $message"
