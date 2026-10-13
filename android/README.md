@@ -13,7 +13,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:a
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am start -n com.reporead.android/.MainActivity
 ```
 
-`adb reverse` makes the phone's `127.0.0.1:8081` reach the Mac's loopback backend, so the registered GitHub callback is unchanged. It is reset when the phone disconnects — including when airplane mode or Wi-Fi loss ends wireless debugging. Re-enable wireless debugging and repeat it before syncing. Cleartext HTTP is permitted only to `127.0.0.1` (`res/xml/network_security_config.xml`). The base URL is a `BuildConfig` constant in `build.gradle.kts`.
+Debug builds use the Mac's backend: `adb reverse` makes the phone's `127.0.0.1:8081` reach the Mac's loopback backend, so the registered GitHub callback is unchanged. It is reset when the phone disconnects — including when airplane mode or Wi-Fi loss ends wireless debugging. Re-enable wireless debugging and repeat it before syncing. Only debug builds permit cleartext HTTP, and only to `127.0.0.1` (`src/debug/res/xml/network_security_config.xml` overrides the HTTPS-only `src/main` one). The base URL is a per-build-type `BuildConfig` constant in `build.gradle.kts`.
 
 ## Signing and the release APK
 
@@ -31,7 +31,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleRelease --no-dae
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r android/build/outputs/apk/release/app-release.apk
 ```
 
-The release build is not debuggable (no WebView DevTools, no `run-as`) and not minified. It uses the same backend address as development, `http://127.0.0.1:8081` through `adb reverse`, so refreshing and syncing need the phone on wireless debugging with the Mac; saved notes, highlights, and progress work offline and sync later. Hosting the backend is a separate decision. To inspect the phone's database, install the debug build over it (same key and app id; data is kept), then the release build again.
+The release build is not debuggable (no WebView DevTools, no `run-as`) and not minified. It uses the hosted backend, `https://reporead.duckdns.org` (ADR-14), so refreshing and syncing need only an internet connection; saved notes, highlights, and progress work offline and sync later. To inspect the phone's database, install the debug build over it (same key and app id; data is kept), then the release build again.
 
 ## Device tests
 

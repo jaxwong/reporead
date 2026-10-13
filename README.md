@@ -13,7 +13,7 @@ An Android reading and study layer for technical Markdown notes kept in GitHub: 
 
 1. Start PostgreSQL (`docker compose -f backend/compose.yaml -p reporead up -d`) and the backend with the GitHub App client id and secret file — [backend/README.md](backend/README.md#run).
 2. Install the reader's npm dependencies once and set up the signing key — [android/README.md](android/README.md).
-3. Build and install the app, then `adb reverse tcp:8081 tcp:8081` so the phone reaches the Mac's loopback backend.
+3. Build and install the debug app, then `adb reverse tcp:8081 tcp:8081` so the phone reaches the Mac's loopback backend. Release builds use the hosted backend at `https://reporead.duckdns.org` instead — [backend/README.md](backend/README.md#hosted-vm).
 
 ## Tests
 
@@ -28,7 +28,7 @@ Device tests (Room on the phone) run with `adb shell am instrument`, never `conn
 
 | Situation | Behaviour |
 | --- | --- |
-| Backend unreachable (Mac off, `adb reverse` gone) | Saved notes, highlights, and progress work; new highlights and reading saves wait as pending; the library says it is showing saved data |
+| Backend unreachable (no internet, VM down; for debug builds, Mac off or `adb reverse` gone) | Saved notes, highlights, and progress work; new highlights and reading saves wait as pending; the library says it is showing saved data |
 | GitHub unavailable or rate limited | 503 `GITHUB_UNAVAILABLE`; nothing changes; saved copies stay readable and are marked as saved copies |
 | Server restarted or GitHub token expired | 401: the app asks to sign in again; saved data stays |
 | Incomplete GitHub tree | Sync fails without changes; notes are never marked deleted from an incomplete listing |

@@ -32,8 +32,6 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1"
-        // Development backend reached through `adb reverse tcp:8081 tcp:8081`; see backend/README.md.
-        buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8081\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -48,9 +46,15 @@ android {
     }
 
     buildTypes {
-        debug { signingConfigs.findByName("personal")?.let { signingConfig = it } }
+        debug {
+            signingConfigs.findByName("personal")?.let { signingConfig = it }
+            // Development backend on the Mac, reached through `adb reverse tcp:8081 tcp:8081`; see backend/README.md.
+            buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8081\"")
+        }
         release {
             signingConfigs.findByName("personal")?.let { signingConfig = it }
+            // Hosted backend (ADR-14); HTTPS only.
+            buildConfigField("String", "API_BASE_URL", "\"https://reporead.duckdns.org\"")
             // Not minified: Room, Compose, and the reader bridge-free WebView are verified unshrunk only.
             isMinifyEnabled = false
         }

@@ -37,6 +37,8 @@ import org.springframework.web.client.RestTemplate;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -66,12 +68,13 @@ public class GitHubSecurity {
         @Value("${reporead.github.client-id}") String clientId,
         @Value("${reporead.github.client-secret-file}") String secretFile,
         @Value("${server.address}") String address,
-        @Value("${server.port}") int port
+        @Value("${server.port}") int port,
+        @Value("${reporead.public-url}") String publicUrl
     ) throws IOException {
         if (clientId.isBlank()) throw new IllegalArgumentException("reporead.github.client-id must not be blank");
-        // The phone reaches this loopback callback through `adb reverse`; see backend/README.md.
-        if (!address.equals("127.0.0.1")) throw new IllegalArgumentException("Development OAuth server must bind to 127.0.0.1");
-        String callback = "http://" + address + ":" + port + "/login/oauth2/code/github";
+        // Only loopback clients reach the server: the phone through `adb reverse` on the Mac, or the hosted HTTPS proxy.
+        if (!address.equals("127.0.0.1")) throw new IllegalArgumentException("RepoRead must bind to 127.0.0.1, not " + address);
+        String callback = callbackUri(publicUrl, port);
         var registration = ClientRegistration.withRegistrationId("github")
             .clientId(clientId).clientSecret(readSecret(Path.of(secretFile)))
             .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST)
@@ -185,6 +188,27 @@ public class GitHubSecurity {
 
     public static final class ResponseTooLarge extends IOException {
         ResponseTooLarge(String endpoint, int maxBytes) { super("GitHub response exceeds " + maxBytes + " bytes at " + endpoint); }
+    }
+
+    /**
+     * The URL GitHub sends the browser back to after sign-in. Fixed by configuration: the Mac's adb-reverse loopback
+     * address on this server's port, or an HTTPS origin with no path. Must match a callback registered on the GitHub App.
+     */
+    static String callbackUri(String publicUrl, int port) {
+        URI uri;
+        try {
+            uri = new URI(publicUrl);
+        } catch (URISyntaxException error) {
+            throw new IllegalArgumentException("reporead.public-url is not a URL: " + publicUrl, error);
+        }
+        boolean loopback = publicUrl.equals("http://127.0.0.1:" + port);
+        boolean httpsOrigin = "https".equals(uri.getScheme()) && uri.getHost() != null && uri.getRawUserInfo() == null
+            && uri.getRawPath().isEmpty() && uri.getRawQuery() == null && uri.getRawFragment() == null;
+        if (!loopback && !httpsOrigin) {
+            throw new IllegalArgumentException("reporead.public-url must be http://127.0.0.1:" + port
+                + " (adb reverse) or an https:// origin without a path, not: " + publicUrl);
+        }
+        return publicUrl + "/login/oauth2/code/github";
     }
 
     static String readSecret(Path file) throws IOException {

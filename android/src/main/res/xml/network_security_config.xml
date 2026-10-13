@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cleartext only to the loopback development backend forwarded by adb reverse; everything else requires HTTPS. -->
+<!-- HTTPS only. Debug builds override this file (src/debug) to allow the loopback development backend. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-    </domain-config>
 </network-security-config>

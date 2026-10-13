@@ -76,9 +76,9 @@ The decisions that shape RepoRead's MVP, as built. Each says what was decided, w
 
 ## ADR-12 — Personal distribution: one signing key, backend over adb reverse
 
-**Decision** (the user's, Stage 6). Every build is signed with one personal key kept outside the repository, so release and development builds install over each other. The release build keeps the loopback backend address reached through `adb reverse`; no hosted deployment for the MVP.
+**Decision** (the user's, Stage 6). Every build is signed with one personal key kept outside the repository, so release and development builds install over each other. The release build's backend address is superseded by ADR-14; debug builds keep the loopback backend reached through `adb reverse`.
 
-**Consequences.** Refresh and sync need the phone on wireless debugging with the Mac; reading saved notes and annotating work anywhere. Losing the key means uninstalling to update. Hosting the backend is a separate future decision.
+**Consequences.** Losing the key means uninstalling to update.
 
 
 ## ADR-13 — Anchored cards; server review log, phone-only SM-2 scheduling
@@ -90,3 +90,12 @@ The decisions that shape RepoRead's MVP, as built. Each says what was decided, w
 **Data controls.** ADR-11 includes cards and review logs. Card deletion cascades its grades, disconnect removes the repository's cards/logs and phone copies (pending work and private export files included), and account deletion removes everything. Markdown share attachments leave GitHub untouched; copies delivered to other apps cannot be revoked.
 
 **Evidence.** [P4 record](reporead-p4-record.md); its device and two-week real-use checks are separately stated, never inferred from a build.
+
+
+## ADR-14 — Hosted backend on an Oracle Cloud Always Free VM; debug builds stay on the Mac
+
+**Decision** (the user's, 2026-10-13). The release build talks to `https://reporead.duckdns.org`, an Oracle Cloud Always Free `VM.Standard.A1.Flex` (1 OCPU / 6 GB, home region `ap-singapore-1`) running the same backend and PostgreSQL 17.11, behind Caddy with a Let's Encrypt certificate. Debug builds keep `http://127.0.0.1:8081` through `adb reverse` for testing unmerged changes. The server still binds only to `127.0.0.1`; `REPOREAD_PUBLIC_URL` fixes the OAuth callback (never the request's `Host`), and forwarded headers are honoured from loopback so redirects and the session cookie stay on HTTPS. The Mac's database moves to the VM at switch-over so phone and server ids keep matching.
+
+**Why this host.** Free hosts that sleep (Render, Koyeb) drop the in-memory GitHub token and Render deletes free databases; Fly.io and Railway have no free tier; Google's e2-micro has 1 GB for the JVM and database together. DuckDNS is free and on the Public Suffix List, so Let's Encrypt limits are not shared (sslip.io and nip.io are not listed).
+
+**Consequences.** Refresh and sync work wherever the phone has internet. The backend is reachable from the internet for the first time; only Caddy (80/443) and SSH are open. Oracle may reclaim an Always Free VM idle for 7 days (CPU, network and memory all under 20%), and may change free limits (halved in mid-2026). Every backend restart, including deploys, drops the in-memory GitHub token until sign-in. DuckDNS is a small volunteer service; losing the name means a new address and an app rebuild. Deployment is manual until CI/CD.
