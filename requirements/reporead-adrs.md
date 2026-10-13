@@ -78,7 +78,7 @@ The decisions that shape RepoRead's MVP, as built. Each says what was decided, w
 
 **Decision** (the user's, Stage 6). Every build is signed with one personal key kept outside the repository, so release and development builds install over each other. The release build's backend address is superseded by ADR-14; debug builds keep the loopback backend reached through `adb reverse`.
 
-**Consequences.** Losing the key means uninstalling to update.
+**Consequences.** Losing the key means uninstalling to update. Since ADR-15 a copy is also a GitHub repository secret.
 
 
 ## ADR-13 — Anchored cards; server review log, phone-only SM-2 scheduling
@@ -99,3 +99,11 @@ The decisions that shape RepoRead's MVP, as built. Each says what was decided, w
 **Why this host.** Free hosts that sleep (Render, Koyeb) drop the in-memory GitHub token and Render deletes free databases; Fly.io and Railway have no free tier; Google's e2-micro has 1 GB for the JVM and database together. DuckDNS is free and on the Public Suffix List, so Let's Encrypt limits are not shared (sslip.io and nip.io are not listed).
 
 **Consequences.** Refresh and sync work wherever the phone has internet. The backend is reachable from the internet for the first time; only Caddy (80/443) and SSH are open. Oracle may reclaim an Always Free VM idle for 7 days (CPU, network and memory all under 20%); RepoRead alone used ~16% of memory, so the backend commits a 1 GB heap at startup (`-Xms1g -XX:+AlwaysPreTouch` in its systemd unit), keeping memory near 33%. Oracle may also change free limits (halved in mid-2026). Every backend restart, including deploys, drops the in-memory GitHub token until sign-in. DuckDNS is a small volunteer service; losing the name means a new address and an app rebuild. Pushes to `main` that touch the backend deploy through GitHub Actions with a key that can only run the VM's deploy script, which rolls back an unhealthy jar; app builds are still installed by hand.
+
+## ADR-15 — App releases through GitHub Releases, installed by Obtainium
+
+**Decision** (the user's, 2026-10-14). Pushes to `main` that change the app build a release APK in GitHub Actions, signed with the personal key (ADR-12) from repository secrets, and publish it as GitHub Release `v0.1.<commit count>`. Obtainium on the phone installs each release over the current app. `versionCode` is the commit count of `HEAD`, which only grows along `main`. No Play Store: its internal testing track would also work, but needs a paid developer account, Play App Signing and a service account.
+
+**Safety.** The workflow refuses to publish an APK whose signing certificate is not the personal key's (`2049299f…53293f`). Pull requests run unit tests without secrets; only the release job on `main` can write releases.
+
+**Consequences.** App updates no longer need the Mac or adb. The signing key now also lives in GitHub: anyone who controls the repository's Actions or secrets can publish an update the phone accepts as genuine, so the GitHub account is now part of the app's trust boundary. The repository is public, so release APKs are downloadable by anyone; they contain nothing beyond the public backend address. A hand-installed branch build with a higher commit count blocks the next release until it is reinstalled with `adb install -r -d`.

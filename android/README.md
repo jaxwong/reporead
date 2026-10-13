@@ -33,6 +33,12 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleRelease --no-dae
 
 The release build is not debuggable (no WebView DevTools, no `run-as`) and not minified. It uses the hosted backend, `https://reporead.duckdns.org` (ADR-14), so refreshing and syncing need only an internet connection; saved notes, highlights, and progress work offline and sync later. To inspect the phone's database, install the debug build over it (same key and app id; data is kept), then the release build again.
 
+## Releases and Obtainium
+
+A push to `main` that changes the app or the build runs `.github/workflows/android.yml`: unit tests, then a release APK signed with the personal key (repository secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`), checked against the certificate SHA-256 `2049299f…53293f`, and published as GitHub Release `v0.1.<n>` with `reporead-0.1.<n>.apk` and its `.sha256`. Pull requests run the unit tests only. `versionCode` is `n`, the commit count of `HEAD` (`git rev-list --count HEAD`), and `versionName` is `0.1.<n>`, so releases from `main` only go up.
+
+On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https://github.com/jaxwong/reporead` (public, so no token) and installs each new release over the current app, keeping its data, because every release is signed with the same key. A build installed by hand from a branch can carry a higher commit count than the next release from `main`; Android refuses that as a downgrade, so reinstall the release with `adb install -r -d`.
+
 ## Device tests
 
 These run the Room cache and pending-change rules against an in-memory database on the phone, plus isolated WebView study checks and real reader Activity-recreation tests. The lifecycle tests use a debug-only, non-exported Activity and explicitly test-only saved pages; they make no network calls and never access the app's database. The host is absent from release builds. Install and run them with adb, which keeps the installed app and its data:
