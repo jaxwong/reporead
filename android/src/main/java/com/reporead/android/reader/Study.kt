@@ -7,14 +7,23 @@ import org.jsoup.nodes.TextNode
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** P3's measured headings. This model owns recognition for both the reader and the offline practice list. */
-private val QUESTION_HEADINGS = setOf("questions this file answers", "review and practice")
+/** P3's measured LeetCode headings. This model owns recognition for both the reader and the offline practice list. */
 private val COLLAPSED_HEADINGS = setOf("approach", "brute force approach", "optimized approach", "complexities", "mistakes")
+/** The interview banks' question sections, measured 2026-10-13 over 85 banks; a leading "N. " is not part of the name. */
+private val BANK_SECTIONS = setOf("foundations", "applied questions", "design follow-ups", "stretch", "diagnosis")
+private val NUMBERED = Regex("""^\d+\.\s+""")
+/** The line a bank question names its answer with; follow-up groups share one "Canonical path". */
+private val ANSWER_LINE = Regex("""^Canonical (answer|answers|path):""")
 
 /** A Practice selection names a canonical block only within the saved version it came from. */
 data class StudyTarget(val blobSha: String, val blockId: String)
 
-internal data class StudyQuestion(val blockId: String, val text: String, val instruction: String? = null) {
+/** A bank question's authored answer: its "Canonical answer" line's block and that block's canonical text. */
+internal data class StudyAnswer(val blockId: String, val text: String)
+
+/** [guide] is what the bank says about the question besides the question itself, shown when its card is revealed. */
+internal data class StudyQuestion(val blockId: String, val text: String, val instruction: String? = null,
+                                  val answer: StudyAnswer? = null, val guide: List<String> = emptyList()) {
     val prompt: String get() = listOfNotNull(instruction, text).joinToString("\n\n")
 }
 internal data class StudyNote(val recognized: Boolean, val collapsedHeadings: List<String>, val questions: List<StudyQuestion>)
@@ -22,37 +31,58 @@ internal data class StudyNote(val recognized: Boolean, val collapsedHeadings: Li
 internal fun StudyNote.json(): JSONObject = JSONObject().put("collapsedHeadings", JSONArray(collapsedHeadings))
     .put("questions", JSONArray(questions.map { JSONObject().put("blockId", it.blockId).put("text", it.prompt) }))
 
-/** Reads only the renderer's canonical blocks; code, tables, and nested list points are not question items. */
-internal fun studyNote(html: String): StudyNote {
+/** Questions come only from interview banks: notes in a folder named `interview`, at any depth. */
+internal fun isInterviewBank(path: String): Boolean = "interview" in path.split('/').dropLast(1)
+
+/**
+ * Reads only the renderer's canonical blocks. In a bank's question sections, each numbered H3 is one question, and each
+ * top-level list item under an unnumbered H3 ("After you …") is one, with that heading as its instruction.
+ */
+internal fun studyNote(html: String, path: String): StudyNote {
+    val bank = isInterviewBank(path)
     val blocks = Jsoup.parse(html).select("#note [data-block-id]")
     val collapsed = mutableListOf<String>()
     val questions = mutableListOf<StudyQuestion>()
-    var recognized = false
-    var questionLevel: Int? = null
-    var review = false
+    var leetcode = false
+    var questionSection = false
+    var group: Element? = null
     val section = mutableListOf<Element>()
-    fun finishSection() {
-        questions += questionItems(section, review)
+    fun finishGroup() {
+        group?.let { questions += bankQuestions(it, section) }
+        group = null
         section.clear()
-        questionLevel = null
     }
     for (block in blocks) {
         val tag = block.tagName()
         if (tag.length == 2 && tag[0] == 'h' && tag[1] in '1'..'6') {
             val level = tag[1].digitToInt()
-            val name = block.attr("data-anchor-text").trim().lowercase()
-            if (questionLevel?.let { level <= it || name in QUESTION_HEADINGS } == true) finishSection()
-            when (name) {
-                in QUESTION_HEADINGS -> { recognized = true; questionLevel = level; review = name == "review and practice" }
-                in COLLAPSED_HEADINGS -> { recognized = true; collapsed += block.attr("data-block-id") }
-                "problem" -> recognized = true
+            val name = block.attr("data-anchor-text").trim()
+            if (level <= 3) finishGroup()
+            if (level <= 2) questionSection = bank && level == 2 && name.replaceFirst(NUMBERED, "").lowercase() in BANK_SECTIONS
+            if (level == 3 && questionSection) group = block
+            when (name.lowercase()) {
+                in COLLAPSED_HEADINGS -> { leetcode = true; collapsed += block.attr("data-block-id") }
+                "problem" -> leetcode = true
             }
             continue
         }
-        if (questionLevel != null) section.add(block)
+        if (group != null) section.add(block)
     }
-    finishSection()
-    return StudyNote(recognized, collapsed, questions)
+    finishGroup()
+    return StudyNote(leetcode || questions.isNotEmpty(), collapsed, questions)
+}
+
+/** The questions under one bank H3, from its [blocks] up to the next H1–H3. */
+private fun bankQuestions(heading: Element, blocks: List<Element>): List<StudyQuestion> {
+    val items = candidates(blocks)
+    val answer = blocks.firstOrNull { it.tagName() == "p" && ANSWER_LINE.containsMatchIn(it.attr("data-anchor-text")) }
+        ?.let { StudyAnswer(it.attr("data-block-id"), it.attr("data-anchor-text")) }
+    val title = shownText(heading)
+    if (NUMBERED.containsMatchIn(title)) {
+        return listOf(StudyQuestion(heading.attr("data-block-id"), title.replaceFirst(NUMBERED, ""), null, answer, items.map { it.text }))
+    }
+    val guide = items.filterNot { it.listItem }.map { it.text }
+    return items.filter { it.listItem }.map { StudyQuestion(it.block.attr("data-block-id"), it.text, title, answer, guide) }
 }
 
 /** A question candidate: [block] identifies it, [text] is what the reader sees, [listItem] tells items from prose. */
@@ -93,24 +123,3 @@ private fun shownText(element: Element, skipNestedLists: Boolean = false): Strin
     }
     visit(element)
 }.trim()
-
-private fun questionItems(blocks: List<Element>, review: Boolean): List<StudyQuestion> {
-    val items = candidates(blocks)
-    fun question(item: Candidate, instruction: String? = null) = StudyQuestion(item.block.attr("data-block-id"), item.text, instruction)
-    if (!review) return items.map { question(it) }
-    if (items.none { it.listItem }) return items.take(1).map { question(it) }
-    val questions = mutableListOf<StudyQuestion>()
-    val instruction = mutableListOf<String>()
-    var afterList = false
-    for (item in items) {
-        if (!item.listItem) {
-            if (afterList) instruction.clear()
-            instruction += item.text
-            afterList = false
-        } else {
-            questions += question(item, instruction.takeIf { it.isNotEmpty() }?.joinToString("\n\n"))
-            afterList = true
-        }
-    }
-    return questions
-}

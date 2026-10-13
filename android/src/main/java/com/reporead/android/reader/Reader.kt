@@ -93,7 +93,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             sinceCaptured = true
         }
         val opened = sync.openNote(screen.documentId)
-        StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html) })
+        StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html, opened.note.path) })
     }
     val displayed = (load as? Load.Ready)?.value?.opened?.note?.blobSha
     val study = (load as? Load.Ready)?.value?.study
@@ -131,7 +131,8 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var restoreNotice by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var notesOpen by remember { mutableStateOf(false) }
-    var answerPrompt by rememberSaveable(screen.documentId) { mutableStateOf(screen.reviewPrompt) }
+    /** Practice's Add to review has offered its question's card; saved, so recreation does not offer it again. */
+    var reviewOffered by rememberSaveable(screen.documentId) { mutableStateOf(!screen.review) }
     var newCardSelection by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var newCardPrompt by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var newSelection by remember { mutableStateOf<JSONObject?>(null) }
@@ -170,7 +171,6 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     val save: (selection: JSONObject, note: String?, question: String?) -> Unit = { selection, note, question ->
         appScope.launch {
             val id = withContext(NonCancellable) { sync.createAnnotation(selection, screen.documentId, note, question) }
-            if (question != null) answerPrompt = null
             val kind = if (question == null) "Highlight" else "Card"
             message = if (!signedIn) "$kind saved on this phone; it is sent after you sign in." else try {
                 val notSent = sync.pushAnnotations()
@@ -195,6 +195,27 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                 if (error.code == "ANNOTATION_CONFLICT") "This highlight was changed elsewhere; sync, reopen the note, and try again."
                 else "Not reattached. ${error.describe()}"
             }
+        }
+    }
+
+    /** A bank question becomes a card whose answer is its authored "Canonical answer" line in the version on screen. */
+    val offerCard: (StudyQuestion, String) -> Unit = { question, blobSha ->
+        val answer = question.answer
+        if (answer == null) message = "This question has no Canonical answer line in its bank, so it can't become a card."
+        else {
+            newCardSelection = JSONObject().put("sourceBlobSha", blobSha).put("blockId", answer.blockId)
+                .put("startOffset", 0).put("endOffset", answer.text.length).put("exactText", answer.text).toString()
+            newCardPrompt = question.prompt
+        }
+    }
+    (load as? Load.Ready)?.value?.let { page ->
+        LaunchedEffect(page) {
+            if (reviewOffered) return@LaunchedEffect
+            reviewOffered = true
+            val target = checkNotNull(screen.question) { "Add to review opened note ${screen.documentId} without a question" }
+            val question = page.study.questions.firstOrNull { it.blockId == target.blockId }
+            if (page.opened.note.blobSha != target.blobSha || question == null) message = "This question isn't in the version on screen; find it in Study."
+            else offerCard(question, target.blobSha)
         }
     }
 
@@ -230,22 +251,11 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
             if (since != null && since != opened.note.blobSha && !signedIn) Notice("This note changed since you last read it. Sign in to see what changed.")
-            answerPrompt?.let { prompt ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Question: $prompt\nSelect its answer passage, then choose Use as answer.",
-                        modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { answerPrompt = null }) { Text("Cancel") }
-                }
-            }
             if (studying && page.study.questions.isNotEmpty()) {
                 TextButton(onClick = {
                     sessionRef?.currentQuestion { blockId ->
-                        val prompt = page.study.questions.firstOrNull { it.blockId == blockId }?.prompt
-                        if (prompt != null) {
-                            answerPrompt = prompt
-                            studying = false
-                            sessionRef?.setStudy(false)
-                        } else message = "Choose a question from Practice to add it to review."
+                        val question = page.study.questions.firstOrNull { it.blockId == blockId }
+                        if (question != null) offerCard(question, opened.note.blobSha) else message = "Show a question first, then add it to review."
                     }
                 }) { Text("Add question to review") }
             }
@@ -292,22 +302,16 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                     onTopBlock = { topBlock = it },
                     onBarsShown = { barsShown = it },
                     reattaching = { reattaching != null },
-                    selectingAnswer = { answerPrompt != null },
                     onMessage = { message = it },
                     onSelection = { selection, action ->
                         // The menu was built for the state at the time; Cancel may have ended that mode since.
                         val placing = reattaching
-                        val prompt = answerPrompt
                         when {
                             selection == null -> message = "Select some text first."
                             selection.has("error") -> message = selection.getString("error")
                             else -> when (action) {
                                 SelectionAction.REATTACH ->
                                     if (placing != null) reattach(placing, selection) else message = "Reattaching was cancelled; choose Reattach again in Notes."
-                                SelectionAction.ANSWER -> if (prompt == null) message = "Choosing an answer was cancelled." else {
-                                    newCardSelection = selection.toString()
-                                    newCardPrompt = prompt
-                                }
                                 SelectionAction.MAKE_QUESTION -> {
                                     newCardSelection = selection.toString()
                                     newCardPrompt = null
@@ -461,7 +465,6 @@ private class ReaderSession(
     private val onBarsShown: (Boolean) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
-    private val selectingAnswer: () -> Boolean,
     /** A short message about something the page could not do (a link, the browser, rendering). */
     private val onMessage: (String) -> Unit,
     /** The captured selection (null when empty, {error} when it spans blocks) and the chosen action. */
@@ -491,7 +494,7 @@ private class ReaderSession(
 
     fun createView(context: Context): WebView {
         val assets = readerAssets(context)
-        return ReaderWebView(context, reattaching, selectingAnswer) { action, finish ->
+        return ReaderWebView(context, reattaching) { action, finish ->
             captureSelection { selection ->
                 // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
                 if (selection != null && !selection.has("error")) finish()

@@ -66,7 +66,7 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
         extracted = withContext(Dispatchers.Default) {
             val questions = saved.flatMap { page -> page.html?.let { html ->
                 val blobSha = checkNotNull(page.blobSha) { "Saved Practice page ${page.documentId} has HTML without its blob SHA" }
-                studyNote(html).questions.map { PracticeQuestion(page.documentId, page.title, page.path, blobSha, it) }
+                studyNote(html, page.path).questions.map { PracticeQuestion(page.documentId, page.title, page.path, blobSha, it) }
             }.orEmpty() }
             PracticeSnapshot(saved, questions)
         }
@@ -103,16 +103,16 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
         val ready = questions
         when {
             ready == null -> EmptyState("Reading questions from saved notes…")
-            ready.isEmpty() -> EmptyState("No question items in this folder's saved notes. Practice uses Questions this file answers and Review and practice.")
+            ready.isEmpty() -> EmptyState("No interview questions in this folder's saved notes. Practice uses the numbered questions and follow-ups in interview folders.")
             else -> LazyColumn {
                 items(ready, key = { "${it.documentId}:${it.question.blockId}" }) { question ->
                     Column {
                         EntryRow(question.question.text, question.path, R.drawable.ic_notes) {
                             push(Screen.Reader(question.documentId, question.title, question = StudyTarget(question.blobSha, question.question.blockId)))
                         }
-                        TextButton(onClick = { push(Screen.Reader(question.documentId, question.title, reviewPrompt = question.question.prompt)) }) {
-                            Text("Add to review")
-                        }
+                        if (question.question.answer != null) TextButton(onClick = {
+                            push(Screen.Reader(question.documentId, question.title, question = StudyTarget(question.blobSha, question.question.blockId), review = true))
+                        }) { Text("Add to review") }
                     }
                 }
             }

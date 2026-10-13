@@ -2,9 +2,6 @@ package com.reporead.android.reader
 
 import android.view.View
 import android.view.ViewGroup
-import android.view.ActionMode
-import android.view.Menu
-import android.view.MenuItem
 import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +27,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -58,11 +56,12 @@ class ReaderLifecycleTest {
         files = File(context.cacheDir, "reader-lifecycle-test")
         check(files.mkdirs() || files.isDirectory) { "Cannot create test-only directory $files" }
         val dao = store.library()
-        val path = "test-only/lifecycle.md"
+        val path = "test-only/interview/lifecycle.md"
         fun block(id: Int, tag: String, text: String) = """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
-        val body = block(0, "h1", title) + block(1, "h2", "Questions this file answers") + "<ul>" +
-            block(2, "li", "An identical question?") + block(3, "li", "An identical question?") + "</ul>" +
-            block(4, "h2", "Answer") + (5..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) } +
+        val body = block(0, "h1", title) + block(1, "h2", "1. Foundations") +
+            block(2, "h3", "1. An identical question?") + block(3, "p", "Canonical answer: The first answer") +
+            block(4, "h3", "2. An identical question?") + block(5, "p", "Canonical answer: The second answer") +
+            block(6, "h2", "Answer") + (7..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) } +
             // A same-note link, and a block whose 64-unit prefix would end inside an emoji.
             """<p data-block-id="b61" data-anchor-text="Back to the answer"><a href="#answer">Back to the answer</a></p>""" +
             block(62, "p", "x".repeat(63) + "\uD83D\uDE00 after the emoji") +
@@ -115,8 +114,8 @@ class ReaderLifecycleTest {
     @Test fun questionsSurviveActivityRecreationTwiceAndSaveInRoom() {
         evaluate("document.querySelector('.study-next').click(); return window.reporead.position();")
         scenario.recreate()
-        awaitReader(3, recall = true)
-        awaitSaved(3)
+        awaitReader(4, recall = true)
+        awaitSaved(4)
         evaluate("document.querySelector('.study-previous').click(); return window.reporead.position();")
         scenario.recreate()
         awaitReader(2, recall = true)
@@ -125,8 +124,8 @@ class ReaderLifecycleTest {
 
     @Test fun aLinkedHeadingIsShownOnceAndRecreationRestoresTheReadingPositionInstead() {
         scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, heading = "Answer") }
-        awaitReader(4, recall = false)
-        awaitSaved(4)
+        awaitReader(6, recall = false)
+        awaitSaved(6)
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
         scenario.recreate()
@@ -139,8 +138,8 @@ class ReaderLifecycleTest {
         val prefix = evaluate("window.reporead.showBlock('b62'); return {prefix: window.reporead.position().anchor.textPrefix};").getString("prefix")
         assertEquals("x".repeat(63), prefix)
         evaluate("window.reporead.showBlock('b61'); document.querySelector('a[href=\"#answer\"]').click(); return {};")
-        awaitReader(4, recall = false)
-        awaitSaved(4)
+        awaitReader(6, recall = false)
+        awaitSaved(6)
         // A Copy link in the note's own text can name a block that is not code; the page answers null instead of throwing.
         assertTrue(evaluate("return {text: window.reporead.codeText('b5')};").isNull("text"))
     }
@@ -153,45 +152,45 @@ class ReaderLifecycleTest {
         awaitSaved(12)
     }
 
-    @Test fun addingAP3QuestionRequiresASelectedAnswerAndSurvivesRecreationBeforeSaving() = runBlocking {
+    @Test fun addingABankQuestionOffersItsOwnCanonicalAnswerAndSurvivesRecreationBeforeSaving() = runBlocking {
+        // Both questions read the same; the card must take the shown one's answer.
+        evaluate("document.querySelector('.study-next').click(); return {};")
+        awaitSaved(4)
         clickText("Add question to review")
-        val selected = evaluate("""
-            const block = document.querySelector('[data-block-id="b12"]');
-            window.reporead.showBlock('b12');
-            const range = document.createRange(); range.setStart(block.firstChild, 0); range.setEnd(block.firstChild, 23);
-            getSelection().removeAllRanges(); getSelection().addRange(range);
-            return window.reporead.capture();
-        """.trimIndent())
-        scenario.onActivity { activity ->
-            val view = checkNotNull(findWebView(activity.window.decorView))
-            val mode = checkNotNull(view.startActionMode(object : ActionMode.Callback {
-                override fun onCreateActionMode(mode: ActionMode, menu: Menu) = true
-                override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = true
-                override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
-                override fun onDestroyActionMode(mode: ActionMode) = Unit
-            }, ActionMode.TYPE_FLOATING))
-            assertEquals("Use as answer", mode.menu.findItem(SelectionAction.ANSWER.id).title.toString())
-            assertTrue(mode.menu.performIdentifierAction(SelectionAction.ANSWER.id, 0))
-        }
         awaitText("Make a question")
         scenario.recreate()
-        awaitText("Make a question")
-        awaitText("An identical question?")
+        awaitText("“Canonical answer: The second answer”")
         clickText("Save")
-        try {
-            withTimeout(5_000) { while (store.library().pendingAnnotations().isEmpty()) delay(20) }
-        } catch (error: TimeoutCancellationException) {
-            throw AssertionError("Save did not create a pending card after authoring-dialog recreation", error)
-        }
-        val card = store.library().pendingAnnotations().single()
-        assertEquals("CARD", card.type)
+        val card = awaitPendingCard()
         assertEquals("An identical question?", card.question)
-        assertEquals(selected.getString("exactText"), card.exactText)
-        assertEquals("b12", card.blockId)
+        assertEquals("Canonical answer: The second answer", card.exactText)
+        assertEquals("b5", card.blockId)
+        assertEquals(0, card.startOffset)
+        assertEquals("Canonical answer: The second answer".length, card.endOffset)
         assertEquals(sha, card.checkedBlobSha)
         // The restored dialog can save before its reader has rendered. Teardown must observe a ready reader.
-        awaitReader(12, recall = false)
-        awaitSaved(12)
+        awaitReader(4, recall = true)
+        awaitSaved(4)
+    }
+
+    @Test fun practiceAddToReviewOffersTheCardOnceEvenAcrossRecreation() = runBlocking {
+        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, question = StudyTarget(sha, "b2"), review = true) }
+        awaitText("“Canonical answer: The first answer”")
+        clickText("Cancel")
+        scenario.recreate()
+        awaitReader(2, recall = true)
+        awaitSaved(2)
+        assertNull("Add to review must not be offered again", instrumentation.uiAutomation.rootInActiveWindow?.let { findText(it, "Make a question") })
+        assertTrue(store.library().pendingAnnotations().isEmpty())
+    }
+
+    private suspend fun awaitPendingCard() = try {
+        withTimeout(5_000) {
+            while (store.library().pendingAnnotations().isEmpty()) delay(20)
+            store.library().pendingAnnotations().single().also { assertEquals("CARD", it.type) }
+        }
+    } catch (error: TimeoutCancellationException) {
+        throw AssertionError("Save did not create a pending card after authoring-dialog recreation", error)
     }
 
     private fun findText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {

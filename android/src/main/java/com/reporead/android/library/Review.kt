@@ -3,6 +3,7 @@ package com.reporead.android.library
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.reader.studyNote
 import org.jsoup.Jsoup
 import java.time.Instant
 import java.time.LocalDate
@@ -76,6 +77,13 @@ internal fun answerContext(html: String, passage: Passage): String? {
     if (passage.startOffset < 0 || passage.endOffset > text.length || passage.endOffset <= passage.startOffset ||
         text.substring(passage.startOffset, passage.endOffset) != passage.exactText) return null
     return text
+}
+
+/** A verified answer's block [context] and, for a card made from an interview bank question, that question's [guide]. */
+internal data class RevealedAnswer(val context: String, val guide: List<String>?)
+
+internal fun revealedAnswer(html: String, path: String, passage: Passage): RevealedAnswer? = answerContext(html, passage)?.let { context ->
+    RevealedAnswer(context, studyNote(html, path).questions.firstOrNull { it.answer?.blockId == passage.blockId }?.guide)
 }
 
 /** Prefixing each source line preserves all characters, including blank lines, trailing spaces and CRLF. */
