@@ -16,8 +16,12 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.AuthorizedClientServiceOAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProviderBuilder;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.endpoint.RestClientAuthorizationCodeTokenResponseClient;
+import org.springframework.security.oauth2.client.endpoint.RestClientRefreshTokenTokenResponseClient;
 import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
@@ -157,12 +161,7 @@ public class GitHubSecurity {
         resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
 
         var tokenClient = new RestClientAuthorizationCodeTokenResponseClient();
-        tokenClient.setRestClient(RestClient.builder().requestFactory(githubRequestFactory)
-            .requestInterceptor(boundedResponse(MAX_RESPONSE_BYTES, meters))
-            .configureMessageConverters(converters -> converters.disableDefaults()
-                .addCustomConverter(new FormHttpMessageConverter())
-                .addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter()))
-            .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler()).build());
+        tokenClient.setRestClient(tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
         var userHttp = new RestTemplate(githubRequestFactory);
         userHttp.setInterceptors(java.util.List.of(boundedResponse(MAX_RESPONSE_BYTES, meters)));
         userHttp.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
@@ -184,6 +183,41 @@ public class GitHubSecurity {
                     response.sendRedirect("/auth/failed");
                 }));
         return http.build();
+    }
+
+    @Bean
+    RestClientRefreshTokenTokenResponseClient githubRefreshTokens(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
+        var refresh = new RestClientRefreshTokenTokenResponseClient();
+        refresh.setRestClient(tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
+        return refresh;
+    }
+
+    /**
+     * Hands out a user's GitHub token, first refreshing it (one token-endpoint call) when it expires within a minute.
+     * GitHub App user tokens last 8 hours; the refresh token GitHub rotates on every use. GitHubApi.userToken decides what
+     * a failed refresh means, so this manager neither removes nor keeps the client on failure.
+     */
+    @Bean
+    OAuth2AuthorizedClientManager githubTokens(ClientRegistrationRepository registrations, OAuth2AuthorizedClientService clients,
+                                               RestClientRefreshTokenTokenResponseClient githubRefreshTokens) {
+        var manager = new AuthorizedClientServiceOAuth2AuthorizedClientManager(registrations, clients);
+        manager.setAuthorizedClientProvider(OAuth2AuthorizedClientProviderBuilder.builder()
+            .refreshToken(refresh -> refresh.accessTokenResponseClient(githubRefreshTokens)).build());
+        manager.setAuthorizationSuccessHandler((client, principal, attributes) -> {
+            clients.saveAuthorizedClient(client, principal);
+            LOG.info("GitHub user token refreshed; githubUserId={} expiresAt={}", principal.getName(), client.getAccessToken().getExpiresAt());
+        });
+        manager.setAuthorizationFailureHandler((error, principal, attributes) -> { });
+        return manager;
+    }
+
+    /** GitHub's OAuth token endpoint, for both the sign-in code exchange and refreshes. */
+    static RestClient tokenApi(RestClient.Builder builder, MeterRegistry meters) {
+        return builder.requestInterceptor(boundedResponse(MAX_RESPONSE_BYTES, meters))
+            .configureMessageConverters(converters -> converters.disableDefaults()
+                .addCustomConverter(new FormHttpMessageConverter())
+                .addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter()))
+            .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler()).build();
     }
 
     public static final class ResponseTooLarge extends IOException {

@@ -11,7 +11,10 @@ import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.OAuth2AuthorizeRequest;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
@@ -29,11 +32,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
  * Every GitHub REST call RepoRead makes with a signed-in user's GitHub App user token.
- * Each method makes exactly one request: no retries, pagination, redirects, refresh, or installation-token fallback.
+ * Each method makes exactly one request: no retries, pagination, redirects, or installation-token fallback. Getting the
+ * token may first refresh it (see userToken).
  * GitHub owns authorization: user-token endpoints only return repositories the user and installation can both access.
  */
 @Component
@@ -51,16 +56,19 @@ public class GitHubApi {
     private final RestTemplate githubImageApi;
     private final JsonMapper json;
     private final OAuth2AuthorizedClientService clients;
+    private final OAuth2AuthorizedClientManager tokens;
+    private final ConcurrentHashMap<Long, Object> refreshLocks = new ConcurrentHashMap<>();
 
     public GitHubApi(@Qualifier("githubUserApi") RestTemplate githubUserApi,
                      @Qualifier("githubTreeApi") RestTemplate githubTreeApi,
                      @Qualifier("githubImageApi") RestTemplate githubImageApi,
-                     JsonMapper json, OAuth2AuthorizedClientService clients) {
+                     JsonMapper json, OAuth2AuthorizedClientService clients, OAuth2AuthorizedClientManager tokens) {
         this.githubUserApi = githubUserApi;
         this.githubTreeApi = githubTreeApi;
         this.githubImageApi = githubImageApi;
         this.json = json;
         this.clients = clients;
+        this.tokens = tokens;
     }
 
     public record Repository(long id, long installationId, String owner, String name,
@@ -70,14 +78,48 @@ public class GitHubApi {
     public record Branch(String commitSha, String treeSha) {}
     public record TreeEntry(String path, String mode, String type, String sha) {}
 
-    /** The server-side GitHub user token saved by the OAuth callback. Restarting the server clears it. */
+    /**
+     * The server-side GitHub user token saved by the OAuth callback. One expiring within a minute is first refreshed with
+     * one token-endpoint call. A user's refreshes are serialized: GitHub rotates the refresh token on use, so a second
+     * concurrent refresh with the old one would be refused. Restarting the server clears every token.
+     */
     public String userToken(long githubUserId) {
-        OAuth2AuthorizedClient client = clients.loadAuthorizedClient("github", Long.toString(githubUserId));
+        String principal = Long.toString(githubUserId);
+        OAuth2AuthorizedClient client;
+        synchronized (refreshLocks.computeIfAbsent(githubUserId, id -> new Object())) {
+            try {
+                client = tokens.authorize(OAuth2AuthorizeRequest.withClientRegistrationId("github").principal(principal).build());
+            } catch (OAuth2AuthorizationException error) {
+                Throwable unanswered = unanswered(error);
+                if (unanswered != null) {
+                    LOG.warn("GitHub token refresh failed; githubUserId={} failureType={}", githubUserId, unanswered.getClass().getSimpleName());
+                    throw new ApiFailure(HttpStatus.SERVICE_UNAVAILABLE, "GITHUB_UNAVAILABLE", "GitHub could not renew your sign-in; nothing was changed.");
+                }
+                // A refused refresh token stays refused; dropping it makes later requests ask for sign-in without a call.
+                clients.removeAuthorizedClient("github", principal);
+                LOG.warn("GitHub refused the token refresh; githubUserId={} error={}", githubUserId, error.getError().getErrorCode());
+                throw new ApiFailure(HttpStatus.UNAUTHORIZED, "SIGN_IN_REQUIRED", "GitHub refused to renew your sign-in; sign in again.");
+            }
+        }
+        // Without a refresh token the manager returns the expired client unchanged.
         if (client == null || (client.getAccessToken().getExpiresAt() != null &&
             !client.getAccessToken().getExpiresAt().isAfter(Instant.now()))) {
             throw new ApiFailure(HttpStatus.UNAUTHORIZED, "SIGN_IN_REQUIRED", "No current GitHub user token is available; sign in again.");
         }
         return client.getAccessToken().getTokenValue();
+    }
+
+    /**
+     * The failure behind a refresh GitHub never answered (network, timeout, 429, 5xx), which leaves the refresh token
+     * usable by the next request; null when GitHub answered and refused. Spring nests it under its own OAuth2 exceptions.
+     */
+    private static Throwable unanswered(OAuth2AuthorizationException error) {
+        for (Throwable cause = error.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof ResourceAccessException) return cause;
+            if (cause instanceof RestClientResponseException response &&
+                (response.getStatusCode().value() == 429 || response.getStatusCode().is5xxServerError())) return cause;
+        }
+        return null;
     }
 
     /** Installation IDs of this GitHub App that the user can access; a complete list of at most 10. */

@@ -6,6 +6,7 @@ import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 
 import java.nio.charset.StandardCharsets;
@@ -36,20 +37,22 @@ public final class TestSessions {
     /** Returns an app bearer token for this GitHub user, and stores githubToken as their server-side GitHub token. */
     public static String signIn(AppSessions sessions, OAuth2AuthorizedClientService clients, ClientRegistrationRepository registrations,
                                 long githubUserId, String githubToken) {
-        saveGitHubToken(clients, registrations, githubUserId, githubToken, Instant.now().plusSeconds(600));
+        saveGitHubToken(clients, registrations, githubUserId, githubToken, Instant.now().plusSeconds(600), null);
         String verifier = verifier();
         long userId = sessions.saveUser(githubUserId, "test-only-user-" + githubUserId);
         String code = sessions.issueSignInCode(userId, challenge(verifier));
         return sessions.exchange(code, verifier).orElseThrow().accessToken();
     }
 
+    /** Stores a GitHub token as the OAuth callback would; refreshToken may be null, as for a token GitHub never refreshes. */
     public static void saveGitHubToken(OAuth2AuthorizedClientService clients, ClientRegistrationRepository registrations,
-                                       long githubUserId, String value, Instant expires) {
+                                       long githubUserId, String value, Instant expires, String refreshToken) {
         var principal = new DefaultOAuth2User(List.of(new SimpleGrantedAuthority("OAUTH2_USER")),
             Map.of("id", githubUserId, "login", "test-only-user-" + githubUserId), "id");
         var authentication = new OAuth2AuthenticationToken(principal, principal.getAuthorities(), "github");
         var token = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, value, Instant.now().minusSeconds(60), expires);
         clients.saveAuthorizedClient(new OAuth2AuthorizedClient(registrations.findByRegistrationId("github"),
-            principal.getName(), token), authentication);
+            principal.getName(), token, refreshToken == null ? null : new OAuth2RefreshToken(refreshToken, Instant.now().minusSeconds(60))),
+            authentication);
     }
 }

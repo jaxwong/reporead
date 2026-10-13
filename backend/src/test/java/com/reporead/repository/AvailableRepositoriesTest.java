@@ -169,7 +169,7 @@ class AvailableRepositoriesTest {
     }
 
     @Test void expiredGitHubTokenMakesNoExternalCalls() throws Exception {
-        TestSessions.saveGitHubToken(clients, registrations, 42, TOKEN, Instant.now().minusSeconds(1));
+        TestSessions.saveGitHubToken(clients, registrations, 42, TOKEN, Instant.now().minusSeconds(1), null);
         available(alice).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("SIGN_IN_REQUIRED"));
     }
 
