@@ -6,22 +6,25 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 
-/** Test-only configuration: a real PostgreSQL container shared by every Spring test, and a fake OAuth client secret. */
+/** Test-only configuration: a real PostgreSQL container shared by every Spring test, a fake OAuth client secret, and a GitHub token key. */
 public final class TestEnvironment {
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17.11-alpine");
     static { POSTGRES.start(); }
+
+    /** Test-only AES-256 key for stored GitHub tokens; never used outside tests. */
+    public static final String TOKEN_KEY = "7e57".repeat(16);
 
     private TestEnvironment() {}
 
     public static void register(DynamicPropertyRegistry properties) {
         try {
-            var file = Files.createTempFile("reporead-test-client-secret-", ".txt");
-            Files.writeString(file, "TEST_ONLY_NOT_A_REAL_SECRET\n");
-            Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
-            file.toFile().deleteOnExit();
-            properties.add("reporead.github.client-secret-file", file::toString);
+            var secret = secretFile("reporead-test-client-secret-", "TEST_ONLY_NOT_A_REAL_SECRET");
+            properties.add("reporead.github.client-secret-file", secret::toString);
+            var key = secretFile("reporead-test-token-key-", TOKEN_KEY);
+            properties.add("reporead.github.token-key-file", key::toString);
         } catch (IOException error) {
             throw new ExceptionInInitializerError(error);
         }
@@ -36,7 +39,16 @@ public final class TestEnvironment {
         properties.add("spring.datasource.hikari.minimum-idle", () -> "1");
     }
 
+    /** A 0600 temporary file holding one test-only token, as the backend requires for its secrets. */
+    public static Path secretFile(String prefix, String token) throws IOException {
+        var file = Files.createTempFile(prefix, ".txt");
+        Files.writeString(file, token + "\n");
+        Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+        file.toFile().deleteOnExit();
+        return file;
+    }
+
     public static void reset(JdbcClient db) {
-        db.sql("truncate review_log, repository_images, annotation_mutations, annotation_locations, annotation_anchors, annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users restart identity").update();
+        db.sql("truncate github_tokens, review_log, repository_images, annotation_mutations, annotation_locations, annotation_anchors, annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users restart identity").update();
     }
 }

@@ -36,7 +36,7 @@ public class AccountController {
 
     /**
      * Deletes everything RepoRead holds for the signed-in user in one transaction — every connection and its data, the
-     * annotation mutation records, sign-in codes, sessions, and the user — then drops the server's in-memory GitHub token.
+     * annotation mutation records, sign-in codes, sessions, the user, and the stored GitHub token.
      * RepoRead keeps no credential afterwards. GitHub is not called: the user revokes the authorization and uninstalls
      * the App on GitHub if they want.
      */
@@ -61,9 +61,9 @@ public class AccountController {
             }
             annotations.deleteMutations(user.id());
             sessions.deleteUser(user.id());
+            clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
             return new Deleted(repositories, reading, bookmarks, highlights, cards);
         });
-        clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
         LOG.info("Account deleted; userId={} repositories={} readingStates={} bookmarks={} highlights={} cards={}",
             user.id(), deleted.repositories(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights(), deleted.cards());
         return deleted;

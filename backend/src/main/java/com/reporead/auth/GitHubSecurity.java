@@ -245,20 +245,21 @@ public class GitHubSecurity {
         return publicUrl + "/login/oauth2/code/github";
     }
 
+    /** One token from a 0600 file: the GitHub client secret, and the GitHub token key (GitHubTokens). */
     static String readSecret(Path file) throws IOException {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("GitHub client secret must be a regular non-symlink file: " + file);
+            throw new IOException("Secret file must be a regular non-symlink file: " + file);
         }
         var permissions = Files.getPosixFilePermissions(file);
         if (!permissions.equals(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE))) {
-            throw new IOException("GitHub client secret file must have permissions 0600: " + file);
+            throw new IOException("Secret file must have permissions 0600: " + file);
         }
         byte[] bytes;
         try (var stream = Files.newInputStream(file)) { bytes = stream.readNBytes(4097); }
-        if (bytes.length > 4096) throw new IOException("GitHub client secret file exceeds 4096 bytes: " + file);
+        if (bytes.length > 4096) throw new IOException("Secret file exceeds 4096 bytes: " + file);
         String secret = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString().strip();
         if (!secret.matches("[A-Za-z0-9_]+")) {
-            throw new IOException("GitHub client secret file must contain one nonblank token, not Markdown prose: " + file);
+            throw new IOException("Secret file must contain one nonblank token, not Markdown prose: " + file);
         }
         return secret;
     }

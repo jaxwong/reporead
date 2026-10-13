@@ -29,6 +29,7 @@ npm-debug.log*
 /.secrets/
 client secret.md
 github-client-secret
+github-token-key
 *.pem
 *.key
 *.jks

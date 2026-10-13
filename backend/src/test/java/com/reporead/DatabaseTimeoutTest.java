@@ -8,8 +8,6 @@ import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,10 +25,8 @@ class DatabaseTimeoutTest {
         var held = new CopyOnWriteArrayList<Socket>();
         try (var silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
             Thread.ofVirtual().start(() -> acceptAndNeverAnswer(silent, held));
-            var secret = Files.createTempFile("reporead-test-client-secret-", ".txt");
-            Files.writeString(secret, "TEST_ONLY_NOT_A_REAL_SECRET\n");
-            Files.setPosixFilePermissions(secret, PosixFilePermissions.fromString("rw-------"));
-            secret.toFile().deleteOnExit();
+            var secret = TestEnvironment.secretFile("reporead-test-client-secret-", "TEST_ONLY_NOT_A_REAL_SECRET");
+            var tokenKey = TestEnvironment.secretFile("reporead-test-token-key-", TestEnvironment.TOKEN_KEY);
 
             // Command-line arguments outrank application.properties, whose values are unresolved placeholders here.
             String[] args = {
@@ -39,6 +35,7 @@ class DatabaseTimeoutTest {
                 "--reporead.public-url=https://reporead.test",
                 "--reporead.github.client-id=test-only-not-a-github-app",
                 "--reporead.github.client-secret-file=" + secret,
+                "--reporead.github.token-key-file=" + tokenKey,
                 "--spring.datasource.url=jdbc:postgresql://127.0.0.1:" + silent.getLocalPort() + "/reporead",
                 "--spring.datasource.username=test-only",
                 "--spring.datasource.password=test-only",
