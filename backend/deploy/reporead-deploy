@@ -22,10 +22,12 @@ size=$(stat -c %s "$incoming")
 if (( size == 0 || size > MAX_BYTES )); then
   echo "reporead-deploy: expected a jar of 1..$MAX_BYTES bytes on stdin, got $size bytes" >&2; exit 65
 fi
-if ! unzip -tq "$incoming" >/dev/null 2>&1 \
-   || ! unzip -Z1 "$incoming" | grep -qx 'BOOT-INF/classes/com/reporead/RepoReadApplication.class'; then
-  echo "reporead-deploy: stdin is not a RepoRead Spring Boot jar ($size bytes)" >&2; exit 65
-fi
+not_a_jar() { echo "reporead-deploy: stdin is not a RepoRead Spring Boot jar ($size bytes)" >&2; exit 65; }
+unzip -tq "$incoming" >/dev/null 2>&1 || not_a_jar
+# List first, then search: piping unzip into grep -q under pipefail failed at random (about 1 in 7), because grep exits
+# at its first match and unzip then dies of SIGPIPE.
+entries=$(unzip -Z1 "$incoming")
+grep -qx 'BOOT-INF/classes/com/reporead/RepoReadApplication.class' <<<"$entries" || not_a_jar
 
 healthy() {
   local deadline=$((SECONDS + HEALTH_WAIT_SECONDS))
