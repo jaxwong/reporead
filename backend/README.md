@@ -46,12 +46,15 @@ Oracle Cloud Always Free (ADR-14): `VM.Standard.A1.Flex`, 1 OCPU / 6 GB, Oracle 
 
 | Piece | Where |
 | --- | --- |
-| PostgreSQL 17.11 | Podman Quadlet `/etc/containers/systemd/reporead-postgres.container` (service `reporead-postgres`, volume `reporead-postgres`, health-gated `Notify=healthy`) |
+| PostgreSQL 17.11 | Podman Quadlet `/etc/containers/systemd/reporead-postgres.container` (service `reporead-postgres`, volume `reporead-postgres`, health-gated `Notify=healthy`). Host network with `listen_addresses=127.0.0.1` and no published port: a `firewall-cmd --reload` wipes Podman's NAT rules, which once left the backend hanging on connect |
+| Deploys | `/usr/local/sbin/reporead-deploy` (from `backend/deploy/reporead-deploy`); user `deploy`, whose only SSH key is forced to run it via `sudo` (`/etc/sudoers.d/reporead-deploy`), with no shell, PTY or forwarding |
 | Backend | `/opt/reporead/backend.jar` (root-owned), service `/etc/systemd/system/reporead-backend.service`, user `reporead`, starts after the database is healthy |
 | Configuration | `/etc/reporead/backend.env` (root 0600, includes the database password), `/etc/reporead/github-client-secret` (`reporead` 0600), `/etc/reporead/db-password` (root 0600, also the Podman secret `reporead-db-password`) |
 | HTTPS | Caddy (`/etc/caddy/Caddyfile`), Let's Encrypt via HTTP-01, proxies only to `127.0.0.1:8081` |
 
-Deploy a jar built from a merged commit with `./gradlew :backend:bootJar --no-daemon`: copy `backend/build/libs/backend.jar` to `/opt/reporead/backend.jar` (root 0644), then `sudo systemctl restart reporead-backend` and `curl -s http://127.0.0.1:8082/actuator/health` on the VM. Logs: `sudo journalctl -u reporead-backend`. A restart drops the in-memory GitHub token, so the phone asks to sign in again before its next GitHub-backed request.
+**Deploying.** A push to `main` that touches the backend or the build runs `.github/workflows/backend.yml`: backend tests, `bootJar`, then the jar is piped over SSH to the `deploy` user (secret `DEPLOY_SSH_KEY`; the VM's host key is pinned in the workflow). Pull requests run the tests only. `reporead-deploy` checks that stdin is a RepoRead boot jar, keeps the running jar as `/opt/reporead/backend.previous.jar`, restarts the service, and waits up to 120 s for Actuator health; otherwise it restores the previous jar and exits 1, failing the run. It prints only outcomes and the jar's SHA-256, because the repository and its CI logs are public. To deploy by hand, build with `./gradlew :backend:bootJar --no-daemon`, then `ssh opc@152.69.219.238 'sudo /usr/local/sbin/reporead-deploy' < backend/build/libs/backend.jar`. Changes to `backend/deploy/reporead-deploy` take effect only once copied to the VM by hand (root 0755); CI cannot change it.
+
+Logs: `sudo journalctl -u reporead-backend`. Every restart, including every deploy, drops the in-memory GitHub token, so the phone asks to sign in again before its next GitHub-backed request.
 
 ## Sign-in contract (Android)
 

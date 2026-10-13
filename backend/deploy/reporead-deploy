@@ -1,0 +1,55 @@
+#!/bin/bash
+# Installs a RepoRead backend jar read from stdin on the hosted VM, restarts the service, and restores the previous
+# jar if the new one is not healthy. Installed as /usr/local/sbin/reporead-deploy (root 0755); runs as root through
+# sudo, either from the deploy user's forced SSH command (GitHub Actions) or by hand:
+#   ssh opc@<vm> 'sudo /usr/local/sbin/reporead-deploy' < backend/build/libs/backend.jar
+# Prints only outcomes and the jar's SHA-256, never backend logs: the CI log is public and those logs name note paths.
+set -euo pipefail
+
+JAR=/opt/reporead/backend.jar
+PREVIOUS=/opt/reporead/backend.previous.jar
+MAX_BYTES=$((200 * 1024 * 1024))
+HEALTH=http://127.0.0.1:8082/actuator/health
+HEALTH_WAIT_SECONDS=120   # startup takes ~12 s on this VM
+
+exec 9>/run/reporead-deploy.lock
+flock -n 9 || { echo "reporead-deploy: another deploy is running" >&2; exit 75; }
+
+incoming=$(mktemp /opt/reporead/incoming.XXXXXX)
+trap 'rm -f "$incoming"' EXIT
+head -c $((MAX_BYTES + 1)) > "$incoming"
+size=$(stat -c %s "$incoming")
+if (( size == 0 || size > MAX_BYTES )); then
+  echo "reporead-deploy: expected a jar of 1..$MAX_BYTES bytes on stdin, got $size bytes" >&2; exit 65
+fi
+if ! unzip -tq "$incoming" >/dev/null 2>&1 \
+   || ! unzip -Z1 "$incoming" | grep -qx 'BOOT-INF/classes/com/reporead/RepoReadApplication.class'; then
+  echo "reporead-deploy: stdin is not a RepoRead Spring Boot jar ($size bytes)" >&2; exit 65
+fi
+
+healthy() {
+  local deadline=$((SECONDS + HEALTH_WAIT_SECONDS))
+  until curl -sf -m 5 "$HEALTH" >/dev/null; do
+    (( SECONDS < deadline )) || return 1
+    sleep 2
+  done
+}
+
+echo "reporead-deploy: installing jar sha256 $(sha256sum "$incoming" | cut -d' ' -f1)"
+cp -p "$JAR" "$PREVIOUS"
+install -m 0644 -o root -g root "$incoming" "$JAR"
+systemctl restart reporead-backend
+if healthy; then
+  echo "reporead-deploy: healthy"
+  exit 0
+fi
+
+echo "reporead-deploy: not healthy within ${HEALTH_WAIT_SECONDS}s; restoring the previous jar" >&2
+install -m 0644 -o root -g root "$PREVIOUS" "$JAR"
+systemctl restart reporead-backend
+if healthy; then
+  echo "reporead-deploy: previous jar restored and healthy; see 'journalctl -u reporead-backend' on the VM" >&2
+else
+  echo "reporead-deploy: previous jar is NOT healthy either; see 'journalctl -u reporead-backend' on the VM" >&2
+fi
+exit 1
