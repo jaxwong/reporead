@@ -1,0 +1,53 @@
+# Backend CI/CD. Pull requests: backend tests only, no secrets. Pushes to main: the same tests, then deploy the jar
+# to the hosted VM (backend/README.md, Hosted VM). The deploy key can only run /usr/local/sbin/reporead-deploy
+# (backend/deploy/reporead-deploy), which restores the previous jar if the new one is not healthy.
+# This repository is public, so its logs are too: nothing here prints backend logs or secrets.
+name: Backend
+
+on:
+  pull_request:
+    paths: [backend/**, build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/backend.yml]
+  push:
+    branches: [main]
+    paths: [backend/**, build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/backend.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One deploy at a time, in order; pull request runs never wait on deploys.
+  group: backend-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      # PostgreSQL for the tests comes from Testcontainers on the runner's Docker.
+      - name: Test and build the backend
+        run: ./gradlew :backend:test :backend:bootJar --no-daemon
+
+      - name: Deploy to the VM
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          # The VM's SSH host key, pinned so a deploy can never go to another machine. Not a secret.
+          VM_KNOWN_HOST: 152.69.219.238 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPk0Qsd1nr+vrNAKKPlwoGaHL7M5B9ZKWxBZlEoH1bsm
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$VM_KNOWN_HOST" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            deploy@152.69.219.238 < backend/build/libs/backend.jar
