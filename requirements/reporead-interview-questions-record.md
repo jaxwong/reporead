@@ -65,4 +65,17 @@ Both exit **0**; `StudyCorpus` XML `failures="0" skipped="0"`:
 
 1,747 = 1,426 + 321, matching the Markdown measurement; every one has an answer line; no note outside an interview folder yields questions. Rerun these two commands after adding interview folders: a bank question without an answer line fails the check by name.
 
-Device tests (`StudyReaderTest`, `ReaderLifecycleTest` rewritten for bank fixtures, including a new Practice-offer-once test): **not yet run** — the phone was not reachable over wireless adb (`adb devices` empty).
+### Device (Pixel 8a, Android 14, wireless adb)
+
+Installed the debug and test APKs over the release build with `adb install -r` (data kept; never `connectedDebugAndroidTest`), then `adb shell am instrument -w com.reporead.android.test/androidx.test.runner.AndroidJUnitRunner`:
+
+- First run: **38 tests, 1 failure** — `addingABankQuestionOffers…` timed out. Phone log showed the reading position saved at 16:05:47 (block 2) and next only at teardown (block 4): the test awaited a saved position right after **Next question**, but the reader saves on leaving the screen or after scrolling (the existing rotation test already relies on this). Test fault, not app fault: it now awaits the page's own position (`awaitReader(4, recall = true)`); the saved-position assertion after recreation is kept.
+- Second run: **OK (38 tests)**.
+
+Real-data check on the phone (backend unreachable at first: the dev Postgres container `reporead-postgres-1` had exited 23 hours earlier, so the backend running since 2026-10-09 returned HTTP 500 to Library sync; restarted with `docker compose -f backend/compose.yaml -p reporead up -d`, actuator `UP`). The phone had 39 of the 92 interview files saved (its note list predates the newer banks):
+
+- Practice **All topics: 670 questions**, equal to the Markdown rule count for exactly those 39 saved notes; `core/backend engineering` **310** (equal to the corpus check); `core/ai/rag` **0** (decision 1).
+- A queued bank question opens in Study as "Question 8 of 19" without its number; **Read the answer** shows its bank section; tapping its canonical link opens the offline preview of the core section.
+- **Add question to review** (Study) and Practice's **Add to review** both opened *Make a question* with the question prefilled and the whole `Canonical answer: …` line as the quoted answer. Both were **cancelled**: the phone DB afterwards still has 10 highlights, 0 cards, 0 review log rows.
+- Not checked on the phone: saving a card and its Review reveal (covered by `ReviewTest` and the device test that saves a card in an in-memory database), a follow-up item, and the absence of Study on a core note (unit-tested). The check left reading positions on two banks (`12-testing-and-verification-strategy` 38%, `13-release-engineering-and-change-safety` 84%).
+- Final state: release build reinstalled (`install -r`, data kept), `adb reverse tcp:8081 tcp:8081` restored, Postgres container running.

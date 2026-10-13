@@ -155,7 +155,7 @@ class ReaderLifecycleTest {
     @Test fun addingABankQuestionOffersItsOwnCanonicalAnswerAndSurvivesRecreationBeforeSaving() = runBlocking {
         // Both questions read the same; the card must take the shown one's answer.
         evaluate("document.querySelector('.study-next').click(); return {};")
-        awaitSaved(4)
+        awaitReader(4, recall = true)
         clickText("Add question to review")
         awaitText("Make a question")
         scenario.recreate()
