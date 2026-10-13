@@ -127,7 +127,7 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                 IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
                 OverflowMenu(if (signedIn) listOf(
                     MenuAction("Sync now") { refresh++ },
-                    MenuAction("Sign out") { scope.launch { confirmSignOut = dao.unsentCount() } },
+                    MenuAction("Sign out and remove from phone…") { scope.launch { confirmSignOut = dao.unsentCount() } },
                     MenuAction("Delete account…") { confirmDeleteAccount = true },
                 ) else listOf(MenuAction("Sign in with GitHub", onSignIn)))
             })
@@ -149,7 +149,7 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (!signedIn) {
-                StatusLine("Signed out. Saved notes are still readable; sign in to refresh and sync.")
+                StatusLine("GitHub sign-in needed. Saved notes are still readable; sign in to refresh and sync.")
                 FilledTonalButton(onClick = onSignIn, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Sign in with GitHub") }
             }
             StatusLine(status)
