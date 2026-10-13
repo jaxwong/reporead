@@ -19,6 +19,9 @@ val bundleReader = tasks.register<BundleReader>("bundleReader") {
  * over the last and keeps the phone's data (see android/README.md). Packaging without it fails; nothing falls back to
  * the debug key.
  */
+val commitCount = providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+    .standardOutput.asText.get().trim().toInt()
+
 val signingStore = providers.gradleProperty("reporead.signing.storeFile").orNull
 val signingPasswordFile = providers.gradleProperty("reporead.signing.passwordFile").orNull
 
@@ -30,8 +33,9 @@ android {
         applicationId = "com.reporead.android"
         minSdk = 34
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        // The commit count only grows along main, so each release installs over the last (Obtainium, ADR-15).
+        versionCode = commitCount
+        versionName = "0.1.$commitCount"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
