@@ -83,7 +83,11 @@ ksp {
     arg("room.schemaLocation", file("schemas").absolutePath)
 }
 
-tasks.matching { it.name.startsWith("package") && it.name != "packageDebugUnitTestForUnitTest" }.configureEach {
+// Every task that packages a signed APK or bundle. The package*Resources tasks sign nothing and unit tests need them,
+// so CI runs unit tests without the key.
+tasks.matching {
+    it.name.startsWith("package") && !it.name.endsWith("Resources") && it.name != "packageDebugUnitTestForUnitTest"
+}.configureEach {
     doFirst {
         if (signingStore == null || signingPasswordFile == null) {
             throw GradleException("Set reporead.signing.storeFile and reporead.signing.passwordFile in ~/.gradle/gradle.properties (android/README.md).")
