@@ -20,9 +20,9 @@ The decisions that shape RepoRead's MVP, as built. Each says what was decided, w
 
 **Context.** The GitHub App's user token is the only credential that reads private notes. Storing it at rest needs an encryption-key decision; giving it to the phone exposes it beside untrusted content.
 
-**Decision.** The backend keeps the token in memory (Spring's authorized-client service) and gives the phone an opaque bearer session (hash stored, Keystore-encrypted on the phone). No refresh tokens, no installation-token fallback.
+**Decision.** The backend keeps the token and GitHub's refresh token in memory (Spring's authorized-client service) and gives the phone an opaque bearer session (hash stored, Keystore-encrypted on the phone). GitHub App user tokens last 8 hours, so the backend renews one that expires within a minute before using it, as mobile apps with short-lived access tokens do (amended 2026-10-13; before, every expiry meant a new sign-in, about once a day). No installation-token fallback.
 
-**Consequences.** Restarting the server or the token expiring requires signing in again (401 `SIGN_IN_REQUIRED`); database-only operations keep working. Account deletion leaves RepoRead holding no credential. Evidence: [Stage 0](reporead-stage0-boundaries.md#authentication-boundary).
+**Consequences.** Restarting the server, or GitHub refusing a renewal (the refresh token expired after about 6 months or was revoked), requires signing in again (401 `SIGN_IN_REQUIRED`); database-only operations keep working. A renewal GitHub does not answer fails that request (503 `GITHUB_UNAVAILABLE`) and the next one tries again. Account deletion leaves RepoRead holding no credential. Evidence: [Stage 0](reporead-stage0-boundaries.md#authentication-boundary), `GitHubTokenRefreshTest`.
 
 ## ADR-04 — The server renders; an isolated WebView displays
 
