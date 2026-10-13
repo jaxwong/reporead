@@ -83,11 +83,17 @@ jobs:
         run: |
           # SHA-256 of the personal signing certificate (android/README.md). An APK signed by any other key could not
           # update the installed app, so a wrong secret must fail here rather than publish.
+          # The digest is computed from the PEM certificate, not parsed from apksigner's prose, whose wording changed
+          # between build-tools 36 ("Signer #1 certificate …") and 37 ("V2 Signer: certificate …").
           expected=2049299fc6e40dc666fb2a7a407f51059bfb3cc3e9a32e9cc38d91a1e153293f
           apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
-          actual=$("$apksigner" verify --print-certs android/build/outputs/apk/release/app-release.apk \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-          [ "$actual" = "$expected" ] || { echo "APK signed by '$actual', expected $expected" >&2; exit 1; }
+          certs=$("$apksigner" verify --print-certs-pem android/build/outputs/apk/release/app-release.apk)
+          count=$(grep -c 'BEGIN CERTIFICATE' <<<"$certs" || true)
+          actual=$(openssl x509 -outform DER <<<"$certs" | sha256sum | cut -d' ' -f1)
+          if [ "$count" != 1 ] || [ "$actual" != "$expected" ]; then
+            echo "APK has $count signing certificate(s), first SHA-256 $actual; expected exactly one, $expected" >&2
+            exit 1
+          fi
 
       - name: Publish the GitHub Release
         env:
