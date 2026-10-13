@@ -1,3 +1,4 @@
+# Backend CI/CD. Markdown-only changes do not run it (a deploy restarts the server, which costs a phone sign-in).
 # Backend CI/CD. Pull requests: backend tests only, no secrets. Pushes to main: the same tests, then deploy the jar
 # to the hosted VM (backend/README.md, Hosted VM). The deploy key can only run /usr/local/sbin/reporead-deploy
 # (backend/deploy/reporead-deploy), which restores the previous jar if the new one is not healthy.
@@ -6,10 +7,10 @@ name: Backend
 
 on:
   pull_request:
-    paths: [backend/**, build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/backend.yml]
+    paths: [backend/**, '!backend/**/*.md', build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/backend.yml]
   push:
     branches: [main]
-    paths: [backend/**, build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/backend.yml]
+    paths: [backend/**, '!backend/**/*.md', build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/backend.yml]
   workflow_dispatch:
 
 permissions:
