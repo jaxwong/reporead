@@ -48,7 +48,7 @@ Oracle Cloud Always Free (ADR-14): `VM.Standard.A1.Flex`, 1 OCPU / 6 GB, Oracle 
 | --- | --- |
 | PostgreSQL 17.11 | Podman Quadlet `/etc/containers/systemd/reporead-postgres.container` (service `reporead-postgres`, volume `reporead-postgres`, health-gated `Notify=healthy`). Host network with `listen_addresses=127.0.0.1` and no published port: a `firewall-cmd --reload` wipes Podman's NAT rules, which once left the backend hanging on connect |
 | Deploys | `/usr/local/sbin/reporead-deploy` (from `backend/deploy/reporead-deploy`); user `deploy`, whose only SSH key is forced to run it via `sudo` (`/etc/sudoers.d/reporead-deploy`), with no shell, PTY or forwarding |
-| Backend | `/opt/reporead/backend.jar` (root-owned), service `/etc/systemd/system/reporead-backend.service`, user `reporead`, starts after the database is healthy |
+| Backend | `/opt/reporead/backend.jar` (root-owned), service `/etc/systemd/system/reporead-backend.service`, user `reporead`, starts after the database is healthy. Runs with `-Xms1g -XX:+AlwaysPreTouch`: RepoRead alone used ~16% of memory, and Oracle may reclaim an Always Free VM whose CPU, network and memory all stay under 20% for 7 days; the committed heap keeps memory near 33% |
 | Configuration | `/etc/reporead/backend.env` (root 0600, includes the database password), `/etc/reporead/github-client-secret` (`reporead` 0600), `/etc/reporead/db-password` (root 0600, also the Podman secret `reporead-db-password`) |
 | HTTPS | Caddy (`/etc/caddy/Caddyfile`), Let's Encrypt via HTTP-01, proxies only to `127.0.0.1:8081` |
 
