@@ -94,6 +94,20 @@ class ReviewTest {
         assertNull(answerContext(html, Passage("sha", "b9", 7, 9, "😀")))
     }
 
+    @Test fun aBankCardRevealsItsQuestionsGuideAndOtherCardsOnlyTheirContext() {
+        val html = "<main id=note><h2 data-block-id=b0 data-anchor-text='Foundations'>Foundations</h2>" +
+            "<h3 data-block-id=b1 data-anchor-text='1. What is ACID?'>1. What is ACID?</h3>" +
+            "<p data-block-id=b2 data-anchor-text='Interviewer is testing: protection.'>Interviewer is testing: protection.</p>" +
+            "<p data-block-id=b3 data-anchor-text='Canonical answer: ACID'><strong>Canonical answer:</strong> <a href='../a.md#acid'>ACID</a></p></main>"
+        val answer = Passage("sha", "b3", 0, 22, "Canonical answer: ACID")
+        assertEquals(RevealedAnswer("Canonical answer: ACID", listOf("Interviewer is testing: protection.", "Canonical answer: ACID")),
+            revealedAnswer(html, "core/interview/bank.md", answer))
+        assertEquals(RevealedAnswer("Canonical answer: ACID", null), revealedAnswer(html, "core/bank.md", answer))
+        assertEquals(RevealedAnswer("Interviewer is testing: protection.", null),
+            revealedAnswer(html, "core/interview/bank.md", Passage("sha", "b2", 0, 11, "Interviewer")))
+        assertNull(revealedAnswer(html, "core/interview/bank.md", answer.copy(exactText = "changed")))
+    }
+
     @Test fun exportedBlockquotesRoundTripEveryCharacter() {
         val quote = "  😀 **bold** & <code>\r\n\n> nested\ntrailing  \n"
         val item = card(1).let { it.copy(annotation = it.annotation.copy(exactText = quote, endOffset = quote.length)) }

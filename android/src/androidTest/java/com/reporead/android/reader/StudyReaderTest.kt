@@ -34,8 +34,8 @@ class StudyReaderTest {
         val body = block(0, "h1", "Test-only study fixture") + block(1, "h2", "Problem") + block(2, "p", "Solve this problem.") +
             block(3, "h2", "Approach") + block(4, "p", "The revealed answer.") + block(5, "h3", "Mistakes") +
             block(6, "p", "A nested mistake.") + block(7, "h2", "Complexities") + block(8, "p", "Linear time.") +
-            (if (questions) block(9, "h2", "Questions this file answers") + "<ul>" + block(10, "li", "First question?") + block(11, "li", "Second question?") + block(44, "li", "First question?") + "</ul>" +
-                block(41, "h2", "Review and practice") + block(42, "p", "Trace a request, then test:") + "<ul>" + block(43, "li", "empty input") + "</ul>" else "") +
+            (if (questions) block(9, "h2", "1. Foundations") + block(10, "h3", "1. First question?") + block(11, "h3", "2. Second question?") + block(44, "h3", "3. First question?") +
+                block(41, "h2", "3. Design follow-ups") + block(42, "h3", "After you trace a request") + "<ol>" + block(43, "li", "empty input") + "</ol>" else "") +
             block(12, "h2", "Context") + (13..40).joinToString("") { block(it, "p", "Test-only context paragraph $it. ".repeat(10)) }
         val html = """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
             <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
@@ -65,7 +65,7 @@ class StudyReaderTest {
         }
         assertTrue("Study fixture did not finish within 25 seconds", ready.await(25, TimeUnit.SECONDS))
         assertEquals("ready", state)
-        checkScript("window.reporead.configureStudy(${studyNote(html).json()}); return true;")
+        checkScript("window.reporead.configureStudy(${studyNote(html, "test-only/interview/study.md").json()}); return true;")
     }
 
     private fun checkScript(script: String) {
@@ -130,7 +130,7 @@ class StudyReaderTest {
             check(api.position().anchor.blockIndex === [...document.querySelectorAll('#note [data-block-id]')].findIndex(b => b.dataset.blockId === 'b44'), 'Second identical prompt must not open first');
             check(!api.studyQuestion('b'.repeat(40), 'b44'), 'A different source version must reject the block identity');
             check(api.studyQuestion(sha, 'b43'), 'Queue opens an instruction-aware prompt');
-            check(document.querySelector('.study-question').textContent === 'Trace a request, then test:\n\nempty input', 'Prompt retains leading instruction');
+            check(document.querySelector('.study-question').textContent === 'After you trace a request\n\nempty input', 'Prompt retains leading instruction');
             check(!api.studyQuestion(sha, 'removed'), 'Missing question must not silently open another');
             check([...document.querySelectorAll('#note [data-block-id]')].every(b => b.textContent === b.dataset.anchorText), 'Canonical text after recall');
             return true;

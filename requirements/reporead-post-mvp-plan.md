@@ -164,7 +164,7 @@ Recommended order: P1, then P3's in-note study view, then P2, then the rest of P
 
 1. **Study view in the reader.** A toggle, shown only on notes with a recognized study heading.
    - **LeetCode notes:** `Problem` stays visible. `Approach`, `Brute Force Approach`, `Optimized Approach`, `Complexities`, and `Mistakes` collapse until tapped.
-   - **Core notes:** `Questions this file answers` and `Review and practice` items appear one at a time, followed by "Read the answer", which shows the note.
+   - **Core notes:** `Questions this file answers` and `Review and practice` items appear one at a time, followed by "Read the answer", which shows the note. *Superseded 2026-10-13: questions now come only from interview banks; see the [interview questions record](reporead-interview-questions-record.md).*
    - **Constraints:**
      - Collapsing is CSS only; block text stays unchanged.
      - Saving and restoring the reading position must handle collapsed blocks, as it already does for Mermaid sources ([reader.js:83-89](../android/reader-web/reader.js#L83-L89)).
@@ -193,7 +193,7 @@ P3 stores no scores and no schedule; spacing is P4.
 
 ## P4 — Spaced review of chosen passages, and the highlights notebook
 
-Approved 2026-10-09: new CARD annotation plus backend/Room migrations, SM-2 without a new dependency, and deletion of cards/logs on disconnect/account deletion. P3 prompts require a user-selected answer passage; no automatic mapping. Implementation and verification: [P4 record](reporead-p4-record.md). The two-week real-review exit gate remains pending.
+Approved 2026-10-09: new CARD annotation plus backend/Room migrations, SM-2 without a new dependency, and deletion of cards/logs on disconnect/account deletion. P3 prompts require a user-selected answer passage; no automatic mapping. *Changed 2026-10-13 (user decision): a bank question's card takes its authored `Canonical answer` line; see the [interview questions record](reporead-interview-questions-record.md).* Implementation and verification: [P4 record](reporead-p4-record.md). The two-week real-review exit gate remains pending.
 
 **Goal:** schedule review of what the developer chooses to remember, and survive note edits as highlights already do.
 

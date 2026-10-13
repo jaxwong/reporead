@@ -213,17 +213,25 @@ internal fun ReviewScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () ->
             Text(checkNotNull(row.question), style = MaterialTheme.typography.headlineSmall)
             if (revealed != id) Button(onClick = { revealed = id }) { Text("Reveal answer") }
             else {
-                val context by produceState<Pair<Passage, String>?>(null, row.mutationId, row.drawn) {
+                val context by produceState<Pair<Passage, RevealedAnswer>?>(null, row.mutationId, row.drawn) {
                     val note = dao.note(row.documentId)
-                    value = if (note?.blobSha == row.drawn.blobSha) withContext(Dispatchers.Default) { answerContext(note.html, row.drawn)?.let { row.drawn to it } } else null
+                    value = if (note?.blobSha == row.drawn.blobSha) withContext(Dispatchers.Default) {
+                        revealedAnswer(note.html, note.path, row.drawn)?.let { row.drawn to it }
+                    } else null
                 }
                 val verified = context?.takeIf { it.first == row.drawn }?.second
                 if (verified == null) {
                     Text("The saved page cannot verify this answer in context. Open the note to check it.")
                 } else {
-                    Text(row.drawn.exactText, style = MaterialTheme.typography.titleLarge)
-                    Text("Context · ${item.path}", style = MaterialTheme.typography.labelMedium)
-                    Text(verified)
+                    val guide = verified.guide
+                    if (guide != null) {
+                        Text("Interview bank · ${item.path}", style = MaterialTheme.typography.labelMedium)
+                        for (line in guide) Text(line)
+                    } else {
+                        Text(row.drawn.exactText, style = MaterialTheme.typography.titleLarge)
+                        Text("Context · ${item.path}", style = MaterialTheme.typography.labelMedium)
+                        Text(verified.context)
+                    }
                     // Each press persists one immutable mutation locally; network I/O waits for explicit Library sync.
                     for ((grade, label) in listOf(0 to "Again — no recall", 3 to "Hard — correct with difficulty", 4 to "Good — correct with hesitation", 5 to "Easy — perfect recall")) {
                         Button(enabled = !saving, modifier = Modifier.fillMaxWidth(), onClick = {
