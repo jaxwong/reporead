@@ -16,13 +16,14 @@ Flyway applies `src/main/resources/db/migration` at startup. Schema changes are 
 
 ## Run
 
-Save the GitHub App client secret as a single token in a file **outside any Git repository**, mode **0600**. The App PEM is not the OAuth secret. No fallback credentials or database exist; missing/malformed/unsafe configuration fails startup.
+Save the GitHub App client secret as a single token in a file **outside any Git repository**, mode **0600**. The App PEM is not the OAuth secret. Create the key that encrypts stored GitHub tokens the same way, once per server: `(umask 077; openssl rand -hex 32 > /absolute/private/path/github-token-key)`; replacing it signs every user out of GitHub. No fallback credentials or database exist; missing/malformed/unsafe configuration fails startup.
 
 ```sh
 DEBUG=false \
 REPOREAD_PUBLIC_URL='http://127.0.0.1:8081' \
 REPOREAD_GITHUB_CLIENT_ID='<your-app-client-id>' \
 REPOREAD_GITHUB_CLIENT_SECRET_FILE='/absolute/private/path/client-secret' \
+REPOREAD_GITHUB_TOKEN_KEY_FILE='/absolute/private/path/github-token-key' \
 REPOREAD_DB_URL='jdbc:postgresql://127.0.0.1:5435/reporead' \
 REPOREAD_DB_USERNAME='reporead' \
 REPOREAD_DB_PASSWORD='reporead-local-dev' \
@@ -49,12 +50,12 @@ Oracle Cloud Always Free (ADR-14): `VM.Standard.A1.Flex`, 1 OCPU / 6 GB, Oracle 
 | PostgreSQL 17.11 | Podman Quadlet `/etc/containers/systemd/reporead-postgres.container` (service `reporead-postgres`, volume `reporead-postgres`, health-gated `Notify=healthy`). Host network with `listen_addresses=127.0.0.1` and no published port: a `firewall-cmd --reload` wipes Podman's NAT rules, which once left the backend hanging on connect |
 | Deploys | `/usr/local/sbin/reporead-deploy` (from `backend/deploy/reporead-deploy`); user `deploy`, whose only SSH key is forced to run it via `sudo` (`/etc/sudoers.d/reporead-deploy`), with no shell, PTY or forwarding |
 | Backend | `/opt/reporead/backend.jar` (root-owned), service `/etc/systemd/system/reporead-backend.service`, user `reporead`, starts after the database is healthy. Runs with `-Xms1g -XX:+AlwaysPreTouch`: RepoRead alone used ~16% of memory, and Oracle may reclaim an Always Free VM whose CPU, network and memory all stay under 20% for 7 days; the committed heap keeps memory near 33%. `SuccessExitStatus=143`: the JVM exits 143 on SIGTERM, so a normal stop or deploy is not logged as a failure |
-| Configuration | `/etc/reporead/backend.env` (root 0600, includes the database password), `/etc/reporead/github-client-secret` (`reporead` 0600), `/etc/reporead/db-password` (root 0600, also the Podman secret `reporead-db-password`) |
+| Configuration | `/etc/reporead/backend.env` (root 0600, includes the database password), `/etc/reporead/github-client-secret` (`reporead` 0600), `/etc/reporead/github-token-key` (`reporead` 0600), `/etc/reporead/db-password` (root 0600, also the Podman secret `reporead-db-password`) |
 | HTTPS | Caddy (`/etc/caddy/Caddyfile`), Let's Encrypt via HTTP-01, proxies only to `127.0.0.1:8081` |
 
 **Deploying.** A push to `main` that touches the backend or the build runs `.github/workflows/backend.yml`: backend tests, `bootJar`, then the jar is piped over SSH to the `deploy` user (secret `DEPLOY_SSH_KEY`; the VM's host key is pinned in the workflow). Pull requests run the tests only. `reporead-deploy` checks that stdin is a RepoRead boot jar, keeps the running jar as `/opt/reporead/backend.previous.jar`, restarts the service, and waits up to 120 s for Actuator health; otherwise it restores the previous jar and exits 1, failing the run. It prints only outcomes and the jar's SHA-256, because the repository and its CI logs are public. To deploy by hand, build with `./gradlew :backend:bootJar --no-daemon`, then `ssh opc@152.69.219.238 'sudo /usr/local/sbin/reporead-deploy' < backend/build/libs/backend.jar`. Changes to `backend/deploy/reporead-deploy` take effect only once copied to the VM by hand (root 0755); CI cannot change it.
 
-Logs: `sudo journalctl -u reporead-backend`. Every restart, including every deploy, drops the in-memory GitHub token, so the phone asks to sign in again before its next GitHub-backed request.
+Logs: `sudo journalctl -u reporead-backend`. Restarts and deploys keep GitHub sign-ins (stored encrypted, see the sign-in contract).
 
 ## Sign-in contract (Android)
 
@@ -63,7 +64,7 @@ Logs: `sudo journalctl -u reporead-backend`. Every restart, including every depl
 3. The app sends `POST /api/app-auth/token {code, codeVerifier}` and receives `{accessToken, expiresAt, user}`. A wrong verifier consumes the code. Sessions last 30 days; `DELETE /api/app-auth/session` signs out.
 4. `/api/**` accepts only `Authorization: Bearer <accessToken>`. It is stateless: browser session cookies never authenticate the API. Any 401 means "sign in again".
 
-Only SHA-256 hashes of codes and session tokens are stored. The GitHub user token and its refresh token stay **in server memory** and are never returned. GitHub App user tokens last 8 hours: before a GitHub-backed operation, a token expiring within a minute is renewed with one call to GitHub's token endpoint (one at a time per user, because GitHub replaces the refresh token on each use). If GitHub refuses the renewal, the stored token is dropped and the operation returns 401 `SIGN_IN_REQUIRED`; if GitHub does not answer (network failure, timeout, 429, 5xx), it returns 503 `GITHUB_UNAVAILABLE` and the next operation tries again. Restarting the server loses both tokens: the app session stays valid for database-only reads, but GitHub-backed operations return 401 `SIGN_IN_REQUIRED` until the user signs in again. Durable GitHub-token storage would need an encryption-at-rest key decision.
+Only SHA-256 hashes of codes and session tokens are stored. The GitHub user token and its refresh token are stored in `github_tokens`, each encrypted with AES-256-GCM under the key in `REPOREAD_GITHUB_TOKEN_KEY_FILE` and bound to its GitHub user (`GitHubTokens`), and are never returned. GitHub App user tokens last 8 hours: before a GitHub-backed operation, a token expiring within a minute is renewed with one call to GitHub's token endpoint (one at a time per user, because GitHub replaces the refresh token on each use). If GitHub refuses the renewal, the stored token is dropped and the operation returns 401 `SIGN_IN_REQUIRED`; if GitHub does not answer (network failure, timeout, 429, 5xx), it returns 503 `GITHUB_UNAVAILABLE` and the next operation tries again. Restarts and deploys keep them. A stored token the key cannot decrypt (the key file was replaced) is deleted, and that user signs in again.
 
 ## API
 
@@ -76,7 +77,7 @@ Only SHA-256 hashes of codes and session tokens are stored. The GitHub user toke
 | `POST /api/repositories/{id}/sync` | 2 (branch, recursive tree) + at most 8 blob reads (moved-and-edited notes) | Publishes a complete snapshot of the default branch |
 | `GET /api/repositories/{id}/stored-data` | 0 | What disconnecting would delete: counts of documents, reading states, bookmarks, highlights, and cards |
 | `DELETE /api/repositories/{id}` | 0 | Disconnects: deletes the connection and everything stored for it (documents, reading states, bookmarks, highlights, cards and their review logs) in one transaction; returns the deleted document ids and counts; 404 once already disconnected. GitHub and the App installation are unchanged |
-| `DELETE /api/account` | 0 | Deletes every connection and its data, the annotation mutation records, sign-in codes, sessions, and the user, then drops the in-memory GitHub token |
+| `DELETE /api/account` | 0 | Deletes every connection and its data, the annotation mutation records, sign-in codes, sessions, and the user, and the stored GitHub token |
 | `GET /api/repositories/{id}/documents` | 0 | Active Markdown documents and the last synced commit; each with `contentChangedAt` (see Sync semantics) |
 | `GET /api/documents/{id}/content` | 1 (raw blob at the stored SHA) | Sanitized reader HTML; not cached on the server |
 | `GET /api/documents/{id}/image?path=` or `?embed=` | 1 (file at the note's current commit); 0 when an embed name is missing or ambiguous | A repository image referenced by the note, by path or by Obsidian embed name; see below |
