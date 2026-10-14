@@ -35,7 +35,7 @@ final class Anchoring {
      */
     record Thresholds(double quoteContext, int uniqueQuoteChars, double fuzzyQuote, double fuzzyContext) {}
 
-    /** Set from the measurement recorded in requirements/reporead-stage4-record.md, not chosen by hand. */
+    /** Set from the measurement recorded in docs/adrs.md (ADR-06), not chosen by hand. */
     static final Thresholds MEASURED = new Thresholds(0.5, 16, 0.85, 0.8);
 
     enum Method { POSITION, BLOCK, QUOTE, FUZZY }

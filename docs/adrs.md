@@ -1,0 +1,225 @@
+# RepoRead — Architecture decision records
+
+The decisions that shape RepoRead, as built. Each says what was decided, why, and what it costs, with its evidence summarised in place. Status of all: **accepted**. A later decision amends an earlier one in place and says when.
+
+`docs/` is the single source of truth for decisions ([this file](adrs.md)), scope and status ([feature list](feature-list.md)), user needs ([user stories](user-stories.md)), the rules every change keeps ([invariants](invariants.md)) and how the parts fit ([architecture](architecture.md)). The [backend](../backend/README.md) and [Android](../android/README.md) READMEs own contracts, commands and behaviour detail. The implementation spec, build plan, post-MVP plan and per-stage verification records these ADRs used to cite were removed on 2026-10-14; what they decided is recorded here, and their full command logs remain in Git history (for example `git show 2e434f7:requirements/reporead-stage4-record.md`).
+
+## ADR-01 — A Spring Boot backend between the phone and GitHub
+
+**Context.** The phone could call GitHub directly. But annotations, reading state, document identity across edits, and re-anchoring need durable server-side state and decisions, and a GitHub credential on the phone would sit next to untrusted rendered Markdown.
+
+**Decision.** One Spring Boot/PostgreSQL service (a modular monolith: `auth`, `github`, `repository`, `sync`, `document`, `reading`, `annotation`) owns users, connections, logical documents, reading state, annotations, and every reconciliation decision. The Android app (Kotlin/Compose, Room) talks to it only through explicit HTTP/JSON contracts; no JVM classes are shared, and each side defines its own request and response shapes.
+
+- **Languages.** Kotlin because the client is a native Android app, which gives direct control over text selection, scrolling, lifecycle, offline storage and secure storage. Java for the backend because a learning goal is to understand Spring Boot deeply without Kotlin-specific Spring behaviour at the same time. Android first; iOS is out of scope.
+- **Monolith.** One developer, one operational unit, strong transactions over application state, easy local debugging, and no demonstrated need for independent deployment. Packages are by capability, not technical layer. Separation would need evidence, not aesthetics.
+- **Persistence.** Spring JDBC with hand-written SQL; Flyway owns the schema (`V1`–`V8`). The original spec's Spring Data JPA was not adopted; no reason was recorded at the time.
+
+**Consequences.** The phone needs the backend for refreshes and sync; saved content stays readable without it. Release builds reach the hosted service (ADR-14); debug builds reach the developer's Mac through `adb reverse` (ADR-12). Contract compatibility is an explicit concern because nothing is shared.
+
+## ADR-02 — GitHub is canonical and read-only; note bodies are not stored on the server
+
+**Decision.** RepoRead never writes to GitHub repositories: the App has read-only permissions (ADR-16), and the backend's GitHub client issues only GET requests, apart from OAuth token exchange and renewal and revoking RepoRead's own authorization for a user who signs out of their last device or deletes their account (ADR-03). The server stores document metadata (paths, titles, blob SHAs) and the user's own state, and fetches a note's exact blob by SHA whenever it renders or compares it; nothing is cached server-side, and there is no table of document versions. Every GitHub operation has a stated call ceiling; a failed call ends the operation without an alternative strategy, retry or backoff.
+
+**Consequences.** Opening a note online costs one GitHub request. A version GitHub no longer has (rewritten history) is reported as unavailable, never reconstructed. Highlights necessarily store their quoted text (ADR-11).
+
+## ADR-03 — GitHub user tokens stay on the server, encrypted at rest
+
+**Context.** The GitHub App's user token is the only credential that reads private notes. Giving it to the phone exposes it beside untrusted content. Kept only in memory (the original decision), it was lost on every restart, and once the backend was hosted every deploy restarted it, so each push to `main` meant signing in again.
+
+**Decision.** The backend keeps the token and GitHub's refresh token in PostgreSQL (`github_tokens`, one row per GitHub user), each encrypted with AES-256-GCM under a key file outside the database (`REPOREAD_GITHUB_TOKEN_KEY_FILE`, 0600, like the client secret) and bound to its user, and gives the phone an opaque bearer session (hash stored, Keystore-encrypted on the phone). GitHub App user tokens last 8 hours, so the backend renews one that expires within a minute before using it, as mobile apps with short-lived access tokens do. No installation-token fallback. Amended 2026-10-13 twice: renewal (before, every expiry meant a new sign-in, about once a day), then storage at rest (before, every restart did).
+
+**Consequences.** Restarts and deploys keep the sign-in. GitHub refusing a renewal (the refresh token expired after about 6 months or was revoked) requires signing in again (401 `SIGN_IN_REQUIRED`); database-only operations keep working. A renewal GitHub does not answer fails that request (503 `GITHUB_UNAVAILABLE`) and the next one tries again. A database copy without the key file holds no usable credential; losing or replacing the key file makes every stored token unreadable, and each user signs in again. Signing out of the last device, or deleting the account, revokes RepoRead's authorization on GitHub (all of its tokens for that user) and removes the stored token, leaving RepoRead holding no credential; if GitHub does not confirm the revocation, the stored token is removed anyway and GitHub expires the tokens itself. The next sign-in shows GitHub's authorization screen again.
+
+**Evidence.** Real browser sign-in and user-scoped repository eligibility on 2026-10-02 (Stage 0); `GitHubTokenRefreshTest`, `GitHubTokensTest`.
+
+## ADR-04 — The server renders; an isolated WebView displays
+
+**Decision.** Java (CommonMark with the GFM tables, strikethrough and task-list extensions; escaped raw HTML; a jsoup tag/attribute/URL safelist) is the single owner of parsing, sanitizing, canonical block text, and limits. The phone shows that HTML in a WebView, with Compose for everything around it:
+
+- a local HTTPS asset origin (`appassets.androidplatform.net`), a CSP, and app-bundled scripts and styles only (highlight.js, Mermaid); no CDN requests;
+- blocked navigation, network, file and content access; no JavaScript bridge; no credentials;
+- repository images fetched by native code, which attaches the bearer token itself;
+- Mermaid in strict security mode with HTML labels disabled, within the server's diagram bounds. A diagram that fails shows its error and source; no alternate renderer is tried. The rendered SVG is display only: the diagram's source is the anchorable block.
+
+**Why.** Chosen at Stage 0 (closed 2026-10-06) after a reader spike on the Pixel 8a: a real private note rendered by Java (200 blocks, 4 diagrams) showed 0 diagram errors and matching canonical text in the WebView, and a finger selection returned exactly the expected UTF-16 range. The spike modules were then deleted.
+
+**Consequences.** One parser defines what a selection means for both reader and server. Unsupported or oversized content is a visible error, not executed. Remote images are blocked. The page reaches native code only through intercepted same-origin links (ADR-18).
+
+## ADR-05 — Anchors are block ids and UTF-16 offsets into canonical text of one version
+
+**Decision.** A selection is `{sourceBlobSha, blockId, startOffset, endOffset, exactText}` within one block, offsets in UTF-16 units of the Java-exported canonical text. The server verifies it against that exact version and derives context and heading path itself. Block ids are stable only within a version.
+
+**The text contract.**
+
+- **Canonical text** is not raw Markdown: inline formatting contributes its visible text, a soft line break becomes a space, a hard break one LF, code keeps its whitespace, and nothing is Unicode-normalized. The exported blob SHA must match the exact UTF-8 source bytes.
+- **Anchorable blocks** are paragraphs, headings, code fences, table cells, and list items without nested candidate blocks. Blocks do not overlap. Ids `b0`, `b1`, … are deterministic within one source version only.
+- **Offsets** are zero-based, start-inclusive and end-exclusive; a surrogate pair is two units.
+- **The page** compares its text with the exported canonical text; a mismatch is an invariant failure, never an approximate anchor. Empty selections produce no anchor.
+
+**Consequences.** Cross-block selections are refused. Every later version needs re-anchoring (ADR-06). Any rendering change must leave an unchanged blob's canonical text identical (ADR-18). Known gaps: a tight list item with nested points has its own text in no block, so it cannot be highlighted; the server checks that `sourceBlobSha` is a blob in the document's repository that renders the selection, not that it belongs to that document's history.
+
+## ADR-06 — Re-anchor only on measured evidence; otherwise orphan
+
+**Context.** US-07: a wrong attachment is worse than a lost one, but orphaning every light edit fails the story.
+
+**Decision.** Resolve in order — whole block unchanged (SHA-256 of a block text unique in its version), unchanged position with unchanged context, exact quote singled out by context, bounded fuzzy match — with thresholds chosen by measurement, not by hand. Anything weaker is `ORPHANED`, keeping the original selection and context for manual reattachment. The original anchor never changes.
+
+**Measurement (2026-10-06).** `Anchoring.MEASURED` = quote context 0.5, unique-quote length 16, fuzzy quote 0.85, fuzzy context 0.8, chosen with `AnchorMeasurement` over a read-only clone of the user's notes repository (640 notes, 599 real edited versions). Four samples of about 22,000 labelled cases each (one for tuning, three held out): **0 wrong attachments**, 95.0–95.6% of should-attach cases attached. Unchanged blocks 100%; inserted, moved or duplicated blocks 97–98%; an edit far from the selection 100%, next to it 91%; a one-character edit 94%; a one-word edit 56%; deletions and rewrites orphaned. All 133 attachments in real history were checked by hand: none wrong. Recall on real changed blocks is not measured.
+
+**What the measurement forced** (each found as wrong attachments): whole-block identity comes before position; position counts only without an identical-context rival; each anchor records evidence from its own version (how often its quote occurs, the best other context, its closest look-alike), which a match elsewhere must beat; context is the weaker of prefix and suffix similarity; fuzzy alignment counts only insertions and deletions. Amended 2026-10-09: a look-alike search cut off by its bound counts as indistinguishable (1.0), not as no look-alike. Thresholds were not re-measured after that change.
+
+**Bounds.** Fuzzy matching is skipped for quotes over 1,000 characters, blocks over 20,000, or when more than 16 blocks share half the passage's words; the constructed worst case took 335 ms.
+
+**Consequences.** Some lightly edited short passages orphan. Any change to `Anchoring` is re-measured with `AnchorMeasurement` (ADR-23). Evidence on the phone (2026-10-07): an inserted paragraph re-anchored by block, a one-word edit by fuzzy match, a rewrite orphaned and was reattached, and a duplicated quote stayed on the original.
+
+## ADR-07 — Document identity from complete snapshots
+
+**Decision.** Each sync publishes one complete tree snapshot of the default branch in a transaction, instead of the original spec's incremental compare between commits. A path keeps its document; a document whose unique blob reappears at exactly one never-used path moved; a vanished document with user data whose content is alike enough moved and was edited. Absent paths are marked deleted, never removed; an incomplete tree is a failure, never evidence of deletion.
+
+- **Moved and edited** means Jaccard similarity of five-word shingles of canonical text at least 0.5, both versions with at least 50 shingles, and the pair the only one above 0.5 on both sides. It costs one blob read per candidate and is skipped when vanished documents plus new paths exceed 8. Measured with `MoveMeasurement`: the 38 real renames with edits scored 0.54–1.00, the most similar pair of different notes 0.198; block-text Dice was rejected (95th percentile 0.80).
+- **Concurrency** (amended 2026-10-09): GitHub is read before the connection row lock; under it, a sync that fetched before another sync published a different commit changes nothing (409 `SYNC_SUPERSEDED`). Every write that adds rows for a document shares that lock.
+
+**Consequences.** Branch rewinds reconcile like any other snapshot. Identical-content duplicates are never merged. Evidence: real path-only moves kept their ids (2026-10-07); a move with an edit kept its document and highlight.
+
+## ADR-08 — Offline: a Room projection plus explicit pending changes
+
+**Decision.** Room holds the server's complete lists and the latest rendered copy of each saved note, replaced only by complete responses. Local changes are rows marked pending and sent at explicit sync points (library open, Sync, note open): reading state is last-write-wins by the client's time; a highlight or card creation and a grade carry a client mutation id the server makes idempotent; edits and deletes of acknowledged annotations are online with optimistic versions and visible conflicts. No background sync, WorkManager, or retry framework.
+
+- **Sync order** (amended 2026-10-09): creations first (they need GitHub, so they wait when GitHub or access to it fails while the rest still runs), then grades, reading positions, bookmarks, the complete lists, and the notebook last. A refused item is marked with its reason and the run continues; any other failure ends the run with everything unacknowledged still pending.
+- **Deleting an unacknowledged creation** works offline (amended 2026-10-09, Room v8): it is marked `deleting`, and the next sync replays the creation, then deletes it, so a late answer cannot bring it back.
+
+**Consequences.** Offline creation never duplicates; offline edit of acknowledged annotations is not supported (Stage 3 scope decision). Evidence: an offline bookmark and reading save synced exactly once after reconnecting (Stage 2); a submission that arrived twice created one annotation, and a pending highlight survived a force-stop (Stage 3).
+
+## ADR-09 — "Changed since last read" compares the version actually read, by source lines
+
+**Decision.** The phone sends the version it last displayed (captured before the reader records the new one; its unsent saves can be newer than the server's) and the version on screen. The server diffs the two blobs' source lines (Myers, bounded) and maps changes to heading sections by position; oversized comparisons say so instead of listing part of them. "Recently changed" uses the time a refresh noticed the change (`documents.content_changed_at`), not commit times.
+
+Amended 2026-10-09 (Room v8): moving to a newer version keeps the version left behind as a phone-only baseline (`change_baselines`) until a summary from it has loaded on screen, so opening the note offline or leaving early does not use it up.
+
+**Consequences.** Not AST-aware: a renamed heading is a removed plus an added section, and blank-line edits count. Evidence: on 2026-10-07 a real edit showed changed, removed and added sections, including the second of two duplicate headings, and a refresh without reading kept the baseline.
+
+## ADR-10 — Search is local substring matching over what the phone has saved
+
+**Decision** (the user's, Stage 6). Search runs on the phone over note titles and paths in the saved lists, the canonical text of saved notes (sent with each note), and highlights — SQLite `LIKE` with escaped wildcards, no full-text index or server search. The phone's saved data belongs to one account: signing in as another clears it first (ADR-22).
+
+**Consequences.** Notes not saved on the phone match by title only; since ADR-19 every note can be saved. Non-ASCII letters match case-sensitively. Adequate for one person's repository; revisit with FTS if it is slow or too literal.
+
+## ADR-11 — Disconnecting deletes everything stored for that repository; account deletion deletes everything
+
+**Decision** (the user's, Stage 6). Disconnect deletes, in one transaction under the sync lock, the connection, its documents, and the user's reading states, bookmarks, and highlights (whose quotes are repository content) on them; the phone removes its copies including unsent changes. Account deletion does that for every connection, plus sessions, sign-in codes, mutation records, the user, and the stored GitHub token. Disconnect makes no GitHub call; the App stays installed until the user removes it on GitHub. Account deletion first revokes RepoRead's GitHub authorization for the user, as signing out of the last device does (amended 2026-10-13, ADR-03; at most 2 GitHub calls, and a failed revocation does not stop the deletion).
+
+**Consequences.** Reconnecting starts fresh; nothing is recoverable from RepoRead. Upstream note deletion is different: it keeps history (ADR-07). The phone syncs before counting what a disconnect will delete. Evidence (2026-10-07): a throwaway repository's disconnect removed exactly its rows on both sides; account deletion emptied every user table and the phone, then a dump was restored.
+
+## ADR-12 — Personal distribution: one signing key, backend over adb reverse
+
+**Decision** (the user's, Stage 6). Every build is signed with one personal key kept outside the repository, so release and development builds install over each other. The release build's backend address is superseded by ADR-14; debug builds keep the loopback backend reached through `adb reverse`. No Google Play.
+
+**Consequences.** Losing the key means uninstalling to update. Since ADR-15 a copy is also a GitHub repository secret.
+
+## ADR-13 — Anchored cards; server review log, phone-only SM-2 scheduling
+
+**Decision** (the user's, P4, 2026-10-09). CARD annotations reuse highlight anchors, re-anchoring, orphaning and idempotent offline creation. The question is written by the developer, or is an interview-bank question whose answer is its authored `Canonical answer` line (amended 2026-10-13, ADR-20; before, a P3 prompt needed an answer passage the developer selected). The server owns the immutable review log and the session ceiling (40); the phone owns the one pure SM-2 scheduler over the log so offline grading works. No scheduler dependency, persisted due dates, AI, inferred answers, background sync, or GitHub writes.
+
+**Scheduling.** Grades are Again 0, Hard 3, Good 4, Easy 5. Initial ease 2.5; intervals 1, 6, then ceil(previous × prior ease) days; ease floor 1.3. A grade below 3 is a lapse: repetitions reset and the ease is unchanged, as Wozniak's SM-2 describes (amended 2026-10-09; lapses had lowered it). A card is due from the start of the phone's local day its interval ends on. In a session, a card graded below Good comes back later in the same session, unsaved, until Good or Easy (SM-2 step 7; amended 2026-10-14, when each card had appeared once). SM-2 over an FSRS port: no new dependency; switch only if review data shows a need.
+
+**Safety.** A card's confirmed answer SHA must match both the current note and its trusted location. Re-anchoring/reattachment clears confirmation. Every known note-version change blocks review until explicitly checked; this conservative rule includes changed-section uncertainty. A new grade of an outdated answer is rejected, but an identical already-committed replay remains successful. Grade writes use client UUIDs and serialize with the existing connection/sync lock. Offline review cannot know about edits that have not been refreshed.
+
+**Data controls.** ADR-11 includes cards and review logs. Card deletion cascades its grades, disconnect removes the repository's cards/logs and phone copies (pending work and private export files included), and account deletion removes everything. Markdown share attachments leave GitHub untouched; copies delivered to other apps cannot be revoked.
+
+**Known limits** (recorded, not fixed). `GET /api/notebook` is not paged: past about 40,000 grades it exceeds the phone's 8 MiB response limit (user decision 2026-10-09: record the limit, page later). A card's question cannot be edited; delete and recreate it.
+
+**Evidence.** Fixture device tests passed twice (23 tests) without real-account cards. The two-week real-review exit gate is pending.
+
+## ADR-14 — Hosted backend on an Oracle Cloud Always Free VM; debug builds stay on the Mac
+
+**Decision** (the user's, 2026-10-13). The release build talks to `https://reporead.duckdns.org`, an Oracle Cloud Always Free `VM.Standard.A1.Flex` (1 OCPU / 6 GB, home region `ap-singapore-1`) running the same backend and PostgreSQL 17.11, behind Caddy with a Let's Encrypt certificate. Debug builds keep `http://127.0.0.1:8081` through `adb reverse` for testing unmerged changes. The server still binds only to `127.0.0.1`; `REPOREAD_PUBLIC_URL` fixes the OAuth callback (never the request's `Host`), and forwarded headers are honoured from loopback so redirects and the session cookie stay on HTTPS. The Mac's database moves to the VM at switch-over so phone and server ids keep matching.
+
+**Why this host.** Free hosts that sleep (Render, Koyeb) restart often and Render deletes free databases; Fly.io and Railway have no free tier; Google's e2-micro has 1 GB for the JVM and database together. DuckDNS is free and on the Public Suffix List, so Let's Encrypt limits are not shared (sslip.io and nip.io are not listed).
+
+**Consequences.** Refresh and sync work wherever the phone has internet. The backend is reachable from the internet for the first time; only Caddy (80/443) and SSH are open. Oracle may reclaim an Always Free VM idle for 7 days (CPU, network and memory all under 20%); RepoRead alone used ~16% of memory, so the backend commits a 1 GB heap at startup (`-Xms1g -XX:+AlwaysPreTouch` in its systemd unit), keeping memory near 33%. Oracle may also change free limits (halved in mid-2026). DuckDNS is a small volunteer service; losing the name means a new address and an app rebuild. Pushes to `main` that touch the backend deploy through GitHub Actions with a key that can only run the VM's deploy script, which rolls back an unhealthy jar.
+
+## ADR-15 — App releases through GitHub Releases, installed by Obtainium
+
+**Decision** (the user's, 2026-10-14). Pushes to `main` that change the app build a release APK in GitHub Actions, signed with the personal key (ADR-12) from repository secrets, and publish it as GitHub Release `v0.1.<commit count>`. Obtainium on the phone installs each release over the current app. `versionCode` is the commit count of `HEAD`, which only grows along `main`. No Play Store: its internal testing track would also work, but needs a paid developer account, Play App Signing and a service account.
+
+**Safety.** The workflow refuses to publish an APK whose signing certificate is not the personal key's (`2049299f…53293f`). Pull requests run unit tests without secrets; only the release job on `main` can write releases.
+
+**Consequences.** App updates no longer need the Mac or adb. The signing key now also lives in GitHub: anyone who controls the repository's Actions or secrets can publish an update the phone accepts as genuine, so the GitHub account is now part of the app's trust boundary. The repository is public, so release APKs are downloadable by anyone; they contain nothing beyond the public backend address. A hand-installed branch build with a higher commit count blocks the next release until it is reinstalled with `adb install -r -d`.
+
+## ADR-16 — A read-only GitHub App; the user's own token decides what can be connected
+
+**Context.** A personal access token would be broad and long-lived. An App installation token proves only that the App can read a repository, not that the signed-in user may.
+
+**Decision.**
+
+- RepoRead is a GitHub App installed on repositories the user chooses, with repository contents and metadata read-only.
+- Every read uses the signed-in user's user-to-server token. A repository can be connected only when GitHub lists it for both that user and an installation; connecting re-checks it. No installation tokens are used.
+- The App's client secret is a single token in a regular, non-symlink, mode-0600 file of at most 4 KiB outside any Git repository. Missing or unsafe configuration fails startup; no credential is in source.
+- A repository is refreshed from GitHub only when the user taps refresh: no webhooks, no refresh on app open, no polling.
+
+**Consequences.** GitHub's permissions decide eligibility. Edits on GitHub appear on the phone only after a refresh, and change indicators depend on the phone's saved note lists. Evidence: on 2026-10-02 the user-token eligibility check returned the private notes repository; the first real sync (2026-10-06) found 641 Markdown documents within its call ceiling.
+
+## ADR-17 — One annotations table for bookmarks, highlights and cards
+
+**Decision.** `annotations.type` is `BOOKMARK`, `HIGHLIGHT` or `CARD`. A highlight's optional note is its textual annotation (no separate annotation type); there is no colour; deleting removes the row (no deleted status), while its mutation record stays so a late replay is refused with 410. A bookmark is one row per user and document.
+
+**Why.** One owner for the user's state on a document: moves (ADR-07), deletion upstream, disconnect (ADR-11), the notebook and export treat every kind alike, and bookmarks needed no second source of truth.
+
+**Consequences.** Move detection counts any annotation as user data. Bookmarks are not editable as highlights.
+
+## ADR-18 — Rendering changes never change an unchanged blob's canonical text
+
+**Context.** Anchors are offsets into canonical text (ADR-05); changing the text of an unchanged blob breaks every anchor in it.
+
+**Decision.**
+
+- Features that change how a note looks are applied after parsing, keeping their source text in the block but hidden (`.wl-hidden`), or are placed outside `[data-block-id]`: Obsidian `[[links]]` and `![[embeds]]`, footnotes, code-block tools, Full screen links, the LeetCode study view (CSS only), and an answer page showing one section (layout only).
+- **Footnotes** are marked after rendering, without `commonmark-ext-footnotes` (P1, 2026-10-07). The extension splits and moves consecutive definitions, which CommonMark otherwise keeps as one paragraph; the notes have 233 definitions, 190 of them directly after another.
+- The page reaches native code only through same-origin links the app intercepts (`/note-link`, `/copy-code`, `/full-screen`) and native `evaluateJavascript`; never a JavaScript bridge.
+- When saved pages must be fetched again, `MarkdownRenderer.FORMAT` is bumped (now 3); the phone refetches a saved copy of an older format when it opens the note online.
+
+**Consequences.** Rendering the whole notes repository before and after footnotes gave identical canonical blocks for all 653 renderable notes (`RenderedCorpus`, 2026-10-07). The format was not bumped for the 500-character heading cap (2026-10-09), so an older saved copy can still send a longer heading, which the server refuses as a reading position until the copy is refetched.
+
+## ADR-19 — Every note can be saved on the phone, one note at a time, with no eviction
+
+**Decision** (the user's, P2, 2026-10-07). This reverses the build plan's "do not download the whole repository". **Save all notes on this phone** fetches every note whose saved copy is missing, of another version, or of an older page format through the existing `GET /api/documents/{id}/content`, one at a time, so bodies stay off the server (ADR-02) and later runs fetch only what changed. Not the repository archive: it redirects to another host, exceeds the 1 MiB response limit, and carries files that are not notes. Every saved note is kept; eviction waits until storage matters. Link previews (opened by a tap, because a long press selects text) and **Linked from** backlinks are computed on the phone from saved copies, because the server keeps no bodies.
+
+**Consequences.** A first run costs one GitHub call per note (654 notes took 5 min 43 s); a repeat costs none. 653 saved notes took 28.8 MB on the Pixel. Images are not fetched by Save all. A note the server refuses (over 4,096 blocks) is never saved and is asked for again on each run. With every note saved, work over saved pages must be bounded ([invariants](invariants.md#bounded-memory-on-the-phone)): **Linked from** lists the linking notes' ids and reads their pages 25 at a time (2026-10-14; reading all 422 at once took the heap from 8 MB to about 67 MB; batches keep it at 12–23 MB and take 3.2–3.7 s). With the backend unreachable, a never-opened note opened and was found by a word in its body (exit gate passed 2026-10-07).
+
+## ADR-20 — Practise from interview banks, in sessions that show the linked answer
+
+**Context.** Practice testing and spacing beat highlighting and rereading for retention, and rereading makes learners overconfident (Dunlosky et al. 2013; Roediger & Karpicke 2006). P3 (2026-10-09) first drew questions from core notes' own `Questions this file answers` and `Review and practice` sections. The user then added interview banks: an `interview/` folder beside a topic's notes, whose questions each carry a `Canonical answer:` line linking the core section that answers them ("the note owns every technical answer").
+
+**Decision** (the user's, 2026-10-13 and 2026-10-14).
+
+- **Source.** Questions come only from notes in a folder named `interview`; core notes' own question sections are not a source anywhere. Practice lists only folders holding an interview folder.
+- **Recognition** keys on each question's `Canonical answer`/`Canonical path` line, not on section names or numbering; a heading without one is listed as a non-question, never silently dropped. `reader/Study.kt` is its only owner and parses saved HTML with jsoup, added to the app in P3 at the backend's version (root `jsoupVersion`) because string matching cannot represent nested and loose lists.
+- **Session.** The question alone, because attempting before seeing the answer helps even when the attempt fails (Kornell, Hays & Bjork 2009). Then **Show answer**: the bank's checklist (a standard to grade against; Rawson & Dunlosky 2007) and each linked core section alone, from the saved copy (feedback is the real answer; Butler & Roediger 2008). Then Again, Hard, Good or Easy. The first grade saves the question as a card whose answer is its whole Canonical line, an authored mapping rather than an inferred one. A grade below Good brings it back in the session (ADR-13).
+- **Review** lives in the Practice tab (2026-10-14), with the same session flow: a first row saying how many cards are due or when the next are, and a badge with the due count. A due card that needs checking is fixed in place (**Answer is still right**, online); cards the server refused or whose note was removed are left to Notebook.
+- **LeetCode study view** (P3) stays: a fixed list of measured headings (`Approach`, `Brute Force Approach`, `Optimized Approach`, `Complexities`, `Mistakes`) collapses with CSS while `Problem` stays visible.
+- Building a session makes 0 external calls and never downloads missing notes. No AI, multiple choice, or inferred answers.
+
+**Consequences.** A topic without an interview folder has no questions. New banks appear after a refresh and Save all. Practice loads only notes in interview folders (`bankPages`): loading every saved page to find the 92 banks ran the app out of memory on 2026-10-14 (ADR-19). `StudyCorpus` fails by name on a question without an answer line or a link to a missing note (1,747 questions in 7 folders at the last run). Recorded intent: AI-drafted questions, later, as drafts the developer edits that never enter review automatically, once provider, privacy and cost are decided (LLM-written prompts were about a third unusable in a 2026 evaluation).
+
+## ADR-21 — Metrics and logs are projections on a loopback port
+
+**Decision** (the user's, Stage 6). Micrometer and Spring Boot Actuator serve only `health` and `metrics`, on management port `127.0.0.1:8082`, which neither `adb reverse` nor Caddy forwards. Meters are in memory and reset on restart; they are never application state. Logs name ids, SHAs, counts, outcomes and repository paths; never tokens, authorization headers, note text, quotes or annotation notes, and metric tags never carry paths or content. The deploy script prints only outcomes and the jar's SHA-256, because CI logs are public.
+
+**Consequences.** Metrics and logs are read on the host itself (SSH to the VM, or the Mac for debug builds).
+
+## ADR-22 — The phone's data stays on the phone and belongs to one account
+
+**Decision.** `allowBackup=false` plus data-extraction rules excluding every domain, so neither cloud backup nor Android 12+ device-to-device transfer copies notes or the session (amended 2026-10-09). The session token is encrypted with an Android Keystore AES-GCM key. Signing in as another account clears the saved data before storing the new token. **Sign out and remove from phone** first says how many changes never reached the server, then deletes cached notes, images and those changes. Exports are written only to `files/exports/`, served by a non-exported FileProvider, and removed on sign-out, disconnect and account deletion.
+
+**Consequences.** A new phone starts empty and re-downloads. A shared export cannot be revoked.
+
+## ADR-23 — How a change is verified
+
+**Decision.**
+
+- Backend tests run against real PostgreSQL 17.11 through Testcontainers, with explicit test-only GitHub mocks; no test depends on live GitHub.
+- Real-corpus harnesses (`AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus`, `StudyCorpus`) are opt-in and point at a local clone outside the repository. Their outputs contain private note text and are never committed.
+- Device tests run with `adb shell am instrument` on the phone used for reading, never `connectedDebugAndroidTest` (it uninstalls the app and its data). Success is the run's `OK (n tests)` line, not adb's exit code.
+- Records distinguish automated checks, device checks and user-reported observations; a gate never passes on mocks or a build alone. Real data is backed up before a migration runs on it. Test edits to the notes repository go only under `scratch/`, with the user's approval.
+
+**Consequences.** Live GitHub behaviour (history rewrites, missing blobs) is mostly proven by tests, not on the real system; [the feature list](feature-list.md#not-yet-verified-on-the-real-system) says which.

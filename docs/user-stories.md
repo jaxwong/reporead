@@ -2,7 +2,7 @@
 
 > **Product thesis:** Developers who write technical Markdown in GitHub need a better way to read, annotate, and revisit those notes on an Android phone. GitHub remains the source of truth; RepoRead stores reading state separately.
 
-For scope, priority, and delivery order, see the [feature list](reporead-feature-list.md). For architecture, contracts, and engineering rules, see the [implementation spec](reporead-product-engineering-spec.md).
+For scope, priority, delivery order and status, see the [feature list](feature-list.md). For decisions, see the [ADRs](adrs.md); for how the parts fit, the [architecture](architecture.md); for the rules every change keeps, the [invariants](invariants.md).
 
 ## Problem and audience
 
@@ -14,7 +14,7 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 
 ## Product rules across all stories
 
-- GitHub owns authored Markdown. Reading, highlighting, bookmarking, annotating, and reviewing in RepoRead never modify it.
+- GitHub owns authored Markdown. Reading, highlighting, bookmarking, annotating, practising, and reviewing in RepoRead never modify it.
 - RepoRead owns durable reading and annotation state; the Android app keeps an offline copy and pending local changes.
 - The reader supports technical content, including GitHub-flavored Markdown, fenced code, tables, task lists, links, images, and Mermaid. Math is a later possibility, not an MVP promise.
 - A stale annotation must not be silently attached to the wrong passage. When its location cannot be trusted, show it as orphaned with its original context.
@@ -138,6 +138,59 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 - Disconnecting removes backend cached repository content and associated synchronization credentials, without modifying GitHub source.
 - There is a clear account-deletion path.
 
+## Post-MVP stories
+
+Added after the MVP with the user's approval (see the [feature list](feature-list.md#after-the-mvp)).
+
+### US-12 — Read long and wide notes comfortably
+
+**As a** reader of long technical notes, **I want** to navigate by section and see wide content whole, **so that** I don't switch to GitHub or a laptop because of layout.
+
+**Acceptance criteria**
+
+- I can open an outline of the note's headings, see which section I am in, and jump to any heading.
+- A footnote reference shows its definition without leaving the passage.
+- I can copy a code block exactly, and wrap one that is wider than the screen.
+- A wide table or a diagram opens full screen with zoom and landscape.
+- The bars hide while I read and come back when I scroll up.
+- None of this changes where existing highlights are anchored.
+
+### US-13 — Have every note on the phone
+
+**As a** commuter, **I want** every note saved on my phone and links I can preview, **so that** I can read, search and follow links offline.
+
+**Acceptance criteria**
+
+- I can save every note of a repository; a later run fetches only notes that changed, and a failure keeps what was saved.
+- With the backend unreachable, a note I never opened opens and is found by a word in its body.
+- Tapping a link to another note previews it without leaving the page; a name matching two notes asks which.
+- A note shows which saved notes link to it, and says when only some notes are saved.
+
+### US-14 — Practise interview questions
+
+**As a** developer preparing for interviews, **I want** to answer my interview banks' questions before seeing the answer, **so that** I test my recall instead of rereading.
+
+**Acceptance criteria**
+
+- I choose a topic that has an interview folder, or all topics, and see how many questions are new or scheduled.
+- Each question shows alone; **Show answer** shows the bank's checklist and the core section its answer links to, from my saved notes.
+- My first grade schedules the question for review; a question I missed comes back in the same session.
+- A heading that does not follow the bank format is named, not silently skipped.
+- Practising works offline and changes nothing in the repository.
+
+### US-15 — Review what I chose to remember
+
+**As a** student, **I want** spaced review of questions and passages I chose, **so that** I keep remembering them, and never drill an answer that is out of date.
+
+**Acceptance criteria**
+
+- I can make a card from a Practice question, a selected passage, or a highlight.
+- The Practice tab says how many cards are due or when the next are; a session asks each due card and schedules it from my grade.
+- Grades made offline sync once, even when sent again.
+- A card whose note changed is not drilled until I confirm or reattach its answer.
+- I can see every highlight and card in one notebook, filter it, and export it as Markdown.
+- Disconnecting a repository or deleting my account removes its cards and review history.
+
 ## Later, not MVP
 
-The MVP does not include Markdown editing, Git commits or pull requests from the app, collaborative annotations, AI summaries or chat, spaced-repetition flashcards, public social profiles, other Git providers, arbitrary binary documents, WYSIWYG editing, team knowledge management, comments written to GitHub, or rich drawing tools. Optional math rendering and webhook-driven refresh can be reconsidered after the core reading workflow is useful.
+The MVP did not include spaced-repetition flashcards; they were added afterwards as US-14 and US-15. It still excludes Markdown editing, Git commits or pull requests from the app, collaborative annotations, AI summaries or chat, public social profiles, other Git providers, arbitrary binary documents, WYSIWYG editing, team knowledge management, comments written to GitHub, or rich drawing tools. Optional math rendering and webhook-driven refresh can be reconsidered after the core reading workflow is useful.

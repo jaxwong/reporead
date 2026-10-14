@@ -1,6 +1,8 @@
 # RepoRead backend
 
-Spring Boot owns user identity, app sessions, authorized repository connections, logical Markdown documents, and safe note rendering. GitHub owns the Markdown; PostgreSQL owns RepoRead's state. The server never writes to GitHub.
+Spring Boot owns user identity, app sessions, authorized repository connections, logical Markdown documents and their identity across moves, safe note rendering, reading state, bookmarks, highlights and review cards, re-anchoring, change summaries, and the review log. GitHub owns the Markdown; PostgreSQL owns RepoRead's state. The server never writes to GitHub.
+
+This README owns the backend's contracts and commands. Why things are this way is in the [ADRs](../docs/adrs.md), the rules every change keeps in [invariants](../docs/invariants.md), and how the backend fits with the app in the [architecture](../docs/architecture.md).
 
 Requirements: JDK 25, Docker, and the repository's Gradle wrapper.
 
@@ -144,11 +146,11 @@ These are chosen ceilings, not measured ones. Clients cannot change them.
 
 ### Sync semantics
 
-Sync reads the default branch's commit, then its full recursive tree. Documents are regular-file blobs ending in `.md` (any case); symlinks and submodules are skipped. A truncated or malformed tree fails without changes and is never evidence of deletion. Only after complete validation does one transaction upsert documents by path, mark paths absent from the complete tree as deleted (rows are kept), and advance the connection's commit checkpoint. Repeating a sync is idempotent; concurrent syncs of one connection are serialized by a row lock. A sync that fetched its branch before another sync published a different commit changes nothing and fails with 409 `SYNC_SUPERSEDED`, so an older snapshot never replaces a newer one; refreshing again picks up the latest. A document whose path left the snapshot keeps its id at a path that has never had a document when both share a blob SHA unique on each side (a path-only move); identical-content duplicates are never merged, and a path that once had a document resumes it. A vanished document carrying the user's data also keeps its id at a new path whose content is alike enough (measured thresholds in the [Stage 4 record](../requirements/reporead-stage4-record.md)), checked only when vanished documents plus new paths number at most 8. Because every sync is a complete snapshot, a branch rewind is reconciled like any other: paths absent from it are marked deleted and return to their documents if they reappear.
+Sync reads the default branch's commit, then its full recursive tree. Documents are regular-file blobs ending in `.md` (any case); symlinks and submodules are skipped. A truncated or malformed tree fails without changes and is never evidence of deletion. Only after complete validation does one transaction upsert documents by path, mark paths absent from the complete tree as deleted (rows are kept), and advance the connection's commit checkpoint. Repeating a sync is idempotent; concurrent syncs of one connection are serialized by a row lock. A sync that fetched its branch before another sync published a different commit changes nothing and fails with 409 `SYNC_SUPERSEDED`, so an older snapshot never replaces a newer one; refreshing again picks up the latest. A document whose path left the snapshot keeps its id at a path that has never had a document when both share a blob SHA unique on each side (a path-only move); identical-content duplicates are never merged, and a path that once had a document resumes it. A vanished document carrying the user's data also keeps its id at a new path whose content is alike enough (measured thresholds in [ADR-07](../docs/adrs.md#adr-07--document-identity-from-complete-snapshots)), checked only when vanished documents plus new paths number at most 8. Because every sync is a complete snapshot, a branch rewind is reconciled like any other: paths absent from it are marked deleted and return to their documents if they reappear.
 
 Each sync also records the snapshot's image file paths (`repository_images`), replaced every time, for resolving Obsidian embeds.
 
-`contentChangedAt` is when a sync found the note new, with a different blob, or back after being deleted (a path-only move is not a change). It is null for notes from a connection's first sync and for notes RepoRead has not seen change since Stage 5: it is when RepoRead noticed, not the commit time.
+`contentChangedAt` is when a sync found the note new, with a different blob, or back after being deleted (a path-only move is not a change). It is null for notes from a connection's first sync and for notes RepoRead has not seen change since change times were added (Flyway V5): it is when RepoRead noticed, not the commit time.
 
 ### Images
 
@@ -172,11 +174,11 @@ The cost is proportional to lines × changed lines; constructed worst cases at b
 
 ### Annotations
 
-A highlight (type `HIGHLIGHT`, with an optional note) is anchored to one source version using the [Stage 0 text contract](../requirements/reporead-stage0-boundaries.md#rendering-and-selection-contract): block id, UTF-16 offsets into that block's canonical text, and the exact text. On creation the server fetches that exact blob, renders it with the same renderer as the reader, and rejects a selection that does not name real text in it (422 `INVALID_ANCHOR`). It derives the 32-character prefix/suffix context and heading path itself. Source Markdown is never written.
+A highlight (type `HIGHLIGHT`, with an optional note) is anchored to one source version using the [text contract](../docs/adrs.md#adr-05--anchors-are-block-ids-and-utf-16-offsets-into-canonical-text-of-one-version): block id, UTF-16 offsets into that block's canonical text, and the exact text. On creation the server fetches that exact blob, renders it with the same renderer as the reader, and rejects a selection that does not name real text in it (422 `INVALID_ANCHOR`). It derives the 32-character prefix/suffix context and heading path itself. Source Markdown is never written.
 
 Creation is idempotent per client `mutationId` (a UUID): the first request records the mutation, annotation, and anchor in one transaction. Replaying the same request returns the original annotation (200) without a GitHub call — including after a lost acknowledgement or concurrently with the original. Reusing the id for different content is 409 `MUTATION_ID_REUSED`; replaying after the annotation was deleted is 410 `ANNOTATION_DELETED`, so a late replay cannot resurrect it. A failure before commit stores nothing, and the same mutation can be retried. Note edits and deletion use optimistic versions and never silently overwrite.
 
-**Re-anchoring.** The original anchor never changes. Each highlight also has a current `location` (where it was made, re-anchored, or reattached) and a `status` for `resolvedBlobSha`. Listing a document's highlights resolves any that were resolved against an older version, using `Anchoring`: the location's block unchanged anywhere, then unchanged position, then the exact quote singled out by context and heading, then a bounded fuzzy match. Anything weaker is `ORPHANED`, keeping its last location so the next version is resolved from there; the user can reattach it. Re-anchoring does not change the user-edit `version`. Thresholds and their measurement on a real notes repository are in the [Stage 4 record](../requirements/reporead-stage4-record.md). A deleted document's highlights are listed as last resolved, without GitHub calls.
+**Re-anchoring.** The original anchor never changes. Each highlight also has a current `location` (where it was made, re-anchored, or reattached) and a `status` for `resolvedBlobSha`. Listing a document's highlights resolves any that were resolved against an older version, using `Anchoring`: the location's block unchanged anywhere, then unchanged position, then the exact quote singled out by context and heading, then a bounded fuzzy match. Anything weaker is `ORPHANED`, keeping its last location so the next version is resolved from there; the user can reattach it. Re-anchoring does not change the user-edit `version`. Thresholds and their measurement on a real notes repository are in [ADR-06](../docs/adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan). A deleted document's highlights are listed as last resolved, without GitHub calls.
 
 The server does not yet check that `sourceBlobSha` is a version of this particular document, only that it is a blob in the document's repository that renders to the selected text.
 
@@ -190,7 +192,7 @@ The server does not yet check that `sourceBlobSha` is a version of this particul
 
 **Known limit (recorded, not paged).** `GET /api/notebook` returns every annotation and every grade in one response, and the phone reads at most 8 MiB of JSON per response. At about 200 bytes per grade that is roughly 40,000 grades (about 3 years at 40 a day). Past it, the phone's notebook refresh fails visibly; it runs last in a sync, so reading positions and bookmarks still sync. Paging is deferred until the log approaches the limit.
 
-The server stores no due dates, scores derived from history, or scheduling state. The phone alone computes SM-2 intervals/ease from the log, retaining pending grades until acknowledgement. Logs use millisecond timestamps so PostgreSQL timestamp precision cannot change an idempotent replay's content. The bounded phone session reviews each chosen card once; grades below 3 restart its interval at one day rather than adding unbounded same-day repeats. No AI, FSRS dependency, or background sync is included.
+The server stores no due dates, scores derived from history, or scheduling state. The phone alone computes SM-2 intervals/ease from the log, retaining pending grades until acknowledgement. Logs use millisecond timestamps so PostgreSQL timestamp precision cannot change an idempotent replay's content. In a phone session, the first grade of each card is saved; a card graded below Good comes back later in the same session, unsaved, until Good or Easy, so the server receives one grade per card per session. A saved grade below 3 restarts the card's interval at one day ([ADR-13](../docs/adrs.md#adr-13--anchored-cards-server-review-log-phone-only-sm-2-scheduling)). No AI, FSRS dependency, or background sync is included.
 
 ## Verify
 
@@ -200,4 +202,15 @@ The server stores no due dates, scores derived from history, or scheduling state
 
 Tests run against a real PostgreSQL 17.11 container through Testcontainers (Docker must be running). GitHub is mocked with explicit test-only data; tests do not prove live GitHub authorization.
 
-Dependencies: Spring Boot web MVC, Security OAuth2 Client, JDBC, and Flyway; the PostgreSQL driver; CommonMark with GFM extensions; jsoup for sanitizing and canonical block text; JUnit, Spring test support, and Testcontainers. Mermaid and code highlighting are client-side display only.
+Three opt-in harnesses run only when pointed at a local clone of a notes repository, and are skipped otherwise. Their output contains private note text: write it outside the repository and never commit it ([ADR-23](../docs/adrs.md#adr-23--how-a-change-is-verified)).
+
+```sh
+# Re-anchoring thresholds (ADR-06); rerun whenever Anchoring changes. REPOREAD_MEASURE_SEED picks another sample.
+REPOREAD_MEASURE_CORPUS=<clone> REPOREAD_MEASURE_OUT=<private file> ./gradlew :backend:test --tests '*AnchorMeasurement' --rerun --no-daemon
+# Moved-and-edited similarity (ADR-07).
+REPOREAD_MEASURE_CORPUS=<clone> REPOREAD_MEASURE_OUT=<private file> ./gradlew :backend:test --tests '*MoveMeasurement' --rerun --no-daemon
+# Every note rendered to <dir>; run before and after a renderer change and diff the blocks (ADR-18). The app's StudyCorpus reads <dir>/pages.
+REPOREAD_MEASURE_CORPUS=<clone> REPOREAD_MEASURE_OUT=<dir> ./gradlew :backend:test --tests '*RenderedCorpus' --rerun --no-daemon
+```
+
+Dependencies: Spring Boot web MVC, Security OAuth2 Client, JDBC, Actuator, and Flyway; the PostgreSQL driver; CommonMark with the GFM tables, strikethrough and task-list extensions; jsoup (its version is the root `jsoupVersion`, shared with the app) for sanitizing and canonical block text; JUnit, Spring test support, and Testcontainers. Mermaid and code highlighting are client-side display only.
