@@ -86,66 +86,74 @@ flowchart TB
 
 ## 3. Backend
 
-One Spring Boot 4 / Java 25 service, a modular monolith with one package per concern (`backend/src/main/java/com/reporead/`). Data access is plain Spring JDBC; the schema is owned by Flyway migrations (`V1`–`V8`).
+One Spring Boot 4 / Java 25 service, a modular monolith with one package per concern (`backend/src/main/java/com/reporead/`). Data access is plain Spring JDBC; the schema is owned by Flyway migrations (`V1`–`V12`).
 
 ### Packages and their dependencies
 
-Arrows point from a package to the packages it calls (from the imports in each file).
+Arrows point from a package to the packages it calls (from the imports in each file). The packages form a stack with no cycles: each calls only packages below it, and `datacontrol`, which deletes across every owner, is on top. Every package with routes also reads the signed-in user (`auth.AppUser`); those arrows are left out.
 
 ```mermaid
 flowchart TB
     subgraph HTTP["Controllers"]
         direction LR
-        AuthC["AppAuthController<br/>AccountController"]
+        AuthC["AppAuthController"]
         RepoC["RepositoryController"]
+        SyncC["SyncController"]
         DocC["DocumentController"]
         ReadC["ReadingController"]
-        AnnC["AnnotationController<br/>BookmarkController"]
+        AnnC["AnnotationController<br/>BookmarkController<br/>Reviews"]
+        DataC["DataControlController"]
     end
 
-    auth["auth<br/>sign-in, app sessions,<br/>bearer auth, GitHub token renewal"]
-    github["github<br/>GitHubApi: every GitHub call,<br/>timeouts, size limits"]
-    repository["repository<br/>connections, per-connection lock,<br/>disconnect / stored data"]
+    datacontrol["datacontrol<br/>disconnect, stored data,<br/>account deletion"]
     sync["sync<br/>RepositorySync: snapshot publish<br/>ContentMoves: moved-and-edited"]
-    document["document<br/>MarkdownRenderer, NoteVersions,<br/>NoteChanges, Attachments"]
-    reading["reading<br/>ReadingStates"]
     annotation["annotation<br/>Annotations, Anchoring,<br/>Bookmarks, Reviews"]
+    reading["reading<br/>ReadingStates"]
+    document["document<br/>MarkdownRenderer, NoteVersions,<br/>NoteChanges, Attachments"]
+    repository["repository<br/>connections, per-connection lock"]
+    auth["auth<br/>sign-in, app sessions,<br/>bearer auth, GitHub token renewal"]
+    github["github<br/>GitHubApi: every GitHub call<br/>GitHubHttp: timeouts, size limits"]
 
     AuthC --> auth
-    AuthC --> repository
-    AuthC --> annotation
     RepoC --> repository
-    RepoC --> sync
+    SyncC --> sync
     DocC --> document
     ReadC --> reading
     AnnC --> annotation
+    DataC --> datacontrol
 
+    datacontrol --> annotation
+    datacontrol --> reading
+    datacontrol --> document
+    datacontrol --> repository
+    datacontrol --> auth
+    datacontrol --> github
     sync --> document
     sync --> repository
     sync --> github
-    document --> github
-    document --> repository
     annotation --> document
     annotation --> repository
     reading --> document
     reading --> repository
+    document --> repository
+    document --> github
+    repository --> auth
     repository --> github
-    repository --> annotation
-    repository --> reading
-    github --> auth
+    auth --> github
 
     github ==> GH(["GitHub"])
 ```
 
 | Package | Owns | Key classes |
 | --- | --- | --- |
-| `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token with its renewal and revocation, account deletion | `GitHubSecurity`, `GitHubTokens`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication`, `AccountController` |
-| `github` | The only HTTP client to GitHub: user token, 15 s timeouts, no redirects, no retries, response size limits | `GitHubApi` |
-| `repository` | Which repositories a user has connected; the connection row lock every write shares; disconnect | `RepositoryConnections`, `ConnectionData` |
+| `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token with its renewal and revocation | `GitHubSecurity`, `GitHubTokens`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication` |
+| `github` | The only HTTP client to GitHub: user token, 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttp` |
+| `repository` | Which repositories a user has connected; the connection row lock every write shares | `RepositoryConnections` |
 | `sync` | Publishing a complete tree snapshot of the default branch; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySync`, `ContentMoves` |
 | `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; changes since last read ([ADR-09](adrs.md#adr-09--changed-since-last-read-compares-the-version-actually-read-by-source-lines)); images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `NoteChanges`, `Attachments` |
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `Anchoring`, `Bookmarks`, `Reviews` |
+| `datacontrol` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionData`, `DataControlController` |
 | root | Error responses (`{code, message}`), client clock bounds | `ApiErrors`, `ApiFailure`, `ClientClock` |
 
 ### Data model (PostgreSQL)

@@ -2,8 +2,8 @@ package com.reporead.document;
 
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
-import com.reporead.auth.GitHubSecurity;
 import com.reporead.auth.TestSessions;
+import com.reporead.github.GitHubHttp;
 import org.jsoup.Jsoup;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -152,7 +152,7 @@ class DocumentContentTest {
     }
 
     @Test void oversizedAndNonUtf8NotesAreVisiblyUnsupported() throws Exception {
-        byte[] large = new byte[GitHubSecurity.MAX_RESPONSE_BYTES + 1];
+        byte[] large = new byte[GitHubHttp.MAX_RESPONSE_BYTES + 1];
         java.util.Arrays.fill(large, (byte) 'x');
         String largeSha = MarkdownRenderer.blobSha(large);
         expectBlob(largeSha, withSuccess(large, MediaType.APPLICATION_OCTET_STREAM));
@@ -350,7 +350,7 @@ class DocumentContentTest {
         long id = document("a.md", MarkdownRenderer.blobSha(NOTE), false);
         images.expect(requestTo("https://api.github.com/repos/test-only/notes/contents/missing.png?ref=" + "c".repeat(40))).andRespond(withResourceNotFound());
         images.expect(requestTo("https://api.github.com/repos/test-only/notes/contents/huge.png?ref=" + "c".repeat(40)))
-            .andRespond(withSuccess(new byte[GitHubSecurity.MAX_IMAGE_RESPONSE_BYTES + 1], MediaType.APPLICATION_OCTET_STREAM));
+            .andRespond(withSuccess(new byte[GitHubHttp.MAX_IMAGE_RESPONSE_BYTES + 1], MediaType.APPLICATION_OCTET_STREAM));
         image(alice, id, "missing.png").andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("IMAGE_NOT_FOUND"));
         image(alice, id, "huge.png").andExpect(status().isUnprocessableContent()).andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
     }

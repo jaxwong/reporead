@@ -1,8 +1,9 @@
-package com.reporead.repository;
+package com.reporead.datacontrol;
 
 import com.reporead.annotation.Annotations;
 import com.reporead.document.Documents;
 import com.reporead.reading.ReadingStates;
+import com.reporead.repository.RepositoryConnections;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 

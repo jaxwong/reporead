@@ -2,8 +2,8 @@ package com.reporead.sync;
 
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
-import com.reporead.auth.GitHubSecurity;
 import com.reporead.auth.TestSessions;
+import com.reporead.github.GitHubHttp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -521,14 +521,14 @@ class RepositorySyncTest {
 
     @Test void treeCeilingIsAboveGitHubsSevenMegabyteMaximumButStillBounded() throws Exception {
         var entries = new StringBuilder();
-        for (int i = 0; entries.length() <= GitHubSecurity.MAX_RESPONSE_BYTES; i++) {
+        for (int i = 0; entries.length() <= GitHubHttp.MAX_RESPONSE_BYTES; i++) {
             if (i > 0) entries.append(',');
             entries.append(entry("assets/image-" + i + ".png", "100644", "blob", BLOB_1));
         }
         expectSync(COMMIT_A, TREE_A, withSuccess(tree(false, entries.toString(), entry("a.md", "100644", "blob", BLOB_2)), MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.documentCount").value(1));
         next();
-        expectSync(COMMIT_B, TREE_B, withSuccess(new byte[GitHubSecurity.MAX_TREE_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
+        expectSync(COMMIT_B, TREE_B, withSuccess(new byte[GitHubHttp.MAX_TREE_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_RESPONSE_LIMIT"));
         assertEquals(COMMIT_A, checkpoint());
     }
