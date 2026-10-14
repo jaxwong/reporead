@@ -35,7 +35,7 @@ public class Annotations {
 
     /**
      * Deletes every annotation on a connection's documents: highlights and cards (their anchors, locations, and review
-     * logs cascade) and bookmarks. Their mutation records keep only the request hash, so a late replay is answered as
+     * logs cascade) and bookmarks. Their mutation records stay, named by no annotation, so a late replay is answered as
      * deleted.
      */
     public Deleted deleteOnConnection(long connectionId) {
@@ -85,14 +85,13 @@ public class Annotations {
     record Created(Annotation annotation, boolean replayed) {}
 
     private static final String SELECT = """
-        select a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at, m.mutation_id, a.resolved_blob_sha,
+        select a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at, a.mutation_id, a.resolved_blob_sha,
                n.source_blob_sha, n.block_id, n.exact_text, n.prefix_text, n.suffix_text, n.start_offset, n.end_offset, n.heading_path::text,
                l.source_blob_sha, l.block_id, l.exact_text, l.prefix_text, l.suffix_text, l.start_offset, l.end_offset, l.heading_path::text,
                l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote, a.question, a.checked_blob_sha,
                d.title, d.path, d.current_blob_sha, d.deleted_at is not null
         from annotations a join documents d on d.id = a.document_id join annotation_anchors n on n.annotation_id = a.id
         join annotation_locations l on l.annotation_id = a.id
-        join annotation_mutations m on m.annotation_id = a.id and m.user_id = a.user_id
         where a.type in ('HIGHLIGHT', 'CARD') and a.user_id = :userId""";
 
     List<Annotation> notebook(long userId) {
@@ -110,22 +109,21 @@ public class Annotations {
 
     /**
      * The earlier result for this mutation id, if any. Same request: the original annotation. Different content: 409.
-     * The annotation was since deleted: 410, so a late replay cannot resurrect it.
+     * The annotation was since deleted (its mutation record outlives it): 410, so a late replay cannot resurrect it.
      */
     Optional<Annotation> replay(long userId, UUID mutationId, byte[] requestHash) {
-        record Mutation(byte[] hash, Long annotationId) {}
-        var mutation = db.sql("select request_hash, annotation_id from annotation_mutations where user_id = :userId and mutation_id = :mutationId")
-            .param("userId", userId).param("mutationId", mutationId)
-            .query((row, n) -> new Mutation(row.getBytes(1), (Long) row.getObject(2))).optional();
-        if (mutation.isEmpty()) return Optional.empty();
-        if (!MessageDigest.isEqual(mutation.get().hash(), requestHash)) {
+        var hash = db.sql("select request_hash from annotation_mutations where user_id = :userId and mutation_id = :mutationId")
+            .param("userId", userId).param("mutationId", mutationId).query((row, n) -> row.getBytes(1)).optional();
+        if (hash.isEmpty()) return Optional.empty();
+        if (!MessageDigest.isEqual(hash.get(), requestHash)) {
             throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId was already used for a different annotation request.");
         }
-        if (mutation.get().annotationId() == null) {
+        var created = db.sql(SELECT + " and a.mutation_id = :mutationId").param("userId", userId).param("mutationId", mutationId)
+            .query(this::annotation).optional();
+        if (created.isEmpty()) {
             throw new ApiFailure(Code.ANNOTATION_DELETED, "The annotation created by this mutation has since been deleted.");
         }
-        return Optional.of(find(userId, mutation.get().annotationId()).orElseThrow(() -> new IllegalStateException(
-            "Mutation " + mutationId + " for user " + userId + " references missing annotation " + mutation.get().annotationId())));
+        return created;
     }
 
     /**
@@ -142,9 +140,11 @@ public class Annotations {
                 .param("userId", userId).param("mutationId", mutationId).param("hash", requestHash).param("now", Timestamp.from(now)).update();
             if (claimed == 0) return new Created(replay(userId, mutationId, requestHash).orElseThrow(), true);
             long id = db.sql("""
-                    insert into annotations (user_id, document_id, source_blob_sha, type, note, created_at, updated_at, resolved_blob_sha, question, checked_blob_sha)
-                    values (:userId, :documentId, :sha, :type, :note, :now, :now, :sha, :question, case when :type = 'CARD' then :sha end) returning id""")
-                .param("userId", userId).param("documentId", documentId).param("sha", anchor.sourceBlobSha())
+                    insert into annotations (user_id, document_id, source_blob_sha, type, note, created_at, updated_at, resolved_blob_sha, question,
+                                             checked_blob_sha, mutation_id)
+                    values (:userId, :documentId, :sha, :type, :note, :now, :now, :sha, :question, case when :type = 'CARD' then :sha end,
+                            :mutationId) returning id""")
+                .param("userId", userId).param("documentId", documentId).param("sha", anchor.sourceBlobSha()).param("mutationId", mutationId)
                 .param("note", note).param("type", type).param("question", question).param("now", Timestamp.from(now)).query(Long.class).single();
             db.sql("""
                     insert into annotation_anchors (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text,
@@ -154,8 +154,6 @@ public class Annotations {
                 .param("prefix", anchor.prefixText()).param("suffix", anchor.suffixText()).param("start", anchor.startOffset())
                 .param("end", anchor.endOffset()).param("headings", json.writeValueAsString(anchor.headingPath())).update();
             writeLocation(id, anchor);
-            db.sql("update annotation_mutations set annotation_id = :id where user_id = :userId and mutation_id = :mutationId")
-                .param("id", id).param("userId", userId).param("mutationId", mutationId).update();
             return new Created(find(userId, id).orElseThrow(), false);
         });
     }

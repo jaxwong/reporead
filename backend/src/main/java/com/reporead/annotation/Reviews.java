@@ -43,8 +43,8 @@ public class Reviews {
     record GradeRequest(String mutationId, Integer grade, Instant reviewedAt, String blobSha) {}
 
     private static final String SELECT = """
-        select r.mutation_id, m.mutation_id, r.grade, r.reviewed_at, r.blob_sha
-        from review_log r join annotation_mutations m on m.annotation_id = r.annotation_id and m.user_id = r.user_id
+        select r.mutation_id, a.mutation_id, r.grade, r.reviewed_at, r.blob_sha
+        from review_log r join annotations a on a.id = r.annotation_id
         where r.user_id = :userId""";
 
     @GetMapping("/api/notebook")

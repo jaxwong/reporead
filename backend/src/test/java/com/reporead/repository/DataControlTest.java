@@ -125,16 +125,16 @@ class DataControlTest {
 
     private void highlight(long userId, long documentId, String mutationId) {
         long id = db.sql("""
-                insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at, note, resolved_blob_sha)
-                values (:userId, :documentId, :sha, 'HIGHLIGHT', now(), now(), 'private note text', :sha) returning id""")
-            .param("userId", userId).param("documentId", documentId).param("sha", SHA).query(Long.class).single();
+                insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at, note, resolved_blob_sha, mutation_id)
+                values (:userId, :documentId, :sha, 'HIGHLIGHT', now(), now(), 'private note text', :sha, cast(:mutationId as uuid)) returning id""")
+            .param("userId", userId).param("documentId", documentId).param("sha", SHA).param("mutationId", mutationId).query(Long.class).single();
         for (String table : List.of("annotation_anchors", "annotation_locations")) {
             db.sql("insert into " + table + " (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset, end_offset, heading_path) "
                     + "values (:id, :sha, 'b1', 'quoted passage', '', '', 0, 14, '[]')")
                 .param("id", id).param("sha", SHA).update();
         }
-        db.sql("insert into annotation_mutations (user_id, mutation_id, request_hash, annotation_id, created_at) values (:userId, cast(:mutationId as uuid), '\\x00', :id, now())")
-            .param("userId", userId).param("mutationId", mutationId).param("id", id).update();
+        db.sql("insert into annotation_mutations (user_id, mutation_id, request_hash, created_at) values (:userId, cast(:mutationId as uuid), '\\x00', now())")
+            .param("userId", userId).param("mutationId", mutationId).update();
     }
 
     private int count(String sql) {
@@ -143,7 +143,7 @@ class DataControlTest {
 
     private void cardWithReview(long userId, long documentId, String mutationId) {
         highlight(userId, documentId, mutationId);
-        long id = db.sql("select annotation_id from annotation_mutations where user_id = :user and mutation_id = cast(:mutation as uuid)")
+        long id = db.sql("select id from annotations where user_id = :user and mutation_id = cast(:mutation as uuid)")
             .param("user", userId).param("mutation", mutationId).query(Long.class).single();
         db.sql("update annotations set type = 'CARD', question = 'Test-only question?', checked_blob_sha = :sha where id = :id")
             .param("sha", SHA).param("id", id).update();
@@ -187,8 +187,9 @@ class DataControlTest {
         assertEquals(List.of("b.png"), db.sql("select path from repository_images").query(String.class).list());
         assertEquals(2, count("select count(*) from annotation_anchors"));
         assertEquals(2, count("select count(*) from annotation_locations"));
-        // The deleted highlight's mutation keeps only its hash, so a late replay is answered as deleted, not recreated.
-        assertEquals(1, count("select count(*) from annotation_mutations where annotation_id is null and mutation_id = '11111111-1111-1111-1111-111111111111'"));
+        // The deleted highlight's mutation record stays, named by no annotation, so a late replay is answered as deleted, not recreated.
+        assertEquals(1, count("select count(*) from annotation_mutations where mutation_id = '11111111-1111-1111-1111-111111111111'"));
+        assertEquals(0, count("select count(*) from annotations where mutation_id = '11111111-1111-1111-1111-111111111111'"));
 
         mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isNotFound());
         mvc.perform(get("/api/repositories").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
