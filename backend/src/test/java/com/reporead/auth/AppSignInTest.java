@@ -189,6 +189,14 @@ class AppSignInTest {
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob)).andExpect(status().isUnauthorized());
     }
 
+    @Test void aSessionOfAGitHubUserNotOnTheAllowListIsRefused() throws Exception {
+        // 99 is not in TestEnvironment's reporead.allowed-github-user-ids, for example a user removed from the list.
+        String removed = TestSessions.signIn(sessions, clients, registrations, 99, "TEST_ONLY_REMOVED_GITHUB_TOKEN");
+        mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + removed)).andExpect(status().isUnauthorized());
+        String alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
+        mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isOk());
+    }
+
     @Test void signingOutTheLastSessionDeletesTheStoredGitHubToken() throws Exception {
         String phone = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
         String tablet = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");

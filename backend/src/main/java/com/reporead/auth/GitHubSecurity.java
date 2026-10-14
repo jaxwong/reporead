@@ -34,6 +34,9 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequest
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
@@ -159,7 +162,8 @@ public class GitHubSecurity {
     @Order(2)
     SecurityFilterChain browser(HttpSecurity http, ClientRegistrationRepository registrations,
                                 OAuth2AuthorizedClientService clients,
-                                JdkClientHttpRequestFactory githubRequestFactory, AppSessions sessions, MeterRegistry meters) throws Exception {
+                                JdkClientHttpRequestFactory githubRequestFactory, AppSessions sessions, AllowedUsers allowed,
+                                MeterRegistry meters) throws Exception {
         var pkce = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
         pkce.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
         var resolver = startedByTheApp(pkce);
@@ -180,7 +184,7 @@ public class GitHubSecurity {
                 .authorizedClientService(clients)
                 .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(resolver))
                 .tokenEndpoint(endpoint -> endpoint.accessTokenResponseClient(tokenClient))
-                .userInfoEndpoint(endpoint -> endpoint.userService(userService))
+                .userInfoEndpoint(endpoint -> endpoint.userService(request -> allowedOnly(userService.loadUser(request), allowed)))
                 .successHandler(new AppSignInSuccess(sessions))
                 .failureHandler((request, response, error) -> {
                     LOG.warn("GitHub sign-in rejected; failureType={}", error.getClass().getSimpleName());
@@ -204,6 +208,17 @@ public class GitHubSecurity {
                 return hasAppChallenge(request) ? resolver.resolve(request, registrationId) : null;
             }
         };
+    }
+
+    /**
+     * Fails the sign-in of a GitHub user this server does not serve while GitHub's answer is still being checked, so
+     * Spring stores no GitHub token for them and no RepoRead account is created; the browser is sent to /auth/failed.
+     */
+    static OAuth2User allowedOnly(OAuth2User user, AllowedUsers allowed) {
+        Object id = user.getAttribute("id");
+        if (id instanceof Number number && allowed.allows(number.longValue())) return user;
+        LOG.warn("GitHub sign-in refused: not an allowed user; githubUserId={}", id);
+        throw new OAuth2AuthenticationException(new OAuth2Error("access_denied"), "This GitHub account may not use this RepoRead server.");
     }
 
     private static boolean hasAppChallenge(HttpServletRequest request) {

@@ -27,9 +27,11 @@ public class AppSessions {
     private static final Pattern VERIFIER = Pattern.compile("[A-Za-z0-9._~-]{43,128}");
     private static final SecureRandom RANDOM = new SecureRandom();
     private final JdbcClient db;
+    private final AllowedUsers allowed;
 
-    public AppSessions(JdbcClient db) {
+    AppSessions(JdbcClient db, AllowedUsers allowed) {
         this.db = db;
+        this.allowed = allowed;
     }
 
     public record IssuedSession(String accessToken, Instant expiresAt, AppUser user) {}
@@ -76,13 +78,15 @@ public class AppSessions {
         return Optional.of(new IssuedSession(token, expiresAt, user));
     }
 
+    /** The session's user, while it is unexpired and its GitHub user is still on the allow-list. */
     Optional<AppUser> authenticate(String token) {
         if (!TOKEN.matcher(token).matches()) return Optional.empty();
         return db.sql("""
                 select u.id, u.github_user_id, u.login from app_sessions s join users u on u.id = s.user_id
                 where s.token_hash = :hash and s.expires_at > :now""")
             .param("hash", hash(token)).param("now", Timestamp.from(Instant.now()))
-            .query((row, n) -> new AppUser(row.getLong(1), row.getLong(2), row.getString(3))).optional();
+            .query((row, n) -> new AppUser(row.getLong(1), row.getLong(2), row.getString(3))).optional()
+            .filter(user -> allowed.allows(user.githubUserId()));
     }
 
     /** Deletes the user, their sign-in codes, and every session; their other data must already be deleted. */
