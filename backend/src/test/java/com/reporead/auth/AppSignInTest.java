@@ -158,6 +158,19 @@ class AppSignInTest {
         assertEquals(1, db.sql("select count(*) from app_sessions").query(Integer.class).single());
     }
 
+    @Test void signingInDeletesExpiredCodesAndSessionsSoTheyDoNotAccumulate() throws Exception {
+        String abandoned = TestSessions.verifier();
+        code(completeGitHubLogin(TestSessions.challenge(abandoned), 42, "test-only-alice"));
+        TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
+        db.sql("update app_sign_in_codes set expires_at = now() - interval '1 second'").update();
+        db.sql("update app_sessions set expires_at = now() - interval '1 second'").update();
+
+        String verifier = TestSessions.verifier();
+        accessToken(code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice")), verifier);
+        assertEquals(0, db.sql("select count(*) from app_sign_in_codes").query(Integer.class).single());
+        assertEquals(1, db.sql("select count(*) from app_sessions").query(Integer.class).single());
+    }
+
     @Test void malformedExchangeRequestsAreRejected() throws Exception {
         exchange("not-a-code", TestSessions.verifier()).andExpect(status().isBadRequest());
         mvc.perform(post("/api/app-auth/token").contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isBadRequest());
