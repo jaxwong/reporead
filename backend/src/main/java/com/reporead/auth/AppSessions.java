@@ -44,16 +44,22 @@ public class AppSessions {
             .param("githubUserId", githubUserId).param("login", login).query(Long.class).single();
     }
 
+    /** Also deletes expired codes (abandoned sign-ins), so they cannot accumulate. */
     String issueSignInCode(long userId, String codeChallenge) {
         if (!TOKEN.matcher(codeChallenge).matches()) throw new IllegalArgumentException("codeChallenge must be an S256 PKCE challenge");
         String code = randomToken();
+        Instant now = Instant.now();
+        db.sql("delete from app_sign_in_codes where expires_at <= :now").param("now", Timestamp.from(now)).update();
         db.sql("insert into app_sign_in_codes (code_hash, user_id, code_challenge, expires_at) values (:hash, :userId, :challenge, :expiresAt)")
             .param("hash", hash(code)).param("userId", userId).param("challenge", codeChallenge)
-            .param("expiresAt", Timestamp.from(Instant.now().plus(SIGN_IN_CODE_LIFETIME))).update();
+            .param("expiresAt", Timestamp.from(now.plus(SIGN_IN_CODE_LIFETIME))).update();
         return code;
     }
 
-    /** Consumes the code whether or not the exchange succeeds, so a code can never be guessed against twice. */
+    /**
+     * Consumes the code whether or not the exchange succeeds, so a code can never be guessed against twice. Issuing a
+     * session also deletes expired ones, so they cannot accumulate.
+     */
     Optional<IssuedSession> exchange(String code, String codeVerifier) {
         if (code == null || codeVerifier == null || !TOKEN.matcher(code).matches() || !VERIFIER.matcher(codeVerifier).matches()) {
             return Optional.empty();
@@ -70,6 +76,7 @@ public class AppSessions {
         String token = randomToken();
         Instant now = Instant.now();
         Instant expiresAt = now.plus(SESSION_LIFETIME);
+        db.sql("delete from app_sessions where expires_at <= :now").param("now", Timestamp.from(now)).update();
         db.sql("insert into app_sessions (token_hash, user_id, created_at, expires_at) values (:hash, :userId, :createdAt, :expiresAt)")
             .param("hash", hash(token)).param("userId", pending.get().userId())
             .param("createdAt", Timestamp.from(now)).param("expiresAt", Timestamp.from(expiresAt)).update();
