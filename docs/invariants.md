@@ -1,0 +1,147 @@
+# RepoRead — Invariants
+
+Rules every change keeps. Each says what must always hold, where it is enforced, and how it is checked; the linked ADR says why. A change that needs to break one starts with a new or amended ADR, not with code.
+
+These come from the original implementation spec's engineering invariants and the rules carried into post-MVP work. [Architecture](architecture.md) shows the parts they constrain; [ADRs](adrs.md) record the decisions behind them.
+
+## Data and ownership
+
+### Source integrity
+
+**RepoRead never modifies source Markdown or anything else in GitHub.**
+
+- Enforced by: the GitHub App has read-only permissions, and `GitHubApi` reads with GET only; its other calls are OAuth token exchange and renewal, and revoking RepoRead's own authorization for a user (`DELETE /applications/{client_id}/grant`), none of which touches repository content. Highlights, cards, reading state and practice live in RepoRead's own tables.
+- Checked by: no route writes to GitHub; verification edits to the notes repository are made by hand, only under `scratch/`, with the user's approval.
+- Why: [ADR-02](adrs.md#adr-02--github-is-canonical-and-read-only-note-bodies-are-not-stored-on-the-server), [ADR-16](adrs.md#adr-16--a-read-only-github-app-the-users-own-token-decides-what-can-be-connected).
+
+### One owner per piece of state
+
+**Each piece of state has exactly one owner, and every other copy is a projection of it.**
+
+| State | Owner |
+| --- | --- |
+| Note content and history | GitHub |
+| Users, sessions, connections, document identity, reading state, annotations, the review log, the session limit, every reconciliation decision | Backend and PostgreSQL |
+| Saved copies, pending changes, change baselines, the SM-2 schedule | Phone (Room) |
+| Metrics and logs | Projections only, never read back as state |
+
+- Enforced by: Room replaces server lists only with complete responses; the server stores no due dates; the phone computes no reconciliation.
+- Why: [ADR-01](adrs.md#adr-01--a-spring-boot-backend-between-the-phone-and-github), [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-sm-2-scheduling), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
+
+### Source traceability
+
+**Every annotation keeps the blob it was created against, and its original anchor never changes.**
+
+- Enforced by: `annotation_anchors` is written once at creation; re-anchoring and reattachment write only `annotation_locations`.
+- Why: [ADR-05](adrs.md#adr-05--anchors-are-block-ids-and-utf-16-offsets-into-canonical-text-of-one-version), [ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan).
+
+### An incomplete listing is never evidence of deletion
+
+**A sync publishes a complete snapshot or changes nothing; a missing path is marked deleted, never removed, and only from a complete tree.**
+
+- Enforced by: `RepositorySync` validates the whole tree before one transaction; an older snapshot cannot replace a newer one (409 `SYNC_SUPERSEDED`).
+- Checked by: `RepositorySyncTest`.
+- Why: [ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots).
+
+## Correctness
+
+### Annotation correctness
+
+**An annotation is never attached to a place RepoRead cannot identify with measured confidence; it is orphaned instead, with its original selection and context.**
+
+- Enforced by: `Anchoring` with thresholds from `AnchorMeasurement`, never chosen by hand.
+- Checked by: re-running `AnchorMeasurement` whenever `Anchoring` changes; the bar is 0 wrong attachments.
+- Why: [ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan).
+
+### Canonical text
+
+**A rendering change leaves an unchanged blob's canonical block text identical.**
+
+- Enforced by: presentation is added after parsing, with source text hidden or controls placed outside `[data-block-id]`; the reader treats any mismatch between page text and exported canonical text as a failure, not an approximation.
+- Checked by: `RenderedCorpus` before and after a renderer change, then `diff -r` of the blocks. Bump `MarkdownRenderer.FORMAT` when saved pages must be fetched again.
+- Why: [ADR-05](adrs.md#adr-05--anchors-are-block-ids-and-utf-16-offsets-into-canonical-text-of-one-version), [ADR-18](adrs.md#adr-18--rendering-changes-never-change-an-unchanged-blobs-canonical-text).
+
+### Offline idempotency
+
+**Replaying a client mutation id never creates a second annotation or grade.**
+
+- Enforced by: `annotation_mutations` and `review_log` are keyed by user and client UUID; a replay returns the original, reuse with different content is 409 `MUTATION_ID_REUSED`, and a replay after deletion is 410.
+- Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-sm-2-scheduling).
+
+### No silent overwrite
+
+**Annotation text is never overwritten by a concurrent edit; a conflict is shown.** Reading position is the exception: last write wins by the client's time, because losing a progress update costs little.
+
+- Enforced by: optimistic `version` on annotations (409 `ANNOTATION_CONFLICT`); a re-anchoring computed before a user edit does not apply over it.
+- Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
+
+### An outdated answer is never drilled
+
+**A card whose note changed is not graded until its answer is resolved in the new version and confirmed.**
+
+- Enforced by: the server rejects a new grade of an outdated answer (409 `CARD_CHANGED`); the phone leaves such cards out of grading until checked.
+- Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-sm-2-scheduling).
+
+## Security and privacy
+
+### Repository isolation
+
+**A user reaches only repositories GitHub authorizes for that user.**
+
+- Enforced by: eligibility comes from the user's own token; every connection, document and content request is scoped to the signed-in user, and another user's ids are 404 without a GitHub call.
+- Why: [ADR-16](adrs.md#adr-16--a-read-only-github-app-the-users-own-token-decides-what-can-be-connected).
+
+### Token secrecy
+
+**GitHub credentials never appear in logs, metrics, rendered pages, page JavaScript, or on the phone, and are never readable from the database alone.**
+
+- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; logs and metric tags carry ids, SHAs and counts only.
+- Why: [ADR-03](adrs.md#adr-03--github-user-tokens-stay-on-the-server-encrypted-at-rest), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
+
+### Repository content is untrusted
+
+**Note content never runs as code and never reaches native code.**
+
+- Enforced by: raw HTML is escaped and output passes a jsoup safelist; the WebView loads only bundled assets and the note's own images, with network, file and content access blocked; Mermaid runs in strict mode within server-owned bounds; there is no JavaScript bridge, and the page reaches native code only through intercepted same-origin links (`/note-link`, `/copy-code`, `/full-screen`).
+- Why: [ADR-04](adrs.md#adr-04--the-server-renders-an-isolated-webview-displays), [ADR-18](adrs.md#adr-18--rendering-changes-never-change-an-unchanged-blobs-canonical-text).
+
+### The user's data leaves only when the user sends it
+
+**Notes and annotations are not backed up, transferred, logged, or kept after the user removes them.**
+
+- Enforced by: backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them on both sides; exports exist only in a private folder until shared.
+- Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
+
+## Failure behaviour
+
+### Graceful degradation
+
+**Saved notes stay readable, and local changes queue, when GitHub or the backend is unavailable.** A failed refresh never replaces saved lists or notes.
+
+- Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
+
+### Server-owned limits and no fallback
+
+**Every operation has a stated ceiling on GitHub calls, set by the server; a failed call ends the operation.**
+
+- A route's ceiling is written in the [backend README](../backend/README.md#api) before the route is built.
+- A client cannot choose its own cap.
+- No retry, backoff, alternate fetching strategy, or installation-token fallback. A comparison or listing that hits a limit says so; it never presents a partial result as complete.
+- Why: [ADR-02](adrs.md#adr-02--github-is-canonical-and-read-only-note-bodies-are-not-stored-on-the-server).
+
+### Bounded memory on the phone
+
+**No phone query or screen loads every saved page at once.**
+
+- Why: with every note saved (ADR-19), all rendered pages exceed the app's 256 MB heap. On 2026-10-14 the app crashed with `OutOfMemoryError` three times while Practice loaded: its query read every saved page (about 800) to find 92 interview banks, and re-ran whenever Library's sync changed the tables.
+- Enforced by: queries select only the pages they need (`bankPages` reads only notes in interview folders); work that needs many pages lists ids first and reads pages in batches (`savedPages`, 25 at a time, for Linked from).
+- Checked by: `LocalStoreTest`, and the Java heap on the phone while the screen opens (Practice now peaks at 40 MB, Linked from at 23 MB).
+- Decisions: [ADR-19](adrs.md#adr-19--every-note-can-be-saved-on-the-phone-one-note-at-a-time-with-no-eviction), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer).
+
+## Constraints on reader code
+
+These are facts of the platform, not decisions, but breaking them breaks the reader:
+
+- In the app's WebView, `100vh`, `100dvh` and `100svh` measure 0. Size page elements in percent of the viewport. Headless Chrome resolves them normally, so check sizing on the phone.
+- `scrollIntoView` does nothing for a Mermaid source collapsed under its diagram; measure and scroll through the rendered diagram.
+- Showing or hiding bars while a finger is on the page moves the WebView under it and reads as a scroll the other way; change bars only when the finger lifts.

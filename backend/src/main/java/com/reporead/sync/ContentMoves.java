@@ -11,7 +11,7 @@ import java.util.Set;
 
 /**
  * Recognizes a note that was moved and edited between two syncs. Pure: the caller supplies rendered versions. Constants
- * come from MoveMeasurement on a real notes repository (see requirements/reporead-stage4-record.md): real moves with
+ * come from MoveMeasurement on a real notes repository (see docs/adrs.md, ADR-07): real moves with
  * edits scored at least 0.54 and had at least 229 shingles; unrelated notes with at least 10 shingles scored at most 0.198.
  */
 final class ContentMoves {

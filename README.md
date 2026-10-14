@@ -1,13 +1,13 @@
 # RepoRead
 
-An Android reading and study layer for technical Markdown notes kept in GitHub: browse a repository, read code and Mermaid on the phone, resume where you stopped, highlight and annotate without touching the source, keep annotations trustworthy across edits, see what changed since you last read, search saved notes, and work offline. GitHub stays the source of truth; RepoRead never writes to it.
+An Android reading and study layer for technical Markdown notes kept in GitHub: browse a repository, read code and Mermaid on the phone, resume where you stopped, highlight and annotate without touching the source, keep annotations trustworthy across edits, see what changed since you last read, search saved notes, work offline, and practise interview questions with spaced review. GitHub stays the source of truth; RepoRead never writes to it.
 
 | Part | What it is | Setup and contracts |
 | --- | --- | --- |
 | `backend/` | Spring Boot 4 / Java 25 / PostgreSQL 17: sign-in, connections, sync, rendering, reading state, annotations, re-anchoring, change summaries | [backend/README.md](backend/README.md) |
 | `android/` | Kotlin/Compose app with Room offline storage and an isolated WebView reader | [android/README.md](android/README.md) |
 | `android/reader-web/` | The reader's bundled display JavaScript (highlighting, Mermaid) | [android/reader-web/README.md](android/reader-web/README.md) |
-| `requirements/` | Stories, feature list, spec, build plan, [ADRs](requirements/reporead-adrs.md), and the per-stage verification records | [build plan](requirements/reporead-build-plan.md) |
+| `docs/` | The single source of truth for decisions, scope and status: [architecture](docs/architecture.md), [invariants](docs/invariants.md), [ADRs](docs/adrs.md), [feature list](docs/feature-list.md), [user stories](docs/user-stories.md) | [architecture](docs/architecture.md) |
 
 ## Local setup, in order
 
@@ -22,7 +22,7 @@ An Android reading and study layer for technical Markdown notes kept in GitHub: 
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --no-daemon
 ```
 
-Device tests (Room on the phone) run with `adb shell am instrument`, never `connectedDebugAndroidTest` on a phone you read on — see [android/README.md](android/README.md#device-tests). Two backend measurement harnesses (`AnchorMeasurement`, `MoveMeasurement`) are skipped unless pointed at a local clone of a notes repository; see the [Stage 4 record](requirements/reporead-stage4-record.md).
+Device tests (Room on the phone) run with `adb shell am instrument`, never `connectedDebugAndroidTest` on a phone you read on — see [android/README.md](android/README.md#device-tests). The opt-in real-corpus harnesses (`AnchorMeasurement`, `MoveMeasurement` and `RenderedCorpus` in the backend, `StudyCorpus` in the app) are skipped unless pointed at a local clone of a notes repository; their outputs contain private note text and stay outside the repository ([ADR-23](docs/adrs.md#adr-23--how-a-change-is-verified)). The commands are in [backend/README.md](backend/README.md#verify).
 
 ## What failures look like
 
