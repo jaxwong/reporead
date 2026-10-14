@@ -180,9 +180,9 @@ function onScreen(element) {
   return rect.bottom > 0 && rect.top < window.innerHeight;
 }
 
-function scrollPercent(y = window.scrollY) {
+function scrollPercent() {
   const scrollable = document.documentElement.scrollHeight - window.innerHeight;
-  return scrollable <= 0 ? 100 : Math.max(0, Math.min(100, Math.round(y / scrollable * 100)));
+  return scrollable <= 0 ? 100 : Math.max(0, Math.min(100, Math.round(window.scrollY / scrollable * 100)));
 }
 
 /*
@@ -192,19 +192,10 @@ function scrollPercent(y = window.scrollY) {
 window.reporead = {
   position() {
     // Scrolling lands on device pixels, so a sliver under 1px of the previous block does not count as visible.
-    const question = document.body.classList.contains('study-recall') ? studyQuestions[studyIndex] : null;
-    const index = question ? blocks.findIndex(block => block.dataset.blockId === question.blockId)
-      : blocks.findIndex(block => visibleElement(block).getBoundingClientRect().bottom > 1);
+    const index = blocks.findIndex(block => visibleElement(block).getBoundingClientRect().bottom > 1);
     const block = index < 0 ? null : blocks[index];
-    let progressPercent;
-    if (question) {
-      // Measure its position in the note, not in the short recall panel (which would falsely mark it 100% read).
-      document.body.classList.remove('study-recall');
-      progressPercent = scrollPercent(window.scrollY + visibleElement(block).getBoundingClientRect().top);
-      document.body.classList.add('study-recall');
-    } else progressPercent = scrollPercent();
     return {
-      progressPercent,
+      progressPercent: scrollPercent(),
       anchor: {
         headingPath: block ? headingPath(block) : [],
         textPrefix: block ? textPrefix(block.dataset.anchorText) : null,
@@ -229,17 +220,6 @@ window.reporead = {
     else if (anchor.blockIndex < blocks.length) [target, mode] = [blocks[anchor.blockIndex], 'block'];
     else mode = 'percent';
     if (target) {
-      if (document.body.classList.contains('study-recall')) {
-        const index = studyQuestions.findIndex(question => question.blockId === target.dataset.blockId);
-        if (index >= 0) {
-          studyIndex = index;
-          updateStudyQuestion();
-          window.scrollTo(0, 0);
-          return mode;
-        }
-        document.body.classList.remove('study-recall');
-        updateStudyQuestion();
-      }
       scrollToElement(visibleElement(target), 'start');
       if (onScreen(visibleElement(target))) return visibleElement(target).matches('h1,h2,h3,h4,h5,h6') && visibleElement(target) !== target ? 'collapsed' : mode;
     }
@@ -322,11 +302,11 @@ window.reporead.highlight = annotations => {
 };
 
 /**
- * Scrolls to the heading [text] names: the first whose text it is (ignoring case and spacing), as Obsidian heading
- * links do, or else the one whose GitHub anchor it is, as Markdown links `note.md#some-heading` do. GitHub's anchor:
- * lowercase, punctuation removed, each space a hyphen, and repeats numbered -1, -2… in page order.
+ * The heading [text] names: the first whose text it is (ignoring case and spacing), as Obsidian heading links do, or
+ * else the one whose GitHub anchor it is, as Markdown links `note.md#some-heading` do. GitHub's anchor: lowercase,
+ * punctuation removed, each space a hyphen, and repeats numbered -1, -2… in page order.
  */
-window.reporead.showHeading = text => {
+function findHeading(text) {
   const wanted = text.trim().toLowerCase();
   const headings = blocks.filter(block => /^H[1-6]$/.test(block.tagName));
   const seen = new Map();
@@ -336,11 +316,38 @@ window.reporead.showHeading = text => {
     seen.set(slug, repeats + 1);
     return repeats === 0 ? slug : `${slug}-${repeats}`;
   };
-  const heading = headings.find(block => block.dataset.anchorText.trim().toLowerCase() === wanted)
-    ?? headings.find(block => anchor(block) === wanted);
+  return headings.find(block => block.dataset.anchorText.trim().toLowerCase() === wanted)
+    ?? headings.find(block => anchor(block) === wanted) ?? null;
+}
+
+/** Scrolls to the heading [text] names (see findHeading). */
+window.reporead.showHeading = text => {
+  const heading = findHeading(text);
   if (!heading) return false;
   revealStudyBlock(heading);
   scrollToElement(heading, 'start');
+  return true;
+};
+
+/**
+ * For a bank question's answer, a separate page: only the section under the heading [text] names, up to the next
+ * heading of the same or a higher level; null keeps the whole note. Layout only, so every block keeps its canonical
+ * text. Returns whether the heading is in this version.
+ */
+window.reporead.showSection = text => {
+  if (text === null) return true;
+  const heading = findHeading(text);
+  if (!heading) return false;
+  let start = heading;
+  while (start.parentElement !== note) start = start.parentElement;
+  const level = Number(heading.tagName[1]);
+  let inside = false;
+  for (const element of note.children) {
+    if (element === start) inside = true;
+    else if (inside && /^H[1-6]$/.test(element.tagName) && Number(element.tagName[1]) <= level) inside = false;
+    element.classList.toggle('outside-section', !inside);
+  }
+  window.scrollTo(0, 0);
   return true;
 };
 
@@ -467,37 +474,16 @@ note.addEventListener('click', event => {
   if (!window.reporead.showHeading(wanted)) showSheetMessage(`No heading “${wanted}” in this note.`);
 });
 
-/* P3 recognition belongs to Study.kt. The page only lays out that model, without changing any block's text. */
-let studyQuestions = [];
-let studyIndex = 0;
-let studyPanel = null;
-
-// P4 reads the displayed question's identity, including after its answer was revealed.
-window.reporead.currentStudyQuestion = () => studyQuestions[studyIndex]?.blockId ?? null;
-
+/* Study.kt owns recognition (LeetCode sections). The page only lays out its model, without changing any block's text. */
 function revealStudyBlock(block) {
-  document.body.classList.remove('study-recall');
   for (let section = block.closest('.study-section'); section; section = section.parentElement.closest('.study-section')) {
     section.classList.add('study-revealed');
     section.querySelector(':scope > button').setAttribute('aria-expanded', 'true');
   }
-  updateStudyQuestion();
-}
-
-function updateStudyQuestion() {
-  if (!studyPanel) return;
-  const active = document.body.classList.contains('study-active');
-  studyPanel.hidden = !active;
-  const question = studyQuestions[studyIndex];
-  studyPanel.querySelector('.study-count').textContent = `Question ${studyIndex + 1} of ${studyQuestions.length}`;
-  studyPanel.querySelector('.study-question').textContent = question.text;
-  studyPanel.querySelector('.study-previous').disabled = studyIndex === 0;
-  studyPanel.querySelector('.study-next').disabled = studyIndex === studyQuestions.length - 1;
-  studyPanel.querySelector('.study-answer').textContent = document.body.classList.contains('study-recall') ? 'Read the answer' : 'Recall this question';
 }
 
 window.reporead.configureStudy = model => {
-  if (document.querySelector('.study-section') || studyPanel) throw new Error('Study model configured twice');
+  if (document.querySelector('.study-section')) throw new Error('Study model configured twice');
   for (const id of model.collapsedHeadings) {
     const heading = blocks.find(block => block.dataset.blockId === id);
     if (!heading || !/^H[1-6]$/.test(heading.tagName)) throw new Error(`Study heading ${id} missing`);
@@ -521,30 +507,6 @@ window.reporead.configureStudy = model => {
       next = following;
     }
   }
-  studyQuestions = model.questions;
-  if (studyQuestions.length) {
-    studyPanel = document.createElement('aside');
-    studyPanel.id = 'study-questions';
-    studyPanel.hidden = true;
-    studyPanel.innerHTML = '<div class="study-count"></div><p class="study-question"></p><div class="study-actions">' +
-      '<button class="study-previous">Previous question</button><button class="study-next">Next question</button>' +
-      '<button class="study-answer">Read the answer</button></div>';
-    const move = offset => {
-      studyIndex += offset;
-      document.body.classList.add('study-recall');
-      updateStudyQuestion();
-      window.scrollTo(0, 0);
-    };
-    studyPanel.querySelector('.study-previous').addEventListener('click', () => move(-1));
-    studyPanel.querySelector('.study-next').addEventListener('click', () => move(1));
-    studyPanel.querySelector('.study-answer').addEventListener('click', () => {
-      const recall = document.body.classList.toggle('study-recall');
-      updateStudyQuestion();
-      if (recall) window.scrollTo(0, 0);
-      else window.reporead.showBlock(studyQuestions[studyIndex].blockId);
-    });
-    note.before(studyPanel);
-  }
   for (const block of blocks) {
     if (block.textContent !== block.dataset.anchorText) throw new Error(`Study changed canonical text in ${block.dataset.blockId}`);
   }
@@ -553,22 +515,7 @@ window.reporead.configureStudy = model => {
 window.reporead.setStudy = enabled => {
   const saved = window.reporead.position();
   document.body.classList.toggle('study-active', enabled);
-  document.body.classList.toggle('study-recall', enabled && studyQuestions.length > 0);
-  updateStudyQuestion();
-  if (enabled && studyQuestions.length) window.scrollTo(0, 0);
-  else window.reporead.restore(saved.anchor, saved.progressPercent);
-};
-
-/** Block identity is valid only in its source version; repeated prompt text is not an identity. */
-window.reporead.studyQuestion = (blobSha, blockId) => {
-  if (blobSha !== document.body.dataset.sourceBlobSha) return false;
-  const index = studyQuestions.findIndex(question => question.blockId === blockId);
-  if (index < 0) return false;
-  studyIndex = index;
-  document.body.classList.add('study-active', 'study-recall');
-  updateStudyQuestion();
-  window.scrollTo(0, 0);
-  return true;
+  window.reporead.restore(saved.anchor, saved.progressPercent);
 };
 
 // Diagrams change the layout, so the app restores a position only once rendering has finished.

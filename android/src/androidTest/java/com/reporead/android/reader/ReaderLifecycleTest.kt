@@ -2,7 +2,6 @@ package com.reporead.android.reader
 
 import android.view.View
 import android.view.ViewGroup
-import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.key
@@ -27,7 +26,6 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -47,7 +45,7 @@ class ReaderLifecycleTest {
     private val showingReader = mutableStateOf(true)
     private val title = "Test-only lifecycle fixture"
     /** The screen shown; a new one is a new reader screen, as when the app navigates. */
-    private val screenUnderTest = mutableStateOf(Screen.Reader(1, title, question = StudyTarget(sha, "b2")))
+    private val screenUnderTest = mutableStateOf(Screen.Reader(1, title))
     private var readerReady = false
 
     @Before fun open() = runBlocking {
@@ -56,11 +54,9 @@ class ReaderLifecycleTest {
         files = File(context.cacheDir, "reader-lifecycle-test")
         check(files.mkdirs() || files.isDirectory) { "Cannot create test-only directory $files" }
         val dao = store.library()
-        val path = "test-only/interview/lifecycle.md"
+        val path = "test-only/lifecycle.md"
         fun block(id: Int, tag: String, text: String) = """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
-        val body = block(0, "h1", title) + block(1, "h2", "1. Foundations") +
-            block(2, "h3", "1. An identical question?") + block(3, "p", "Canonical answer: The first answer") +
-            block(4, "h3", "2. An identical question?") + block(5, "p", "Canonical answer: The second answer") +
+        val body = block(0, "h1", title) + block(1, "h2", "Start") + (2..5).joinToString("") { block(it, "p", "Test-only opening $it.") } +
             block(6, "h2", "Answer") + (7..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) } +
             // A same-note link, and a block whose 64-unit prefix would end inside an emoji.
             """<p data-block-id="b61" data-anchor-text="Back to the answer"><a href="#answer">Back to the answer</a></p>""" +
@@ -85,8 +81,8 @@ class ReaderLifecycleTest {
             }
         }
         scenario = ActivityScenario.launch(ReaderTestActivity::class.java)
-        awaitReader(2, recall = true)
-        awaitSaved(2)
+        awaitReader(0)
+        awaitSaved(0)
         readerReady = true
     }
 
@@ -111,115 +107,38 @@ class ReaderLifecycleTest {
         if (::files.isInitialized) check(files.deleteRecursively()) { "Cannot delete test-only directory $files" }
     }
 
-    @Test fun questionsSurviveActivityRecreationTwiceAndSaveInRoom() {
-        evaluate("document.querySelector('.study-next').click(); return window.reporead.position();")
-        scenario.recreate()
-        awaitReader(4, recall = true)
-        awaitSaved(4)
-        evaluate("document.querySelector('.study-previous').click(); return window.reporead.position();")
-        scenario.recreate()
-        awaitReader(2, recall = true)
-        awaitSaved(2)
-    }
-
     @Test fun aLinkedHeadingIsShownOnceAndRecreationRestoresTheReadingPositionInstead() {
         scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, heading = "Answer") }
-        awaitReader(6, recall = false)
+        awaitReader(6)
         awaitSaved(6)
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
         scenario.recreate()
-        awaitReader(12, recall = false)
+        awaitReader(12)
         awaitSaved(12)
     }
 
     @Test fun aSameNoteLinkScrollsToItsHeadingAndPrefixesKeepWholeCharacters() {
-        evaluate("document.querySelector('.study-answer').click(); return {};")
         val prefix = evaluate("window.reporead.showBlock('b62'); return {prefix: window.reporead.position().anchor.textPrefix};").getString("prefix")
         assertEquals("x".repeat(63), prefix)
         evaluate("window.reporead.showBlock('b61'); document.querySelector('a[href=\"#answer\"]').click(); return {};")
-        awaitReader(6, recall = false)
+        awaitReader(6)
         awaitSaved(6)
         // A Copy link in the note's own text can name a block that is not code; the page answers null instead of throwing.
         assertTrue(evaluate("return {text: window.reporead.codeText('b5')};").isNull("text"))
     }
 
-    @Test fun ordinaryReadingSurvivesActivityRecreation() {
-        val position = evaluate("document.querySelector('.study-answer').click(); window.reporead.showBlock('b12'); return window.reporead.position();")
+    @Test fun ordinaryReadingSurvivesActivityRecreationTwiceAndSavesInRoom() {
+        val position = evaluate("window.reporead.showBlock('b12'); return window.reporead.position();")
         assertEquals(12, position.getJSONObject("anchor").getInt("blockIndex"))
         scenario.recreate()
-        awaitReader(12, recall = false)
+        awaitReader(12)
         awaitSaved(12)
-    }
-
-    @Test fun addingABankQuestionOffersItsOwnCanonicalAnswerAndSurvivesRecreationBeforeSaving() = runBlocking {
-        // Both questions read the same; the card must take the shown one's answer.
-        evaluate("document.querySelector('.study-next').click(); return {};")
-        awaitReader(4, recall = true)
-        clickText("Add question to review")
-        awaitText("Make a question")
+        evaluate("window.reporead.showBlock('b20'); return {};")
+        awaitSaved(20)
         scenario.recreate()
-        awaitText("“Canonical answer: The second answer”")
-        clickText("Save")
-        val card = awaitPendingCard()
-        assertEquals("An identical question?", card.question)
-        assertEquals("Canonical answer: The second answer", card.exactText)
-        assertEquals("b5", card.blockId)
-        assertEquals(0, card.startOffset)
-        assertEquals("Canonical answer: The second answer".length, card.endOffset)
-        assertEquals(sha, card.checkedBlobSha)
-        // The restored dialog can save before its reader has rendered. Teardown must observe a ready reader.
-        awaitReader(4, recall = true)
-        awaitSaved(4)
-    }
-
-    @Test fun practiceAddToReviewOffersTheCardOnceEvenAcrossRecreation() = runBlocking {
-        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, question = StudyTarget(sha, "b2"), review = true) }
-        awaitText("“Canonical answer: The first answer”")
-        clickText("Cancel")
-        scenario.recreate()
-        awaitReader(2, recall = true)
-        awaitSaved(2)
-        assertNull("Add to review must not be offered again", instrumentation.uiAutomation.rootInActiveWindow?.let { findText(it, "Make a question") })
-        assertTrue(store.library().pendingAnnotations().isEmpty())
-    }
-
-    private suspend fun awaitPendingCard() = try {
-        withTimeout(5_000) {
-            while (store.library().pendingAnnotations().isEmpty()) delay(20)
-            store.library().pendingAnnotations().single().also { assertEquals("CARD", it.type) }
-        }
-    } catch (error: TimeoutCancellationException) {
-        throw AssertionError("Save did not create a pending card after authoring-dialog recreation", error)
-    }
-
-    private fun findText(node: AccessibilityNodeInfo, text: String): AccessibilityNodeInfo? {
-        if (node.text?.toString() == text) return node
-        for (i in 0 until node.childCount) node.getChild(i)?.let { findText(it, text)?.let { found -> return found } }
-        return null
-    }
-
-    private fun awaitText(text: String): AccessibilityNodeInfo = runBlocking {
-        try {
-            withTimeout(5_000) {
-                while (true) {
-                    instrumentation.uiAutomation.rootInActiveWindow?.let { root -> findText(root, text)?.let { return@withTimeout it } }
-                    delay(50)
-                }
-                error("Unreachable")
-            }
-        } catch (error: TimeoutCancellationException) {
-            fun texts(node: AccessibilityNodeInfo): List<String> = listOfNotNull(node.text?.toString()) +
-                (0 until node.childCount).flatMap { index -> node.getChild(index)?.let { texts(it) }.orEmpty() }
-            throw AssertionError("Timed out waiting for '$text'; visible texts=${instrumentation.uiAutomation.rootInActiveWindow?.let { texts(it) }}", error)
-        }
-    }
-
-    private fun clickText(text: String) {
-        var node = awaitText(text)
-        while (!node.isClickable) node = checkNotNull(node.parent) { "No clickable parent for $text" }
-        assertTrue("Could not click $text", node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-        instrumentation.waitForIdleSync()
+        awaitReader(20)
+        awaitSaved(20)
     }
 
     private fun awaitSaved(block: Int) = runBlocking {
@@ -236,22 +155,21 @@ class ReaderLifecycleTest {
         }
     }
 
-    private fun awaitReader(block: Int, recall: Boolean) = runBlocking {
+    private fun awaitReader(block: Int) = runBlocking {
         var last = JSONObject()
         repeat(100) {
             last = evaluate("""
-                if (!window.reporead || !document.querySelector('#study-questions')) return {};
+                if (!window.reporead || document.body.dataset.state !== 'ready') return {};
                 return {block: window.reporead.position().anchor.blockIndex,
-                    recall: getComputedStyle(document.getElementById('note')).display === 'none',
                     canonical: [...document.querySelectorAll('#note [data-block-id]')].every(b => b.textContent === b.dataset.anchorText)};
             """.trimIndent(), allowLoading = true)
-            if (last.optInt("block", -1) == block && last.optBoolean("recall") == recall) {
+            if (last.optInt("block", -1) == block) {
                 assertTrue("Canonical text changed: $last", last.getBoolean("canonical"))
                 return@runBlocking
             }
             delay(100)
         }
-        throw AssertionError("Reader did not restore block=$block recall=$recall; last=$last")
+        throw AssertionError("Reader did not restore block=$block; last=$last")
     }
 
     private fun evaluate(script: String, allowLoading: Boolean = false): JSONObject {

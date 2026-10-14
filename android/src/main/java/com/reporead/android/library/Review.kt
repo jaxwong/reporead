@@ -3,7 +3,8 @@ package com.reporead.android.library
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
-import com.reporead.android.reader.studyNote
+import com.reporead.android.reader.StudyQuestion
+import com.reporead.android.reader.interviewBank
 import org.jsoup.Jsoup
 import java.time.Instant
 import java.time.LocalDate
@@ -12,6 +13,12 @@ import kotlin.math.ceil
 import kotlin.random.Random
 
 internal data class ReviewSchedule(val dueAt: Long, val repetitions: Int, val intervalDays: Long, val ease: Double)
+
+/** The grades offered, on SM-2's 0–5 scale: below 3 is a lapse. */
+internal val GRADES = listOf(0 to "Again", 3 to "Hard", 4 to "Good", 5 to "Easy")
+
+/** What each grade means against the answer shown, so a missed point is graded Again rather than Hard (Hard passes the card). */
+internal const val GRADE_MEANING = "Again: wrong, or missed a point. Hard, Good, Easy: right, with serious effort, some hesitation, or none."
 
 /**
  * The sole scheduler: SM-2 over the immutable log, ordered independently of arrival order (Wozniak's description,
@@ -79,11 +86,11 @@ internal fun answerContext(html: String, passage: Passage): String? {
     return text
 }
 
-/** A verified answer's block [context] and, for a card made from an interview bank question, that question's [guide]. */
-internal data class RevealedAnswer(val context: String, val guide: List<String>?)
+/** A verified answer's block [context] and, for a card made from an interview bank question, that [question]. */
+internal data class RevealedAnswer(val context: String, val question: StudyQuestion?)
 
 internal fun revealedAnswer(html: String, path: String, passage: Passage): RevealedAnswer? = answerContext(html, passage)?.let { context ->
-    RevealedAnswer(context, studyNote(html, path).questions.firstOrNull { it.answer?.blockId == passage.blockId }?.guide)
+    RevealedAnswer(context, interviewBank(html, path).questions.firstOrNull { it.answer.blockId == passage.blockId })
 }
 
 /** Prefixing each source line preserves all characters, including blank lines, trailing spaces and CRLF. */

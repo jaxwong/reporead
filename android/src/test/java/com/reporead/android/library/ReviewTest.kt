@@ -4,6 +4,9 @@ import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.reader.AnswerLink
+import com.reporead.android.reader.StudyAnswer
+import com.reporead.android.reader.StudyQuestion
 import org.junit.Assert.*
 import org.junit.Test
 import java.time.LocalDateTime
@@ -94,14 +97,16 @@ class ReviewTest {
         assertNull(answerContext(html, Passage("sha", "b9", 7, 9, "😀")))
     }
 
-    @Test fun aBankCardRevealsItsQuestionsGuideAndOtherCardsOnlyTheirContext() {
+    @Test fun aBankCardRevealsItsQuestionsLinkedAnswerAndOtherCardsOnlyTheirContext() {
         val html = "<main id=note><h2 data-block-id=b0 data-anchor-text='Foundations'>Foundations</h2>" +
             "<h3 data-block-id=b1 data-anchor-text='1. What is ACID?'>1. What is ACID?</h3>" +
             "<p data-block-id=b2 data-anchor-text='Interviewer is testing: protection.'>Interviewer is testing: protection.</p>" +
-            "<p data-block-id=b3 data-anchor-text='Canonical answer: ACID'><strong>Canonical answer:</strong> <a href='../a.md#acid'>ACID</a></p></main>"
+            "<p data-block-id=b3 data-anchor-text='Canonical answer: ACID'><strong>Canonical answer:</strong> " +
+            "<a href='/note-link?path=core%2Fa.md&amp;heading=acid'>ACID</a></p></main>"
         val answer = Passage("sha", "b3", 0, 22, "Canonical answer: ACID")
-        assertEquals(RevealedAnswer("Canonical answer: ACID", listOf("Interviewer is testing: protection.", "Canonical answer: ACID")),
-            revealedAnswer(html, "core/interview/bank.md", answer))
+        assertEquals(RevealedAnswer("Canonical answer: ACID", StudyQuestion("b1", "What is ACID?",
+            StudyAnswer("b3", "Canonical answer: ACID", listOf(AnswerLink(null, "core/a.md", "acid", "ACID"))),
+            guide = listOf("Interviewer is testing: protection."), level = "Foundations")), revealedAnswer(html, "core/interview/bank.md", answer))
         assertEquals(RevealedAnswer("Canonical answer: ACID", null), revealedAnswer(html, "core/bank.md", answer))
         assertEquals(RevealedAnswer("Interviewer is testing: protection.", null),
             revealedAnswer(html, "core/interview/bank.md", Passage("sha", "b2", 0, 11, "Interviewer")))

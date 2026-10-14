@@ -5,6 +5,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,10 +15,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +43,8 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.reader.BankAnswer
+import com.reporead.android.sync.Sync
 import com.reporead.android.sync.exportDirectory
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
@@ -144,8 +149,28 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
     }
 }
 
+/**
+ * The grades in one row under the answer, so grading never needs scrolling past it; Again, the only failing grade, is
+ * set apart from the three that pass.
+ */
 @Composable
-internal fun ReviewScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
+internal fun GradeBar(enabled: Boolean, onGrade: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(GRADE_MEANING, style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((grade, label) in GRADES) {
+                val modifier = Modifier.weight(1f)
+                val padding = PaddingValues(horizontal = 4.dp)
+                if (grade < 3) OutlinedButton(enabled = enabled, modifier = modifier, contentPadding = padding, onClick = { onGrade(grade) },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(label) }
+                else Button(enabled = enabled, modifier = modifier, contentPadding = padding, onClick = { onGrade(grade) }) { Text(label) }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, onBack: () -> Unit) {
     val items by dao.notebook().collectAsState(null)
     val reviews by dao.reviews().collectAsState(null)
     val limit by dao.reviewLimit().collectAsState(null)
@@ -159,8 +184,8 @@ internal fun ReviewScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () ->
     val ready = items
     val log = reviews
     Scaffold(topBar = { AppBar("Review", onBack = onBack) }) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Not scrolled as a whole: a revealed answer takes the space left, and the grades stay under it.
+        Column(Modifier.padding(padding).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (ready == null || log == null) { Text("Loading saved cards…"); return@Column }
             val cards = ready.filter { it.annotation.type == "CARD" }
             val blocked = cards.count { cardCheckReason(it) != null }
@@ -223,32 +248,33 @@ internal fun ReviewScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () ->
                 if (verified == null) {
                     Text("The saved page cannot verify this answer in context. Open the note to check it.")
                 } else {
-                    val guide = verified.guide
-                    if (guide != null) {
+                    val question = verified.question
+                    if (question != null) {
                         Text("Interview bank · ${item.path}", style = MaterialTheme.typography.labelMedium)
-                        for (line in guide) Text(line)
-                    } else {
+                        BankAnswer(question, row.documentId, item.path, sync, dao, Modifier.weight(1f),
+                            onOpen = { note, heading -> push(Screen.Reader(note.id, note.title, heading)) })
+                    } else Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.drawn.exactText, style = MaterialTheme.typography.titleLarge)
                         Text("Context · ${item.path}", style = MaterialTheme.typography.labelMedium)
                         Text(verified.context)
                     }
-                    // Each press persists one immutable mutation locally; network I/O waits for explicit Library sync.
-                    for ((grade, label) in listOf(0 to "Again — no recall", 3 to "Hard — correct with difficulty", 4 to "Good — correct with hesitation", 5 to "Easy — perfect recall")) {
-                        Button(enabled = !saving, modifier = Modifier.fillMaxWidth(), onClick = {
-                            saving = true
-                            val review = ReviewRow(UUID.randomUUID().toString(), id, grade, System.currentTimeMillis(), row.drawn.blobSha, true)
-                            scope.launch {
-                                try {
-                                    val saved = withContext(NonCancellable) { dao.recordReview(review) }
-                                    if (!saved) notice = "Card changed while answering; grade not saved. Open it to check the answer."
-                                    revealed = null
-                                } finally { saving = false }
-                            }
-                        }) { Text(label) }
+                }
+                Row {
+                    TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, annotation = id)) }) { Text("Open in note") }
+                    TextButton(enabled = !saving, onClick = { skipped = ArrayList(skipped + id); revealed = null }) { Text("Skip") }
+                }
+                // Each press persists one immutable mutation locally; network I/O waits for explicit Library sync.
+                if (verified != null) GradeBar(enabled = !saving) { grade ->
+                    saving = true
+                    val review = ReviewRow(UUID.randomUUID().toString(), id, grade, System.currentTimeMillis(), row.drawn.blobSha, true)
+                    scope.launch {
+                        try {
+                            val saved = withContext(NonCancellable) { dao.recordReview(review) }
+                            if (!saved) notice = "Card changed while answering; grade not saved. Open it to check the answer."
+                            revealed = null
+                        } finally { saving = false }
                     }
                 }
-                TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, annotation = id)) }) { Text("Open in note") }
-                TextButton(enabled = !saving, onClick = { skipped = ArrayList(skipped + id); revealed = null }) { Text("Skip") }
             }
         }
     }
