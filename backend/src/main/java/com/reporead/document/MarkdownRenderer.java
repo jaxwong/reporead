@@ -1,5 +1,6 @@
 package com.reporead.document;
 
+import com.reporead.github.GitHubHttp;
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.ext.task.list.items.TaskListItemsExtension;
@@ -28,7 +29,8 @@ import java.util.Objects;
 import java.util.Optional;
 
 public final class MarkdownRenderer {
-    public static final int MAX_NOTE_BYTES = 1_048_576;
+    /** The largest note RepoRead reads from GitHub. */
+    public static final int MAX_NOTE_BYTES = GitHubHttp.MAX_RESPONSE_BYTES;
     /** [MAX_NOTE_BYTES] in MiB, for messages. */
     public static final int MAX_NOTE_MIB = MAX_NOTE_BYTES / 1_048_576;
     public static final int MAX_DIAGRAM_CHARS = 20_000;

@@ -5,12 +5,10 @@ import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
-import com.reporead.sync.RepositorySync;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,49 +21,21 @@ import java.util.List;
 
 /**
  * External-call ceilings (GitHub user-token requests per operation):
- * GET /api/repositories 0; GET /api/repositories/available 1 + installations (at most 11);
- * POST .../connect 1; POST .../sync 2 + at most 8 (see RepositorySync); GET .../stored-data 0; DELETE (disconnect) 0.
+ * GET /api/repositories 0; GET /api/repositories/available 1 + installations (at most 11); POST .../connect 1.
  */
 @RestController
 public class RepositoryController {
     private static final Logger LOG = LoggerFactory.getLogger(RepositoryController.class);
     private final GitHubApi github;
     private final RepositoryConnections connections;
-    private final RepositorySync sync;
-    private final ConnectionData data;
     private final TransactionTemplate transaction;
     private final AppSessions sessions;
 
-    public RepositoryController(GitHubApi github, RepositoryConnections connections, RepositorySync sync, ConnectionData data,
-                                TransactionTemplate transaction, AppSessions sessions) {
+    public RepositoryController(GitHubApi github, RepositoryConnections connections, TransactionTemplate transaction, AppSessions sessions) {
         this.github = github;
         this.connections = connections;
-        this.sync = sync;
-        this.data = data;
         this.transaction = transaction;
         this.sessions = sessions;
-    }
-
-    /** What disconnecting this repository would delete, for the confirmation. */
-    @GetMapping("/api/repositories/{id}/stored-data")
-    ConnectionData.Counts storedData(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        connections.find(user.id(), id).orElseThrow(ApiFailure::notFound);
-        return data.count(id);
-    }
-
-    /**
-     * Disconnects a repository: deletes the connection and everything stored for it in one transaction, serialized with
-     * its syncs. GitHub is not modified, and the GitHub App stays installed until the user removes it on GitHub.
-     */
-    @DeleteMapping("/api/repositories/{id}")
-    ConnectionData.Deleted disconnect(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        var deleted = transaction.execute(status -> {
-            connections.lockForSync(user.id(), id);
-            return data.delete(id);
-        });
-        LOG.info("Repository disconnected; userId={} connectionId={} documents={} readingStates={} bookmarks={} highlights={} cards={}",
-            user.id(), id, deleted.documentIds().size(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights(), deleted.cards());
-        return deleted;
     }
 
     record Connected(List<RepositoryConnections.Connection> repositories) {}
@@ -120,10 +90,5 @@ public class RepositoryController {
         });
         LOG.info("Repository connected; userId={} connectionId={} githubRepositoryId={}", user.id(), id, githubRepositoryId);
         return connections.find(user.id(), id).orElseThrow();
-    }
-
-    @PostMapping("/api/repositories/{id}/sync")
-    RepositorySync.Result sync(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        return sync.sync(user, id);
     }
 }

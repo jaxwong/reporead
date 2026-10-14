@@ -93,7 +93,7 @@ public class RepositoryConnections {
     }
 
     /** Deletes the connection row; its documents and their reading and annotation rows must already be deleted. */
-    void delete(long connectionId) {
+    public void delete(long connectionId) {
         db.sql("delete from repository_connections where id = :id").param("id", connectionId).update();
     }
 

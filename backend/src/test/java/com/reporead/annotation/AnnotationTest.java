@@ -4,7 +4,7 @@ import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.document.MarkdownRenderer;
-import com.reporead.repository.ConnectionData;
+import com.reporead.datacontrol.ConnectionData;
 import com.reporead.repository.RepositoryConnections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

@@ -2,8 +2,8 @@ package com.reporead.repository;
 
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
-import com.reporead.auth.GitHubSecurity;
 import com.reporead.auth.TestSessions;
+import com.reporead.github.GitHubHttp;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -235,7 +235,7 @@ class AvailableRepositoriesTest {
         available(alice).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"));
         server.verify();
         server.reset();
-        expectListing(TOKEN, withSuccess(new byte[GitHubSecurity.MAX_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
+        expectListing(TOKEN, withSuccess(new byte[GitHubHttp.MAX_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
         available(alice).andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("GITHUB_RESPONSE_LIMIT"));
     }
 

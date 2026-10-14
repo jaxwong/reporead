@@ -1,8 +1,10 @@
-package com.reporead.auth;
+package com.reporead.datacontrol;
 
+import com.reporead.ApiFailure;
 import com.reporead.annotation.Annotations;
+import com.reporead.auth.AppSessions;
+import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
-import com.reporead.repository.ConnectionData;
 import com.reporead.repository.RepositoryConnections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,12 +12,18 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Account deletion. External-call ceiling: 2 GitHub requests (renewing an expiring token, then revoking the authorization). */
+/**
+ * Deleting what RepoRead stores, through each table's owner (ADR-11): disconnecting a repository, and deleting the
+ * account. External-call ceilings: stored data and disconnect 0; account deletion 2 GitHub requests (renewing an
+ * expiring token, then revoking the authorization).
+ */
 @RestController
-public class AccountController {
-    private static final Logger LOG = LoggerFactory.getLogger(AccountController.class);
+public class DataControlController {
+    private static final Logger LOG = LoggerFactory.getLogger(DataControlController.class);
     private final RepositoryConnections connections;
     private final ConnectionData data;
     private final Annotations annotations;
@@ -24,7 +32,7 @@ public class AccountController {
     private final TransactionTemplate transaction;
     private final GitHubApi github;
 
-    public AccountController(RepositoryConnections connections, ConnectionData data, Annotations annotations, AppSessions sessions,
+    public DataControlController(RepositoryConnections connections, ConnectionData data, Annotations annotations, AppSessions sessions,
                              OAuth2AuthorizedClientService clients, TransactionTemplate transaction, GitHubApi github) {
         this.connections = connections;
         this.data = data;
@@ -33,6 +41,28 @@ public class AccountController {
         this.clients = clients;
         this.transaction = transaction;
         this.github = github;
+    }
+
+    /** What disconnecting this repository would delete, for the confirmation. */
+    @GetMapping("/api/repositories/{id}/stored-data")
+    ConnectionData.Counts storedData(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
+        connections.find(user.id(), id).orElseThrow(ApiFailure::notFound);
+        return data.count(id);
+    }
+
+    /**
+     * Disconnects a repository: deletes the connection and everything stored for it in one transaction, serialized with
+     * its syncs. GitHub is not modified, and the GitHub App stays installed until the user removes it on GitHub.
+     */
+    @DeleteMapping("/api/repositories/{id}")
+    ConnectionData.Deleted disconnect(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
+        var deleted = transaction.execute(status -> {
+            connections.lockForSync(user.id(), id);
+            return data.delete(id);
+        });
+        LOG.info("Repository disconnected; userId={} connectionId={} documents={} readingStates={} bookmarks={} highlights={} cards={}",
+            user.id(), id, deleted.documentIds().size(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights(), deleted.cards());
+        return deleted;
     }
 
     record Deleted(int repositories, int readingStates, int bookmarks, int highlights, int cards) {}

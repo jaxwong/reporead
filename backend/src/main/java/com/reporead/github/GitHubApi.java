@@ -2,7 +2,6 @@ package com.reporead.github;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
-import com.reporead.auth.GitHubSecurity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -255,7 +254,7 @@ public class GitHubApi {
         } catch (ApiFailure failure) {
             if (failure.code != Code.GITHUB_RESPONSE_LIMIT) throw failure;
             throw new ApiFailure(Code.UNSUPPORTED_CONTENT,
-                "This note exceeds the " + com.reporead.document.MarkdownRenderer.MAX_NOTE_MIB + " MiB reader limit.");
+                "This note exceeds the " + GitHubHttp.MAX_RESPONSE_BYTES / 1_048_576 + " MiB reader limit.");
         }
         LOG.info("GitHub blob read; bytes={}", bytes.length);
         return bytes;
@@ -308,7 +307,7 @@ public class GitHubApi {
             if (status == 403) throw accessDenied();
             throw invalid("GitHub returned an unexpected HTTP status.");
         } catch (ResourceAccessException error) {
-            if (error.getCause() instanceof GitHubSecurity.ResponseTooLarge) {
+            if (error.getCause() instanceof GitHubHttp.ResponseTooLarge) {
                 throw new ApiFailure(Code.GITHUB_RESPONSE_LIMIT, "GitHub exceeded the response-size limit; nothing was changed.");
             }
             throw new ApiFailure(Code.GITHUB_UNAVAILABLE, "The GitHub request failed or timed out; nothing was changed.");

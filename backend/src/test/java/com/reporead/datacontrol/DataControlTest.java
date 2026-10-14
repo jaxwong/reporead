@@ -1,8 +1,9 @@
-package com.reporead.repository;
+package com.reporead.datacontrol;
 
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
+import com.reporead.repository.RepositoryConnections;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
