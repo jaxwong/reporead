@@ -46,6 +46,9 @@ data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val co
 
 
 /** One listed interview bank; null HTML means its questions are not available on this phone. */
+/** A saved note's rendered page. */
+data class SavedPage(val documentId: Long, val html: String)
+
 data class PracticePage(val documentId: Long, val title: String, val path: String, val html: String?, val blobSha: String?)
 
 /** A saved note matching a search: [searchText] is set when it matched by text, for a snippet. */
@@ -230,14 +233,14 @@ interface LibraryDao {
 
     /**
      * The ids of [repositoryId]'s listed notes saved on this phone whose pages link to any note. Only ids: reading all
-     * those pages at once can exhaust the heap (as practicePages did, 2026-10-14), so callers read them one at a time.
+     * those pages at once can exhaust the heap (as practicePages did, 2026-10-14), so callers read them in small batches.
      */
     @Query("""select n.documentId from notes n join documents d on d.id = n.documentId
               where d.repositoryId = :repositoryId and n.html like '%/note-link?%' order by n.documentId""")
     suspend fun notesWithNoteLinks(repositoryId: Long): List<Long>
 
-    @Query("select html from notes where documentId = :documentId")
-    suspend fun savedPage(documentId: Long): String?
+    @Query("select documentId, html from notes where documentId in (:documentIds)")
+    suspend fun savedPages(documentIds: List<Long>): List<SavedPage>
 
     @Query("select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId")
     suspend fun savedNoteCount(repositoryId: Long): Int
