@@ -18,8 +18,8 @@ private const val MAX_JSON_BYTES = 8 * 1024 * 1024
 /** The backend's own image ceiling is 5 MiB; anything larger here is a contract violation. */
 const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-/** The RepoRead HTTP/JSON contract client. One request per call: no retries or alternate endpoints. */
-class Api(private val baseUrl: String, private val accessToken: () -> String?) {
+/** The RepoRead HTTP/JSON contract client: one request per call, no retries. Any 401 hands [onUnauthorized] the refused session. */
+class Api(private val baseUrl: String, private val accessToken: () -> String?, private val onUnauthorized: (sent: String?) -> Unit) {
     suspend fun get(path: String): JSONObject = json("GET", path, null) ?: throw unexpected(200)
     suspend fun post(path: String, body: JSONObject? = null): JSONObject = json("POST", path, body) ?: throw unexpected(200)
     suspend fun put(path: String, body: JSONObject): JSONObject = json("PUT", path, body) ?: throw unexpected(200)
@@ -48,7 +48,8 @@ class Api(private val baseUrl: String, private val accessToken: () -> String?) {
             connection.readTimeout = 45_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", accept)
-            accessToken()?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+            val token = accessToken()
+            token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
             if (body != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
@@ -57,6 +58,7 @@ class Api(private val baseUrl: String, private val accessToken: () -> String?) {
             val status = connection.responseCode
             if (status == 204) return null
             if (status in 200..299) return connection.inputStream.use { readBounded(it, maxBytes) }
+            if (status == 401) onUnauthorized(token)
             // A body that is not RepoRead's {code, message} leaves the code HTTP_<status>, which nothing treats as RepoRead's answer.
             val error = connection.errorStream?.use { readBounded(it, MAX_JSON_BYTES) }?.let { bytes ->
                 try {

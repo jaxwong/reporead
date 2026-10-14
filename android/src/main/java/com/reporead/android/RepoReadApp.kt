@@ -27,10 +27,10 @@ import androidx.compose.ui.unit.dp
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.completeSignIn
 import com.reporead.android.auth.startSignIn
-import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.LocalStore
+import com.reporead.android.sync.appApi
 import com.reporead.android.sync.appSync
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
@@ -111,11 +111,12 @@ private val ROOT_STATE = entryKey(0, Screen.Repositories)
 fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val context = LocalContext.current
     val store = remember { SessionStore(context.applicationContext) }
-    val api = remember { Api(BuildConfig.API_BASE_URL) { store.accessToken() } }
+    val api = remember { appApi(context) }
     val local = remember { LocalStore.get(context) }
     val sync = remember { appSync(context) }
     val dao = remember { local.library() }
-    var signedIn by remember { mutableStateOf(store.accessToken() != null) }
+    // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
+    val signedIn by remember { store.signedIn() }.collectAsState(remember { store.accessToken() != null })
     var signInMessage by remember { mutableStateOf<String?>(null) }
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     val scope = rememberCoroutineScope()
@@ -125,14 +126,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     var keptStates by remember { mutableStateOf(emptySet<String>()) }
     val savedRepositories by dao.repositories().collectAsState(null)
 
-    // Any 401 means the app session or the server's GitHub token is gone. Saved notes stay readable; only refreshing
-    // and syncing wait for a new sign-in.
-    val onFailure: (ApiException) -> Unit = { error ->
-        if (error.status == 401) {
-            store.clear()
-            signedIn = false
-        }
-    }
     val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
 
     // Keyed on the code, so the code is cleared only after the exchange ends: clearing it first would
@@ -145,7 +138,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                 sync.clearAll()
                 screenStates.removeState(ROOT_STATE)
             }
-            signedIn = true
             signInMessage = null
         } catch (error: ApiException) {
             signInMessage = error.describe()
@@ -183,7 +175,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     screenStates.SaveableStateProvider(current.last()) {
     when (screen) {
         Screen.Repositories ->
-        LibraryScreen(sync, dao, signedIn, onFailure, push, onSignIn = signIn, onSignOut = {
+        LibraryScreen(sync, dao, signedIn, push, onSignIn = signIn, onSignOut = {
             scope.launch {
                 val message = try {
                     api.delete("/api/app-auth/session")
@@ -197,7 +189,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                 screenStates.removeState(ROOT_STATE)
                 store.clear()
                 store.dataOwner = null
-                signedIn = false
                 signInMessage = message
                 stack = listOf(Screen.Repositories)
             }
@@ -206,14 +197,13 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
             store.clear()
             store.dataOwner = null
             screenStates.removeState(ROOT_STATE)
-            signedIn = false
             signInMessage = "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
             stack = listOf(Screen.Repositories)
         })
-        Screen.Available -> AvailableScreen(api, onFailure, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
-        is Screen.Folder -> FolderScreen(sync, dao, signedIn, onFailure, screen, push, onBack = pop,
+        Screen.Available -> AvailableScreen(api, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
+        is Screen.Folder -> FolderScreen(sync, dao, signedIn, screen, push, onBack = pop,
             onDisconnected = { stack = listOf(Screen.Repositories) })
-        is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, onFailure, screen, onBack = pop, push = push)
+        is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, screen, onBack = pop, push = push)
         is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
         Screen.Notebook -> NotebookScreen(dao, push, onBack = pop)
         Screen.Review -> ReviewScreen(dao, sync, push, onBack = pop)

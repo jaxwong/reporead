@@ -77,7 +77,7 @@ private const val BARS_SCROLL_DP = 24
 private data class StudyPage(val opened: Sync.Opened, val study: StudyNote)
 
 @Composable
-fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean, onFailure: (ApiException) -> Unit,
+fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean,
                  screen: Screen.Reader, onBack: () -> Unit, push: (Screen) -> Unit) {
     var reload by remember { mutableIntStateOf(0) }
     /*
@@ -87,7 +87,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
      */
     var since by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var sinceCaptured by rememberSaveable(screen.documentId) { mutableStateOf(false) }
-    val load by rememberLoad(screen.documentId to reload, onFailure) {
+    val load by rememberLoad(screen.documentId to reload) {
         if (!sinceCaptured) {
             since = dao.changeBaseline(screen.documentId) ?: dao.reading(screen.documentId)?.lastReadBlobSha
             sinceCaptured = true
@@ -122,7 +122,6 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
         value = try {
             Load.Ready(sync.changes(screen.documentId, from, displayed)).also { dao.changesSeen(screen.documentId, from) }
         } catch (error: ApiException) {
-            onFailure(error)
             Load.Failed(error)
         }
     }
@@ -156,7 +155,6 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             try {
                 sync.refreshAnnotations(screen.documentId)
             } catch (error: ApiException) {
-                onFailure(error)
                 message = "Showing highlights saved on this phone. ${error.describe()}"
             }
         }
@@ -171,11 +169,9 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             val kind = if (question == null) "Highlight" else "Card"
             message = if (!signedIn) "$kind saved on this phone; it is sent after you sign in." else try {
                 val notSent = sync.pushAnnotations()
-                notSent?.let(onFailure)
                 notSent?.let { "$kind saved on this phone; it will sync later. ${it.describe()}" }
                     ?: dao.annotation(id)?.rejection?.let { "$kind kept on this phone only; the server refused it: $it" }
             } catch (error: ApiException) {
-                onFailure(error)
                 "$kind saved on this phone; it will sync later. ${error.describe()}"
             }
         }
@@ -188,7 +184,6 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                 reattaching = null
                 null
             } catch (error: ApiException) {
-                onFailure(error)
                 if (error.code == "ANNOTATION_CONFLICT") "This highlight was changed elsewhere; sync, reopen the note, and try again."
                 else "Not reattached. ${error.describe()}"
             }
@@ -308,7 +303,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
             if (notesOpen) {
-                NotesPanel(opened.note.documentId, annotations, opened.note.blobSha, notShown, sync, dao, appScope, onFailure,
+                NotesPanel(opened.note.documentId, annotations, opened.note.blobSha, notShown, sync, dao, appScope,
                     onReveal = { session.reveal(it.mutationId) }, onMessage = { message = it },
                     onMakeQuestion = { row ->
                         val passage = row.drawn

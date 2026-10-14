@@ -64,7 +64,7 @@ private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<S
 
 @Composable
 internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, displayedBlobSha: String, notShown: Set<String>, sync: Sync,
-                        dao: LibraryDao, scope: CoroutineScope, onFailure: (ApiException) -> Unit, onReveal: (AnnotationRow) -> Unit,
+                        dao: LibraryDao, scope: CoroutineScope, onReveal: (AnnotationRow) -> Unit,
                         onMessage: (String?) -> Unit, onMakeQuestion: (AnnotationRow) -> Unit, onReattach: (AnnotationRow) -> Unit, onOpenNote: (DocumentRow) -> Unit, modifier: Modifier) {
     var editing by remember { mutableStateOf<AnnotationRow?>(null) }
     var conflict by remember { mutableStateOf<Conflict?>(null) }
@@ -95,7 +95,6 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
             sync.editAnnotation(row, note, expectedVersion)
             onMessage(null)
         } catch (error: ApiException) {
-            onFailure(error)
             if (error.code == "ANNOTATION_CONFLICT") {
                 try {
                     sync.refreshAnnotations(row.documentId)
@@ -133,7 +132,6 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
                                         sync.checkCard(row, displayedBlobSha)
                                         onMessage("Card confirmed for this version.")
                                     } catch (error: ApiException) {
-                                        onFailure(error)
                                         onMessage("Card not confirmed. ${error.describe()}")
                                     }
                                 }
@@ -193,7 +191,6 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
                             sync.deleteAnnotation(row)
                             onMessage(null)
                         } catch (error: ApiException) {
-                            onFailure(error)
                             onMessage(if (error.code == "ANNOTATION_CONFLICT") "This highlight was changed elsewhere; sync and review it before deleting."
                                 else "Not deleted. ${error.describe()}")
                         }

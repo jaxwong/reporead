@@ -74,7 +74,7 @@ class LocalSyncTest {
         "deleted":false,"lastReadBlobSha":"$sha","progressPercent":50,"anchor":{"headingPath":[],"textPrefix":null,"blockIndex":0},
         "lastReadAt":"1970-01-01T00:00:01Z"}"""
 
-    private fun sync(url: String) = Sync(Api(url) { "TEST_ONLY_SESSION" }, store, directory) {}
+    private fun sync(url: String) = Sync(Api(url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}
 
     /** A port nothing listens on. */
     private fun closedPort() = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
@@ -86,7 +86,7 @@ class LocalSyncTest {
             "PUT /api/documents/1/reading-state" to failure(400, "INVALID_READING_STATE"),
             "PUT /api/documents/2/bookmark" to (200 to """{"documentId":2}"""),
         )).use { server ->
-            val result = Sync(Api(server.url) { "TEST_ONLY_SESSION" }, store, directory) {}.syncLocalChanges()
+            val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
             assertEquals(1, result.refused.size)
             assertTrue(result.refused.single(), result.refused.single().contains("Long heading note"))
             assertNull(result.notSent)
@@ -108,7 +108,7 @@ class LocalSyncTest {
             "POST /api/documents/1/annotations" to failure(403, "GITHUB_ACCESS_DENIED"),
             "PUT /api/documents/1/reading-state" to (200 to serverReading),
         )).use { server ->
-            val result = Sync(Api(server.url) { "TEST_ONLY_SESSION" }, store, directory) {}.syncLocalChanges()
+            val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
             assertEquals("GITHUB_ACCESS_DENIED", result.notSent?.code)
             // One creation attempt ends the GitHub-backed step; the grade waits for its card; the reading position is sent.
             assertEquals(listOf("POST /api/documents/1/annotations", "PUT /api/documents/1/reading-state", "GET /api/reading-states",
@@ -122,7 +122,7 @@ class LocalSyncTest {
 
     @Test fun aDeletedCreationIsReplayedThenDeletedOnTheServer() = runBlocking {
         dao.saveAnnotation(AnnotationRow("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, pending = true, rejection = null))
-        Sync(Api("http://127.0.0.1:9") { "TEST_ONLY_SESSION" }, store, directory) {}.deleteAnnotation(dao.annotation("deleted")!!)
+        Sync(Api("http://127.0.0.1:9", { "TEST_ONLY_SESSION" }) {}, store, directory) {}.deleteAnnotation(dao.annotation("deleted")!!)
         assertTrue(dao.annotations(1).first().isEmpty())
         val created = JSONObject().put("id", 9).put("mutationId", "deleted").put("documentId", 1).put("type", "HIGHLIGHT").put("note", JSONObject.NULL)
             .put("status", "ANCHORED").put("version", 1).put("createdAt", "1970-01-01T00:00:00Z").put("updatedAt", "1970-01-01T00:00:00Z")
@@ -132,7 +132,7 @@ class LocalSyncTest {
             "POST /api/documents/1/annotations" to (200 to created.toString()),
             "DELETE /api/annotations/9?expectedVersion=1" to (204 to ""),
         )).use { server ->
-            val result = Sync(Api(server.url) { "TEST_ONLY_SESSION" }, store, directory) {}.syncLocalChanges()
+            val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
             assertNull(result.notSent)
             assertEquals(listOf("POST /api/documents/1/annotations", "DELETE /api/annotations/9?expectedVersion=1", "GET /api/reading-states",
                 "GET /api/bookmarks", "GET /api/notebook"), server.requests)
@@ -161,7 +161,7 @@ class LocalSyncTest {
         dao.saveNote(NoteRow(1, sha, sha, "a.md", "a", "<html/>", 0, "text"))
         var requested = 0
         // Nothing listens on the port: saving a change never waits for the network.
-        val sync = Sync(Api("http://127.0.0.1:${closedPort()}") { "TEST_ONLY_SESSION" }, store, directory) { requested++ }
+        val sync = Sync(Api("http://127.0.0.1:${closedPort()}", { "TEST_ONLY_SESSION" }) {}, store, directory) { requested++ }
         sync.saveReading(reading(1, "a"))
         assertEquals(1, requested)
         sync.setBookmark(dao.note(1)!!, true)
@@ -275,7 +275,7 @@ class LocalSyncTest {
             "GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"),
             "GET /api/repositories" to (200 to """{"repositories":[]}"""),
         )).use { server ->
-            assertNull(Sync(Api(server.url) { "TEST_ONLY_SESSION" }, store, directory) {}.disconnectPreview(7))
+            assertNull(Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.disconnectPreview(7))
             assertTrue(dao.repositoryIds().isEmpty())
             assertNull(dao.note(1))
         }
