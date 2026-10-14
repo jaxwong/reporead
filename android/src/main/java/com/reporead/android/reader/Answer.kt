@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.reporead.android.Screen
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
@@ -54,12 +55,12 @@ private sealed interface LinkedNote {
 /**
  * A bank question's answer, shown after an attempt: what the bank says a complete answer covers, to grade against, then
  * the core section its Canonical line links (one at a time when it links several), alone and from the copy saved on
- * this phone, filling the height [modifier] gives it. Works offline; nothing is fetched. [onOpen] opens the linked note
- * at that heading.
+ * this phone, filling the height [modifier] gives it. Works offline; nothing is fetched. [push] opens the linked note at
+ * that heading, or a table or diagram of the section full screen.
  */
 @Composable
 internal fun BankAnswer(question: StudyQuestion, bankDocumentId: Long, bankPath: String, sync: Sync, dao: LibraryDao,
-                        modifier: Modifier, onOpen: (DocumentRow, String?) -> Unit) {
+                        modifier: Modifier, push: (Screen) -> Unit) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (question.guide.isNotEmpty()) {
             val most = (LocalConfiguration.current.screenHeightDp * GUIDE_HEIGHT).dp
@@ -78,13 +79,13 @@ internal fun BankAnswer(question: StudyQuestion, bankDocumentId: Long, bankPath:
                 FilterChip(selected = selected == index, onClick = { selected = index }, label = { Text("${index + 1}. ${link.text}") })
             }
         }
-        key(bankDocumentId, question.blockId, selected) { AnswerSection(links[selected], bankDocumentId, bankPath, sync, dao, onOpen) }
+        key(bankDocumentId, question.blockId, selected) { AnswerSection(links[selected], bankDocumentId, bankPath, sync, dao, push) }
     }
 }
 
 @Composable
 private fun ColumnScope.AnswerSection(link: AnswerLink, bankDocumentId: Long, bankPath: String, sync: Sync, dao: LibraryDao,
-                                      onOpen: (DocumentRow, String?) -> Unit) {
+                                      push: (Screen) -> Unit) {
     val linked by produceState<LinkedNote>(LinkedNote.Loading, link) {
         val bank = dao.document(bankDocumentId)
         value = if (bank == null) LinkedNote.Problem("This bank isn't in a saved note list, so its links can't be followed. Refresh the repository.")
@@ -104,7 +105,7 @@ private fun ColumnScope.AnswerSection(link: AnswerLink, bankDocumentId: Long, ba
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(listOfNotNull(note.document.title, link.heading?.let { "# ${link.text}" }).joinToString(" "),
                     style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = { onOpen(note.document, link.heading) }) { Text("Open note") }
+                TextButton(onClick = { push(Screen.Reader(note.document.id, note.document.title, link.heading)) }) { Text("Open note") }
             }
             val saved = note.saved
             if (saved == null) {
@@ -115,7 +116,10 @@ private fun ColumnScope.AnswerSection(link: AnswerLink, bankDocumentId: Long, ba
             if (saved.blobSha != note.document.blobSha) Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
             notice?.let { Text(it) }
             AndroidView(
-                factory = { context -> sectionView(context, sync, saved, link.heading) { notice = it } },
+                factory = { context ->
+                    sectionView(context, sync, saved, link.heading, onProblem = { notice = it },
+                        onFigure = { figure -> push(Screen.Figure(saved.documentId, saved.blobSha, figure, saved.title)) })
+                },
                 onRelease = { it.destroy() },
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
@@ -126,16 +130,23 @@ private fun ColumnScope.AnswerSection(link: AnswerLink, bankDocumentId: Long, ba
 /**
  * The saved [note] as an isolated reader page showing only the section under [heading] (the whole note for null). It
  * stays hidden until the rest is gone, so the top of the note never flashes first, and hidden when the heading is not
- * in this version: the problem is reported instead of showing an unrelated part. Nothing in it navigates.
+ * in this version: the problem is reported instead of showing an unrelated part. The page never navigates; a tapped
+ * Full screen link passes the page's id for that table or diagram to [onFigure], numbered over the whole note as the
+ * full-screen view numbers it.
  */
-private fun sectionView(context: Context, sync: Sync, note: NoteRow, heading: String?, onProblem: (String) -> Unit): WebView {
+private fun sectionView(context: Context, sync: Sync, note: NoteRow, heading: String?, onProblem: (String) -> Unit,
+                        onFigure: (String) -> Unit): WebView {
     val assets = readerAssets(context)
     val main = Handler(Looper.getMainLooper())
     return WebView(context).apply {
         isolateReaderPage()
         alpha = 0f
         webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val url = request.url
+                if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN) url.getQueryParameter("figure")?.let(onFigure)
+                return true
+            }
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync, note, request.url)
 

@@ -1,5 +1,8 @@
 package com.reporead.android.library
 
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
@@ -9,6 +12,7 @@ import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.Screen
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
@@ -46,6 +50,10 @@ class PracticeSessionTest {
     private fun block(id: String, tag: String, text: String) = """<$tag data-block-id="$id" data-anchor-text="$text">$text</$tag>"""
     private fun answer(id: String, text: String, heading: String) = """<p data-block-id="$id" data-anchor-text="Canonical answer: $text">""" +
         """<strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Ftopic%2Fcore.md&amp;heading=$heading">$text</a></p>"""
+    /** A table too wide for the screen, so the page gives it a Full screen link. */
+    private val wideTable = "<table><tr>" + (1..20).joinToString("") { "<td>test-only-wide-column-$it</td>" } + "</tr></table>"
+    /** What the session asked the app to open. */
+    private val pushed = mutableListOf<Screen>()
     private fun page(sha: String, body: String) = """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
         <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
@@ -62,8 +70,8 @@ class PracticeSessionTest {
             block("b2", "h3", "1. An identical question?") + answer("b3", "First answer", "first-answer") +
             block("b4", "h3", "2. An identical question?") + answer("b5", "Second answer", "second-answer"))
         val core = page(coreSha, block("c0", "h1", "Test-only core") + block("c1", "p", "Test-only introduction.") +
-            block("c2", "h2", "First answer") + block("c3", "p", "Test-only first answer text.") +
-            block("c4", "h2", "Second answer") + block("c5", "p", "Test-only second answer text."))
+            block("c2", "h2", "First answer") + block("c3", "p", "Test-only first answer text.") + wideTable +
+            block("c4", "h2", "Second answer") + block("c5", "p", "Test-only second answer text.") + wideTable)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/topic/interview/bank.md", "Test-only bank", bankSha),
             DocumentRow(2, 7, "test-only/topic/core.md", "Test-only core", coreSha)))
         dao.saveNote(NoteRow(1, bankSha, bankSha, "test-only/topic/interview/bank.md", "Test-only bank", bank, 0, renderFormat = RENDER_FORMAT))
@@ -71,7 +79,7 @@ class PracticeSessionTest {
         val sync = Sync(Api("http://127.0.0.1:1") { error("Practice fixture must not call the network") }, store, files)
         ReaderTestActivity.content = {
             MaterialTheme {
-                PracticeScreen(dao, sync, "test-only/topic", push = { error("Practice fixture must not navigate") }, onBack = {})
+                PracticeScreen(dao, sync, "test-only/topic", push = { pushed += it }, onBack = {})
             }
         }
     }
@@ -123,9 +131,46 @@ class PracticeSessionTest {
             assertEquals(setOf("Canonical answer: First answer", "Canonical answer: Second answer"), dao.pendingAnnotations().map { it.exactText }.toSet())
             assertEquals(listOf(0, 4), dao.reviews().first().map { it.grade })
         }
+        assertEquals(emptyList<Screen>(), pushed)
         // A new session asks only questions without a card.
         ActivityScenario.launch(ReaderTestActivity::class.java).use {
             awaitText("No new questions here: each saved question already has a card. Review cards brings them back when due.")
+        }
+    }
+
+    @Test fun fullScreenInAnAnswerOpensThatFigureOfTheLinkedNote() = runBlocking<Unit> {
+        ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+            click("Show answer")
+            // The page numbers figures over the whole note, as the full-screen view does, though it shows one section.
+            val figure = if (shownAnswer(scenario) == "First answer") "table-0" else "table-1"
+            val link = evaluate(scenario, """
+                const row = document.querySelector('[data-figure="$figure"]').previousElementSibling;
+                const rect = row.querySelector('a').getBoundingClientRect();
+                return {hidden: row.hidden, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
+            """.trimIndent())
+            assertTrue("The table is wide enough for a Full screen link: $link", !link.getBoolean("hidden"))
+            tapPage(scenario, link.getDouble("x"), link.getDouble("y"))
+            withTimeout(5_000) { while (pushed.isEmpty()) delay(20) }
+            assertEquals(listOf(Screen.Figure(2, coreSha, figure, "Test-only core")), pushed)
+        }
+    }
+
+    /** A real touch on the answer page at CSS pixel ([x], [y]); the app follows only links the user tapped. */
+    private fun tapPage(scenario: ActivityScenario<ReaderTestActivity>, x: Double, y: Double) {
+        var screenX = 0f
+        var screenY = 0f
+        scenario.onActivity { activity ->
+            val view = checkNotNull(findWebView(activity.window.decorView)) { "Answer page is missing" }
+            val origin = IntArray(2).also(view::getLocationOnScreen)
+            val density = activity.resources.displayMetrics.density
+            screenX = origin[0] + (x * density).toFloat()
+            screenY = origin[1] + (y * density).toFloat()
+        }
+        val down = SystemClock.uptimeMillis()
+        for ((action, at) in listOf(MotionEvent.ACTION_DOWN to down, MotionEvent.ACTION_UP to down + 50)) {
+            val event = MotionEvent.obtain(down, at, action, screenX, screenY, 0).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+            assertTrue("Could not inject a tap", instrumentation.uiAutomation.injectInputEvent(event, true))
+            event.recycle()
         }
     }
 
@@ -141,12 +186,14 @@ class PracticeSessionTest {
         val (own, other) = if (label == "First answer") "c3" to "c5" else "c5" to "c3"
         var last = JSONObject()
         repeat(100) {
+            // The page turns visible only after the rest is hidden, so read it after seeing it visible, never before.
+            val visible = findWebView(scenario)?.alpha == 1f
             last = evaluate(scenario, """
                 if (!document.body || document.body.dataset.state !== 'ready') return {};
                 const shown = id => document.querySelector('[data-block-id="' + id + '"]').getBoundingClientRect().height > 0;
                 return {own: shown('$own'), other: shown('$other'), intro: shown('c1')};
             """.trimIndent())
-            if (last.optBoolean("own") && findWebView(scenario)?.alpha == 1f) {
+            if (visible && last.optBoolean("own")) {
                 assertTrue("Only the linked section shows: $last", !last.getBoolean("other") && !last.getBoolean("intro"))
                 return@runBlocking label
             }

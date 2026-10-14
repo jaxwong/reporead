@@ -250,8 +250,7 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             val again = key in scheduled
             if (again) Text("Asked again: its first grade is saved. This grade only decides whether it comes back in this session.",
                 style = MaterialTheme.typography.bodySmall)
-            BankAnswer(question.question, question.documentId, question.path, sync, dao, Modifier.weight(1f),
-                onOpen = { note, heading -> push(Screen.Reader(note.id, note.title, heading)) })
+            BankAnswer(question.question, question.documentId, question.path, sync, dao, Modifier.weight(1f), push)
             GradeBar(enabled = !saving) { grade ->
                 saving = true
                 scope.launch {
