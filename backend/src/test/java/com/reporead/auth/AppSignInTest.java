@@ -166,4 +166,20 @@ class AppSignInTest {
         db.sql("update app_sessions set expires_at = now() - interval '1 second'").update();
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob)).andExpect(status().isUnauthorized());
     }
+
+    @Test void signingOutTheLastSessionDeletesTheStoredGitHubToken() throws Exception {
+        String phone = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
+        String tablet = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
+        String expired = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
+        TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_GITHUB_TOKEN");
+        db.sql("update app_sessions set expires_at = now() - interval '1 second' where token_hash = sha256(convert_to(:token, 'UTF8'))")
+            .param("token", expired).update();
+
+        mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + phone)).andExpect(status().isNoContent());
+        assertNotNull(clients.loadAuthorizedClient("github", "42"), "another device is still signed in");
+
+        mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + tablet)).andExpect(status().isNoContent());
+        assertNull(clients.loadAuthorizedClient("github", "42"), "an expired session does not keep the token");
+        assertNotNull(clients.loadAuthorizedClient("github", "84"));
+    }
 }

@@ -97,8 +97,11 @@ public class AppSessions {
         db.sql("delete from users where id = :userId").param("userId", userId).update();
     }
 
-    void revoke(String token) {
+    /** Deletes this session; returns how many unexpired sessions the user still has on other devices. */
+    int revoke(String token, long userId) {
         if (TOKEN.matcher(token).matches()) db.sql("delete from app_sessions where token_hash = :hash").param("hash", hash(token)).update();
+        return db.sql("select count(*) from app_sessions where user_id = :userId and expires_at > :now")
+            .param("userId", userId).param("now", Timestamp.from(Instant.now())).query(Integer.class).single();
     }
 
     private static String randomToken() {
