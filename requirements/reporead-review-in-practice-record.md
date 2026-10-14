@@ -29,3 +29,11 @@ Device (Pixel 8a, `am instrument`): **OK (39 tests)**, twice. `ReviewLifecycleTe
 Real data (debug build, nothing graded or confirmed): the Practice tab shows **Review · Nothing due · next on Thu 15 Oct, 1 card** (a card the user graded on the release build) and the topics with "1 on your schedule" in `core/backend engineering`.
 
 Not verified: a successful **Answer is still right** against the real server, and the tab's due badge (no card was due on the phone).
+
+## Crash: the app closing while Practice loads (2026-10-14)
+
+The user saw the app close by itself while a page took a while to load. `dumpsys activity exit-info` on the Pixel showed `APP CRASH(EXCEPTION)` at 10:59:44, 11:25:26 and 11:43:30; `dumpsys dropbox --print data_app_crash` showed `java.lang.OutOfMemoryError` (256 MB heap limit) each time, two of them inside `LibraryDao_Impl.practicePages`. That query loaded the rendered page of every listed note (about 800) to find the 92 interview banks, and ran again whenever the notes or documents tables changed, such as during Library's sync on opening.
+
+Reproduced with the release build: opening Practice took the Java heap from 9 MB to about 153 MB. The query is now `bankPages`, which selects only notes in a folder named `interview` (`isInterviewBank` still decides). With the fix, opening Practice peaked at 40 MB and settled at 16 MB, with the same counts (1,740 new, 7 on your schedule, 92/92 banks saved). `LocalStoreTest` now also checks that notes outside interview folders are left out. Device suite: OK (39 tests).
+
+Not changed: `pagesWithNoteLinks` (the reader's Linked from) still loads every saved page containing a link in one repository; it is one-shot rather than repeated, and was not in these traces.

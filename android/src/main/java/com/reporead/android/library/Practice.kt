@@ -136,7 +136,7 @@ internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: Pra
 /** Every listed interview bank and the saved ones' questions, read off the main thread; null until first read. */
 @Composable
 private fun rememberBanks(dao: LibraryDao): Banks? {
-    val pages by dao.practicePages().collectAsState(null)
+    val pages by dao.bankPages().collectAsState(null)
     val banks by produceState<Banks?>(null, pages) {
         val listed = pages ?: return@produceState
         value = withContext(Dispatchers.Default) { readBanks(listed) }
