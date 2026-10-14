@@ -47,7 +47,6 @@ public class BookmarkController {
         if (body.sourceBlobSha() == null || !body.sourceBlobSha().matches("[0-9a-f]{40}")) {
             throw new ApiFailure(Code.INVALID_BOOKMARK, "sourceBlobSha must be the Git blob SHA of the version bookmarked.");
         }
-        requireOwned(user, id);
         return transaction.execute(status -> {
             connections.lockForDocumentWrite(user.id(), id);
             return bookmarks.set(user.id(), id, body.sourceBlobSha());
@@ -57,11 +56,8 @@ public class BookmarkController {
     @DeleteMapping("/api/documents/{id}/bookmark")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void clear(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        requireOwned(user, id);
+        // Clearing is a delete scoped to the user and takes no lock, so the note's ownership is checked here for the 404.
+        documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         bookmarks.clear(user.id(), id);
-    }
-
-    private void requireOwned(AppUser user, long documentId) {
-        documents.find(user.id(), documentId).orElseThrow(ApiFailure::notFound);
     }
 }

@@ -4,7 +4,6 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.ClientClock;
 import com.reporead.auth.AppUser;
-import com.reporead.document.Documents;
 import com.reporead.document.MarkdownRenderer;
 import com.reporead.repository.RepositoryConnections;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -27,13 +26,11 @@ public class ReadingController {
     private static final int MAX_HEADING_CHARS = MarkdownRenderer.MAX_HEADING_CHARS;
     private static final int MAX_BLOCK_INDEX = MarkdownRenderer.MAX_BLOCKS - 1;
     private final ReadingStates states;
-    private final Documents documents;
     private final RepositoryConnections connections;
     private final TransactionTemplate transaction;
 
-    public ReadingController(ReadingStates states, Documents documents, RepositoryConnections connections, TransactionTemplate transaction) {
+    public ReadingController(ReadingStates states, RepositoryConnections connections, TransactionTemplate transaction) {
         this.states = states;
-        this.documents = documents;
         this.connections = connections;
         this.transaction = transaction;
     }
@@ -50,7 +47,6 @@ public class ReadingController {
     @PutMapping("/api/documents/{id}/reading-state")
     ReadingStates.State save(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SaveRequest body) {
         validate(body);
-        documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         return transaction.execute(status -> {
             connections.lockForDocumentWrite(user.id(), id);
             return states.save(user.id(), id, body.lastReadBlobSha(), body.progressPercent(), body.anchor(), body.lastReadAt());
