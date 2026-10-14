@@ -49,11 +49,10 @@ public class DocumentController {
 
     /**
      * [text]: the canonical text of the note's blocks, one per line, for search on the phone. [renderFormat]:
-     * MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format. [commitSha]: the
-     * connection's commit; the app no longer reads it, but releases before its Room v9 require it.
+     * MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format.
      */
-    record Content(long documentId, String path, String title, String sourceBlobSha, String commitSha,
-                   int blockCount, int diagramCount, String html, String text, int renderFormat) {}
+    record Content(long documentId, String path, String title, String sourceBlobSha, int blockCount, int diagramCount, String html,
+                   String text, int renderFormat) {}
 
     @GetMapping("/api/documents/{id}/content")
     Content content(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
@@ -62,9 +61,8 @@ public class DocumentController {
         var rendered = version.note();
         LOG.info("Document rendered; userId={} documentId={} blobSha={} bytes={} blocks={} diagrams={}",
             user.id(), id, document.blobSha(), version.bytes(), rendered.blocks().size(), rendered.diagramCount());
-        return new Content(id, document.path(), document.title(), document.blobSha(), document.commitSha(),
-            rendered.blocks().size(), rendered.diagramCount(), rendered.html(),
-            String.join("\n", rendered.blocks().stream().map(MarkdownRenderer.Block::text).toList()), MarkdownRenderer.FORMAT);
+        return new Content(id, document.path(), document.title(), document.blobSha(), rendered.blocks().size(), rendered.diagramCount(),
+            rendered.html(), String.join("\n", rendered.blocks().stream().map(MarkdownRenderer.Block::text).toList()), MarkdownRenderer.FORMAT);
     }
 
     /** An owned note that was in the latest complete repository refresh. */
