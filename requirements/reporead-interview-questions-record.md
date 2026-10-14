@@ -1,6 +1,6 @@
 # Interview questions — record
 
-Branch `interview-questions` (from `main` at 5d42c76), 2026-10-13. The user added an `interview/` folder (a question bank) beside the notes of seven `core` topics and asked that the questions used for active recall (Practice, Study) and spaced repetition (review cards) come from those folders.
+Branch `interview-questions` (from `main` at 5d42c76), 2026-10-13. *Partly superseded 2026-10-14: banks are practised in a Practice session, not the reader's Study view, and **Read the answer** became the linked core section; see the [practice session record](reporead-practice-session-record.md).* The user added an `interview/` folder (a question bank) beside the notes of seven `core` topics and asked that the questions used for active recall (Practice, Study) and spaced repetition (review cards) come from those folders.
 
 ## Decisions the user made
 
