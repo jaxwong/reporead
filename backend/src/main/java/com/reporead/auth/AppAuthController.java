@@ -4,6 +4,7 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.github.GitHubApi;
 import jakarta.servlet.http.HttpServletRequest;
+import org.apache.catalina.session.TooManyActiveSessionsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -45,7 +46,12 @@ public class AppAuthController {
         if (!AppSessions.TOKEN.matcher(codeChallenge).matches()) {
             throw new ApiFailure(Code.INVALID_CODE_CHALLENGE, "code_challenge must be a 43-character S256 PKCE challenge.");
         }
-        request.getSession(true).setAttribute(CHALLENGE_ATTRIBUTE, codeChallenge);
+        try {
+            request.getSession(true).setAttribute(CHALLENGE_ATTRIBUTE, codeChallenge);
+        } catch (TooManyActiveSessionsException full) {
+            LOG.warn("Sign-in refused: too many sign-ins in progress; limit={}", full.getMaxActiveSessions());
+            throw new ApiFailure(Code.SIGN_IN_BUSY, "Too many sign-ins are in progress; try again in a few minutes.");
+        }
         return new RedirectView("/oauth2/authorization/github");
     }
 

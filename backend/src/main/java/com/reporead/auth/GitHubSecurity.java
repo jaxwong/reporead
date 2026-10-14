@@ -2,10 +2,13 @@ package com.reporead.auth;
 
 import com.reporead.github.GitHubHttp;
 import jakarta.servlet.http.HttpServletRequest;
+import org.apache.catalina.session.StandardManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
+import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -56,6 +59,8 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 @Configuration
 public class GitHubSecurity {
+    /** Browser sessions that can exist at once (see boundedSignInSessions). */
+    static final int MAX_SIGN_IN_SESSIONS = 100;
     private static final Logger LOG = LoggerFactory.getLogger(GitHubSecurity.class);
 
     @Bean
@@ -135,6 +140,8 @@ public class GitHubSecurity {
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/app/sign-in", "/auth/failed", "/error").permitAll()
                 .anyRequest().denyAll())
+            // A refused request is not saved for later (that would open a session): sign-in returns to the app, never here.
+            .requestCache(cache -> cache.disable())
             .exceptionHandling(errors -> errors.authenticationEntryPoint(new HttpStatusEntryPoint(UNAUTHORIZED)))
             .oauth2Login(oauth -> oauth
                 .authorizedClientService(clients)
@@ -147,6 +154,21 @@ public class GitHubSecurity {
                     response.sendRedirect("/auth/failed");
                 }));
         return http.build();
+    }
+
+    /**
+     * Caps the browser sessions that exist at once. Only /app/sign-in opens one, for a request no one has authenticated,
+     * so this bounds what a flood of sign-ins can hold in memory; past it a sign-in is refused (SIGN_IN_BUSY) until
+     * sessions expire (server.servlet.session.timeout). Far above real use: the allow-list admits a handful of users.
+     */
+    @Bean
+    WebServerFactoryCustomizer<TomcatServletWebServerFactory> boundedSignInSessions() {
+        return factory -> factory.addContextCustomizers(context -> {
+            // Tomcat's default manager, set before the context starts: Spring Boot then still turns off its persistence.
+            var manager = new StandardManager();
+            manager.setMaxActiveSessions(MAX_SIGN_IN_SESSIONS);
+            context.setManager(manager);
+        });
     }
 
     /**
