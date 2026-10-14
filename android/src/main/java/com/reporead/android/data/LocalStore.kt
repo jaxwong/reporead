@@ -44,8 +44,6 @@ data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val co
                    val title: String, val html: String, val fetchedAt: Long, val searchText: String? = null,
                    @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0)
 
-/** A saved note's rendered page. */
-data class SavedPage(val documentId: Long, val html: String)
 
 /** One listed interview bank; null HTML means its questions are not available on this phone. */
 data class PracticePage(val documentId: Long, val title: String, val path: String, val html: String?, val blobSha: String?)
@@ -230,10 +228,16 @@ interface LibraryDao {
               where ('/' || d.path) like '%/interview/%' order by d.id""")
     fun bankPages(): Flow<List<PracticePage>>
 
-    /** The pages of [repositoryId]'s listed notes saved on this phone that link to any note. */
-    @Query("""select n.documentId, n.html from notes n join documents d on d.id = n.documentId
-              where d.repositoryId = :repositoryId and n.html like '%/note-link?%'""")
-    suspend fun pagesWithNoteLinks(repositoryId: Long): List<SavedPage>
+    /**
+     * The ids of [repositoryId]'s listed notes saved on this phone whose pages link to any note. Only ids: reading all
+     * those pages at once can exhaust the heap (as practicePages did, 2026-10-14), so callers read them one at a time.
+     */
+    @Query("""select n.documentId from notes n join documents d on d.id = n.documentId
+              where d.repositoryId = :repositoryId and n.html like '%/note-link?%' order by n.documentId""")
+    suspend fun notesWithNoteLinks(repositoryId: Long): List<Long>
+
+    @Query("select html from notes where documentId = :documentId")
+    suspend fun savedPage(documentId: Long): String?
 
     @Query("select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId")
     suspend fun savedNoteCount(repositoryId: Long): Int
