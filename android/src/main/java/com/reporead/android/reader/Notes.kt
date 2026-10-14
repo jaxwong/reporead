@@ -27,6 +27,7 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.R
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.CardBlock
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
@@ -48,8 +49,8 @@ private data class Backlinks(val notes: List<DocumentRow>, val saved: Int, val l
 private data class Conflict(val current: AnnotationRow, val mine: String?)
 
 private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<String>): String? = when {
-    row.rejection != null -> "Not saved to the server: ${row.rejection}"
-    row.pending -> "Saved on this phone; waiting to sync"
+    row.state == AnnotationState.REFUSED -> "Not saved to the server: ${row.rejection}"
+    row.state == AnnotationState.UNSENT -> "Saved on this phone; waiting to sync"
     row.orphanedIn(displayedBlobSha) -> "The note changed and this passage could not be found reliably. Originally: …${row.prefixText}[${row.exactText}]${row.suffixText}…"
     row.drawn.blobSha != displayedBlobSha -> "Placed in another version of this note; not shown in the text"
     row.mutationId in notShown -> "Its text was not found in this version; not shown"

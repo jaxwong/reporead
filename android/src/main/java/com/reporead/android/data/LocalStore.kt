@@ -18,6 +18,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.migration.AutoMigrationSpec
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
@@ -88,20 +89,33 @@ data class BookmarkRow(@PrimaryKey val documentId: Long, val title: String, val 
 /** A passage in one source version of a note, as UTF-16 offsets into a block's canonical text. */
 data class Passage(val blobSha: String, val blockId: String, val startOffset: Int, val endOffset: Int, val exactText: String)
 
+/** Where a highlight or card stands with the server. */
+enum class AnnotationState {
+    /** Created on this phone; the next sync sends the creation. */
+    UNSENT,
+    /** The server refused the creation ([AnnotationRow.rejection] says why): shown, never sent again. */
+    REFUSED,
+    /**
+     * The user deleted it: hidden at once, and deleted on the server by the next sync, which first replays the creation
+     * when the server has not acknowledged it (it may already have it).
+     */
+    DELETING,
+    /** The server's copy. */
+    ACKNOWLEDGED,
+}
+
 /**
- * A highlight, keyed by the client mutation id that created it (the server returns it for every highlight).
- * [pending] is a creation the backend has not acknowledged; the row is the local annotation and its pending mutation
- * in one write. [rejection] is the server's reason for refusing a creation; such rows are shown, not retried.
- * [deleting]: the user deleted it before the server acknowledged its creation. It is hidden at once and stays, pending,
- * until a sync has replayed the creation (the server may already have it) and deleted it there.
- * The source/block/offset/exact fields and [prefixText]/[suffixText] are the original selection. [location], [status]
+ * A highlight, keyed by the client mutation id that created it (the server returns it for every highlight). [state]
+ * says where it stands with the server; the row is the local annotation and its unsent mutation in one write.
+ * [rejection] is set only when [state] is REFUSED. The source/block/offset/exact fields and [prefixText]/[suffixText] are the original selection. [location], [status]
  * and [resolvedBlobSha] are the server's: where the highlight is now and what that means for that version (ANCHORED,
  * REANCHORED, ORPHANED). A pending creation has none of them and is drawn where it was made.
  */
 @Entity(tableName = "annotations", indices = [Index("documentId")])
 data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?, val documentId: Long, val sourceBlobSha: String,
                          val blockId: String, val startOffset: Int, val endOffset: Int, val exactText: String, val note: String?,
-                         val version: Int, val createdAt: Long, val pending: Boolean, val rejection: String?,
+                         val version: Int, val createdAt: Long,
+                         @ColumnInfo(defaultValue = "'ACKNOWLEDGED'") val state: AnnotationState, val rejection: String? = null,
                          @ColumnInfo(defaultValue = "") val prefixText: String = "",
                          @ColumnInfo(defaultValue = "") val suffixText: String = "",
                          val status: String? = null, val resolvedBlobSha: String? = null,
@@ -111,8 +125,7 @@ data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?
                          @ColumnInfo(defaultValue = "''") val cachedTitle: String = "",
                          @ColumnInfo(defaultValue = "''") val cachedPath: String = "",
                          val cachedCurrentBlobSha: String? = null,
-                         @ColumnInfo(defaultValue = "0") val cachedDeleted: Boolean = false,
-                         @ColumnInfo(defaultValue = "0") val deleting: Boolean = false) {
+                         @ColumnInfo(defaultValue = "0") val cachedDeleted: Boolean = false) {
     /** Where to draw it: the server's current location, or the original selection while the creation is pending. */
     val drawn: Passage get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
@@ -121,7 +134,7 @@ data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?
 
     /** Why this card cannot be graded in [currentBlobSha] (null: unlisted) with [savedBlobSha] saved; the phone's one rule (ADR-13). */
     fun cardBlock(currentBlobSha: String?, savedBlobSha: String?): CardBlock? = when {
-        rejection != null -> CardBlock.NOT_SYNCED
+        state == AnnotationState.REFUSED -> CardBlock.NOT_SYNCED
         cachedDeleted -> CardBlock.REMOVED
         status == "ORPHANED" -> CardBlock.ORPHANED
         checkedBlobSha == null || checkedBlobSha != currentBlobSha || drawn.blobSha != currentBlobSha ||
@@ -305,18 +318,18 @@ interface LibraryDao {
     }
 
     /** Highlights, cards, and grades on [repositoryId]'s listed notes that exist only on this phone (unsent or refused). */
-    @Query("""select (select count(*) from annotations a join documents d on d.id = a.documentId where d.repositoryId = :repositoryId and a.pending)
+    @Query("""select (select count(*) from annotations a join documents d on d.id = a.documentId where d.repositoryId = :repositoryId and a.state <> 'ACKNOWLEDGED')
               + (select count(*) from review_log l join annotations a on a.mutationId = l.cardMutationId join documents d on d.id = a.documentId
                  where d.repositoryId = :repositoryId and l.pending)""")
     suspend fun unsentInRepository(repositoryId: Long): Int
 
     /** Every change on this phone that the server has not acknowledged (unsent or refused): what signing out loses. */
-    @Query("""select (select count(*) from annotations where pending) + (select count(*) from review_log where pending)
+    @Query("""select (select count(*) from annotations where state <> 'ACKNOWLEDGED') + (select count(*) from review_log where pending)
               + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)""")
     suspend fun unsentCount(): Int
 
     /** Changes waiting to be sent: [unsentCount] without the ones the server refused, which sending again cannot deliver. */
-    @Query("""select (select count(*) from annotations where pending and rejection is null)
+    @Query("""select (select count(*) from annotations where state in ('UNSENT', 'DELETING'))
               + (select count(*) from review_log where pending and rejection is null)
               + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)""")
     fun waitingCount(): Flow<Int>
@@ -335,7 +348,7 @@ interface LibraryDao {
 
     @Query("""select a.documentId, coalesce(d.title, n.title, '') as title, coalesce(d.path, n.path, '') as path, a.exactText, a.note
               from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
-              where not a.deleting and (a.exactText like :pattern escape '\' or a.note like :pattern escape '\')
+              where a.state <> 'DELETING' and (a.exactText like :pattern escape '\' or a.note like :pattern escape '\')
               order by a.createdAt desc limit :limit""")
     suspend fun searchHighlights(pattern: String, limit: Int): List<HighlightMatch>
 
@@ -447,20 +460,20 @@ interface LibraryDao {
     @Query("select documentId from bookmarks where pending")
     suspend fun pendingBookmarkIds(): List<Long>
 
-    @Query("select * from annotations where documentId = :documentId and not deleting order by createdAt")
+    @Query("select * from annotations where documentId = :documentId and state <> 'DELETING' order by createdAt")
     fun annotations(documentId: Long): Flow<List<AnnotationRow>>
 
     @Query("select * from annotations where mutationId = :mutationId")
     suspend fun annotation(mutationId: String): AnnotationRow?
 
-    @Query("select * from annotations where pending and rejection is null order by createdAt")
-    suspend fun pendingAnnotations(): List<AnnotationRow>
+    @Query("select * from annotations where state in ('UNSENT', 'DELETING') order by createdAt")
+    suspend fun waitingAnnotations(): List<AnnotationRow>
 
     @Query("""select a.*, coalesce(d.title, n.title, a.cachedTitle) as title,
               coalesce(d.path, n.path, a.cachedPath) as path, d.blobSha as currentBlobSha,
               n.blobSha as savedBlobSha
               from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
-              where not a.deleting order by a.createdAt, a.mutationId""")
+              where a.state <> 'DELETING' order by a.createdAt, a.mutationId""")
     fun notebook(): Flow<List<NotebookItem>>
 
     @Query("select * from review_log order by reviewedAt, mutationId")
@@ -477,7 +490,7 @@ interface LibraryDao {
     suspend fun recordReview(row: ReviewRow): Boolean {
         require(row.grade in 0..5 && row.pending && row.rejection == null) { "Invalid local review ${row.mutationId}" }
         val card = annotation(row.cardMutationId) ?: return false
-        if (card.type != "CARD" || card.deleting || row.blobSha != document(card.documentId)?.blobSha ||
+        if (card.type != "CARD" || card.state == AnnotationState.DELETING || row.blobSha != document(card.documentId)?.blobSha ||
             card.cardBlock(row.blobSha, note(card.documentId)?.blobSha) != null) return false
         saveReview(row)
         return true
@@ -508,7 +521,7 @@ interface LibraryDao {
     @Query("delete from review_log where cardMutationId not in (select mutationId from annotations)")
     suspend fun deleteMissingCardReviews()
 
-    @Query("delete from annotations where not pending")
+    @Query("delete from annotations where state = 'ACKNOWLEDGED'")
     suspend fun clearAcknowledgedNotebook()
 
     @Transaction
@@ -536,11 +549,11 @@ interface LibraryDao {
      */
     @Transaction
     suspend fun saveServerAnnotation(row: AnnotationRow) {
-        val deleting = annotation(row.mutationId)?.deleting == true
-        saveAnnotation(if (deleting) row.copy(pending = true, rejection = null, deleting = true) else row.copy(pending = false, rejection = null))
+        val deleting = annotation(row.mutationId)?.state == AnnotationState.DELETING
+        saveAnnotation(row.copy(state = if (deleting) AnnotationState.DELETING else AnnotationState.ACKNOWLEDGED, rejection = null))
     }
 
-    @Query("update annotations set deleting = 1 where mutationId = :mutationId")
+    @Query("update annotations set state = 'DELETING' where mutationId = :mutationId")
     suspend fun setDeleting(mutationId: String)
 
     @Query("delete from review_log where cardMutationId = :mutationId and pending")
@@ -556,10 +569,10 @@ interface LibraryDao {
     @Query("delete from annotations where mutationId = :mutationId")
     suspend fun deleteAnnotation(mutationId: String)
 
-    @Query("update annotations set rejection = :reason where mutationId = :mutationId")
+    @Query("update annotations set state = 'REFUSED', rejection = :reason where mutationId = :mutationId")
     suspend fun rejectAnnotation(mutationId: String, reason: String)
 
-    @Query("delete from annotations where documentId = :documentId and not pending")
+    @Query("delete from annotations where documentId = :documentId and state = 'ACKNOWLEDGED'")
     suspend fun clearAcknowledgedAnnotations(documentId: Long)
 
     /**
@@ -604,10 +617,24 @@ class KeepNoteLinks : AutoMigrationSpec {
     }
 }
 
+/**
+ * v11: a highlight's standing with the server is one [AnnotationState] instead of the pending, rejection and deleting
+ * flags, five of whose eight combinations were valid. Hand-written: each row's state is computed from its old flags.
+ */
+val ANNOTATION_STATE_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("alter table annotations add column state TEXT NOT NULL DEFAULT 'ACKNOWLEDGED'")
+        db.execSQL("""update annotations set state = case when deleting then 'DELETING' when rejection is not null then 'REFUSED'
+                      when pending then 'UNSENT' else 'ACKNOWLEDGED' end""")
+        db.execSQL("alter table annotations drop column pending")
+        db.execSQL("alter table annotations drop column deleting")
+    }
+}
+
 @Database(
     entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, NoteLinkRow::class, ReadingRow::class, BookmarkRow::class,
         AnnotationRow::class, ReviewRow::class, ReviewLimitRow::class, ChangeBaselineRow::class],
-    version = 10,
+    version = 11,
     autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
         AutoMigration(from = 8, to = 9, spec = DropNoteCommit::class), AutoMigration(from = 9, to = 10, spec = KeepNoteLinks::class)],
@@ -620,7 +647,11 @@ abstract class LocalStore : RoomDatabase() {
 
         /** One database instance per process, shared across activity recreation. */
         fun get(context: Context): LocalStore = instance ?: synchronized(this) {
-            instance ?: Room.databaseBuilder(context.applicationContext, LocalStore::class.java, "reporead.db").build().also { instance = it }
+            instance ?: open(context.applicationContext, "reporead.db").also { instance = it }
         }
+
+        /** The database file [name] with every migration: the automatic ones above and the hand-written ones here. */
+        fun open(context: Context, name: String): LocalStore =
+            Room.databaseBuilder(context, LocalStore::class.java, name).addMigrations(ANNOTATION_STATE_10_11).build()
     }
 }

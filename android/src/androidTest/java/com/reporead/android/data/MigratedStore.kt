@@ -1,7 +1,6 @@
 package com.reporead.android.data
 
 import android.database.sqlite.SQLiteDatabase
-import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONObject
 import java.util.UUID
@@ -36,7 +35,7 @@ internal suspend fun withMigratedStore(version: Int, fill: (SQLiteDatabase) -> U
             fill(db)
             db.version = version
         }
-        val store = Room.databaseBuilder(context, LocalStore::class.java, name).build()
+        val store = LocalStore.open(context, name)
         try {
             verify(store.library())
         } finally { store.close() }

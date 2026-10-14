@@ -1,6 +1,7 @@
 package com.reporead.android.library
 
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.PracticePage
 import com.reporead.android.reader.StudyAnswer
@@ -16,7 +17,7 @@ class PracticeTest {
         PracticeQuestion(document, "note", "core/interview/note.md", sha, StudyQuestion(block, text, StudyAnswer("${block}a", answer, emptyList())))
     private fun card(document: Long, question: String?, answer: String, type: String = "CARD", blobSha: String = sha) =
         NotebookItem(AnnotationRow("m$document$question$answer", 1, document, blobSha, "x", 0, answer.length, answer, null, 1, 0,
-            false, null, type = type, question = question, checkedBlobSha = blobSha), "note", "core/interview/note.md", blobSha, blobSha)
+            AnnotationState.ACKNOWLEDGED, null, type = type, question = question, checkedBlobSha = blobSha), "note", "core/interview/note.md", blobSha, blobSha)
 
     @Test fun shuffleInterleavesNotesAndKeepsEveryQuestionExactlyOnceOnRepeatRuns() {
         val questions = (1L..3L).flatMap { id -> (0..3).map { i -> question(id, "b$i", "Question $id:$i") } }

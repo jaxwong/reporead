@@ -32,7 +32,7 @@ class ReviewSyncTest {
                 ServerSocket(0, 10, InetAddress.getByName("127.0.0.1")).use { server ->
                     server.soTimeout = 5_000
                     val dao = store.library()
-                    val card = AnnotationRow("card", 1, 7, "a".repeat(40), "b1", 0, 4, "text", null, 1, 0, false, null,
+                    val card = AnnotationRow("card", 1, 7, "a".repeat(40), "b1", 0, 4, "text", null, 1, 0, AnnotationState.ACKNOWLEDGED, null,
                         type = "CARD", question = "Test-only question?", checkedBlobSha = "a".repeat(40))
                     dao.saveAnnotation(card)
                     val grades = (1..10).map { ReviewRow(UUID.randomUUID().toString(), "card", 4, it.toLong(), "a".repeat(40), true) }

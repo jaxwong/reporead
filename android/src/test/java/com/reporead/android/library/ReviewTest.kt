@@ -1,6 +1,7 @@
 package com.reporead.android.library
 
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
@@ -21,7 +22,7 @@ class ReviewTest {
         dueSession(items, reviews, now, limit, seed, utc)
     private fun grade(id: Int, value: Int, at: Long) = ReviewRow("g$id", "card", value, at, "sha", false)
     private fun card(id: Int, document: Long = 1) = NotebookItem(AnnotationRow("m$id", id.toLong(), document, "sha", "b1", 0, 4,
-        "text", null, 1, 0, false, null, type = "CARD", question = "Why?", checkedBlobSha = "sha"), "Note", "topic/a.md", "sha", "sha")
+        "text", null, 1, 0, AnnotationState.ACKNOWLEDGED, null, type = "CARD", question = "Why?", checkedBlobSha = "sha"), "Note", "topic/a.md", "sha", "sha")
 
     @Test fun newCardsAreDueAndIntervalsFollowOneSixAndPriorEaseWithCeiling() {
         assertEquals(0L, scheduleReviews(0, emptyList()).dueAt)
@@ -77,7 +78,7 @@ class ReviewTest {
             assertNotNull(changed.annotation.cardBlock(changed.currentBlobSha, changed.savedBlobSha))
             assertEquals(listOf(changed), dueSession(listOf(changed), emptyList(), 0, 40, 1))
         }
-        for (gone in listOf(ready.copy(annotation = ready.annotation.copy(cachedDeleted = true)), ready.copy(annotation = ready.annotation.copy(rejection = "refused")))) {
+        for (gone in listOf(ready.copy(annotation = ready.annotation.copy(cachedDeleted = true)), ready.copy(annotation = ready.annotation.copy(state = AnnotationState.REFUSED, rejection = "refused")))) {
             assertNotNull(gone.annotation.cardBlock(gone.currentBlobSha, gone.savedBlobSha))
             assertTrue(dueSession(listOf(gone), emptyList(), 0, 40, 1).isEmpty())
             assertEquals(ReviewOutlook(0, 0, null, 0), reviewOutlook(listOf(gone), emptyList(), 0, utc))

@@ -100,8 +100,8 @@ class PracticeSessionTest {
             val first = shownAnswer(scenario)
             click("Again")
             val missed = withTimeout(5_000) {
-                while (dao.pendingAnnotations().isEmpty() || dao.pendingReviews().isEmpty()) delay(20)
-                dao.pendingAnnotations().single()
+                while (dao.waitingAnnotations().isEmpty() || dao.pendingReviews().isEmpty()) delay(20)
+                dao.waitingAnnotations().single()
             }
             assertEquals("CARD", missed.type)
             assertEquals("An identical question?", missed.question)
@@ -127,8 +127,8 @@ class PracticeSessionTest {
             awaitText("Asked again: its first grade is saved. This grade only decides whether it comes back in this session.")
             click("Good")
             awaitText("Session complete: 2 questions graded. They come back under Review when due.")
-            assertEquals(2, dao.pendingAnnotations().size)
-            assertEquals(setOf("Canonical answer: First answer", "Canonical answer: Second answer"), dao.pendingAnnotations().map { it.exactText }.toSet())
+            assertEquals(2, dao.waitingAnnotations().size)
+            assertEquals(setOf("Canonical answer: First answer", "Canonical answer: Second answer"), dao.waitingAnnotations().map { it.exactText }.toSet())
             assertEquals(listOf(0, 4), dao.reviews().first().map { it.grade })
         }
         assertEquals(emptyList<Screen>(), pushed)

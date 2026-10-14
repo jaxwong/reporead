@@ -6,6 +6,7 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.contract
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.BookmarkRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
@@ -375,7 +376,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         val row = contract {
             AnnotationRow(UUID.randomUUID().toString(), null, documentId, selection.getString("sourceBlobSha"), selection.getString("blockId"),
                 selection.getInt("startOffset"), selection.getInt("endOffset"), selection.getString("exactText"), note, 1,
-                System.currentTimeMillis(), pending = true, rejection = null,
+                System.currentTimeMillis(), state = AnnotationState.UNSENT,
                 type = if (question == null) "HIGHLIGHT" else "CARD", question = question,
                 checkedBlobSha = if (question == null) null else selection.getString("sourceBlobSha"),
                 cachedTitle = saved.title, cachedPath = saved.path, cachedCurrentBlobSha = current?.blobSha)
@@ -393,8 +394,9 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     suspend fun pushAnnotations() = oneSyncAtATime.withLock { sendAnnotations() }
 
     private suspend fun sendAnnotations() {
-        for (row in dao.pendingAnnotations()) {
-            check(row.serverId == null || row.deleting) { "Pending ${row.mutationId} has a server id but is not being deleted" }
+        for (row in dao.waitingAnnotations()) {
+            val deleting = row.state == AnnotationState.DELETING
+            check(row.serverId == null || deleting) { "Unsent ${row.mutationId} has a server id" }
             // A deletion whose creation the server has not acknowledged replays the creation first, to learn its id.
             val acknowledged = if (row.serverId != null) row else {
                 val body = JSONObject().put("mutationId", row.mutationId).put("type", row.type).put("question", row.question ?: JSONObject.NULL)
@@ -405,19 +407,19 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
                     api.post("/api/documents/${row.documentId}/annotations", body)
                 } catch (error: ApiException) {
                     when {
-                        error.code == "ANNOTATION_DELETED" || (row.deleting && error.refusesItem()) -> dao.removeAnnotation(row.mutationId)
+                        error.code == "ANNOTATION_DELETED" || (deleting && error.refusesItem()) -> dao.removeAnnotation(row.mutationId)
                         error.refusesItem() -> dao.rejectAnnotation(row.mutationId, error.describe())
                         else -> {
                             Log.w("RepoRead", "Highlight creations stopped; documentId=${row.documentId} code=${error.code}")
                             throw error
                         }
                     }
-                    Log.w("RepoRead", "Highlight creation refused; documentId=${row.documentId} code=${error.code} deleting=${row.deleting}")
+                    Log.w("RepoRead", "Highlight creation refused; documentId=${row.documentId} code=${error.code} deleting=$deleting")
                     continue
                 }
                 annotationRow(created).also { dao.saveServerAnnotation(it) }
             }
-            if (row.deleting) sendDeletion(acknowledged)
+            if (deleting) sendDeletion(acknowledged)
         }
     }
 
@@ -434,7 +436,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
             if (error.code != "NOT_FOUND") {
                 // Changed elsewhere first (409): shown again rather than deleted unseen.
                 Log.w("RepoRead", "Highlight deletion refused; annotationId=$serverId code=${error.code}")
-                dao.saveAnnotation(row.copy(pending = false, deleting = false))
+                dao.saveAnnotation(row.copy(state = AnnotationState.ACKNOWLEDGED))
                 return
             }
         }
@@ -479,9 +481,9 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
      * and deletes it there. A refused creation the server never accepted is only local.
      */
     suspend fun deleteAnnotation(row: AnnotationRow) = oneSyncAtATime.withLock {
-        val serverId = row.serverId
-        when {
-            serverId != null && !row.pending -> {
+        when (row.state) {
+            AnnotationState.ACKNOWLEDGED -> {
+                val serverId = checkNotNull(row.serverId) { "Acknowledged ${row.mutationId} has no server id" }
                 try {
                     api.delete("/api/annotations/$serverId?expectedVersion=${row.version}")
                 } catch (error: ApiException) {
@@ -489,12 +491,12 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
                 }
                 dao.removeAnnotation(row.mutationId)
             }
-            row.rejection != null -> dao.removeAnnotation(row.mutationId)
-            else -> {
-                check(row.pending) { "Highlight ${row.mutationId} has no server id but is not pending" }
+            AnnotationState.REFUSED -> dao.removeAnnotation(row.mutationId)
+            AnnotationState.UNSENT -> {
                 dao.markDeleting(row.mutationId)
                 onPendingChange()
             }
+            AnnotationState.DELETING -> error("Highlight ${row.mutationId} is already being deleted; it is not shown")
         }
     }
 
@@ -518,7 +520,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         for (row in dao.pendingReviews()) {
             val card = dao.annotation(row.cardMutationId)
             if (card == null) error("Review ${row.mutationId} references missing local card ${row.cardMutationId}")
-            if (card.rejection != null) {
+            if (card.state == AnnotationState.REFUSED) {
                 dao.rejectReview(row.mutationId, "Card creation was refused: ${card.rejection}")
                 continue
             }
@@ -556,7 +558,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         AnnotationRow(json.getString("mutationId"), json.getLong("id"), json.getLong("documentId"), anchor.getString("sourceBlobSha"),
             anchor.getString("blockId"), anchor.getInt("startOffset"), anchor.getInt("endOffset"), anchor.getString("exactText"),
             json.nullableString("note"), json.getInt("version"), Instant.parse(json.getString("createdAt")).toEpochMilli(),
-            pending = false, rejection = null, prefixText = anchor.getString("prefixText"), suffixText = anchor.getString("suffixText"),
+            state = AnnotationState.ACKNOWLEDGED, prefixText = anchor.getString("prefixText"), suffixText = anchor.getString("suffixText"),
             status = json.getString("status"), resolvedBlobSha = json.getString("resolvedBlobSha"),
             location = Passage(location.getString("sourceBlobSha"), location.getString("blockId"), location.getInt("startOffset"),
                 location.getInt("endOffset"), location.getString("exactText")),

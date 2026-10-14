@@ -23,7 +23,7 @@ class ReviewMigrationTest {
             val highlight = checkNotNull(dao.annotation("offline"))
             assertEquals("HIGHLIGHT", highlight.type)
             assertEquals("mine", highlight.note)
-            assertTrue(highlight.pending)
+            assertEquals(AnnotationState.UNSENT, highlight.state)
             assertNull(highlight.question)
             assertTrue(dao.reviews().first().isEmpty())
             assertNull(dao.reviewLimit().first())
