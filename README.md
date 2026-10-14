@@ -30,7 +30,7 @@ Device tests (Room on the phone) run with `adb shell am instrument`, never `conn
 | --- | --- |
 | Backend unreachable (no internet, VM down; for debug builds, Mac off or `adb reverse` gone) | Saved notes, highlights, and progress work; new highlights and reading saves wait as pending; the library says it is showing saved data |
 | GitHub unavailable or rate limited | 503 `GITHUB_UNAVAILABLE`; nothing changes; saved copies stay readable and are marked as saved copies |
-| Server restarted or GitHub token expired | 401: the app asks to sign in again; saved data stays |
+| GitHub sign-in can no longer be renewed (refresh token expired after about 6 months, or revoked on GitHub) | 401: the app asks to sign in again; saved data stays. Restarts and deploys keep sign-ins, and the 8-hour GitHub token is renewed automatically |
 | Incomplete GitHub tree | Sync fails without changes; notes are never marked deleted from an incomplete listing |
 | Note deleted upstream | Marked "Removed from the repository"; its progress, bookmark, and highlights are kept |
 | Edit makes a highlight's place uncertain | `ORPHANED` with its original context; reattach it by selecting the passage |
