@@ -119,11 +119,11 @@ final class Anchoring {
     static Optional<Found> decide(Evidence evidence, Thresholds thresholds) {
         if (evidence.block() != null) return Optional.of(new Found(Method.BLOCK, evidence.block()));
         var from = evidence.from();
-        double rival = from.rivalContext() == null ? 1.0 : from.rivalContext();
+        double rival = from.rivalContext();
         // An identical-context rival can shift into the old position, so position only identifies a distinguishable passage.
         if (evidence.position() != null && rival < 1.0) return Optional.of(new Found(Method.POSITION, evidence.position()));
-        double lookAlike = from.rivalQuote() == null ? 1.0 : from.rivalQuote();
-        boolean uniqueQuote = from.quoteOccurrences() != null && from.quoteOccurrences() == 1;
+        double lookAlike = from.rivalQuote();
+        boolean uniqueQuote = from.quoteOccurrences() == 1;
         var exact = evidence.exact();
         var full = exact.stream().filter(candidate -> candidate.context() == 1.0).toList();
         if (!full.isEmpty()) return rival < 1.0 ? single(full).map(found -> new Found(Method.QUOTE, found)) : Optional.empty();

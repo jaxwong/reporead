@@ -63,8 +63,8 @@ public class Annotations {
      * [blockSha] is the SHA-256 of its block's text when no other block has that text, [quoteOccurrences] how often its
      * exact text occurs, [rivalContext] how similar the best other exact occurrence's context is (0 when unique), and
      * [rivalQuote] how similar the closest look-alike in another block is (0 when none, 1 when there were too many to
-     * compare). They are null where unknown
-     * (anchors made before Stage 4); the resolver then treats the passage as indistinguishable.
+     * compare). Every location has the last three (and [blockSha] when its block is unique); an original anchor records
+     * none of them, and is never resolved from.
      */
     public record Anchor(String sourceBlobSha, String blockId, String exactText, String prefixText, String suffixText,
                          int startOffset, int endOffset, List<String> headingPath, @JsonIgnore String blockSha,
@@ -193,17 +193,6 @@ public class Annotations {
             found.ifPresent(location -> writeLocation(annotation.id(), location));
             return true;
         }));
-    }
-
-    /** Fills a pre-Stage-4 location's distinguishability, computed from its own version; changes nothing else. */
-    void fillEvidence(long id, Anchor location) {
-        db.sql("""
-                update annotation_locations set block_sha = :blockSha, quote_occurrences = :occurrences, rival_context = :rivalContext,
-                       rival_quote = :rivalQuote
-                where annotation_id = :id and source_blob_sha = :sha and block_id = :block and start_offset = :start and rival_context is null""")
-            .param("blockSha", location.blockSha()).param("occurrences", location.quoteOccurrences())
-            .param("rivalContext", location.rivalContext()).param("rivalQuote", location.rivalQuote()).param("id", id)
-            .param("sha", location.sourceBlobSha()).param("block", location.blockId()).param("start", location.startOffset()).update();
     }
 
     /** The user's own placement: versioned like a note edit (409 if another change landed first, 404 if absent). */

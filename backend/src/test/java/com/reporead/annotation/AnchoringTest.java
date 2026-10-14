@@ -131,15 +131,6 @@ class AnchoringTest {
         assertTrue(resolve(from, blocks(lookAlike, PROXIES)).isEmpty());
     }
 
-    @Test void anAnchorWithUnknownDistinguishabilityIsOnlyKeptByAnUnchangedPosition() {
-        var before = blocks(PROXY, PROXIES, OTHER, PROXIES);
-        var known = anchor(before, 0, "declarative transactions");
-        var legacy = new Annotations.Anchor(OLD, known.blockId(), known.exactText(), known.prefixText(), known.suffixText(),
-            known.startOffset(), known.endOffset(), known.headingPath(), null, null, null, null);
-        assertTrue(resolve(legacy, blocks(LAST, WEAVING, PROXY, PROXIES, OTHER, PROXIES)).isEmpty(), "moved: no evidence it is the same passage");
-        assertTrue(resolve(legacy, blocks(PROXY, PROXIES, OTHER, PROXIES)).isEmpty(), "unchanged position, but uniqueness unknown");
-    }
-
     @Test void fuzzySearchIsBoundedByQuoteLengthAndByHowManyBlocksShareItsWords() {
         String long1 = "word ".repeat(Anchoring.MAX_FUZZY_QUOTE_CHARS / 5 + 1).strip();
         var before = blocks("Intro " + long1 + " outro.", PROXIES);

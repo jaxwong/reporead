@@ -128,11 +128,14 @@ class DataControlTest {
                 insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at, note, resolved_blob_sha, mutation_id)
                 values (:userId, :documentId, :sha, 'HIGHLIGHT', now(), now(), 'private note text', :sha, cast(:mutationId as uuid)) returning id""")
             .param("userId", userId).param("documentId", documentId).param("sha", SHA).param("mutationId", mutationId).query(Long.class).single();
-        for (String table : List.of("annotation_anchors", "annotation_locations")) {
-            db.sql("insert into " + table + " (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset, end_offset, heading_path) "
-                    + "values (:id, :sha, 'b1', 'quoted passage', '', '', 0, 14, '[]')")
-                .param("id", id).param("sha", SHA).update();
-        }
+        db.sql("""
+                insert into annotation_anchors (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset, end_offset, heading_path)
+                values (:id, :sha, 'b1', 'quoted passage', '', '', 0, 14, '[]')""").param("id", id).param("sha", SHA).update();
+        // A location records how distinguishable its passage is: here, the only occurrence, with no rival or look-alike.
+        db.sql("""
+                insert into annotation_locations (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset, end_offset,
+                                                  heading_path, quote_occurrences, rival_context, rival_quote)
+                values (:id, :sha, 'b1', 'quoted passage', '', '', 0, 14, '[]', 1, 0, 0)""").param("id", id).param("sha", SHA).update();
         db.sql("insert into annotation_mutations (user_id, mutation_id, request_hash, created_at) values (:userId, cast(:mutationId as uuid), '\\x00', now())")
             .param("userId", userId).param("mutationId", mutationId).update();
     }
