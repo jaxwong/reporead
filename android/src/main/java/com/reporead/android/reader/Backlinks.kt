@@ -2,21 +2,19 @@ package com.reporead.android.reader
 
 import com.reporead.android.data.DocumentRow
 
-private val NOTE_LINK_HREF = Regex("""href="/note-link\?([^"]*)"""")
-
 /**
- * The links to other notes in a saved page, as (target, path), decoded as the reader decodes a tapped link
- * ([noteLinkParameters]). Links to a heading of the same note have neither and are left out.
+ * Where a saved page's note link points, as (target, path), decoded as the reader decodes a tapped link
+ * ([noteLinkParameters]); null for a link to a heading of the same note, which has neither.
  */
-internal fun noteLinks(html: String): List<Pair<String?, String?>> = NOTE_LINK_HREF.findAll(html).mapNotNull { match ->
-    val parameters = noteLinkParameters(match.groupValues[1].replace("&amp;", "&"))
+internal fun noteLinkTarget(query: String): Pair<String?, String?>? {
+    val parameters = noteLinkParameters(query)
     val target = parameters["target"]
     val path = parameters["path"]
-    if (target == null && path == null) null else target to path
-}.toList()
+    return if (target == null && path == null) null else target to path
+}
 
 /**
- * The notes whose saved pages link to [note], from each page's [links] ([noteLinks], by document id), resolved like a
+ * The notes whose saved pages link to [note], from each page's [links] ([noteLinkTarget], by document id), resolved like a
  * tapped link against the repository's [documents]: a link that could mean several notes counts when [note] is one of
  * them. Sorted by path; [note] itself is left out.
  */

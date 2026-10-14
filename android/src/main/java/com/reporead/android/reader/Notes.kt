@@ -39,12 +39,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Linked from reads saved pages this many at a time: one query per page took 7.9 s for 422 pages on the Pixel, and
- * all at once is the pattern that ran Practice out of memory. Pages are tens of KB, so a batch stays a few MB.
- */
-private const val LINKING_PAGES_PER_READ = 25
-
-/**
  * Saved notes that link to the open note, out of [saved] of the repository's [listed] notes saved on this phone (fewer
  * means the list may be missing some). [listed] is 0 when the note is in no saved list.
  */
@@ -80,13 +74,10 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
         }
         val documents = dao.documentsOnce(note.repositoryId)
         val started = System.currentTimeMillis()
-        val ids = dao.notesWithNoteLinks(note.repositoryId)
-        // A few pages in memory at a time: only their links are kept.
-        val links = withContext(Dispatchers.Default) {
-            ids.chunked(LINKING_PAGES_PER_READ).flatMap { batch -> dao.savedPages(batch).map { it.documentId to noteLinks(it.html) } }.toMap()
-        }
+        val links = dao.noteLinks(note.repositoryId).groupBy({ it.documentId }, { it.query })
+            .mapValues { (_, queries) -> queries.mapNotNull(::noteLinkTarget) }
         val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, links) }
-        Log.i("RepoRead", "Linked from found; documentId=$documentId pagesWithLinks=${ids.size} found=${found.size} ms=${System.currentTimeMillis() - started}")
+        Log.i("RepoRead", "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}")
         value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
     }
 

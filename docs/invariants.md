@@ -134,8 +134,8 @@ These come from the original implementation spec's engineering invariants and th
 **No phone query or screen loads every saved page at once.**
 
 - Why: with every note saved (ADR-19), all rendered pages exceed the app's 256 MB heap. On 2026-10-14 the app crashed with `OutOfMemoryError` three times while Practice loaded: its query read every saved page (about 800) to find 92 interview banks, and re-ran whenever Library's sync changed the tables.
-- Enforced by: queries select only the pages they need (`bankPages` reads only notes in interview folders); work that needs many pages lists ids first and reads pages in batches (`savedPages`, 25 at a time, for Linked from).
-- Checked by: `LocalStoreTest`, and the Java heap on the phone while the screen opens (Practice now peaks at 40 MB, Linked from at 23 MB).
+- Enforced by: queries select only the pages they need (`bankPages` reads only notes in interview folders); what is needed from every page is kept beside it when it is saved, so it is never read from the pages (`note_links`, for Linked from).
+- Checked by: `LocalStoreTest`, and the Java heap on the phone while the screen opens (Practice peaks at 40 MB).
 - Decisions: [ADR-19](adrs.md#adr-19--every-note-can-be-saved-on-the-phone-one-note-at-a-time-with-no-eviction), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer).
 
 ## Constraints on reader code

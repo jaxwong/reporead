@@ -8,6 +8,7 @@ import androidx.room.Database
 import androidx.room.DeleteColumn
 import androidx.room.Embedded
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -17,6 +18,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.migration.AutoMigrationSpec
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 /*
@@ -47,8 +49,18 @@ data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val pa
                    @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0)
 
 
-/** A saved note's rendered page. */
-data class SavedPage(val documentId: Long, val html: String)
+private val NOTE_LINK_QUERY = Regex("""href="/note-link\?([^"]*)"""")
+
+/** The query of each /note-link in a saved page, in page order, as the reader receives it when the link is tapped. */
+fun noteLinkQueries(html: String): List<String> = NOTE_LINK_QUERY.findAll(html).map { it.groupValues[1].replace("&amp;", "&") }.toList()
+
+/**
+ * One /note-link in a saved page, written with the page ([LibraryDao.saveNote]) and deleted with it, so Linked from
+ * reads these rows instead of every saved page.
+ */
+@Entity(tableName = "note_links", primaryKeys = ["documentId", "position"],
+    foreignKeys = [ForeignKey(entity = NoteRow::class, parentColumns = ["documentId"], childColumns = ["documentId"], onDelete = ForeignKey.CASCADE)])
+data class NoteLinkRow(val documentId: Long, val position: Int, val query: String)
 
 data class PracticePage(val documentId: Long, val title: String, val path: String, val html: String?, val blobSha: String?)
 
@@ -251,22 +263,29 @@ interface LibraryDao {
               where ('/' || d.path) like '%/interview/%' order by d.id""")
     fun bankPages(): Flow<List<PracticePage>>
 
-    /**
-     * The ids of [repositoryId]'s listed notes saved on this phone whose pages link to any note. Only ids: reading all
-     * those pages at once can exhaust the heap (as practicePages did, 2026-10-14), so callers read them in small batches.
-     */
-    @Query("""select n.documentId from notes n join documents d on d.id = n.documentId
-              where d.repositoryId = :repositoryId and n.html like '%/note-link?%' order by n.documentId""")
-    suspend fun notesWithNoteLinks(repositoryId: Long): List<Long>
-
-    @Query("select documentId, html from notes where documentId in (:documentIds)")
-    suspend fun savedPages(documentIds: List<Long>): List<SavedPage>
+    /** The note links in [repositoryId]'s saved pages, for Linked from; the pages themselves are not read. */
+    @Query("select l.* from note_links l join documents d on d.id = l.documentId where d.repositoryId = :repositoryId")
+    suspend fun noteLinks(repositoryId: Long): List<NoteLinkRow>
 
     @Query("select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId")
     suspend fun savedNoteCount(repositoryId: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun saveNote(row: NoteRow)
+    suspend fun insertNote(row: NoteRow)
+
+    @Insert
+    suspend fun insertNoteLinks(rows: List<NoteLinkRow>)
+
+    @Query("delete from note_links where documentId = :documentId")
+    suspend fun deleteNoteLinks(documentId: Long)
+
+    /** Saves a page with the note links it holds, replacing an older copy and its links. */
+    @Transaction
+    suspend fun saveNote(row: NoteRow) {
+        deleteNoteLinks(row.documentId)
+        insertNote(row)
+        insertNoteLinks(noteLinkQueries(row.html).mapIndexed { position, query -> NoteLinkRow(row.documentId, position, query) })
+    }
 
     @Query("""select documentId from notes where documentId not in (select id from documents)
               and documentId not in (select documentId from reading_states) and documentId not in (select documentId from bookmarks)
@@ -567,13 +586,31 @@ interface LibraryDao {
 @DeleteColumn(tableName = "notes", columnName = "commitSha")
 class DropNoteCommit : AutoMigrationSpec
 
+/**
+ * v10: the note links of each saved page get their own table, filled here once from the pages already saved; reading
+ * every page for Linked from took 3.2–3.7 s on the Pixel. A cursor holds a few pages at a time; only links are kept.
+ */
+class KeepNoteLinks : AutoMigrationSpec {
+    override fun onPostMigrate(db: SupportSQLiteDatabase) {
+        val links = mutableListOf<NoteLinkRow>()
+        db.query("select documentId, html from notes where html like '%/note-link?%'").use { pages ->
+            while (pages.moveToNext()) {
+                noteLinkQueries(pages.getString(1)).forEachIndexed { position, query -> links += NoteLinkRow(pages.getLong(0), position, query) }
+            }
+        }
+        for (link in links) {
+            db.execSQL("insert into note_links (documentId, position, query) values (?, ?, ?)", arrayOf<Any>(link.documentId, link.position, link.query))
+        }
+    }
+}
+
 @Database(
-    entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class,
-        ReviewRow::class, ReviewLimitRow::class, ChangeBaselineRow::class],
-    version = 9,
+    entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, NoteLinkRow::class, ReadingRow::class, BookmarkRow::class,
+        AnnotationRow::class, ReviewRow::class, ReviewLimitRow::class, ChangeBaselineRow::class],
+    version = 10,
     autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
-        AutoMigration(from = 8, to = 9, spec = DropNoteCommit::class)],
+        AutoMigration(from = 8, to = 9, spec = DropNoteCommit::class), AutoMigration(from = 9, to = 10, spec = KeepNoteLinks::class)],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao

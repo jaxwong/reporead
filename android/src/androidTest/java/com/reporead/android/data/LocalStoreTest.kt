@@ -115,19 +115,22 @@ class LocalStoreTest {
         assertEquals(emptyList<PracticePage>(), dao.bankPages().first())
     }
 
-    @Test fun linkingPagesAreListedByIdAndReadInBatches() = runBlocking {
+    @Test fun aSavedPagesNoteLinksAreSavedReplacedAndDeletedWithIt() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha), DocumentRow(2, 7, "b.md", "b", sha),
             DocumentRow(3, 7, "c.md", "c", sha)))
         dao.replaceDocuments(8, listOf(DocumentRow(4, 8, "d.md", "d", sha)))
-        val linking = """<main><a href="/note-link?target=b">b</a></main>"""
+        val linking = """<main><a href="/note-link?target=b">b</a><a href="/note-link?path=c.md&amp;heading=x">c</a></main>"""
         dao.saveNote(NoteRow(1, sha, "a.md", "a", linking, 0))
         dao.saveNote(NoteRow(2, sha, "b.md", "b", "<main>no links</main>", 0))
         dao.saveNote(NoteRow(4, sha, "d.md", "d", linking, 0))
         // Note 3 is listed but not saved; note 4 links but belongs to another repository.
-        assertEquals(listOf(1L), dao.notesWithNoteLinks(7))
-        assertEquals(listOf(SavedPage(1, linking)), dao.savedPages(listOf(1L, 3L)))
-        assertEquals(emptyList<SavedPage>(), dao.savedPages(emptyList()))
+        assertEquals(listOf(NoteLinkRow(1, 0, "target=b"), NoteLinkRow(1, 1, "path=c.md&heading=x")), dao.noteLinks(7))
+        dao.saveNote(NoteRow(1, sha, "a.md", "a", """<main><a href="/note-link?target=c">c</a></main>""", 0))
+        assertEquals(listOf(NoteLinkRow(1, 0, "target=c")), dao.noteLinks(7))
+        dao.deleteNotes(listOf(1L))
+        assertEquals(emptyList<NoteLinkRow>(), dao.noteLinks(7))
+        assertEquals(listOf(NoteLinkRow(4, 0, "target=b"), NoteLinkRow(4, 1, "path=c.md&heading=x")), dao.noteLinks(8))
     }
 
     private fun readAt(documentId: Long, blobSha: String, at: Long) =
