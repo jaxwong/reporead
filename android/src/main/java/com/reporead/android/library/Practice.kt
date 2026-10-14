@@ -50,7 +50,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.UUID
-import java.time.ZoneId
 import kotlin.random.Random
 
 internal data class PracticeQuestion(val documentId: Long, val title: String, val path: String, val blobSha: String, val question: StudyQuestion) {
@@ -93,10 +92,10 @@ internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<N
 }
 
 /**
- * The session's queue after grading its front question: one graded below Good goes to the back, to be answered again
- * until it is graded Good or Easy.
+ * The session's queue after grading its front question: one graded Again (a miss) goes to the back, to be answered again
+ * until it is answered right. Hard was right, so it leaves the session and keeps its gap.
  */
-internal fun afterGrade(queue: List<String>, grade: Int): List<String> = queue.drop(1) + if (grade < 4) queue.take(1) else emptyList()
+internal fun afterGrade(queue: List<String>, grade: Int): List<String> = queue.drop(1) + if (grade < 3) queue.take(1) else emptyList()
 
 internal fun inPracticeFolder(path: String, folder: String): Boolean {
     val prefix = folder.trim().trim('/')
@@ -155,7 +154,7 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
     val outlook = rememberReviewOutlook(dao)
     val cap by dao.reviewLimit().collectAsState(null)
     Column(Modifier.fillMaxSize()) {
-        outlook?.let { EntryRow("Review", outlookLine(it, cap, System.currentTimeMillis(), ZoneId.systemDefault()), R.drawable.ic_refresh) { push(Screen.Review) } }
+        outlook?.let { EntryRow("Review", outlookLine(it, cap), R.drawable.ic_refresh) { push(Screen.Review) } }
         StatusLine("New questions: each is asked once; your grade puts it on your review schedule.")
         val ready = banks
         val notebook = cards
@@ -195,7 +194,7 @@ private fun TopicRow(topic: String?, banks: Banks, scheduled: Set<String>, push:
 /**
  * One topic's new questions, one at a time: the question alone, then — after an attempt — the bank's checklist and the
  * linked section, then a grade. The first grade makes the question a card (Review cards brings it back when due); one
- * graded below Good comes back later in the session, unsaved, until it is graded Good or Easy.
+ * graded Again comes back later in the session, unsaved, until it is answered right.
  */
 @Composable
 internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (Screen) -> Unit, onBack: () -> Unit) {

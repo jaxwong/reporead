@@ -51,9 +51,9 @@ class PracticeTest {
         assertEquals(setOf(followUp.key), scheduledQuestions(listOf(followUp), listOf(card(3, "After you add a cache\n\nWhich key?", "Canonical path: Caching"))))
     }
 
-    @Test fun aQuestionGradedBelowGoodComesBackAtTheEndUntilGoodOrEasy() {
+    @Test fun aMissedQuestionComesBackAtTheEndUntilAnsweredRight() {
         assertEquals(listOf("b", "c", "a"), afterGrade(listOf("a", "b", "c"), 0))
-        assertEquals(listOf("b", "c", "a"), afterGrade(listOf("a", "b", "c"), 3))
+        assertEquals(listOf("b", "c"), afterGrade(listOf("a", "b", "c"), 3))
         assertEquals(listOf("b", "c"), afterGrade(listOf("a", "b", "c"), 4))
         assertEquals(listOf("b", "c"), afterGrade(listOf("a", "b", "c"), 5))
         assertEquals(listOf("a"), afterGrade(listOf("a"), 0))

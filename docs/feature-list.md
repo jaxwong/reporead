@@ -113,7 +113,7 @@ These are exclusions, not hidden stretch goals.
 | --- | --- |
 | Drawing edge to edge | When the reader hides the system bars, the camera cutout area shows as a black band. Left for the user to decide |
 | Phone storage eviction | None; every saved note is kept (ADR-19). Revisit if storage matters |
-| Scheduler | Fixed ladder of 1, 3, 7, 14, 30, 60, 120 days (replaced SM-2 on 2026-10-15); consider FSRS only if review data shows a need (ADR-13) |
+| Scheduler | Fixed gap ladder (replaced SM-2 on 2026-10-15); consider FSRS only if review data shows a need (ADR-13) |
 | Notebook paging | Not paged; revisit as the review log nears about 40,000 grades (ADR-13) |
 | KaTeX advisory | npm's only fix is downgrading Mermaid to 10.8.0; not applied, waiting for a Mermaid release |
 | AI-drafted questions | Intent recorded; not designed (ADR-20) |
