@@ -51,26 +51,11 @@ private fun dueDay(reviewedAt: Long, interval: Long, zone: ZoneId): Long {
     return if (start.isAfter(Instant.ofEpochMilli(Long.MAX_VALUE))) Long.MAX_VALUE else start.toEpochMilli()
 }
 
-internal fun cardCheckReason(item: NotebookItem): String? {
-    val row = item.annotation
-    require(row.type == "CARD") { "Expected CARD, got ${row.type} for ${row.mutationId}" }
-    return when {
-        row.rejection != null -> "Card not synced: ${row.rejection}"
-        item.removed -> "Note removed from the repository"
-        row.status == "ORPHANED" -> "Check this card: reattach its answer"
-        row.checkedBlobSha == null || row.checkedBlobSha != item.currentBlobSha || row.drawn.blobSha != item.currentBlobSha ||
-            (row.cachedCurrentBlobSha != null && row.checkedBlobSha != row.cachedCurrentBlobSha) ->
-            "Check this card: the note changed or its answer is unconfirmed"
-        item.savedBlobSha != item.currentBlobSha -> "Save the current note before reviewing"
-        else -> null
-    }
-}
-
 /**
  * A card a review session can show: the server did not refuse it and its note is still listed. A card that needs
  * checking is shown too, to be fixed in place; refused and removed ones are dealt with in Notebook.
  */
-private fun reviewable(item: NotebookItem) = item.annotation.type == "CARD" && item.annotation.rejection == null && !item.removed
+private fun reviewable(item: NotebookItem) = item.annotation.type == "CARD" && item.annotation.rejection == null && !item.annotation.cachedDeleted
 
 /** When each reviewable card is next due. */
 private fun dueTimes(items: List<NotebookItem>, reviews: List<ReviewRow>, zone: ZoneId): List<Pair<NotebookItem, Long>> {
@@ -98,7 +83,7 @@ internal fun reviewOutlook(items: List<NotebookItem>, reviews: List<ReviewRow>, 
     val due = times.filter { it.second <= now }
     val next = times.filter { it.second > now }.minOfOrNull { it.second }
     val nextDay = next?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
-    return ReviewOutlook(due.size, due.count { cardCheckReason(it.first) != null }, next,
+    return ReviewOutlook(due.size, due.count { (item) -> item.annotation.cardBlock(item.currentBlobSha, item.savedBlobSha) != null }, next,
         if (nextDay == null) 0 else times.count { it.second > now && Instant.ofEpochMilli(it.second).atZone(zone).toLocalDate() == nextDay })
 }
 

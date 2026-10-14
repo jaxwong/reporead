@@ -143,9 +143,9 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
                         item.annotation.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                         Text(item.annotation.drawn.exactText)
                         item.annotation.note?.let { Text(it) }
-                        val reason = if (item.annotation.type == "CARD") cardCheckReason(item)
+                        val reason = if (item.annotation.type == "CARD") item.annotation.cardBlock(item.currentBlobSha, item.savedBlobSha)?.reason
                             else if (item.annotation.status == "ORPHANED") "Orphaned passage" else null
-                        StatusLine(reason ?: item.annotation.rejection)
+                        StatusLine(listOfNotNull(reason, item.annotation.rejection).joinToString(": ").ifEmpty { null })
                         TextButton(onClick = { push(Screen.Reader(item.annotation.documentId, item.title, annotation = item.annotation.mutationId)) }) {
                             Text("Open passage")
                         }
@@ -346,7 +346,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             if (item == null) { Text("This card was deleted."); return@Column }
             val row = item.annotation
             Text(checkNotNull(row.question), style = MaterialTheme.typography.titleLarge)
-            if (cardCheckReason(item) != null) {
+            if (item.annotation.cardBlock(item.currentBlobSha, item.savedBlobSha) != null) {
                 // Confirmed, it goes to the back of the session like any card still to answer.
                 FixCard(item, sync, dao, push, onConfirmed = { next(ids.drop(1) + id) })
                 return@Column

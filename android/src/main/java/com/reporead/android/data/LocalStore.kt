@@ -105,6 +105,25 @@ data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?
 
     /** The server could not find it reliably in [blobSha]. */
     fun orphanedIn(blobSha: String) = status == "ORPHANED" && resolvedBlobSha == blobSha
+
+    /** Why this card cannot be graded in [currentBlobSha] (null: unlisted) with [savedBlobSha] saved; the phone's one rule (ADR-13). */
+    fun cardBlock(currentBlobSha: String?, savedBlobSha: String?): CardBlock? = when {
+        rejection != null -> CardBlock.NOT_SYNCED
+        cachedDeleted -> CardBlock.REMOVED
+        status == "ORPHANED" -> CardBlock.ORPHANED
+        checkedBlobSha == null || checkedBlobSha != currentBlobSha || drawn.blobSha != currentBlobSha ||
+            (cachedCurrentBlobSha != null && cachedCurrentBlobSha != currentBlobSha) -> CardBlock.UNCONFIRMED
+        savedBlobSha != currentBlobSha -> CardBlock.NOT_SAVED
+        else -> null
+    }
+}
+
+enum class CardBlock(val reason: String) {
+    NOT_SYNCED("Card not synced"),
+    REMOVED("Note removed from the repository"),
+    ORPHANED("Check this card: reattach its answer"),
+    UNCONFIRMED("Check this card: the note changed or its answer is unconfirmed"),
+    NOT_SAVED("Save the current note before reviewing"),
 }
 
 /**
@@ -125,7 +144,7 @@ data class ReviewRow(@PrimaryKey val mutationId: String, val cardMutationId: Str
 data class ReviewLimitRow(@PrimaryKey val id: Int = 1, val sessionLimit: Int)
 
 data class NotebookItem(@Embedded val annotation: AnnotationRow, val title: String, val path: String,
-                        val currentBlobSha: String?, val savedBlobSha: String?, val removed: Boolean)
+                        val currentBlobSha: String?, val savedBlobSha: String?)
 
 @Dao
 interface LibraryDao {
@@ -419,7 +438,7 @@ interface LibraryDao {
 
     @Query("""select a.*, coalesce(d.title, n.title, a.cachedTitle) as title,
               coalesce(d.path, n.path, a.cachedPath) as path, d.blobSha as currentBlobSha,
-              n.blobSha as savedBlobSha, a.cachedDeleted as removed
+              n.blobSha as savedBlobSha
               from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
               where not a.deleting order by a.createdAt, a.mutationId""")
     fun notebook(): Flow<List<NotebookItem>>
@@ -438,11 +457,8 @@ interface LibraryDao {
     suspend fun recordReview(row: ReviewRow): Boolean {
         require(row.grade in 0..5 && row.pending && row.rejection == null) { "Invalid local review ${row.mutationId}" }
         val card = annotation(row.cardMutationId) ?: return false
-        val current = document(card.documentId) ?: return false
-        val saved = note(card.documentId) ?: return false
-        if (card.type != "CARD" || card.deleting || card.rejection != null || card.cachedDeleted || card.status == "ORPHANED" ||
-            card.checkedBlobSha != row.blobSha || card.drawn.blobSha != row.blobSha || current.blobSha != row.blobSha ||
-            saved.blobSha != row.blobSha || (card.cachedCurrentBlobSha != null && card.cachedCurrentBlobSha != row.blobSha)) return false
+        if (card.type != "CARD" || card.deleting || row.blobSha != document(card.documentId)?.blobSha ||
+            card.cardBlock(row.blobSha, note(card.documentId)?.blobSha) != null) return false
         saveReview(row)
         return true
     }
