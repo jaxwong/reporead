@@ -89,12 +89,21 @@ public class AppSessions {
             .filter(user -> allowed.allows(user.githubUserId()));
     }
 
-    /** Deletes the user, their sign-in codes, and every session; their other data must already be deleted. */
     /** Locks the user's row for account deletion; must run inside that transaction, before listing what to delete. */
     void lockUserForDeletion(long userId) {
         db.sql("select id from users where id = :userId for update").param("userId", userId).query(Long.class).single();
     }
 
+    /**
+     * Holds off account deletion while a row that only the user owns commits (a new repository connection); must run
+     * inside that write's transaction, before it writes. False when the account is gone, including deleted by a
+     * deletion this call waited for, so the write never reaches a foreign-key failure.
+     */
+    public boolean lockUserForWrite(long userId) {
+        return db.sql("select id from users where id = :userId for share").param("userId", userId).query(Long.class).optional().isPresent();
+    }
+
+    /** Deletes the user, their sign-in codes, and every session; their other data must already be deleted. */
     void deleteUser(long userId) {
         db.sql("delete from app_sign_in_codes where user_id = :userId").param("userId", userId).update();
         db.sql("delete from app_sessions where user_id = :userId").param("userId", userId).update();

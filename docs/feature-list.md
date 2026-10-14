@@ -122,7 +122,6 @@ These are exclusions, not hidden stretch goals.
 
 Noticed and deliberately not changed:
 
-- A repository `connect` racing account deletion can fail with a 500 for the connect.
 - Whether a card can be graded is decided in three places (`cardCheckReason`, `recordReview`, and the Notes label).
 - `android/reader-web/check-restore.mjs` keeps its own copies of reader functions.
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
