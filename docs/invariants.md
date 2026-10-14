@@ -22,11 +22,11 @@ These come from the original implementation spec's engineering invariants and th
 | --- | --- |
 | Note content and history | GitHub |
 | Users, sessions, connections, document identity, reading state, annotations, the review log, the session limit, every reconciliation decision | Backend and PostgreSQL |
-| Saved copies, pending changes, change baselines, the SM-2 schedule | Phone (Room) |
+| Saved copies, pending changes, change baselines, the review schedule | Phone (Room) |
 | Metrics and logs | Projections only, never read back as state |
 
 - Enforced by: Room replaces server lists only with complete responses; the server stores no due dates; the phone computes no reconciliation.
-- Why: [ADR-01](adrs.md#adr-01--a-spring-boot-backend-between-the-phone-and-github), [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-sm-2-scheduling), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
+- Why: [ADR-01](adrs.md#adr-01--a-spring-boot-backend-between-the-phone-and-github), [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
 
 ### Source traceability
 
@@ -66,7 +66,7 @@ These come from the original implementation spec's engineering invariants and th
 **Replaying a client mutation id never creates a second annotation or grade.**
 
 - Enforced by: `annotation_mutations` and `review_log` are keyed by user and client UUID; a replay returns the original, reuse with different content is 409 `MUTATION_ID_REUSED`, and a replay after deletion is 410.
-- Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-sm-2-scheduling).
+- Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling).
 
 ### No silent overwrite
 
@@ -80,7 +80,7 @@ These come from the original implementation spec's engineering invariants and th
 **A card whose note changed is not graded until its answer is resolved in the new version and confirmed.**
 
 - Enforced by: the server rejects a new grade of an outdated answer (409 `CARD_CHANGED`); the phone leaves such cards out of grading until checked.
-- Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-sm-2-scheduling).
+- Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling).
 
 ## Security and privacy
 

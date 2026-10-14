@@ -8,49 +8,42 @@ import com.reporead.android.reader.StudyQuestion
 import com.reporead.android.reader.interviewBank
 import org.jsoup.Jsoup
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
-import kotlin.math.ceil
 import kotlin.random.Random
 
-internal data class ReviewSchedule(val dueAt: Long, val repetitions: Int, val intervalDays: Long, val ease: Double)
+/** A card's next due time and the [step] of [STEPS] its last saved grade put it on; null before its first grade. */
+internal data class ReviewSchedule(val dueAt: Long, val step: Int?)
 
-/** The grades offered, on SM-2's 0–5 scale: below 3 is a lapse. */
+/** The days between reviews, one step per Good: a fixed ladder, so each grade's effect is predictable. */
+internal val STEPS = listOf(1L, 3, 7, 14, 30, 60, 120)
+
+/** The grades offered, stored on a 0–5 scale (the server accepts 0–5): below 3 is Again. */
 internal val GRADES = listOf(0 to "Again", 3 to "Hard", 4 to "Good", 5 to "Easy")
 
 /** What each grade means against the answer shown, so a missed point is graded Again rather than Hard (Hard passes the card). */
 internal const val GRADE_MEANING = "Again: wrong, or missed a point. Hard, Good, Easy: right, with serious effort, some hesitation, or none."
 
 /**
- * The sole scheduler: SM-2 over the immutable log, ordered independently of arrival order (Wozniak's description,
- * super-memory.com/english/ol/sm2.htm). Intervals are 1, 6, then ceil(previous × ease) days; a grade of 3 or more
- * adjusts the ease, floored at 1.3; a grade below 3 restarts repetitions without changing the ease. A card is due from
- * the start of the local day in [zone] that its interval ends on, so an evening review is due the next morning.
+ * The step a [grade] moves a card on [step] (null when new) to: Again goes back to the first step; Hard stays, Good climbs
+ * one and Easy two, from one below the first for a new card, capped at the last.
  */
-internal fun scheduleReviews(createdAt: Long, reviews: List<ReviewRow>, zone: ZoneId): ReviewSchedule {
-    var state = ReviewSchedule(createdAt, 0, 0, 2.5)
-    for (review in reviews.filter { it.rejection == null }.sortedWith(compareBy({ it.reviewedAt }, { it.mutationId }))) {
-        require(review.grade in 0..5) { "Review ${review.mutationId} has grade ${review.grade}; expected 0..5" }
-        val lapse = review.grade < 3
-        val interval = when {
-            lapse || state.repetitions == 0 -> 1L
-            state.repetitions == 1 -> 6L
-            else -> ceil(state.intervalDays * state.ease).toLong()
-        }
-        val distance = 5 - review.grade
-        val ease = if (lapse) state.ease else (state.ease + 0.1 - distance * (0.08 + distance * 0.02)).coerceAtLeast(1.3)
-        state = ReviewSchedule(dueDay(review.reviewedAt, interval, zone), if (lapse) 0 else state.repetitions + 1, interval, ease)
-    }
-    return state
-}
+internal fun nextStep(step: Int?, grade: Int): Int = if (grade < 3) 0 else ((step ?: -1) + grade - 3).coerceIn(0, STEPS.lastIndex)
 
-/** The start of the local day [interval] days after [reviewedAt]'s; saturates instead of wrapping a distant date into the past. */
-private fun dueDay(reviewedAt: Long, interval: Long, zone: ZoneId): Long {
-    val day = Instant.ofEpochMilli(reviewedAt).atZone(zone).toLocalDate()
-    if (interval > LocalDate.MAX.toEpochDay() - day.toEpochDay()) return Long.MAX_VALUE
-    val start = day.plusDays(interval).atStartOfDay(zone).toInstant()
-    return if (start.isAfter(Instant.ofEpochMilli(Long.MAX_VALUE))) Long.MAX_VALUE else start.toEpochMilli()
-}
+/** The days until a card on [step] is due again after each of [GRADES]. */
+internal fun gaps(step: Int?): List<Long> = GRADES.map { (grade) -> STEPS[nextStep(step, grade)] }
+
+/**
+ * The sole scheduler: the ladder over the immutable log, ordered independently of arrival order. A card is due from the
+ * start of the local day in [zone] that its step's gap ends on, so an evening review is due the next morning.
+ */
+internal fun scheduleReviews(createdAt: Long, reviews: List<ReviewRow>, zone: ZoneId): ReviewSchedule =
+    reviews.filter { it.rejection == null }.sortedWith(compareBy({ it.reviewedAt }, { it.mutationId }))
+        .fold(ReviewSchedule(createdAt, null)) { state, review ->
+            require(review.grade in 0..5) { "Review ${review.mutationId} has grade ${review.grade}; expected 0..5" }
+            val step = nextStep(state.step, review.grade)
+            val day = Instant.ofEpochMilli(review.reviewedAt).atZone(zone).toLocalDate()
+            ReviewSchedule(day.plusDays(STEPS[step]).atStartOfDay(zone).toInstant().toEpochMilli(), step)
+        }
 
 /**
  * A card a review session can show: the server did not refuse it and its note is still listed. A card that needs
@@ -74,18 +67,20 @@ internal fun dueSession(items: List<NotebookItem>, reviews: List<ReviewRow>, now
 }
 
 /**
- * What review holds now: [due] cards, of which [blocked] need checking first, and when none are due, the start of the
- * next day with cards due ([next], null with no cards) and how many fall due that day.
+ * What review holds now: [due] cards, of which [blocked] need checking first; the start of the next day with cards due
+ * ([next], null when none are scheduled) and how many fall due that day; and how many fall due in the [week] after today.
  */
-internal data class ReviewOutlook(val due: Int, val blocked: Int, val next: Long?, val nextCount: Int)
+internal data class ReviewOutlook(val due: Int, val blocked: Int, val next: Long?, val nextCount: Int, val week: Int)
 
 internal fun reviewOutlook(items: List<NotebookItem>, reviews: List<ReviewRow>, now: Long, zone: ZoneId): ReviewOutlook {
     val times = dueTimes(items, reviews, zone)
     val due = times.filter { it.second <= now }
-    val next = times.filter { it.second > now }.minOfOrNull { it.second }
-    val nextDay = next?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
-    return ReviewOutlook(due.size, due.count { (item) -> item.annotation.cardBlock(item.currentBlobSha, item.savedBlobSha) != null }, next,
-        if (nextDay == null) 0 else times.count { it.second > now && Instant.ofEpochMilli(it.second).atZone(zone).toLocalDate() == nextDay })
+    val later = times.map { it.second }.filter { it > now }
+    val next = later.minOrNull()
+    val day = { at: Long -> Instant.ofEpochMilli(at).atZone(zone).toLocalDate() }
+    val weekEnd = day(now).plusDays(8).atStartOfDay(zone).toInstant().toEpochMilli()
+    return ReviewOutlook(due.size, due.count { (item) -> item.annotation.cardBlock(item.currentBlobSha, item.savedBlobSha) != null },
+        next, if (next == null) 0 else later.count { day(it) == day(next) }, later.count { it < weekEnd })
 }
 
 /** Exact canonical context, not an inferred answer or rendered DOM text. Null means the saved page cannot verify it. */

@@ -159,19 +159,27 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
 
 /**
  * The grades in one row under the answer, so grading never needs scrolling past it; Again, the only failing grade, is
- * set apart from the three that pass.
+ * set apart from the three that pass. Each shows the days until the card is due again ([gaps]); null when this grade is
+ * not saved, so does not schedule.
  */
 @Composable
-internal fun GradeBar(enabled: Boolean, onGrade: (Int) -> Unit) {
+internal fun GradeBar(enabled: Boolean, gaps: List<Long>?, onGrade: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(GRADE_MEANING, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for ((grade, label) in GRADES) {
+            for ((index, choice) in GRADES.withIndex()) {
+                val (grade, label) = choice
                 val modifier = Modifier.weight(1f)
                 val padding = PaddingValues(horizontal = 4.dp)
+                val content: @Composable () -> Unit = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(label)
+                        gaps?.let { Text(counted(it[index].toInt(), "day"), style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
                 if (grade < 3) OutlinedButton(enabled = enabled, modifier = modifier, contentPadding = padding, onClick = { onGrade(grade) },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(label) }
-                else Button(enabled = enabled, modifier = modifier, contentPadding = padding, onClick = { onGrade(grade) }) { Text(label) }
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) { content() }
+                else Button(enabled = enabled, modifier = modifier, contentPadding = padding, onClick = { onGrade(grade) }) { content() }
             }
         }
     }
@@ -187,15 +195,23 @@ internal fun rememberReviewOutlook(dao: LibraryDao): ReviewOutlook? {
     return remember(ready, log) { if (ready == null || log == null) null else reviewOutlook(ready, log, System.currentTimeMillis(), ZoneId.systemDefault()) }
 }
 
-/** One line on what review holds: the due count, or the day the next cards fall due. [cap] is the server's session size. */
-internal fun outlookLine(outlook: ReviewOutlook, cap: Int?, zone: ZoneId): String = when {
-    outlook.due > 0 -> listOfNotNull("${outlook.due} due", cap?.takeIf { outlook.due > it }?.let { "$it per session" },
-        outlook.blocked.takeIf { it > 0 }?.let { "$it to check first" }).joinToString(" · ")
-    outlook.next != null -> "Nothing due · next on " +
-        Instant.ofEpochMilli(outlook.next).atZone(zone).format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())) +
-        ", ${counted(outlook.nextCount, "card")}"
-    else -> "No cards yet: grade a question below, or make one from a passage in a note."
+/**
+ * One line on what review holds: the due count, then what falls due next — tomorrow or on the next day with cards — and
+ * in the 7 days after today. [cap] is the server's session size.
+ */
+internal fun outlookLine(outlook: ReviewOutlook, cap: Int?, now: Long, zone: ZoneId): String {
+    val next = outlook.next ?: return if (outlook.due > 0) dueParts(outlook, cap).joinToString(" · ")
+        else "No cards yet: grade a question below, or make one from a passage in a note."
+    val nextDay = Instant.ofEpochMilli(next).atZone(zone).toLocalDate()
+    val upcoming = if (nextDay == Instant.ofEpochMilli(now).atZone(zone).toLocalDate().plusDays(1)) "${outlook.nextCount} tomorrow"
+        else "next on ${nextDay.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))}, ${counted(outlook.nextCount, "card")}"
+    return (dueParts(outlook, cap) + upcoming + listOfNotNull(outlook.week.takeIf { it > outlook.nextCount }?.let { "$it in the next 7 days" }))
+        .joinToString(" · ")
 }
+
+private fun dueParts(outlook: ReviewOutlook, cap: Int?): List<String> = if (outlook.due == 0) listOf("Nothing due")
+    else listOfNotNull("${outlook.due} due", cap?.takeIf { outlook.due > it }?.let { "$it per session" },
+        outlook.blocked.takeIf { it > 0 }?.let { "$it to check first" })
 
 /** A card's answer from the saved copy of its version; null while reading or when that copy cannot verify it. */
 @Composable
@@ -279,7 +295,7 @@ private fun ColumnScope.FixCard(item: NotebookItem, sync: Sync, dao: LibraryDao,
 /**
  * The due cards, one at a time: the question alone, then — after an attempt — its answer, then a grade under it. A card's
  * first grade in the session is saved; one graded below Good comes back later in the session, unsaved, until it is graded
- * Good or Easy (SM-2 step 7). A card that needs checking is shown with its fix instead.
+ * Good or Easy. A card that needs checking is shown with its fix instead.
  */
 @Composable
 internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, onBack: () -> Unit) {
@@ -332,7 +348,8 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             val graded = log.filter { it.rejection == null && it.reviewedAt >= startedAt }.map { it.cardMutationId }.toSet()
             val id = ids.firstOrNull()
             if (id == null) {
-                Text(if (started.isEmpty()) outlookLine(reviewOutlook(ready, log, System.currentTimeMillis(), ZoneId.systemDefault()), cap, ZoneId.systemDefault())
+                val now = System.currentTimeMillis()
+                Text(if (started.isEmpty()) outlookLine(reviewOutlook(ready, log, now, ZoneId.systemDefault()), cap, now, ZoneId.systemDefault())
                     else "Session complete: ${counted(started.count { it in graded }, "card")} reviewed.")
                 TextButton(onClick = onBack) { Text("Finish") }
                 return@Column
@@ -364,7 +381,8 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             else CardAnswer(item, answer, sync, dao, push)
             TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, annotation = id)) }) { Text("Open in note") }
             // Each saved grade is one immutable local mutation; the background sync sends it.
-            if (answer != null) GradeBar(enabled = !saving) { grade ->
+            val step = scheduleReviews(row.createdAt, log.filter { it.cardMutationId == id }, ZoneId.systemDefault()).step
+            if (answer != null) GradeBar(enabled = !saving, gaps = if (again) null else gaps(step)) { grade ->
                 if (again) next(afterGrade(ids, grade))
                 else {
                     saving = true

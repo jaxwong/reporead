@@ -12,7 +12,7 @@ RepoRead is a reading and study layer over Markdown notes in GitHub. Three thing
 | --- | --- | --- |
 | **GitHub** | The notes themselves (canonical, read-only to RepoRead) | Anything of RepoRead's |
 | **Backend** (Spring Boot + PostgreSQL) | Users, sessions, each user's GitHub tokens (encrypted), repository connections, document identity and versions, reading state, bookmarks, highlights, cards, the review log; every reconciliation decision | Note bodies (fetched by blob SHA on demand, never cached) |
-| **Phone** (Android + Room) | A projection of the server's lists, saved rendered copies of opened notes, pending local changes, the SM-2 schedule | GitHub credentials |
+| **Phone** (Android + Room) | A projection of the server's lists, saved rendered copies of opened notes, pending local changes, the review schedule | GitHub credentials |
 
 ```mermaid
 flowchart LR
@@ -284,7 +284,7 @@ flowchart TB
         Api["core/network/Api<br/>HTTP + JSON, 8 MiB cap"]
         Images["sync/NoteImages<br/>saved notes' images,<br/>outside the lock"]
         Session["auth/SessionStore<br/>Keystore AES-GCM bearer token"]
-        Sched["library/Review<br/>pure SM-2 scheduler"]
+        Sched["library/Review<br/>pure review scheduler"]
         StudyK["reader/Study<br/>bank / study-view recognition"]
     end
 
@@ -317,7 +317,7 @@ flowchart TB
 | `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made |
 | `data` | `LocalStore`: Room entities and DAOs (schema history in `android/schemas/`) |
 | `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion, all under sign-out's lock (ADR-22); `NoteImages`: saved notes' images, fetched for the reader's WebView outside the lock (Sync deletes them with their notes); `ServerJson.kt`: server responses as Room rows; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
-| `library` | Library tabs, Notebook (with Markdown export), Practice sessions, Review sessions, and the SM-2 scheduler (`Review.kt`) |
+| `library` | Library tabs, Notebook (with Markdown export), Practice sessions, Review sessions, and the review scheduler (`Review.kt`) |
 | `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
@@ -494,7 +494,7 @@ stateDiagram-v2
 
 ### Practice and review
 
-Cards are anchored annotations with a question. The server owns the immutable review log and the session limit; the phone owns scheduling ([ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-sm-2-scheduling)).
+Cards are anchored annotations with a question. The server owns the immutable review log and the session limit; the phone owns scheduling ([ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling)).
 
 ```mermaid
 flowchart LR
@@ -511,8 +511,8 @@ flowchart LR
     Grade["Grade 0 / 3 / 4 / 5<br/>pending, client UUID"]
     Grade -- "sync" --> Log["Server: review_log<br/>immutable, idempotent"]
     Log -- "GET /api/notebook" --> Proj["Room: review_log projection"]
-    Proj --> SM2["library/Review.kt<br/>SM-2 over the log"]
-    SM2 --> Due["Due cards → Review session<br/>capped at 40 (server-owned)"]
+    Proj --> Ladder["library/Review.kt<br/>gap ladder over the log"]
+    Ladder --> Due["Due cards → Review session<br/>capped at 40 (server-owned)"]
     Due --> Grade
 
     Changed{"Note version changed<br/>since the answer was checked?"}

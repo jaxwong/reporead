@@ -185,7 +185,7 @@ Added after the MVP with the user's approval (see the [feature list](feature-lis
 **Acceptance criteria**
 
 - I can make a card from a Practice question, a selected passage, or a highlight.
-- The Practice tab says how many cards are due or when the next are; a session asks each due card and schedules it from my grade.
+- The Practice tab says how many cards are due now, how many fall due next and in the coming week; a session asks each due card, each grade shows when the card comes back, and my grade schedules it.
 - Grades made offline sync once, even when sent again.
 - A card whose note changed is not drilled until I confirm or reattach its answer.
 - I can see every highlight and card in one notebook, filter it, and export it as Markdown.
