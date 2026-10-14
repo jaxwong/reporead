@@ -555,6 +555,65 @@ class AnnotationTest {
         assertEquals(0, count("annotations"));
     }
 
+    @Test void aGradeRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long id = createdId(cardBody());
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            // Holds the connection's lock as RepositoryController.disconnect does while the grade arrives.
+            var disconnect = executor.submit(() -> transaction.execute(status -> {
+                connections.lockForSync(1, 1);
+                locked.countDown();
+                try {
+                    assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                    throw new IllegalStateException("Interrupted while holding the test disconnect", interrupted);
+                }
+                return data.delete(1);
+            }));
+            assertTrue(locked.await(10, TimeUnit.SECONDS));
+            var grading = executor.submit(() -> grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andReturn().getResponse().getStatus());
+            Thread.sleep(300);
+            assertFalse(grading.isDone(), "the grade must wait for the disconnect");
+            release.countDown();
+            disconnect.get(10, TimeUnit.SECONDS);
+            assertEquals(404, grading.get(10, TimeUnit.SECONDS));
+        }
+        assertEquals(0, count("review_log"));
+    }
+
+    @Test void aGradeDoesNotWaitForAnotherWriteToTheSameRepository() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long id = createdId(cardBody());
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            // Holds the shared document lock, as a reading position or bookmark being saved does.
+            var writing = executor.submit(() -> transaction.execute(status -> {
+                connections.lockForDocumentWrite(1, note);
+                locked.countDown();
+                try {
+                    assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                    throw new IllegalStateException("Interrupted while holding the test write", interrupted);
+                }
+                return null;
+            }));
+            assertTrue(locked.await(10, TimeUnit.SECONDS));
+            var grading = executor.submit(() -> grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andReturn().getResponse().getStatus());
+            try {
+                assertEquals(200, grading.get(5, TimeUnit.SECONDS), "the grade must not wait for another write");
+            } finally {
+                release.countDown();
+            }
+            writing.get(10, TimeUnit.SECONDS);
+        }
+        assertEquals(1, count("review_log"));
+    }
+
     @Test void aResolutionReadBeforeTheUsersReattachmentDoesNotOverwriteIt() throws Exception {
         expectSource(ExpectedCount.times(2));
         long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));

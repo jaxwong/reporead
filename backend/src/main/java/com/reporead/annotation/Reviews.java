@@ -68,12 +68,11 @@ public class Reviews {
                 + " minutes ahead, and the verified answer's blob SHA.");
         }
         var result = transaction.execute(tx -> {
-            // Same lock order as repository refresh/disconnect: connection first, then annotations.
-            long connectionId = db.sql("""
-                    select d.repository_connection_id from annotations a join documents d on d.id = a.document_id
-                    where a.id = :id and a.user_id = :userId and a.type = 'CARD'""")
+            // Same lock order as repository refresh/disconnect: connection first, then annotations. The shared lock, like
+            // every write to a document: a refresh or disconnect waits for the grade, other writes do not.
+            long documentId = db.sql("select document_id from annotations where id = :id and user_id = :userId and type = 'CARD'")
                 .param("id", id).param("userId", user.id()).query(Long.class).optional().orElseThrow(ApiFailure::notFound);
-            connections.lockForSync(user.id(), connectionId);
+            connections.lockForDocumentWrite(user.id(), documentId);
             var current = db.sql("""
                     select a.checked_blob_sha, d.current_blob_sha, d.deleted_at is not null, a.status
                     from annotations a join documents d on d.id = a.document_id
