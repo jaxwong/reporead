@@ -93,7 +93,7 @@ private fun figureView(context: android.content.Context, sync: com.reporead.andr
             // Nothing navigates here; links are followed in the reader.
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
 
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync, note, request.url)
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync.images, note, request.url)
 
             override fun onPageFinished(view: WebView, url: String) = awaitRendered(view, main) { state, _ ->
                 if (state != "ready") {

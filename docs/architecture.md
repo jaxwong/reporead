@@ -282,6 +282,7 @@ flowchart TB
         Sync["sync/Sync<br/>owns every server call<br/>whose answer reaches Room"]
         Store["data/LocalStore<br/>Room database + DAOs"]
         Api["core/network/Api<br/>HTTP + JSON, 8 MiB cap"]
+        Images["sync/NoteImages<br/>saved notes' images,<br/>outside the lock"]
         Session["auth/SessionStore<br/>Keystore AES-GCM bearer token"]
         Sched["library/Review<br/>pure SM-2 scheduler"]
         StudyK["reader/Study<br/>bank / study-view recognition"]
@@ -305,7 +306,9 @@ flowchart TB
     Available -- "list, connect" --> Api
     Sync --> Store
     Api --> Session
-    Page -- "images" --> Sync
+    Page -- "images" --> Images
+    Sync --> Images
+    Images --> Api
 ```
 
 | Package | Owns |
@@ -313,7 +316,7 @@ flowchart TB
 | `auth` | PKCE sign-in through a Custom Tab; the encrypted bearer session |
 | `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made |
 | `data` | `LocalStore`: Room entities and DAOs (schema history in `android/schemas/`) |
-| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion, all under sign-out's lock (ADR-22); `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
+| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion, all under sign-out's lock (ADR-22); `NoteImages`: saved notes' images, fetched for the reader's WebView outside the lock (Sync deletes them with their notes); `ServerJson.kt`: server responses as Room rows; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
 | `library` | Library tabs, Notebook (with Markdown export), Practice sessions, Review sessions, and the SM-2 scheduler (`Review.kt`) |
 | `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |

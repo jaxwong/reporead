@@ -485,7 +485,7 @@ private class ReaderSession(
                 }
 
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                    readerResource(assets, sync, note, request.url)
+                    readerResource(assets, sync.images, note, request.url)
 
                 override fun onPageFinished(view: WebView, url: String) = awaitReady(view)
             }

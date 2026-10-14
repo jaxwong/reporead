@@ -91,7 +91,7 @@ private fun previewView(context: android.content.Context, sync: Sync, note: Note
             // Links are followed from the reader, not from a preview.
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
 
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync, note, request.url)
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync.images, note, request.url)
 
             override fun onPageFinished(view: WebView, url: String) = awaitRendered(view, main) { state, _ ->
                 if (state != "ready") {

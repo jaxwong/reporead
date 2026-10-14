@@ -148,7 +148,7 @@ private fun sectionView(context: Context, sync: Sync, note: NoteRow, heading: St
                 return true
             }
 
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync, note, request.url)
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync.images, note, request.url)
 
             override fun onPageFinished(view: WebView, url: String) = awaitRendered(view, main) { state, _ ->
                 if (state != "ready") {
