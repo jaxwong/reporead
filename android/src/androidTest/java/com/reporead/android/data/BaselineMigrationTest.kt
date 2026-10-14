@@ -19,8 +19,7 @@ class BaselineMigrationTest {
                 exactText, note, version, createdAt, pending, rejection) values ('offline', null, 1, 'sha', 'b1', 0, 4, 'text', 'mine', 1, 0, 1, null)""")
         }) { dao ->
             val highlight = checkNotNull(dao.annotation("offline"))
-            assertTrue(highlight.pending)
-            assertFalse(highlight.deleting)
+            assertEquals(AnnotationState.UNSENT, highlight.state)
             assertEquals(listOf("offline"), dao.annotations(1).first().map { it.mutationId })
             assertTrue(dao.reading(1)!!.pending)
             assertNull(dao.changeBaseline(1))

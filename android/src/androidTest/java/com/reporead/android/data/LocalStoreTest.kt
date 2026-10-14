@@ -170,7 +170,7 @@ class LocalStoreTest {
             DocumentRow(2, 7, "db/Postgres.md", "Postgres", "b".repeat(40)), DocumentRow(3, 7, "misc/100_percent.md", "100_percent", "c".repeat(40))))
         dao.saveNote(NoteRow(2, "b".repeat(40), "db/Postgres.md", "Postgres", "<html/>", 0, "MVCC\nUse 100% of the TRANSACTION log"))
         dao.saveNote(NoteRow(9, "d".repeat(40), "gone/Old.md", "Old", "<html/>", 0, null))
-        dao.saveAnnotation(AnnotationRow("m1", 5, 1, "a".repeat(40), "b1", 0, 4, "Propagation", "about transactions", 1, 0, pending = false, rejection = null))
+        dao.saveAnnotation(AnnotationRow("m1", 5, 1, "a".repeat(40), "b1", 0, 4, "Propagation", "about transactions", 1, 0, state = AnnotationState.ACKNOWLEDGED))
 
         // Title in a saved list, saved text (ASCII case-insensitive), and a highlight's note all match "transaction".
         assertEquals(listOf(2L), dao.searchNotes("%transaction%", 50).filter { it.searchText != null }.map { it.documentId })
@@ -193,7 +193,7 @@ class LocalStoreTest {
             dao.saveNote(NoteRow(id, "a".repeat(40), "n.md", "n", "<html/>", 0, "text"))
             dao.saveReading(readAt(id, "a".repeat(40), at = id).copy(pending = id == 2L))
             dao.saveBookmark(bookmark(id, bookmarked = true, pending = false, at = id))
-            dao.saveAnnotation(annotation("m$id", null, null, pending = true).copy(documentId = id))
+            dao.saveAnnotation(annotation("m$id", null, null, AnnotationState.UNSENT).copy(documentId = id))
         }
         // Document 2 was deleted upstream: it is in the server's list of the connection's documents, not in the saved list.
         dao.forgetRepository(7, listOf(1L, 2L))
@@ -203,7 +203,7 @@ class LocalStoreTest {
         assertNull(dao.note(1)); assertNull(dao.note(2)); assertEquals("text", dao.note(3)!!.searchText)
         assertNull(dao.reading(2)); assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
         assertEquals(listOf(3L), dao.bookmarks().first().map { it.documentId })
-        assertEquals(listOf("m3"), dao.pendingAnnotations().map { it.mutationId })
+        assertEquals(listOf("m3"), dao.waitingAnnotations().map { it.mutationId })
     }
 
     @Test fun aRepositoryMissingFromTheServersListIsForgottenWithItsNotesAndUnsentWork() = runBlocking {
@@ -213,7 +213,7 @@ class LocalStoreTest {
         for (id in listOf(1L, 3L)) {
             dao.saveNote(NoteRow(id, "a".repeat(40), "n.md", "n", "<html/>", 0, "text"))
             dao.saveReading(readAt(id, "a".repeat(40), at = id).copy(pending = true))
-            dao.saveAnnotation(annotation("m$id", null, null, pending = true).copy(documentId = id))
+            dao.saveAnnotation(annotation("m$id", null, null, AnnotationState.UNSENT).copy(documentId = id))
         }
         // Disconnected with its answer lost, or from another device: the server no longer lists repository 7.
         assertEquals(listOf(1L), dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40)))))
@@ -240,7 +240,7 @@ class LocalStoreTest {
         for (id in 1L..5L) dao.saveNote(NoteRow(id, "a".repeat(40), "n$id.md", "n", "<html/>", 0))
         dao.saveReading(readAt(2, "a".repeat(40), at = 1))
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = false, at = 1))
-        dao.saveAnnotation(annotation("m4", 4, null, pending = false).copy(documentId = 4))
+        dao.saveAnnotation(annotation("m4", 4, null, AnnotationState.ACKNOWLEDGED).copy(documentId = 4))
         assertEquals(listOf(5L), dao.forgetUnreferencedNotes())
         assertEquals(listOf(1L, 2L, 3L, 4L), (1L..5L).filter { dao.note(it) != null })
     }
@@ -248,11 +248,11 @@ class LocalStoreTest {
     @Test fun unsentCountsIncludeRefusedWorkAndStayWithinTheirRepository() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
-        dao.saveAnnotation(annotation("pending", null, null, pending = true).copy(documentId = 1))
-        dao.saveAnnotation(annotation("refused", null, null, pending = true, rejection = "Refused").copy(documentId = 1))
-        dao.saveAnnotation(annotation("card", 9, null, pending = false).copy(documentId = 1, type = "CARD", question = "Why?"))
+        dao.saveAnnotation(annotation("pending", null, null, AnnotationState.UNSENT).copy(documentId = 1))
+        dao.saveAnnotation(annotation("refused", null, null, AnnotationState.REFUSED, "Refused").copy(documentId = 1))
+        dao.saveAnnotation(annotation("card", 9, null, AnnotationState.ACKNOWLEDGED).copy(documentId = 1, type = "CARD", question = "Why?"))
         dao.saveReview(ReviewRow("grade", "card", 4, 1, "a".repeat(40), true))
-        dao.saveAnnotation(annotation("elsewhere", null, null, pending = true).copy(documentId = 3))
+        dao.saveAnnotation(annotation("elsewhere", null, null, AnnotationState.UNSENT).copy(documentId = 3))
         dao.saveReading(readAt(3, "a".repeat(40), at = 1).copy(pending = true))
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = true, at = 1))
         assertEquals(3, dao.unsentInRepository(7))
@@ -285,45 +285,45 @@ class LocalStoreTest {
 
     @Test fun aCreationDeletedBeforeItsAcknowledgementStaysDeletedThroughServerLists() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
-        dao.saveAnnotation(annotation("deleted", null, null, pending = true).copy(type = "CARD", question = "Why?"))
+        dao.saveAnnotation(annotation("deleted", null, null, AnnotationState.UNSENT).copy(type = "CARD", question = "Why?"))
         dao.saveReview(ReviewRow("grade", "deleted", 4, 1, "a".repeat(40), pending = true))
         dao.markDeleting("deleted")
         assertTrue(dao.annotations(1).first().isEmpty())
         assertTrue(dao.notebook().first().isEmpty())
         assertTrue(dao.searchHighlights("%text%", 10).isEmpty())
         assertTrue(dao.pendingReviews().isEmpty())
-        assertEquals(listOf("deleted"), dao.pendingAnnotations().map { it.mutationId })
+        assertEquals(listOf("deleted"), dao.waitingAnnotations().map { it.mutationId })
         // The server had it after all (a lost acknowledgement), from a listing, the notebook, or a late answer.
-        val serverCopy = annotation("deleted", 9, null, pending = false)
+        val serverCopy = annotation("deleted", 9, null, AnnotationState.ACKNOWLEDGED)
         dao.replaceRemoteAnnotations(1, listOf(serverCopy))
         dao.replaceRemoteNotebook(listOf(serverCopy), emptyList(), 40)
         dao.saveServerAnnotation(serverCopy)
         val kept = dao.annotation("deleted")!!
-        assertTrue(kept.deleting && kept.pending)
+        assertEquals(AnnotationState.DELETING, kept.state)
         assertEquals(9L, kept.serverId)
         assertTrue(dao.annotations(1).first().isEmpty())
         assertEquals(1, dao.unsentInRepository(7))
     }
 
-    private fun annotation(mutationId: String, serverId: Long?, note: String?, pending: Boolean, rejection: String? = null) =
-        AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, pending, rejection)
+    private fun annotation(mutationId: String, serverId: Long?, note: String?, state: AnnotationState, rejection: String? = null) =
+        AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, state, rejection)
 
     @Test fun serverAnnotationListAcknowledgesAMatchingPendingCreationAndKeepsOthers() = runBlocking {
-        dao.saveAnnotation(annotation("lost-ack", null, "mine", pending = true))
-        dao.saveAnnotation(annotation("offline", null, "later", pending = true))
-        dao.saveAnnotation(annotation("deleted-elsewhere", 9, null, pending = false))
-        dao.replaceRemoteAnnotations(1, listOf(annotation("lost-ack", 7, "mine", pending = false), annotation("other-device", 8, null, pending = false)))
+        dao.saveAnnotation(annotation("lost-ack", null, "mine", AnnotationState.UNSENT))
+        dao.saveAnnotation(annotation("offline", null, "later", AnnotationState.UNSENT))
+        dao.saveAnnotation(annotation("deleted-elsewhere", 9, null, AnnotationState.ACKNOWLEDGED))
+        dao.replaceRemoteAnnotations(1, listOf(annotation("lost-ack", 7, "mine", AnnotationState.ACKNOWLEDGED), annotation("other-device", 8, null, AnnotationState.ACKNOWLEDGED)))
         val rows = dao.annotations(1).first().associateBy { it.mutationId }
         assertEquals(setOf("lost-ack", "offline", "other-device"), rows.keys)
         assertEquals(7L, rows.getValue("lost-ack").serverId)
-        assertEquals(false, rows.getValue("lost-ack").pending)
-        assertTrue(rows.getValue("offline").pending)
+        assertEquals(AnnotationState.ACKNOWLEDGED, rows.getValue("lost-ack").state)
+        assertEquals(AnnotationState.UNSENT, rows.getValue("offline").state)
     }
 
     @Test fun refusedCreationsAreKeptVisibleButNotRetried() = runBlocking {
-        dao.saveAnnotation(annotation("refused", null, null, pending = true))
+        dao.saveAnnotation(annotation("refused", null, null, AnnotationState.UNSENT))
         dao.rejectAnnotation("refused", "The selected text does not match that version of the note.")
-        assertEquals(emptyList<AnnotationRow>(), dao.pendingAnnotations())
+        assertEquals(emptyList<AnnotationRow>(), dao.waitingAnnotations())
         assertEquals("The selected text does not match that version of the note.", dao.annotation("refused")!!.rejection)
     }
 
@@ -338,29 +338,29 @@ class LocalStoreTest {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
         dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
-        val card = annotation("card", null, null, true).copy(type = "CARD", question = "Why?", checkedBlobSha = sha)
+        val card = annotation("card", null, null, AnnotationState.UNSENT).copy(type = "CARD", question = "Why?", checkedBlobSha = sha)
         dao.saveAnnotation(card)
         val grades = (1..10).map { ReviewRow("g$it", "card", 4, it.toLong(), sha, true) }
         grades.forEach { assertTrue(dao.recordReview(it)) }
-        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, pending = false)), emptyList(), 40)
+        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)), emptyList(), 40)
         assertEquals(10, dao.pendingReviews().size)
-        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, pending = false)), grades.map { it.copy(pending = false) }, 40)
+        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)), grades.map { it.copy(pending = false) }, 40)
         assertTrue(dao.pendingReviews().isEmpty())
         assertEquals(10, dao.reviews().first().size)
-        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, pending = false)), grades.map { it.copy(pending = false) }, 40)
+        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)), grades.map { it.copy(pending = false) }, 40)
         assertEquals(10, dao.reviews().first().size)
         dao.saveAnnotation(card.copy(checkedBlobSha = null))
         assertEquals(false, dao.recordReview(grades[0].copy(mutationId = "stale")))
         dao.replaceRemoteNotebook(emptyList(), emptyList(), 40)
         // Pending offline creations stay; acknowledged deletions remove associated logs.
-        assertTrue(dao.annotation("card")!!.pending)
+        assertEquals(AnnotationState.UNSENT, dao.annotation("card")!!.state)
         dao.removeAnnotation("card")
         assertTrue(dao.reviews().first().isEmpty())
     }
 
     @Test fun disconnectRemovesCardsAndPendingGradesButKeepsOtherRepositories() = runBlocking {
         for (id in listOf(1L, 2L)) {
-            dao.saveAnnotation(annotation("card$id", id, null, false).copy(documentId = id, type = "CARD", question = "Why?"))
+            dao.saveAnnotation(annotation("card$id", id, null, AnnotationState.ACKNOWLEDGED).copy(documentId = id, type = "CARD", question = "Why?"))
             dao.saveReview(ReviewRow("grade$id", "card$id", 4, id, "a".repeat(40), true))
         }
         dao.forgetRepository(7, listOf(1L))

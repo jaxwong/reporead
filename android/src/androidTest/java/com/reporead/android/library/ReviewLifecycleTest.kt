@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
@@ -58,7 +59,7 @@ class ReviewLifecycleTest {
     private suspend fun card(i: Int, checkedBlobSha: String = sha) {
         val exact = "Test-only answer $i"
         store.library().saveAnnotation(AnnotationRow("card$i", i.toLong(), 1, sha, "b$i", 0, exact.length, exact, null, 1, 0,
-            pending = false, rejection = null, type = "CARD", question = "Test-only question $i?", checkedBlobSha = checkedBlobSha))
+            state = AnnotationState.ACKNOWLEDGED, type = "CARD", question = "Test-only question $i?", checkedBlobSha = checkedBlobSha))
     }
 
     @Test fun tenOfflineGradesPersistOnceAndRecreationPreservesRevealAndSessionCompletion() = runBlocking<Unit> {

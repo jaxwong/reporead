@@ -1,5 +1,6 @@
 package com.reporead.android.library
 
+import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
@@ -55,7 +56,7 @@ private fun dueDay(reviewedAt: Long, interval: Long, zone: ZoneId): Long {
  * A card a review session can show: the server did not refuse it and its note is still listed. A card that needs
  * checking is shown too, to be fixed in place; refused and removed ones are dealt with in Notebook.
  */
-private fun reviewable(item: NotebookItem) = item.annotation.type == "CARD" && item.annotation.rejection == null && !item.annotation.cachedDeleted
+private fun reviewable(item: NotebookItem) = item.annotation.type == "CARD" && item.annotation.state != AnnotationState.REFUSED && !item.annotation.cachedDeleted
 
 /** When each reviewable card is next due. */
 private fun dueTimes(items: List<NotebookItem>, reviews: List<ReviewRow>, zone: ZoneId): List<Pair<NotebookItem, Long>> {
