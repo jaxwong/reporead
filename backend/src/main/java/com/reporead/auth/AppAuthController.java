@@ -1,6 +1,7 @@
 package com.reporead.auth;
 
 import com.reporead.ApiFailure;
+import com.reporead.github.GitHubApi;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,10 +31,12 @@ public class AppAuthController {
     static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
     private final AppSessions sessions;
     private final OAuth2AuthorizedClientService clients;
+    private final GitHubApi github;
 
-    public AppAuthController(AppSessions sessions, OAuth2AuthorizedClientService clients) {
+    public AppAuthController(AppSessions sessions, OAuth2AuthorizedClientService clients, GitHubApi github) {
         this.sessions = sessions;
         this.clients = clients;
+        this.github = github;
     }
 
     @GetMapping("/app/sign-in")
@@ -60,9 +63,13 @@ public class AppAuthController {
     void signOut(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorization, @AuthenticationPrincipal AppUser user) {
         int remaining = sessions.revoke(authorization.substring("Bearer ".length()), user.id());
         // The stored GitHub token belongs to the GitHub user and serves all their devices. It goes with the last session,
-        // so a signed-out user leaves no credential on the server without signing their other devices out of GitHub.
-        // A device signing in at the same moment can lose its new token; its next GitHub request then asks for sign-in.
-        if (remaining == 0) clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
+        // revoked on GitHub and deleted here, so a signed-out user leaves no working credential without signing their
+        // other devices out of GitHub. A device signing in at the same moment can lose its new token; its next GitHub
+        // request then asks for sign-in.
+        if (remaining == 0) {
+            github.revokeAuthorization(user.githubUserId());
+            clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
+        }
         LOG.info("App session revoked; userId={} otherSessions={} githubTokenRemoved={}", user.id(), remaining, remaining == 0);
     }
 

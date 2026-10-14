@@ -40,11 +40,13 @@ import java.util.stream.IntStream;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -160,6 +162,13 @@ class GitHubTokenRefreshTest {
         expectRefresh(ExpectedCount.once(), "TEST_ONLY_REFRESH_1", renewed("TEST_ONLY_TOKEN_2", "TEST_ONLY_REFRESH_2", 28800));
         expectListing(ExpectedCount.once(), "TEST_ONLY_TOKEN_2");
         available().andExpect(status().isOk());
+    }
+
+    @Test void signOutRenewsAnExpiredTokenToRevokeTheAuthorization() throws Exception {
+        expectRefresh(ExpectedCount.once(), "TEST_ONLY_REFRESH_1", renewed("TEST_ONLY_TOKEN_2", "TEST_ONLY_REFRESH_2", 28800));
+        TestSessions.expectAuthorizationRevoked(api, "TEST_ONLY_TOKEN_2", withNoContent());
+        mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isNoContent());
+        assertNull(clients.loadAuthorizedClient("github", "42"));
     }
 
     @Test void concurrentRequestsRenewOnceBecauseGitHubRotatesTheRefreshToken() throws Exception {

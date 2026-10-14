@@ -30,6 +30,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServiceUnavailable;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -88,7 +90,7 @@ class DataControlTest {
         highlight(2, bobNote, "33333333-3333-3333-3333-333333333333");
     }
 
-    @AfterEach void verifyNoGitHubCalls() {
+    @AfterEach void verifyGitHubCalls() {
         github.verify();
         clients.removeAuthorizedClient("github", "42");
         clients.removeAuthorizedClient("github", "84");
@@ -157,6 +159,7 @@ class DataControlTest {
         mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
             .andExpect(jsonPath("$.cards").value(1));
         assertEquals(2, count("select count(*) from review_log"));
+        TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_USER_TOKEN", withNoContent());
         mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
             .andExpect(status().isOk()).andExpect(jsonPath("$.cards").value(1));
         assertEquals(0, count("select count(*) from review_log where user_id = 1"));
@@ -247,6 +250,7 @@ class DataControlTest {
                 return id;
             }));
             assertTrue(inserted.await(10, TimeUnit.SECONDS));
+            TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_USER_TOKEN", withNoContent());
             var deleting = executor.submit(() -> mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andReturn().getResponse().getStatus());
             Thread.sleep(300);
@@ -269,6 +273,7 @@ class DataControlTest {
 
     @Test void deletingTheAccountRemovesAllItsDataSessionsAndGitHubTokenButNoOneElses() throws Exception {
         String second = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_USER_TOKEN");
+        TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_USER_TOKEN", withNoContent());
         mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
             .andExpect(status().isOk()).andExpect(jsonPath("$.repositories").value(2)).andExpect(jsonPath("$.readingStates").value(3))
             .andExpect(jsonPath("$.bookmarks").value(1)).andExpect(jsonPath("$.highlights").value(2));
@@ -286,5 +291,12 @@ class DataControlTest {
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob)).andExpect(status().isOk());
         assertEquals(1, count("select count(*) from annotations where user_id = 2"));
         assertEquals(1, count("select count(*) from annotation_mutations where user_id = 2"));
+    }
+
+    @Test void deletingTheAccountDoesNotDependOnGitHubRevokingTheAuthorization() throws Exception {
+        TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_USER_TOKEN", withServiceUnavailable());
+        mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isOk());
+        assertEquals(0, count("select count(*) from users where id = 1"));
+        assertNull(clients.loadAuthorizedClient("github", "42"));
     }
 }

@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
@@ -14,6 +15,7 @@ import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizeRequest;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
@@ -32,13 +34,14 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
  * Every GitHub REST call RepoRead makes with a signed-in user's GitHub App user token.
  * Each method makes exactly one request: no retries, pagination, redirects, or installation-token fallback. Getting the
- * token may first refresh it (see userToken).
+ * token may first refresh it (see userToken). revokeAuthorization alone authenticates as the App instead.
  * GitHub owns authorization: user-token endpoints only return repositories the user and installation can both access.
  */
 @Component
@@ -57,18 +60,21 @@ public class GitHubApi {
     private final JsonMapper json;
     private final OAuth2AuthorizedClientService clients;
     private final OAuth2AuthorizedClientManager tokens;
+    private final ClientRegistrationRepository registrations;
     private final ConcurrentHashMap<Long, Object> refreshLocks = new ConcurrentHashMap<>();
 
     public GitHubApi(@Qualifier("githubUserApi") RestTemplate githubUserApi,
                      @Qualifier("githubTreeApi") RestTemplate githubTreeApi,
                      @Qualifier("githubImageApi") RestTemplate githubImageApi,
-                     JsonMapper json, OAuth2AuthorizedClientService clients, OAuth2AuthorizedClientManager tokens) {
+                     JsonMapper json, OAuth2AuthorizedClientService clients, OAuth2AuthorizedClientManager tokens,
+                     ClientRegistrationRepository registrations) {
         this.githubUserApi = githubUserApi;
         this.githubTreeApi = githubTreeApi;
         this.githubImageApi = githubImageApi;
         this.json = json;
         this.clients = clients;
         this.tokens = tokens;
+        this.registrations = registrations;
     }
 
     public record Repository(long id, long installationId, String owner, String name,
@@ -120,6 +126,40 @@ public class GitHubApi {
                 (response.getStatusCode().value() == 429 || response.getStatusCode().is5xxServerError())) return cause;
         }
         return null;
+    }
+
+    /**
+     * Revokes RepoRead's authorization for this GitHub user on GitHub, so no token GitHub issued RepoRead for them works
+     * any more ("Deleting an application's grant will also delete all OAuth tokens associated with the application for
+     * the user", GitHub REST docs). Authenticated as the App; the endpoint takes a current access token, so an expiring
+     * one is renewed first: at most two GitHub calls. Signing out and deleting the account must not depend on GitHub, so
+     * a failure is logged, never thrown, and the caller deletes the stored token either way; GitHub then expires the
+     * tokens on its own schedule.
+     */
+    public void revokeAuthorization(long githubUserId) {
+        String token;
+        try {
+            token = userToken(githubUserId);
+        } catch (ApiFailure failure) {
+            // SIGN_IN_REQUIRED: no stored token, or GitHub refused to renew it, so RepoRead holds nothing usable.
+            if (failure.code.equals("SIGN_IN_REQUIRED")) LOG.info("GitHub authorization not revoked: no usable token; githubUserId={}", githubUserId);
+            else LOG.warn("GitHub authorization not revoked; githubUserId={} code={}", githubUserId, failure.code);
+            return;
+        }
+        var app = registrations.findByRegistrationId("github");
+        var request = RequestEntity.method(HttpMethod.DELETE, uri("/applications/{clientId}/grant", app.getClientId()))
+            .headers(headers -> headers.setBasicAuth(app.getClientId(), app.getClientSecret()))
+            .accept(JSON).contentType(MediaType.APPLICATION_JSON)
+            .body(json.writeValueAsBytes(Map.of("access_token", token)));
+        try {
+            githubUserApi.exchange(request, byte[].class);
+            LOG.info("GitHub authorization revoked; githubUserId={}", githubUserId);
+        } catch (RestClientResponseException error) {
+            LOG.warn("GitHub authorization not revoked; githubUserId={} status={}", githubUserId, error.getStatusCode().value());
+        } catch (ResourceAccessException error) {
+            LOG.warn("GitHub authorization not revoked; githubUserId={} failureType={}", githubUserId,
+                (error.getCause() == null ? error : error.getCause()).getClass().getSimpleName());
+        }
     }
 
     /** Installation IDs of this GitHub App that the user can access; a complete list of at most 10. */

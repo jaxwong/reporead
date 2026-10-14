@@ -1,12 +1,17 @@
 package com.reporead.auth;
 
 import com.reporead.TestEnvironment;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -19,15 +24,19 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.SocketTimeoutException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -44,9 +53,16 @@ class AppSignInTest {
     @Autowired JsonMapper json;
     @Autowired OAuth2AuthorizedClientService clients;
     @Autowired ClientRegistrationRepository registrations;
+    @Autowired @Qualifier("githubUserApi") RestTemplate githubUserApi;
+    MockRestServiceServer github;
 
     @BeforeEach void reset() {
         TestEnvironment.reset(db);
+        github = MockRestServiceServer.bindTo(githubUserApi).build();
+    }
+
+    @AfterEach void verifyGitHubCalls() {
+        github.verify();
     }
 
     private static OAuth2AuthenticationToken github(long id, String login) {
@@ -159,6 +175,7 @@ class AppSignInTest {
             .andExpect(status().isUnauthorized());
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Basic " + alice)).andExpect(status().isUnauthorized());
 
+        TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_GITHUB_TOKEN", withNoContent());
         mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isNoContent());
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob)).andExpect(status().isOk());
@@ -178,8 +195,30 @@ class AppSignInTest {
         mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + phone)).andExpect(status().isNoContent());
         assertNotNull(clients.loadAuthorizedClient("github", "42"), "another device is still signed in");
 
+        TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_GITHUB_TOKEN", withNoContent());
         mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + tablet)).andExpect(status().isNoContent());
         assertNull(clients.loadAuthorizedClient("github", "42"), "an expired session does not keep the token");
         assertNotNull(clients.loadAuthorizedClient("github", "84"));
+    }
+
+    @ParameterizedTest @ValueSource(ints = {404, 422, 503})
+    void signOutStillDeletesTheTokenWhenGitHubDoesNotRevokeIt(int failure) throws Exception {
+        String alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
+        TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_GITHUB_TOKEN", withStatus(HttpStatus.valueOf(failure)));
+        mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isNoContent());
+        assertNull(clients.loadAuthorizedClient("github", "42"));
+    }
+
+    @Test void signOutStillDeletesTheTokenWhenGitHubTimesOut() throws Exception {
+        String alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
+        TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_GITHUB_TOKEN", withException(new SocketTimeoutException("TEST_ONLY_TIMEOUT")));
+        mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isNoContent());
+        assertNull(clients.loadAuthorizedClient("github", "42"));
+    }
+
+    @Test void signOutWithoutAStoredGitHubTokenMakesNoGitHubCall() throws Exception {
+        String alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
+        clients.removeAuthorizedClient("github", "42");
+        mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isNoContent());
     }
 }
