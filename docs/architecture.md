@@ -166,7 +166,7 @@ erDiagram
     annotations ||--o| annotation_anchors : "original selection"
     annotations ||--o| annotation_locations : "current location"
     users ||--o{ annotation_mutations : "idempotency records"
-    annotation_mutations }o--o| annotations : created
+    annotations |o--o| annotation_mutations : "created by (outlives a deletion)"
     annotations ||--o{ review_log : "graded in"
     users ||--o| github_tokens : "signs in to GitHub with (by github_user_id, no FK)"
 
@@ -207,6 +207,7 @@ erDiagram
     annotations {
         bigint id PK
         text type "BOOKMARK | HIGHLIGHT | CARD"
+        uuid mutation_id "highlights and cards"
         text status "ANCHORED | REANCHORED | ORPHANED"
         text resolved_blob_sha
         text question "cards only"

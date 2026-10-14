@@ -1,6 +1,7 @@
 package com.reporead;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
@@ -8,6 +9,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.util.UUID;
+import javax.sql.DataSource;
 
 /** Test-only configuration: a real PostgreSQL container shared by every Spring test, a fake OAuth client secret, and a GitHub token key. */
 public final class TestEnvironment {
@@ -48,6 +53,19 @@ public final class TestEnvironment {
         Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
         file.toFile().deleteOnExit();
         return file;
+    }
+
+    /** A new, empty test-only database in the shared container, for a test that runs the migrations itself. */
+    public static DataSource emptyDatabase() {
+        String name = "test_only_" + UUID.randomUUID().toString().replace("-", "");
+        try (var connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             var statement = connection.createStatement()) {
+            statement.execute("create database " + name);
+        } catch (SQLException error) {
+            throw new IllegalStateException("Cannot create the test-only database " + name, error);
+        }
+        return new DriverManagerDataSource("jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/" + name,
+            POSTGRES.getUsername(), POSTGRES.getPassword());
     }
 
     public static void reset(JdbcClient db) {
