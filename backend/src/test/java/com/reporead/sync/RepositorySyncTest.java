@@ -62,6 +62,8 @@ class RepositorySyncTest {
     @Autowired AppSessions sessions;
     @Autowired JdbcClient db;
     @Autowired io.micrometer.core.instrument.MeterRegistry meters;
+    @Autowired com.reporead.document.Documents documentRows;
+    @Autowired org.springframework.transaction.support.TransactionTemplate transaction;
     MockRestServiceServer user;
     MockRestServiceServer trees;
     String alice;
@@ -300,6 +302,37 @@ class RepositorySyncTest {
         sync(alice, connection).andExpect(status().isOk());
         assertEquals(List.of(b), db.sql("select id from documents where deleted_at is null").query(Long.class).list());
         assertEquals(List.of(a), db.sql("select id from documents where deleted_at is not null").query(Long.class).list());
+    }
+
+    /**
+     * Content moves are chosen before the lock, so the snapshot published under it re-checks them: one applies only if its
+     * document is still active at the path it left and its target is still a path that never had a document, with
+     * neither side taken by an exact move.
+     */
+    @Test void aContentMoveChosenBeforeTheLockAppliesOnlyIfBothSidesAreStillUnmatched() {
+        var first = java.time.Instant.parse("2026-10-01T00:00:00Z");
+        transaction.executeWithoutResult(status -> documentRows.publishSnapshot(connection, COMMIT_A, List.of(
+            source("a.md", '5'), source("b.md", '6'), source("c.md", '7'), source("d.md", '8'), source("g.md", '9'), source("h.md", 'c')),
+            first, List.of(), false));
+        long a = documentId("a.md"), c = documentId("c.md"), d = documentId("d.md"), g = documentId("g.md"), h = documentId("h.md");
+        var contentMoves = List.of(
+            new com.reporead.document.Documents.Move(a, "a.md", "x.md"),
+            new com.reporead.document.Documents.Move(c, "c.md", "b.md"),          // b.md already has a document
+            new com.reporead.document.Documents.Move(d, "d.md", "f.md"),          // d.md moved exactly to e.md
+            new com.reporead.document.Documents.Move(g, "elsewhere.md", "y.md"),  // g is not at the path it left
+            new com.reporead.document.Documents.Move(h, "h.md", "e.md"));         // e.md is d's exact move
+        var applied = transaction.execute(status -> documentRows.publishSnapshot(connection, COMMIT_B, List.of(
+            source("b.md", '6'), source("x.md", 'd'), source("e.md", '8'), source("f.md", 'e'), source("y.md", 'f')),
+            first.plusSeconds(60), contentMoves, true));
+        assertEquals(List.of(new com.reporead.document.Documents.Move(d, "d.md", "e.md"), contentMoves.getFirst()), applied);
+        assertEquals(a, documentId("x.md"));
+        assertEquals(d, documentId("e.md"));
+        assertEquals(List.of("b.md", "e.md", "f.md", "x.md", "y.md"), activePaths());
+        assertEquals(List.of(c, g, h), db.sql("select id from documents where deleted_at is not null order by id").query(Long.class).list());
+    }
+
+    private static com.reporead.document.Documents.SourceFile source(String path, char blob) {
+        return new com.reporead.document.Documents.SourceFile(path, String.valueOf(blob).repeat(40));
     }
 
     // ---- Moves with edits (content moves) ----

@@ -6,12 +6,11 @@ import org.springframework.stereotype.Component;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Owns the documents table: logical Markdown files of a connection. A path keeps its document; a document whose exact
@@ -38,16 +37,21 @@ public class Documents {
     /**
      * Applies one complete tree snapshot. Moved documents take their new path first; then paths in the snapshot are
      * inserted or updated (and undeleted), and paths absent from it are marked deleted, never removed. [contentMoves]
-     * were decided before the lock and apply only if still valid against the locked rows. A note that is new, has a new
-     * blob, or is back after being deleted records [syncedAt] as its content change, except in a connection's first
-     * snapshot ([previouslySynced] false), where RepoRead has seen nothing change. Callers must hold the connection's sync
-     * lock inside a transaction. Returns the moves applied.
+     * were decided before the lock and apply only if both their sides are still unmatched in the locked rows. A note
+     * that is new, has a new blob, or is back after being deleted records [syncedAt] as its content change, except in a
+     * connection's first snapshot ([previouslySynced] false), where RepoRead has seen nothing change. Callers must hold
+     * the connection's sync lock inside a transaction. Returns the moves applied.
      */
     public List<Move> publishSnapshot(long connectionId, String commitSha, List<SourceFile> files, Instant syncedAt, List<Move> contentMoves,
                                       boolean previouslySynced) {
-        var existing = existing(connectionId);
-        var moves = new ArrayList<>(exactMoves(existing, files));
-        moves.addAll(stillMoves(contentMoves, existing, files, moves));
+        var unmatched = unmatched(existing(connectionId), files);
+        var moves = new ArrayList<>(unmatched.exact());
+        for (var move : contentMoves) {
+            boolean documentStillVanished = unmatched.vanished().stream()
+                .anyMatch(row -> row.id() == move.documentId() && row.path().equals(move.fromPath()));
+            boolean targetStillFresh = unmatched.fresh().stream().anyMatch(file -> file.path().equals(move.toPath()));
+            if (documentStillVanished && targetStillFresh) moves.add(move);
+        }
         for (var move : moves) {
             db.sql("update documents set path = :path, title = :title where id = :id")
                 .param("path", move.toPath()).param("title", title(move.toPath())).param("id", move.documentId()).update();
@@ -76,52 +80,33 @@ public class Documents {
     }
 
     /**
-     * Pairs an active document whose path left the snapshot with a path that has never had a document, when they have
-     * the same blob SHA and that SHA is unique on both sides. Identical-content duplicates are never merged; a path that
-     * once had a document resumes that document instead.
+     * A snapshot against the stored documents. [exact] pairs an active document whose path left the snapshot with a path
+     * that has never had a document, when they have the same blob SHA and that SHA is unique on both sides:
+     * identical-content duplicates are never merged, and a path that once had a document resumes that document instead.
+     * [vanished] and [fresh] are the sides left unpaired, the only candidates for a content move.
      */
-    public static List<Move> exactMoves(List<Existing> existing, List<SourceFile> files) {
-        var snapshotPaths = new HashSet<String>();
-        for (var file : files) snapshotPaths.add(file.path());
-        var knownPaths = new HashSet<String>();
-        var vanished = new HashMap<String, List<Existing>>();
-        for (var row : existing) {
-            knownPaths.add(row.path());
-            if (!row.deleted() && !snapshotPaths.contains(row.path())) vanished.computeIfAbsent(row.blobSha(), sha -> new ArrayList<>()).add(row);
-        }
-        Map<String, List<SourceFile>> fresh = new HashMap<>();
-        for (var file : files) {
-            if (!knownPaths.contains(file.path())) fresh.computeIfAbsent(file.blobSha(), sha -> new ArrayList<>()).add(file);
-        }
-        var moves = new ArrayList<Move>();
-        for (var entry : vanished.entrySet()) {
-            var targets = fresh.getOrDefault(entry.getKey(), List.of());
-            if (entry.getValue().size() == 1 && targets.size() == 1) {
-                moves.add(new Move(entry.getValue().getFirst().id(), entry.getValue().getFirst().path(), targets.getFirst().path()));
+    public record Unmatched(List<Move> exact, List<Existing> vanished, List<SourceFile> fresh) {}
+
+    public static Unmatched unmatched(List<Existing> existing, List<SourceFile> files) {
+        var snapshotPaths = files.stream().map(SourceFile::path).collect(Collectors.toSet());
+        var knownPaths = existing.stream().map(Existing::path).collect(Collectors.toSet());
+        var vanished = existing.stream().filter(row -> !row.deleted() && !snapshotPaths.contains(row.path())).toList();
+        var fresh = files.stream().filter(file -> !knownPaths.contains(file.path())).toList();
+        var vanishedByBlob = vanished.stream().collect(Collectors.groupingBy(Existing::blobSha));
+        var freshByBlob = fresh.stream().collect(Collectors.groupingBy(SourceFile::blobSha));
+        var exact = new ArrayList<Move>();
+        for (var entry : vanishedByBlob.entrySet()) {
+            var documents = entry.getValue();
+            var targets = freshByBlob.getOrDefault(entry.getKey(), List.of());
+            if (documents.size() == 1 && targets.size() == 1) {
+                exact.add(new Move(documents.getFirst().id(), documents.getFirst().path(), targets.getFirst().path()));
             }
         }
-        return moves;
-    }
-
-    /**
-     * A content move still applies if its document is active at the path it left, that path is not in the snapshot, its
-     * target is in the snapshot and has never had a document, and no exact move claimed either side.
-     */
-    private static List<Move> stillMoves(List<Move> contentMoves, List<Existing> existing, List<SourceFile> files, List<Move> exact) {
-        var snapshotPaths = new HashSet<String>();
-        for (var file : files) snapshotPaths.add(file.path());
-        var knownPaths = new HashSet<String>();
-        for (var row : existing) knownPaths.add(row.path());
-        var claimedIds = new HashSet<Long>();
-        var claimedPaths = new HashSet<String>();
-        for (var move : exact) {
-            claimedIds.add(move.documentId());
-            claimedPaths.add(move.toPath());
-        }
-        return contentMoves.stream().filter(move -> existing.stream().anyMatch(row -> row.id() == move.documentId() && !row.deleted()
-                && row.path().equals(move.fromPath()))
-            && !snapshotPaths.contains(move.fromPath()) && snapshotPaths.contains(move.toPath()) && !knownPaths.contains(move.toPath())
-            && !claimedIds.contains(move.documentId()) && !claimedPaths.contains(move.toPath())).toList();
+        var movedIds = exact.stream().map(Move::documentId).collect(Collectors.toSet());
+        var movedTo = exact.stream().map(Move::toPath).collect(Collectors.toSet());
+        var unpairedVanished = vanished.stream().filter(row -> !movedIds.contains(row.id())).toList();
+        var unpairedFresh = fresh.stream().filter(file -> !movedTo.contains(file.path())).toList();
+        return new Unmatched(exact, unpairedVanished, unpairedFresh);
     }
 
     /** Deletes a connection's documents, active and deleted upstream; returns their ids. Reading and annotation rows must go first. */
