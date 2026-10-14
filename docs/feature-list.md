@@ -122,7 +122,6 @@ These are exclusions, not hidden stretch goals.
 
 Noticed and deliberately not changed:
 
-- Whether a card can be graded is decided in three places (`cardCheckReason`, `recordReview`, and the Notes label).
 - `android/reader-web/check-restore.mjs` keeps its own copies of reader functions.
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.

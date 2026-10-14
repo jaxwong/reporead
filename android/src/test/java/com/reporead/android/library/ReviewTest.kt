@@ -21,7 +21,7 @@ class ReviewTest {
         dueSession(items, reviews, now, limit, seed, utc)
     private fun grade(id: Int, value: Int, at: Long) = ReviewRow("g$id", "card", value, at, "sha", false)
     private fun card(id: Int, document: Long = 1) = NotebookItem(AnnotationRow("m$id", id.toLong(), document, "sha", "b1", 0, 4,
-        "text", null, 1, 0, false, null, type = "CARD", question = "Why?", checkedBlobSha = "sha"), "Note", "topic/a.md", "sha", "sha", false)
+        "text", null, 1, 0, false, null, type = "CARD", question = "Why?", checkedBlobSha = "sha"), "Note", "topic/a.md", "sha", "sha")
 
     @Test fun newCardsAreDueAndIntervalsFollowOneSixAndPriorEaseWithCeiling() {
         assertEquals(0L, scheduleReviews(0, emptyList()).dueAt)
@@ -69,16 +69,16 @@ class ReviewTest {
 
     @Test fun dueCardsNeedingACheckJoinTheSessionToBeFixedButRefusedOrRemovedOnesDoNot() {
         val ready = card(1)
-        assertNull(cardCheckReason(ready))
+        assertNull(ready.annotation.cardBlock(ready.currentBlobSha, ready.savedBlobSha))
         for (changed in listOf(ready.copy(currentBlobSha = "new"), ready.copy(currentBlobSha = null),
             ready.copy(annotation = ready.annotation.copy(cachedCurrentBlobSha = "server-newer")), ready.copy(savedBlobSha = null),
             ready.copy(annotation = ready.annotation.copy(checkedBlobSha = null)),
             ready.copy(annotation = ready.annotation.copy(status = "ORPHANED")))) {
-            assertNotNull(cardCheckReason(changed))
+            assertNotNull(changed.annotation.cardBlock(changed.currentBlobSha, changed.savedBlobSha))
             assertEquals(listOf(changed), dueSession(listOf(changed), emptyList(), 0, 40, 1))
         }
-        for (gone in listOf(ready.copy(removed = true), ready.copy(annotation = ready.annotation.copy(rejection = "refused")))) {
-            assertNotNull(cardCheckReason(gone))
+        for (gone in listOf(ready.copy(annotation = ready.annotation.copy(cachedDeleted = true)), ready.copy(annotation = ready.annotation.copy(rejection = "refused")))) {
+            assertNotNull(gone.annotation.cardBlock(gone.currentBlobSha, gone.savedBlobSha))
             assertTrue(dueSession(listOf(gone), emptyList(), 0, 40, 1).isEmpty())
             assertEquals(ReviewOutlook(0, 0, null, 0), reviewOutlook(listOf(gone), emptyList(), 0, utc))
         }

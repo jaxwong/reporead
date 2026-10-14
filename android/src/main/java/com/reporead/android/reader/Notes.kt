@@ -27,6 +27,7 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.R
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.CardBlock
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.sync.Sync
@@ -118,14 +119,15 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text("“${if (row.type == "CARD") row.drawn.exactText else row.exactText}”", style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                    if (row.type == "CARD" && row.checkedBlobSha != displayedBlobSha) Text("Check this card", style = MaterialTheme.typography.labelLarge)
+                    val block = if (row.type == "CARD") row.cardBlock(displayedBlobSha, displayedBlobSha) else null
+                    block?.let { Text(it.reason, style = MaterialTheme.typography.labelLarge) }
                     row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
                     status(row, displayedBlobSha, notShown)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     val shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown
                     Row {
                         if (shown) TextButton(onClick = { onReveal(row) }) { Text("Show") }
                         if (shown && row.type == "HIGHLIGHT") TextButton(onClick = { onMakeQuestion(row) }) { Text("Make a question") }
-                        if (shown && row.type == "CARD" && row.status != "ORPHANED" && row.serverId != null && row.checkedBlobSha != displayedBlobSha) {
+                        if (shown && block == CardBlock.UNCONFIRMED && row.serverId != null) {
                             TextButton(onClick = {
                                 scope.launch {
                                     try {
