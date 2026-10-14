@@ -425,7 +425,7 @@ Links the page needs native help with (`/note-link`, `/copy-code`, `/full-screen
 
 ### Highlights, cards and the sync
 
-Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh, **Sync now**, and opening a note also send them. Every path runs the same `Sync` code under one per-process lock that sign-out also takes; the mutation id makes resending safe.
+Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh, **Sync now**, and opening a note also send them. Every path runs the same `Sync` code under one per-process lock that sign-out also takes, as does every other `Sync` operation that writes the server's answers into Room; the mutation id makes resending safe.
 
 ```mermaid
 sequenceDiagram

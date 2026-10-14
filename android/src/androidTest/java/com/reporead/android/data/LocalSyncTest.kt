@@ -124,12 +124,8 @@ class LocalSyncTest {
         dao.saveAnnotation(AnnotationRow("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, pending = true, rejection = null))
         Sync(Api("http://127.0.0.1:9", { "TEST_ONLY_SESSION" }) {}, store, directory) {}.deleteAnnotation(dao.annotation("deleted")!!)
         assertTrue(dao.annotations(1).first().isEmpty())
-        val created = JSONObject().put("id", 9).put("mutationId", "deleted").put("documentId", 1).put("type", "HIGHLIGHT").put("note", JSONObject.NULL)
-            .put("status", "ANCHORED").put("version", 1).put("createdAt", "1970-01-01T00:00:00Z").put("updatedAt", "1970-01-01T00:00:00Z")
-            .put("anchor", passage()).put("location", passage()).put("resolvedBlobSha", sha).put("question", JSONObject.NULL)
-            .put("checkedBlobSha", JSONObject.NULL).put("title", "n").put("path", "n.md").put("currentBlobSha", sha).put("deleted", false)
         LoopbackServer(emptyLists + mapOf(
-            "POST /api/documents/1/annotations" to (200 to created.toString()),
+            "POST /api/documents/1/annotations" to (200 to serverHighlight("deleted")),
             "DELETE /api/annotations/9?expectedVersion=1" to (204 to ""),
         )).use { server ->
             val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
@@ -139,6 +135,13 @@ class LocalSyncTest {
             assertNull(dao.annotation("deleted"))
         }
     }
+
+    /** The server's answer to creating highlight [mutationId] on document 1, as server id 9. */
+    private fun serverHighlight(mutationId: String) = JSONObject().put("id", 9).put("mutationId", mutationId).put("documentId", 1)
+        .put("type", "HIGHLIGHT").put("note", JSONObject.NULL).put("status", "ANCHORED").put("version", 1)
+        .put("createdAt", "1970-01-01T00:00:00Z").put("updatedAt", "1970-01-01T00:00:00Z").put("anchor", passage()).put("location", passage())
+        .put("resolvedBlobSha", sha).put("question", JSONObject.NULL).put("checkedBlobSha", JSONObject.NULL).put("title", "n")
+        .put("path", "n.md").put("currentBlobSha", sha).put("deleted", false).toString()
 
     private fun passage() = JSONObject().put("sourceBlobSha", sha).put("blockId", "b1").put("exactText", "text").put("prefixText", "")
         .put("suffixText", "").put("startOffset", 0).put("endOffset", 4).put("headingPath", org.json.JSONArray())
@@ -207,6 +210,28 @@ class LocalSyncTest {
             assertNull(dao.reading(1))
             assertEquals(Result.success(), backgroundSync(sync, 0))
             assertEquals(4, server.requests.size)
+        }
+    }
+
+    /** The reader sends a new highlight at once; its answer must not be written back into a phone sign-out has cleared. */
+    @Test fun signingOutWaitsForAHighlightBeingSentSoItCannotComeBack() = runBlocking {
+        dao.saveAnnotation(AnnotationRow("sent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, pending = true, rejection = null))
+        val arrived = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        LoopbackServer(mapOf("POST /api/documents/1/annotations" to (201 to serverHighlight("sent")))) {
+            arrived.countDown()
+            check(release.await(10, SECONDS)) { "Test never released the held request" }
+        }.use { server ->
+            val sync = sync(server.url)
+            val sending = async(Dispatchers.IO) { sync.pushAnnotations() }
+            assertTrue(arrived.await(10, SECONDS))
+            val clearing = async(Dispatchers.IO) { sync.clearAll() }
+            delay(500)
+            assertFalse("Clearing the phone must wait for the highlight being sent", clearing.isCompleted)
+            release.countDown()
+            assertNull(sending.await())
+            clearing.await()
+            assertNull(dao.annotation("sent"))
         }
     }
 
