@@ -1,7 +1,6 @@
 package com.reporead.android.reader
 
 import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.SavedPage
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -26,16 +25,16 @@ class BacklinksTest {
     }
 
     @Test fun aNoteIsLinkedFromPagesWhoseLinksResolveToIt() {
-        val pages = listOf(
-            SavedPage(note("a/from.md").id, link("target=target")),          // same folder wins: a/target.md
-            SavedPage(note("b/other.md").id, link("path=a/target.md")),      // exact path
-            SavedPage(note("c/plain.md").id, link("target=target")),         // ambiguous from c/: could mean either
-            SavedPage(note("c/self.md").id, link("target=self")),            // links only to itself
-            SavedPage(99, link("path=a/target.md")),                         // not in the list
+        val pages = mapOf(
+            note("a/from.md").id to noteLinks(link("target=target")),          // same folder wins: a/target.md
+            note("b/other.md").id to noteLinks(link("path=a/target.md")),      // exact path
+            note("c/plain.md").id to noteLinks(link("target=target")),         // ambiguous from c/: could mean either
+            note("c/self.md").id to noteLinks(link("target=self")),            // links only to itself
+            99L to noteLinks(link("path=a/target.md")),                        // not in the list
         )
         assertEquals(listOf("a/from.md", "b/other.md", "c/plain.md"), linkedFrom(note("a/target.md"), notes, pages).map { it.path })
         assertEquals(listOf("c/plain.md"), linkedFrom(note("b/target.md"), notes, pages).map { it.path })
         assertEquals(emptyList<String>(), linkedFrom(note("c/self.md"), notes, pages).map { it.path })
-        assertEquals(emptyList<String>(), linkedFrom(note("a/target.md"), notes, emptyList()).map { it.path })
+        assertEquals(emptyList<String>(), linkedFrom(note("a/target.md"), notes, emptyMap()).map { it.path })
     }
 }

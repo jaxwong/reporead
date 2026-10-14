@@ -1,7 +1,6 @@
 package com.reporead.android.reader
 
 import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.SavedPage
 
 private val NOTE_LINK_HREF = Regex("""href="/note-link\?([^"]*)"""")
 
@@ -17,13 +16,14 @@ internal fun noteLinks(html: String): List<Pair<String?, String?>> = NOTE_LINK_H
 }.toList()
 
 /**
- * The notes whose saved [pages] link to [note], resolved like a tapped link against the repository's
- * [documents]: a link that could mean several notes counts when [note] is one of them. Sorted by path; [note] itself is left out.
+ * The notes whose saved pages link to [note], from each page's [links] ([noteLinks], by document id), resolved like a
+ * tapped link against the repository's [documents]: a link that could mean several notes counts when [note] is one of
+ * them. Sorted by path; [note] itself is left out.
  */
-internal fun linkedFrom(note: DocumentRow, documents: List<DocumentRow>, pages: List<SavedPage>): List<DocumentRow> {
+internal fun linkedFrom(note: DocumentRow, documents: List<DocumentRow>, links: Map<Long, List<Pair<String?, String?>>>): List<DocumentRow> {
     val byId = documents.associateBy { it.id }
-    return pages.mapNotNull { (documentId, html) ->
+    return links.mapNotNull { (documentId, pageLinks) ->
         val from = byId[documentId]?.takeIf { it.id != note.id } ?: return@mapNotNull null
-        from.takeIf { noteLinks(html).any { (target, path) -> resolveNoteLink(target, path, from.path, documents).any { it.id == note.id } } }
+        from.takeIf { pageLinks.any { (target, path) -> resolveNoteLink(target, path, from.path, documents).any { it.id == note.id } } }
     }.sortedBy { it.path }
 }

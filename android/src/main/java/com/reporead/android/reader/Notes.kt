@@ -72,10 +72,12 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
             return@produceState
         }
         val documents = dao.documentsOnce(note.repositoryId)
-        val pages = dao.pagesWithNoteLinks(note.repositoryId)
         val started = System.currentTimeMillis()
-        val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, pages) }
-        Log.i("RepoRead", "Linked from found; documentId=$documentId pagesWithLinks=${pages.size} found=${found.size} ms=${System.currentTimeMillis() - started}")
+        val ids = dao.notesWithNoteLinks(note.repositoryId)
+        // One page in memory at a time: only its links are kept.
+        val links = ids.associateWith { id -> dao.savedPage(id)?.let { html -> withContext(Dispatchers.Default) { noteLinks(html) } }.orEmpty() }
+        val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, links) }
+        Log.i("RepoRead", "Linked from found; documentId=$documentId pagesWithLinks=${ids.size} found=${found.size} ms=${System.currentTimeMillis() - started}")
         value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
     }
 
