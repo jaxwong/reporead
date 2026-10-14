@@ -8,6 +8,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,9 +29,11 @@ public class AppAuthController {
     private static final Logger LOG = LoggerFactory.getLogger(AppAuthController.class);
     static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
     private final AppSessions sessions;
+    private final OAuth2AuthorizedClientService clients;
 
-    public AppAuthController(AppSessions sessions) {
+    public AppAuthController(AppSessions sessions, OAuth2AuthorizedClientService clients) {
         this.sessions = sessions;
+        this.clients = clients;
     }
 
     @GetMapping("/app/sign-in")
@@ -55,8 +58,12 @@ public class AppAuthController {
     @DeleteMapping("/api/app-auth/session")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void signOut(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorization, @AuthenticationPrincipal AppUser user) {
-        sessions.revoke(authorization.substring("Bearer ".length()));
-        LOG.info("App session revoked; userId={}", user.id());
+        int remaining = sessions.revoke(authorization.substring("Bearer ".length()), user.id());
+        // The stored GitHub token belongs to the GitHub user and serves all their devices. It goes with the last session,
+        // so a signed-out user leaves no credential on the server without signing their other devices out of GitHub.
+        // A device signing in at the same moment can lose its new token; its next GitHub request then asks for sign-in.
+        if (remaining == 0) clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
+        LOG.info("App session revoked; userId={} otherSessions={} githubTokenRemoved={}", user.id(), remaining, remaining == 0);
     }
 
     @GetMapping("/api/auth/me")
