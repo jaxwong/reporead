@@ -67,7 +67,7 @@ public class AppAuthController {
         // other devices out of GitHub. A device signing in at the same moment can lose its new token; its next GitHub
         // request then asks for sign-in.
         if (remaining == 0) {
-            github.revokeAuthorization(user.githubUserId());
+            github.tokenToRevoke(user.githubUserId()).ifPresent(token -> github.revokeAuthorization(user.githubUserId(), token));
             clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
         }
         LOG.info("App session revoked; userId={} otherSessions={} githubTokenRemoved={}", user.id(), remaining, remaining == 0);

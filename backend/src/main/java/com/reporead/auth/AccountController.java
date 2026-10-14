@@ -12,7 +12,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Account deletion. External-call ceiling: 0 GitHub requests. */
+/** Account deletion. External-call ceiling: 2 GitHub requests (renewing an expiring token, then revoking the authorization). */
 @RestController
 public class AccountController {
     private static final Logger LOG = LoggerFactory.getLogger(AccountController.class);
@@ -39,13 +39,14 @@ public class AccountController {
 
     /**
      * Deletes everything RepoRead holds for the signed-in user in one transaction — every connection and its data, the
-     * annotation mutation records, sign-in codes, sessions, the user, and the stored GitHub token — after revoking
-     * RepoRead's authorization on GitHub, which needs that token. RepoRead keeps no credential afterwards. The App stays
-     * installed on GitHub until the user uninstalls it.
+     * annotation mutation records, sign-in codes, sessions, the user, and the stored GitHub token — then revokes
+     * RepoRead's authorization on GitHub with that token, read before the deletion removed it. Revoking cannot be
+     * undone, so it waits for the commit: a deletion that fails leaves the account and its GitHub authorization intact.
+     * RepoRead keeps no credential afterwards. The App stays installed on GitHub until the user uninstalls it.
      */
     @DeleteMapping("/api/account")
     Deleted delete(@AuthenticationPrincipal AppUser user) {
-        github.revokeAuthorization(user.githubUserId());
+        var token = github.tokenToRevoke(user.githubUserId());
         var deleted = transaction.execute(status -> {
             // First, so a connection being added concurrently commits before the list below, or waits and then fails.
             sessions.lockUserForDeletion(user.id());
@@ -68,6 +69,7 @@ public class AccountController {
             clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
             return new Deleted(repositories, reading, bookmarks, highlights, cards);
         });
+        token.ifPresent(value -> github.revokeAuthorization(user.githubUserId(), value));
         LOG.info("Account deleted; userId={} repositories={} readingStates={} bookmarks={} highlights={} cards={}",
             user.id(), deleted.repositories(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights(), deleted.cards());
         return deleted;
