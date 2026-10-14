@@ -117,9 +117,14 @@ class AppSignInTest {
         assertNotEquals(token, new String(stored, java.nio.charset.StandardCharsets.US_ASCII), "only the hash is stored");
     }
 
-    @Test void loginWithoutAnAppChallengeIssuesNoCode() throws Exception {
-        assertEquals("/auth/failed", completeGitHubLogin(null, 42, "test-only-alice"));
+    /** GitHubLoginTest shows such a login cannot start; reaching the callback without the challenge is a broken invariant. */
+    @Test void loginWithoutAnAppChallengeIsAnInvariantFailureAndIssuesNoCode() {
+        var request = new MockHttpServletRequest();
+        request.setSession(new MockHttpSession());
+        assertThrows(IllegalStateException.class,
+            () -> new AppSignInSuccess(sessions).onAuthenticationSuccess(request, new MockHttpServletResponse(), github(42, "test-only-alice")));
         assertEquals(0, db.sql("select count(*) from app_sign_in_codes").query(Integer.class).single());
+        assertEquals(0, db.sql("select count(*) from users").query(Integer.class).single());
     }
 
     @Test void wrongVerifierConsumesTheCodeSoTheRightOneCannotFollow() throws Exception {

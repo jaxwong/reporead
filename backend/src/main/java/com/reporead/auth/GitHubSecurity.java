@@ -1,5 +1,6 @@
 package com.reporead.auth;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -29,6 +30,8 @@ import org.springframework.security.oauth2.client.registration.InMemoryClientReg
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
@@ -157,8 +160,9 @@ public class GitHubSecurity {
     SecurityFilterChain browser(HttpSecurity http, ClientRegistrationRepository registrations,
                                 OAuth2AuthorizedClientService clients,
                                 JdkClientHttpRequestFactory githubRequestFactory, AppSessions sessions, MeterRegistry meters) throws Exception {
-        var resolver = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
-        resolver.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
+        var pkce = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
+        pkce.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
+        var resolver = startedByTheApp(pkce);
 
         var tokenClient = new RestClientAuthorizationCodeTokenResponseClient();
         tokenClient.setRestClient(tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
@@ -183,6 +187,28 @@ public class GitHubSecurity {
                     response.sendRedirect("/auth/failed");
                 }));
         return http.build();
+    }
+
+    /**
+     * Starts GitHub authorization only in a browser session that /app/sign-in began, which holds the app's PKCE challenge.
+     * Without one there is nothing to resolve, so the request falls through to denyAll (401) and never reaches GitHub: a
+     * login the app did not start cannot reach the callback, where Spring would store its GitHub token.
+     */
+    static OAuth2AuthorizationRequestResolver startedByTheApp(OAuth2AuthorizationRequestResolver resolver) {
+        return new OAuth2AuthorizationRequestResolver() {
+            @Override public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
+                return hasAppChallenge(request) ? resolver.resolve(request) : null;
+            }
+
+            @Override public OAuth2AuthorizationRequest resolve(HttpServletRequest request, String registrationId) {
+                return hasAppChallenge(request) ? resolver.resolve(request, registrationId) : null;
+            }
+        };
+    }
+
+    private static boolean hasAppChallenge(HttpServletRequest request) {
+        var session = request.getSession(false);
+        return session != null && session.getAttribute(AppAuthController.CHALLENGE_ATTRIBUTE) instanceof String;
     }
 
     @Bean

@@ -38,8 +38,14 @@ class GitHubLoginTest {
 
     @Autowired MockMvc mvc;
 
+    /** A browser session that the app's /app/sign-in began, holding its PKCE challenge. */
+    private MockHttpSession appSignIn() throws Exception {
+        return (MockHttpSession) mvc.perform(get("/app/sign-in").param("code_challenge", TestSessions.challenge(TestSessions.verifier())))
+            .andExpect(status().isFound()).andReturn().getRequest().getSession();
+    }
+
     @Test void loginRedirectHasExactCallbackStateAndPkceButNoBroadScopes() throws Exception {
-        MvcResult first = mvc.perform(get("/oauth2/authorization/github").header("Host", "untrusted.example"))
+        MvcResult first = mvc.perform(get("/oauth2/authorization/github").session(appSignIn()).header("Host", "untrusted.example"))
             .andExpect(status().isFound()).andReturn();
         URI redirect = URI.create(first.getResponse().getHeader("Location"));
         assertEquals("https", redirect.getScheme());
@@ -54,9 +60,16 @@ class GitHubLoginTest {
         assertFalse(params.containsKey("scope"));
         assertFalse(params.containsKey("client_secret"));
         assertFalse(params.containsKey("code_verifier"));
-        URI second = URI.create(mvc.perform(get("/oauth2/authorization/github"))
+        URI second = URI.create(mvc.perform(get("/oauth2/authorization/github").session(appSignIn()))
             .andReturn().getResponse().getHeader("Location"));
         assertNotEquals(params.get("state"), query(second).get("state"));
+    }
+
+    /** Only /app/sign-in starts a GitHub login, so a login without the app's challenge never stores a GitHub token. */
+    @Test void gitHubLoginNotStartedByTheAppIsRefusedBeforeReachingGitHub() throws Exception {
+        mvc.perform(get("/oauth2/authorization/github")).andExpect(status().isUnauthorized()).andExpect(header().doesNotExist("Location"));
+        mvc.perform(get("/oauth2/authorization/github").session(new MockHttpSession()))
+            .andExpect(status().isUnauthorized()).andExpect(header().doesNotExist("Location"));
     }
 
     @Test void apiRequiresAnAppSessionWithoutStartingAnExternalCall() throws Exception {
