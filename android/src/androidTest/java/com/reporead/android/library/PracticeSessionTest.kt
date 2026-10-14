@@ -76,7 +76,7 @@ class PracticeSessionTest {
             DocumentRow(2, 7, "test-only/topic/core.md", "Test-only core", coreSha)))
         dao.saveNote(NoteRow(1, bankSha, bankSha, "test-only/topic/interview/bank.md", "Test-only bank", bank, 0, renderFormat = RENDER_FORMAT))
         dao.saveNote(NoteRow(2, coreSha, coreSha, "test-only/topic/core.md", "Test-only core", core, 0, renderFormat = RENDER_FORMAT))
-        val sync = Sync(Api("http://127.0.0.1:1") { error("Practice fixture must not call the network") }, store, files)
+        val sync = Sync(Api("http://127.0.0.1:1") { error("Practice fixture must not call the network") }, store, files) {}
         ReaderTestActivity.content = {
             MaterialTheme {
                 PracticeScreen(dao, sync, "test-only/topic", push = { pushed += it }, onBack = {})

@@ -255,6 +255,8 @@ class LocalStoreTest {
         assertEquals(3, dao.unsentInRepository(7))
         assertEquals(1, dao.unsentInRepository(8))
         assertEquals(6, dao.unsentCount())
+        // The refused highlight is lost by signing out, but is not waiting to be sent.
+        assertEquals(5, dao.waitingCount().first())
     }
 
     @Test fun aNewVersionKeepsTheOldOneAsBaselineUntilItsChangesAreShown() = runBlocking {

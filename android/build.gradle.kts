@@ -112,6 +112,8 @@ dependencies {
     // Offline cache and pending local changes (spec: Room for local persistence).
     implementation("androidx.room:room-runtime:2.8.5")
     ksp("androidx.room:room-compiler:2.8.5")
+    // Sends pending changes once the phone has a network, also after the app is closed (ADR-08 background sync).
+    implementation("androidx.work:work-runtime:2.12.0")
     testImplementation("junit:junit:4.13.2")
     // Room needs Android's SQLite, so cache rules are tested on the device.
     androidTestImplementation("androidx.test:runner:1.7.0")

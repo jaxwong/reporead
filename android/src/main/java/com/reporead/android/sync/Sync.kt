@@ -15,6 +15,9 @@ import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
@@ -47,17 +50,24 @@ private val REFUSAL_STATUSES = setOf(400, 404, 409, 410, 422)
 internal fun ApiException.refusesItem() = status in REFUSAL_STATUSES && !code.startsWith("HTTP_")
 
 /**
- * What one explicit sync could not do. [refused]: reading positions and bookmark changes the server refused; a refused
+ * One sync of local changes, or clearing of the phone, at a time in this process: the library's sync, the background
+ * sync, sign-out and sign-in. Without it a background run could write the server's lists back after sign-out cleared them.
+ */
+private val oneSyncAtATime = Mutex()
+
+/**
+ * What one sync could not do. [refused]: reading positions and bookmark changes the server refused; a refused
  * position stays on this phone only, a refused bookmark change is undone. [notSent]: why pending highlights and cards
  * were not sent this time; they wait for the next sync.
  */
 data class LocalSync(val refused: List<String>, val notSent: ApiException?)
 
 /**
- * Owns how the offline cache and the backend meet. Every network operation is explicit and foreground; a failed
- * call ends that operation and leaves the previous complete cache untouched. Nothing here retries.
+ * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
+ * cache untouched. Nothing here retries; every local change calls [onPendingChange], which asks for a background sync
+ * (BackgroundSync.kt, ADR-08).
  */
-class Sync(private val api: Api, private val store: LocalStore, filesDir: File) {
+class Sync(private val api: Api, private val store: LocalStore, filesDir: File, private val onPendingChange: () -> Unit) {
     private val dao = store.library()
     private val imageRoot = File(filesDir, "images")
     private val exportRoot = exportDirectory(filesDir)
@@ -250,23 +260,41 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
     /** Online only: the server deletes the account and everything it stored; then this phone's copy is cleared. */
     suspend fun deleteAccount() {
         api.delete("/api/account")
-        withContext(Dispatchers.IO) { clearAll() }
+        clearAll()
     }
 
     /** Only the reader calls this, with the version it actually displayed. */
-    suspend fun saveReading(row: ReadingRow) = dao.saveDisplayedReading(row.copy(pending = true))
+    suspend fun saveReading(row: ReadingRow) {
+        dao.saveDisplayedReading(row.copy(pending = true))
+        onPendingChange()
+    }
 
-    suspend fun setBookmark(note: NoteRow, bookmarked: Boolean) =
+    suspend fun setBookmark(note: NoteRow, bookmarked: Boolean) {
         dao.saveBookmark(BookmarkRow(note.documentId, note.title, note.path, note.blobSha, bookmarked, pending = true, System.currentTimeMillis()))
+        onPendingChange()
+    }
+
+    /** Saves a grade as a pending local mutation; false when its card changed meanwhile and nothing was saved (see recordReview). */
+    suspend fun recordReview(row: ReviewRow): Boolean = dao.recordReview(row).also { if (it) onPendingChange() }
 
     /**
-     * The explicit foreground sync: sends pending work, then replaces acknowledged local reading, bookmark, and notebook
-     * rows with the server's complete lists. Highlight and card creations need GitHub; when GitHub, or access to it,
+     * The sync of local changes, run by library open, pull to refresh, Sync now, and the background sync: sends pending
+     * work, then replaces acknowledged local reading, bookmark, and notebook rows with the server's complete lists. Highlight and card creations need GitHub; when GitHub, or access to it,
      * fails they wait, and the database-only work still runs (ADR-03). A refused item is marked and the run goes on; any
      * other failure ends the run with unacknowledged changes still pending. The notebook, which grows without paging, is
      * read last so its failure cannot hold back the rest.
      */
-    suspend fun syncLocalChanges(): LocalSync {
+    suspend fun syncLocalChanges(): LocalSync = oneSyncAtATime.withLock { sendAndReplace() }
+
+    /**
+     * The background sync's run: [syncLocalChanges], but only when changes wait to be sent; null when none did. Checked
+     * under the lock, so after sign-out has cleared the phone it makes no request and writes nothing.
+     */
+    suspend fun syncWaitingChanges(): LocalSync? = oneSyncAtATime.withLock {
+        if (dao.waitingCount().first() == 0) null else sendAndReplace()
+    }
+
+    private suspend fun sendAndReplace(): LocalSync {
         val notSent = pushAnnotations()
         // Nothing else can reach the server either.
         if (notSent?.status == 0) throw notSent
@@ -341,6 +369,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
                 cachedTitle = saved.title, cachedPath = saved.path, cachedCurrentBlobSha = current?.blobSha)
         }
         dao.saveAnnotation(row)
+        onPendingChange()
         return row.mutationId
     }
 
@@ -452,6 +481,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
             else -> {
                 check(row.pending) { "Highlight ${row.mutationId} has no server id but is not pending" }
                 dao.markDeleting(row.mutationId)
+                onPendingChange()
             }
         }
     }
@@ -554,11 +584,13 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File) 
         return bytes
     }
 
-    /** Explicit sign-out removes every cached note, image, and pending change from this phone. */
-    fun clearAll() {
-        store.clearAllTables()
-        check(!imageRoot.exists() || imageRoot.deleteRecursively()) { "Could not remove saved images at $imageRoot" }
-        check(!exportRoot.exists() || exportRoot.deleteRecursively()) { "Could not remove private notebook exports at $exportRoot" }
+    /** Explicit sign-out removes every cached note, image, and pending change from this phone; a running sync finishes first. */
+    suspend fun clearAll() = oneSyncAtATime.withLock {
+        withContext(Dispatchers.IO) {
+            store.clearAllTables()
+            check(!imageRoot.exists() || imageRoot.deleteRecursively()) { "Could not remove saved images at $imageRoot" }
+            check(!exportRoot.exists() || exportRoot.deleteRecursively()) { "Could not remove private notebook exports at $exportRoot" }
+        }
     }
 
     private fun sha256(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }

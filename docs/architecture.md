@@ -246,7 +246,7 @@ Concurrency: syncs, disconnects and every write that adds rows for a document ta
 
 ## 4. Android app
 
-One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), with its own back stack of `Screen` values encoded as strings so it survives process death. No navigation library, no DI framework, no background work.
+One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), with its own back stack of `Screen` values encoded as strings so it survives process death. No navigation library and no DI framework; the only background work is the background sync of local changes (WorkManager, ADR-08).
 
 ### Screens and layers
 
@@ -302,7 +302,7 @@ flowchart TB
 | `auth` | PKCE sign-in through a Custom Tab; the encrypted bearer session |
 | `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body |
 | `data` | `LocalStore`: Room entities and DAOs (schema history in `android/schemas/`) |
-| `sync` | `Sync`: refreshes, opening notes, the explicit foreground sync, annotation and card mutations, disconnect and account deletion |
+| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change |
 | `library` | Library tabs, Notebook (with Markdown export), Practice sessions, Review sessions, and the SM-2 scheduler (`Review.kt`) |
 | `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
@@ -423,9 +423,9 @@ sequenceDiagram
 
 Links the page needs native help with (`/note-link`, `/copy-code`, `/full-screen`) are same-origin URLs the app intercepts; the page itself can't call native code.
 
-### Highlights, cards and the foreground sync
+### Highlights, cards and the sync
 
-Local changes are written to Room first and sent only at explicit sync points: opening the Library, tapping Sync, opening a note. There is no background sync and no retry framework; the mutation id makes resending safe.
+Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh, **Sync now**, and opening a note also send them. Every path runs the same `Sync` code under one per-process lock that sign-out also takes; the mutation id makes resending safe.
 
 ```mermaid
 sequenceDiagram
@@ -492,10 +492,10 @@ flowchart LR
 
     Card["Pending CARD<br/>(mutation id)"]
     Sources --> Card
-    Card -- "foreground sync" --> SrvCard["Server: annotations<br/>type CARD"]
+    Card -- "sync" --> SrvCard["Server: annotations<br/>type CARD"]
 
     Grade["Grade 0 / 3 / 4 / 5<br/>pending, client UUID"]
-    Grade -- "foreground sync" --> Log["Server: review_log<br/>immutable, idempotent"]
+    Grade -- "sync" --> Log["Server: review_log<br/>immutable, idempotent"]
     Log -- "GET /api/notebook" --> Proj["Room: review_log projection"]
     Proj --> SM2["library/Review.kt<br/>SM-2 over the log"]
     SM2 --> Due["Due cards → Review session<br/>capped at 40 (server-owned)"]

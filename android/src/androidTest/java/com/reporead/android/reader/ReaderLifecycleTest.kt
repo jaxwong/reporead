@@ -70,7 +70,7 @@ class ReaderLifecycleTest {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, path, title, sha)))
         dao.saveNote(NoteRow(1, sha, sha, path, title, html, 0, renderFormat = RENDER_FORMAT))
         val api = Api("http://127.0.0.1:1") { error("Lifecycle fixture must not call the network") }
-        val sync = Sync(api, store, files)
+        val sync = Sync(api, store, files) {}
         ReaderTestActivity.content = {
             MaterialTheme {
                 val activityScope = rememberCoroutineScope()
