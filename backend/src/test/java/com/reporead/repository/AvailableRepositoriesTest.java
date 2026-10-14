@@ -26,16 +26,19 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.SocketTimeoutException;
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -67,6 +70,7 @@ class AvailableRepositoriesTest {
     @Autowired ClientRegistrationRepository registrations;
     @Autowired AppSessions sessions;
     @Autowired JdbcClient db;
+    @Autowired TransactionTemplate transaction;
     MockRestServiceServer server;
     String alice;
 
@@ -271,6 +275,40 @@ class AvailableRepositoriesTest {
             .andExpect(jsonPath("$.code").value("REPOSITORY_NOT_AUTHORIZED"));
         connect(alice, 11, "{}").andExpect(status().isBadRequest());
         connect(alice, 0, "{\"installationId\":7}").andExpect(status().isBadRequest());
+        assertEquals(0, db.sql("select count(*) from repository_connections").query(Integer.class).single());
+    }
+
+    @Test void connectingWhileTheAccountIsBeingDeletedAsksToSignInInsteadOfFailing() throws Exception {
+        expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
+        var deleted = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            // What account deletion does to the user row (AccountController.delete), held open while the connect arrives.
+            var deleting = executor.submit(() -> transaction.execute(status -> {
+                db.sql("select id from users where id = 1 for update").query(Long.class).single();
+                db.sql("delete from app_sessions where user_id = 1").update();
+                db.sql("delete from users where id = 1").update();
+                deleted.countDown();
+                try {
+                    return release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    throw new IllegalStateException("Interrupted while holding the test account deletion", interrupted);
+                }
+            }));
+            assertTrue(deleted.await(10, TimeUnit.SECONDS));
+            var connecting = executor.submit(() -> connect(alice, 11, "{\"installationId\":7}").andReturn().getResponse());
+            long waitUntil = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (db.sql("select count(*) from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()")
+                .query(Integer.class).single() == 0) {
+                assertTrue(System.nanoTime() < waitUntil, "the connect never waited for the account deletion's lock");
+                Thread.sleep(20);
+            }
+            release.countDown();
+            assertTrue(deleting.get(10, TimeUnit.SECONDS));
+            var response = connecting.get(10, TimeUnit.SECONDS);
+            assertEquals(401, response.getStatus());
+            assertTrue(response.getContentAsString().contains("\"SIGN_IN_REQUIRED\""), response.getContentAsString());
+        }
         assertEquals(0, db.sql("select count(*) from repository_connections").query(Integer.class).single());
     }
 

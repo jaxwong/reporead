@@ -1,6 +1,7 @@
 package com.reporead.repository;
 
 import com.reporead.ApiFailure;
+import com.reporead.auth.AppSessions;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
 import com.reporead.sync.RepositorySync;
@@ -33,14 +34,16 @@ public class RepositoryController {
     private final RepositorySync sync;
     private final ConnectionData data;
     private final TransactionTemplate transaction;
+    private final AppSessions sessions;
 
     public RepositoryController(GitHubApi github, RepositoryConnections connections, RepositorySync sync, ConnectionData data,
-                                TransactionTemplate transaction) {
+                                TransactionTemplate transaction, AppSessions sessions) {
         this.github = github;
         this.connections = connections;
         this.sync = sync;
         this.data = data;
         this.transaction = transaction;
+        this.sessions = sessions;
     }
 
     /** What disconnecting this repository would delete, for the confirmation. */
@@ -108,7 +111,14 @@ public class RepositoryController {
             .filter(candidate -> candidate.id() == githubRepositoryId).findFirst()
             .orElseThrow(() -> new ApiFailure(HttpStatus.FORBIDDEN, "REPOSITORY_NOT_AUTHORIZED",
                 "This repository is not available to you through the RepoRead GitHub App installation."));
-        long id = connections.connect(user.id(), repository);
+        long id = transaction.execute(status -> {
+            // Account deletion locks the user before listing connections to delete, so this connection is either listed
+            // and deleted with the rest, or added after the account is gone, which is refused here.
+            if (!sessions.lockUserForWrite(user.id())) {
+                throw new ApiFailure(HttpStatus.UNAUTHORIZED, "SIGN_IN_REQUIRED", "This RepoRead account was deleted; sign in again.");
+            }
+            return connections.connect(user.id(), repository);
+        });
         LOG.info("Repository connected; userId={} connectionId={} githubRepositoryId={}", user.id(), id, githubRepositoryId);
         return connections.find(user.id(), id).orElseThrow();
     }
