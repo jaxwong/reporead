@@ -113,22 +113,10 @@ public class RepositorySync {
      * read as a note excludes only that candidate; any other failure fails the sync.
      */
     private List<Documents.Move> contentMoves(AppUser user, RepositoryConnections.Connection connection, List<Documents.SourceFile> files) {
-        var existing = documents.existing(connection.id());
-        var exact = Documents.exactMoves(existing, files);
-        var snapshotPaths = new HashSet<String>();
-        for (var file : files) snapshotPaths.add(file.path());
-        var knownPaths = new HashSet<String>();
-        for (var row : existing) knownPaths.add(row.path());
-        var claimedIds = new HashSet<Long>();
-        var claimedPaths = new HashSet<String>();
-        for (var move : exact) {
-            claimedIds.add(move.documentId());
-            claimedPaths.add(move.toPath());
-        }
+        var unmatched = Documents.unmatched(documents.existing(connection.id()), files);
         var withState = documents.withUserState(connection.id());
-        var vanished = existing.stream().filter(row -> !row.deleted() && !snapshotPaths.contains(row.path())
-            && !claimedIds.contains(row.id()) && withState.contains(row.id())).toList();
-        var fresh = files.stream().filter(file -> !knownPaths.contains(file.path()) && !claimedPaths.contains(file.path())).toList();
+        var vanished = unmatched.vanished().stream().filter(row -> withState.contains(row.id())).toList();
+        var fresh = unmatched.fresh();
         if (vanished.isEmpty() || fresh.isEmpty()) return List.of();
         if (vanished.size() + fresh.size() > MAX_CONTENT_MOVE_CANDIDATES) {
             LOG.info("Content moves not checked; connectionId={} vanishedWithUserData={} newPaths={} limit={}",
