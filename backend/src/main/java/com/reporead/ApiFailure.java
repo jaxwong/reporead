@@ -36,7 +36,8 @@ public final class ApiFailure extends RuntimeException {
         GITHUB_TREE_INCOMPLETE(502),
         GITHUB_INSTALLATION_LIMIT(502),
         GITHUB_REPOSITORY_LIMIT(502),
-        GITHUB_UNAVAILABLE(503);
+        GITHUB_UNAVAILABLE(503),
+        SIGN_IN_BUSY(503);
 
         public final int status;
 

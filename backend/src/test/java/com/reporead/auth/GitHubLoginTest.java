@@ -72,6 +72,16 @@ class GitHubLoginTest {
             .andExpect(status().isUnauthorized()).andExpect(header().doesNotExist("Location"));
     }
 
+    /** Only /app/sign-in keeps anything for a browser that has not signed in; a refused request opens no session. */
+    @Test void refusedBrowserRequestsOpenNoSession() throws Exception {
+        for (String path : List.of("/", "/oauth2/authorization/github", "/test-only/unknown")) {
+            var refused = mvc.perform(get(path)).andExpect(status().isUnauthorized()).andReturn();
+            assertNull(refused.getRequest().getSession(false), path);
+        }
+        var malformed = mvc.perform(get("/app/sign-in").param("code_challenge", "test-only-short")).andExpect(status().isBadRequest()).andReturn();
+        assertNull(malformed.getRequest().getSession(false));
+    }
+
     @Test void apiRequiresAnAppSessionWithoutStartingAnExternalCall() throws Exception {
         mvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/repositories")).andExpect(status().isUnauthorized());
