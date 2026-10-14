@@ -50,8 +50,9 @@ private val REFUSAL_STATUSES = setOf(400, 404, 409, 410, 422)
 internal fun ApiException.refusesItem() = status in REFUSAL_STATUSES && !code.startsWith("HTTP_")
 
 /**
- * One sync of local changes, or clearing of the phone, at a time in this process: the library's sync, the background
- * sync, sign-out and sign-in. Without it a background run could write the server's lists back after sign-out cleared them.
+ * Every Sync operation that writes the server's answers into Room, and clearing the phone, run under this lock, so nothing
+ * fetched before sign-out or an account switch is written after it (ADR-22). Not reentrant: locked operations call only
+ * private helpers. Local saves and the reader's image fetches do not wait; a late image is removed at the next clear.
  */
 private val oneSyncAtATime = Mutex()
 
@@ -74,7 +75,9 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
 
     private fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else getString(name)
 
-    suspend fun refreshRepositories() {
+    suspend fun refreshRepositories() = oneSyncAtATime.withLock { loadRepositories() }
+
+    private suspend fun loadRepositories() {
         val json = api.get("/api/repositories")
         val rows = contract {
             val array = json.getJSONArray("repositories")
@@ -87,7 +90,9 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         deleteImages(dao.replaceRepositories(rows))
     }
 
-    suspend fun refreshDocuments(repositoryId: Long) {
+    suspend fun refreshDocuments(repositoryId: Long) = oneSyncAtATime.withLock { loadDocuments(repositoryId) }
+
+    private suspend fun loadDocuments(repositoryId: Long) {
         val json = api.get("/api/repositories/$repositoryId/documents")
         val rows = contract {
             val array = json.getJSONArray("documents")
@@ -101,10 +106,10 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     }
 
     /** Asks the backend to reconcile with GitHub, then reloads the now-current lists. */
-    suspend fun refreshFromGitHub(repositoryId: Long) {
+    suspend fun refreshFromGitHub(repositoryId: Long) = oneSyncAtATime.withLock {
         api.post("/api/repositories/$repositoryId/sync")
-        refreshDocuments(repositoryId)
-        refreshRepositories()
+        loadDocuments(repositoryId)
+        loadRepositories()
     }
 
     data class Opened(val note: NoteRow, val staleReason: String?)
@@ -127,7 +132,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         val current = dao.document(documentId)
         if (upToDate(cached, current)) return Opened(cached!!, null)
         return try {
-            Opened(fetchNote(documentId), null)
+            Opened(oneSyncAtATime.withLock { fetchNote(documentId) }, null)
         } catch (error: ApiException) {
             if (cached == null) throw error
             val cachedIsCurrent = sameVersion(cached, current)
@@ -169,7 +174,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         onProgress(0, missing.size)
         missing.forEachIndexed { index, document ->
             try {
-                fetchNote(document.id)
+                oneSyncAtATime.withLock { fetchNote(document.id) }
             } catch (error: ApiException) {
                 if (error.code != "UNSUPPORTED_CONTENT") {
                     Log.w("RepoRead", "Saving all notes stopped; repositoryId=$repositoryId fetched=${index - cannotShow.size} documentId=${document.id} code=${error.code}")
@@ -218,18 +223,18 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
      * server no longer has the repository (an earlier disconnect whose answer was lost, or another device): this
      * phone's copies are then removed by reconciling with the server's list.
      */
-    suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? {
-        val synced = syncLocalChanges()
+    suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = oneSyncAtATime.withLock {
+        val synced = sendAndReplace()
         val json = try {
             api.get("/api/repositories/$repositoryId/stored-data")
         } catch (error: ApiException) {
             if (error.code != "NOT_FOUND") throw error
             Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
-            refreshRepositories()
-            return null
+            loadRepositories()
+            return@withLock null
         }
         val stored = contract { StoredData(json.getInt("documents"), json.getInt("readingStates"), json.getInt("bookmarks"), json.getInt("highlights"), json.getInt("cards")) }
-        return DisconnectPreview(stored, dao.unsentInRepository(repositoryId), synced.notSent?.describe())
+        DisconnectPreview(stored, dao.unsentInRepository(repositoryId), synced.notSent?.describe())
     }
 
     /**
@@ -237,14 +242,14 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
      * including unsynced changes for those notes. A failure changes nothing on the phone. When the server no longer has
      * the repository (an earlier answer was lost), the phone reconciles with the server's complete list instead.
      */
-    suspend fun disconnect(repositoryId: Long) {
+    suspend fun disconnect(repositoryId: Long) = oneSyncAtATime.withLock {
         val json = try {
             api.delete("/api/repositories/$repositoryId") ?: throw ApiException(204, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
         } catch (error: ApiException) {
             if (error.code != "NOT_FOUND") throw error
             Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
-            refreshRepositories()
-            return
+            loadRepositories()
+            return@withLock
         }
         val documentIds = contract { json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } } }
         dao.forgetRepository(repositoryId, documentIds)
@@ -295,10 +300,10 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     }
 
     private suspend fun sendAndReplace(): LocalSync {
-        val notSent = pushAnnotations()
+        val notSent = sendAnnotations()
         // Nothing else can reach the server either.
         if (notSent?.status == 0) throw notSent
-        pushReviews()
+        sendReviews()
         val refused = mutableListOf<String>()
         for (row in dao.pendingReading()) {
             val body = JSONObject().put("lastReadBlobSha", row.lastReadBlobSha).put("progressPercent", row.progressPercent)
@@ -378,7 +383,9 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
      * The same mutation id is replayed until the server answers, so a lost acknowledgement cannot create a duplicate. A
      * refusal is kept on the row and shown; it is not retried.
      */
-    suspend fun pushAnnotations(): ApiException? {
+    suspend fun pushAnnotations(): ApiException? = oneSyncAtATime.withLock { sendAnnotations() }
+
+    private suspend fun sendAnnotations(): ApiException? {
         for (row in dao.pendingAnnotations()) {
             check(row.serverId == null || row.deleting) { "Pending ${row.mutationId} has a server id but is not being deleted" }
             // A deletion whose creation the server has not acknowledged replays the creation first, to learn its id.
@@ -431,8 +438,8 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     }
 
     /** Pending creations are sent first, so the server's list already contains them where possible. */
-    suspend fun refreshAnnotations(documentId: Long) {
-        pushAnnotations()?.let { throw it }
+    suspend fun refreshAnnotations(documentId: Long) = oneSyncAtATime.withLock {
+        sendAnnotations()?.let { throw it }
         val json = api.get("/api/documents/$documentId/annotations")
         dao.replaceRemoteAnnotations(documentId, contract {
             json.getJSONArray("annotations").let { array -> List(array.length()) { annotationRow(array.getJSONObject(it)) } }
@@ -440,24 +447,24 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     }
 
     /** Online only. A 409 ANNOTATION_CONFLICT means another edit landed first; nothing local changes. */
-    suspend fun editAnnotation(row: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow {
+    suspend fun editAnnotation(row: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow = oneSyncAtATime.withLock {
         val serverId = checkNotNull(row.serverId) { "Only acknowledged highlights can be edited; ${row.mutationId} is pending" }
         val updated = annotationRow(api.patch("/api/annotations/$serverId",
             JSONObject().put("note", note ?: JSONObject.NULL).put("expectedVersion", expectedVersion)))
         dao.saveAnnotation(updated)
-        return updated
+        updated
     }
 
     /**
      * Online only: places an acknowledged highlight on a selection the user made. A 409 ANNOTATION_CONFLICT means another
      * change landed first; nothing local changes.
      */
-    suspend fun reattachAnnotation(row: AnnotationRow, selection: JSONObject): AnnotationRow {
+    suspend fun reattachAnnotation(row: AnnotationRow, selection: JSONObject): AnnotationRow = oneSyncAtATime.withLock {
         val serverId = checkNotNull(row.serverId) { "Only acknowledged highlights can be reattached; ${row.mutationId} is pending" }
         val updated = annotationRow(api.post("/api/annotations/$serverId/reattach",
             JSONObject().put("expectedVersion", row.version).put("anchor", selection)))
         dao.saveAnnotation(updated)
-        return updated
+        updated
     }
 
     /**
@@ -466,7 +473,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
      * once and offline too; the next sync replays the creation (the server may have it after a lost acknowledgement)
      * and deletes it there. A refused creation the server never accepted is only local.
      */
-    suspend fun deleteAnnotation(row: AnnotationRow) {
+    suspend fun deleteAnnotation(row: AnnotationRow) = oneSyncAtATime.withLock {
         val serverId = row.serverId
         when {
             serverId != null && !row.pending -> {
@@ -487,7 +494,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     }
 
     /** One database-only read; complete responses replace acknowledged projections, never pending work. */
-    suspend fun refreshNotebook() {
+    private suspend fun refreshNotebook() {
         val json = api.get("/api/notebook")
         val (annotations, reviews, limit) = contract {
             val annotations = json.getJSONArray("annotations")
@@ -500,7 +507,9 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         dao.replaceRemoteNotebook(annotations, reviews, limit)
     }
 
-    suspend fun pushReviews() {
+    suspend fun pushReviews() = oneSyncAtATime.withLock { sendReviews() }
+
+    private suspend fun sendReviews() {
         for (row in dao.pendingReviews()) {
             val card = dao.annotation(row.cardMutationId)
             if (card == null) error("Review ${row.mutationId} references missing local card ${row.cardMutationId}")
@@ -523,7 +532,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         }
     }
 
-    suspend fun checkCard(row: AnnotationRow, blobSha: String) {
+    suspend fun checkCard(row: AnnotationRow, blobSha: String) = oneSyncAtATime.withLock {
         val id = checkNotNull(row.serverId) { "Only acknowledged cards can be confirmed; ${row.mutationId} is pending" }
         dao.saveAnnotation(annotationRow(api.post("/api/annotations/$id/check",
             JSONObject().put("expectedVersion", row.version).put("blobSha", blobSha))))
