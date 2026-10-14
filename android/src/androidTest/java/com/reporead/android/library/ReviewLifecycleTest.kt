@@ -43,7 +43,7 @@ class ReviewLifecycleTest {
         dao.saveNote(NoteRow(1, sha, sha, "test-only/review.md", "Test-only review", html, 0))
         dao.saveReviewLimit(ReviewLimitRow(sessionLimit = 40))
         // No token and a closed local port: a server call fails as unreachable instead of leaving the phone.
-        val sync = Sync(Api("http://127.0.0.1:1") { null }, store, File(instrumentation.targetContext.cacheDir, "review-lifecycle-test")) {}
+        val sync = Sync(Api("http://127.0.0.1:1", { null }) {}, store, File(instrumentation.targetContext.cacheDir, "review-lifecycle-test")) {}
         ReaderTestActivity.content = {
             MaterialTheme { ReviewScreen(dao, sync, push = { error("Review fixture must not navigate") }, onBack = {}) }
         }

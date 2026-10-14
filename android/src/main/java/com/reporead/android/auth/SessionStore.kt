@@ -1,10 +1,15 @@
 package com.reporead.android.auth
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -48,6 +53,19 @@ class SessionStore(context: Context) {
     }
 
     fun clear() = prefs.edit().remove("token").apply()
+
+    /** The server refused [sent] (a 401): ends the session unless a newer sign-in replaced it while that request ran. */
+    fun endRefused(sent: String?) {
+        if (sent != null && accessToken() == sent) clear()
+    }
+
+    /** Whether a session is stored, as it changes through any SessionStore (they all share these preferences). */
+    fun signedIn(): Flow<Boolean> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> if (key == "token" || key == null) trySend(prefs.contains("token")) }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        send(prefs.contains("token"))
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.distinctUntilChanged()
 
     /** The RepoRead user id whose data is saved on this phone; null when nothing is known to be saved. */
     var dataOwner: Long?

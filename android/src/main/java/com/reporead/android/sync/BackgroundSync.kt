@@ -27,11 +27,16 @@ private val SETTLE: Duration = Duration.ofSeconds(5)
 private val FIRST_BACKOFF: Duration = Duration.ofSeconds(30)
 private const val MAX_ATTEMPTS = 10
 
+/** The app's one Api wiring: the stored session, which ends when the server refuses it (any 401). */
+fun appApi(context: Context): Api {
+    val session = SessionStore(context.applicationContext)
+    return Api(BuildConfig.API_BASE_URL, session::accessToken, session::endRefused)
+}
+
 /** The app's one Sync wiring, shared by the UI and the background sync. */
 fun appSync(context: Context): Sync {
     val app = context.applicationContext
-    val session = SessionStore(app)
-    return Sync(Api(BuildConfig.API_BASE_URL) { session.accessToken() }, LocalStore.get(app), app.filesDir) { requestSync(app) }
+    return Sync(appApi(app), LocalStore.get(app), app.filesDir) { requestSync(app) }
 }
 
 /**

@@ -300,7 +300,7 @@ flowchart TB
 | Package | Owns |
 | --- | --- |
 | `auth` | PKCE sign-in through a Custom Tab; the encrypted bearer session |
-| `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body |
+| `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made |
 | `data` | `LocalStore`: Room entities and DAOs (schema history in `android/schemas/`) |
 | `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change |
 | `library` | Library tabs, Notebook (with Markdown export), Practice sessions, Review sessions, and the SM-2 scheduler (`Review.kt`) |

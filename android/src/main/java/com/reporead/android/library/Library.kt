@@ -77,14 +77,13 @@ private fun seenChanged(note: ChangedNote) = note.changedAt?.let {
  * cached data stays visible.
  */
 @Composable
-private fun RefreshOnEntry(key: Any, onFailure: (ApiException) -> Unit, onRefreshing: (Boolean) -> Unit, onStatus: (String?) -> Unit,
+private fun RefreshOnEntry(key: Any, onRefreshing: (Boolean) -> Unit, onStatus: (String?) -> Unit,
                            block: suspend () -> String?) {
     LaunchedEffect(key) {
         onRefreshing(true)
         try {
             onStatus(block())
         } catch (error: ApiException) {
-            onFailure(error)
             onStatus("Showing saved data. ${error.describe()}")
         } finally {
             onRefreshing(false)
@@ -101,7 +100,7 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (ApiException) -> Unit, push: (Screen) -> Unit,
+fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, push: (Screen) -> Unit,
                   onSignIn: () -> Unit, onSignOut: () -> Unit, onAccountDeleted: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(LibraryTab.READING) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
@@ -116,10 +115,9 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
     val outlook = rememberReviewOutlook(dao)
     if (signedIn) {
         // Pushes pending changes, then pulls the server's view. The background sync sends changes without this (ADR-08).
-        RefreshOnEntry(refresh, onFailure, { refreshing = it }, { status = it }) {
+        RefreshOnEntry(refresh, { refreshing = it }, { status = it }) {
             sync.refreshRepositories()
             val synced = sync.syncLocalChanges()
-            synced.notSent?.let(onFailure)
             listOfNotNull(
                 synced.notSent?.let { "New highlights and cards stay on this phone for now. ${it.describe()}" },
                 synced.refused.takeIf { it.isNotEmpty() }?.let { "The server refused: ${it.joinToString("; ")}. A refused place stays on this phone." },
@@ -189,7 +187,6 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                     sync.deleteAccount()
                     onAccountDeleted()
                 } catch (failure: ApiException) {
-                    onFailure(failure)
                     status = if (failure.status == 401) {
                         // A lost answer to an earlier deletion also ends the session, so this cannot tell the two apart.
                         "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
@@ -312,12 +309,12 @@ private fun DeleteAccountDialog(repositories: List<String>, onDismiss: () -> Uni
 }
 
 @Composable
-fun AvailableScreen(api: Api, onFailure: (ApiException) -> Unit, onBack: () -> Unit, onConnected: (Screen) -> Unit) {
+fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit) {
     var reload by remember { mutableIntStateOf(0) }
     var connecting by remember { mutableStateOf<Long?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val load by rememberLoad(reload, onFailure) {
+    val load by rememberLoad(reload) {
         val json = api.get("/api/repositories/available")
         contract {
             json.getJSONArray("repositories").let { array ->
@@ -355,7 +352,6 @@ fun AvailableScreen(api: Api, onFailure: (ApiException) -> Unit, onBack: () -> U
                                             val fullName = contract { json.getString("fullName") }
                                             onConnected(Screen.Folder(id, fullName, ""))
                                         } catch (failure: ApiException) {
-                                            onFailure(failure)
                                             error = failure.describe()
                                         } finally {
                                             connecting = null
@@ -381,7 +377,7 @@ internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<S
 }
 
 @Composable
-fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (ApiException) -> Unit, screen: Screen.Folder, push: (Screen) -> Unit,
+fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, screen: Screen.Folder, push: (Screen) -> Unit,
                  onBack: () -> Unit, onDisconnected: () -> Unit) {
     var status by remember { mutableStateOf<String?>(null) }
     /** What disconnecting would delete, fetched for the confirmation; non-null while it is shown. */
@@ -397,7 +393,7 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
     val neverRefreshed = repository.firstOrNull { it.id == screen.repositoryId }?.lastSyncedCommitSha == null
     val root = screen.path.isEmpty()
     if (signedIn && root) {
-        RefreshOnEntry(screen.repositoryId, onFailure, { refreshing = it }, { status = it }) {
+        RefreshOnEntry(screen.repositoryId, { refreshing = it }, { status = it }) {
             sync.refreshDocuments(screen.repositoryId)
             listed = true
             null
@@ -411,7 +407,6 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                 sync.refreshFromGitHub(screen.repositoryId)
                 listed = true
             } catch (failure: ApiException) {
-                onFailure(failure)
                 status = "Refresh failed; the previous list is unchanged. ${failure.describe()}"
             } finally {
                 refreshing = false
@@ -430,7 +425,6 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                     saved.cannotShow.takeIf { it.isNotEmpty() }?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
                 ).joinToString(" ")
             } catch (failure: ApiException) {
-                onFailure(failure)
                 val (done, toFetch) = saving ?: (0 to 0)
                 "Stopped after $done of $toFetch notes; those are saved, and saving again continues from there. ${failure.describe()}"
             } finally {
@@ -457,7 +451,6 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                                 val preview = sync.disconnectPreview(screen.repositoryId)
                                 if (preview == null) onDisconnected() else confirmDisconnect = preview
                             } catch (failure: ApiException) {
-                                onFailure(failure)
                                 status = "Can't disconnect now. ${failure.describe()}"
                             }
                         }
@@ -518,7 +511,6 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Api
                             sync.disconnect(screen.repositoryId)
                             onDisconnected()
                         } catch (failure: ApiException) {
-                            onFailure(failure)
                             status = "Not disconnected; nothing was deleted on this phone. ${failure.describe()}"
                         } finally {
                             disconnecting = false

@@ -21,13 +21,12 @@ sealed interface Load<out T> {
 
 /** Runs [block] when [key] changes. Failures are shown, never replaced with placeholder data. */
 @Composable
-fun <T> rememberLoad(key: Any?, onFailure: (ApiException) -> Unit, block: suspend () -> T): State<Load<T>> =
+fun <T> rememberLoad(key: Any?, block: suspend () -> T): State<Load<T>> =
     produceState<Load<T>>(Load.Loading, key) {
         value = Load.Loading
         value = try {
             Load.Ready(block())
         } catch (error: ApiException) {
-            onFailure(error)
             Load.Failed(error)
         }
     }
