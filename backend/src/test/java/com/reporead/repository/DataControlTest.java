@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServiceUnavailable;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -291,6 +292,16 @@ class DataControlTest {
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob)).andExpect(status().isOk());
         assertEquals(1, count("select count(*) from annotations where user_id = 2"));
         assertEquals(1, count("select count(*) from annotation_mutations where user_id = 2"));
+    }
+
+    @Test void gitHubIsAskedToRevokeOnlyAfterTheDeletionCommitted() throws Exception {
+        // Revoking cannot be undone, so a deletion that failed must not have revoked the account's GitHub authorization.
+        github.expect(requestTo("https://api.github.com/applications/test-only-not-a-github-app/grant"))
+            .andExpect(request -> assertEquals(0, count("select count(*) from users where id = 1"),
+                "the account must already be deleted when GitHub is asked to revoke its authorization"))
+            .andRespond(withNoContent());
+        mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)).andExpect(status().isOk());
+        assertNull(clients.loadAuthorizedClient("github", "42"));
     }
 
     @Test void deletingTheAccountDoesNotDependOnGitHubRevokingTheAuthorization() throws Exception {

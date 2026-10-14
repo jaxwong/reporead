@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -129,23 +130,29 @@ public class GitHubApi {
     }
 
     /**
-     * Revokes RepoRead's authorization for this GitHub user on GitHub, so no token GitHub issued RepoRead for them works
-     * any more ("Deleting an application's grant will also delete all OAuth tokens associated with the application for
-     * the user", GitHub REST docs). Authenticated as the App; the endpoint takes a current access token, so an expiring
-     * one is renewed first: at most two GitHub calls. Signing out and deleting the account must not depend on GitHub, so
-     * a failure is logged, never thrown, and the caller deletes the stored token either way; GitHub then expires the
-     * tokens on its own schedule.
+     * The current token to revoke this user's authorization with ({@link #revokeAuthorization}), renewed first when it
+     * expires within a minute: at most one GitHub call. Empty when RepoRead holds no usable token or GitHub did not
+     * renew it. Signing out and deleting the account must not depend on GitHub, so that is logged, never thrown.
      */
-    public void revokeAuthorization(long githubUserId) {
-        String token;
+    public Optional<String> tokenToRevoke(long githubUserId) {
         try {
-            token = userToken(githubUserId);
+            return Optional.of(userToken(githubUserId));
         } catch (ApiFailure failure) {
             // SIGN_IN_REQUIRED: no stored token, or GitHub refused to renew it, so RepoRead holds nothing usable.
             if (failure.code.equals("SIGN_IN_REQUIRED")) LOG.info("GitHub authorization not revoked: no usable token; githubUserId={}", githubUserId);
             else LOG.warn("GitHub authorization not revoked; githubUserId={} code={}", githubUserId, failure.code);
-            return;
+            return Optional.empty();
         }
+    }
+
+    /**
+     * Revokes RepoRead's authorization for this GitHub user on GitHub, so no token GitHub issued RepoRead for them works
+     * any more ("Deleting an application's grant will also delete all OAuth tokens associated with the application for
+     * the user", GitHub REST docs). Authenticated as the App, with a current [token] from {@link #tokenToRevoke}: one
+     * GitHub call. A failure is logged, never thrown, and the caller deletes the stored token either way; GitHub then
+     * expires the tokens on its own schedule.
+     */
+    public void revokeAuthorization(long githubUserId, String token) {
         var app = registrations.findByRegistrationId("github");
         var request = RequestEntity.method(HttpMethod.DELETE, uri("/applications/{clientId}/grant", app.getClientId()))
             .headers(headers -> headers.setBasicAuth(app.getClientId(), app.getClientSecret()))
