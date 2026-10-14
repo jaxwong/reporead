@@ -90,25 +90,29 @@ class LocalStoreTest {
         assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
     }
 
-    @Test fun practiceSnapshotCountsUnsavedNotesAndDropsUnlistedCopiesOnRepeatRuns() = runBlocking {
-        assertEquals(emptyList<PracticePage>(), dao.practicePages().first())
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "core/a.md", "a", "a".repeat(40)),
-            DocumentRow(2, 7, "core/b.md", "b", "b".repeat(40))))
+    @Test fun bankPagesAreOnlyInterviewFoldersCountUnsavedBanksAndDropUnlistedCopies() = runBlocking {
+        assertEquals(emptyList<PracticePage>(), dao.bankPages().first())
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "core/interview/a.md", "a", "a".repeat(40)),
+            DocumentRow(2, 7, "interview/b.md", "b", "b".repeat(40)),
+            // Not banks: their pages are never loaded for practice.
+            DocumentRow(3, 7, "core/a.md", "core", "a".repeat(40)), DocumentRow(4, 7, "core/interview.md", "x", "a".repeat(40)),
+            DocumentRow(5, 7, "core/interviews/a.md", "y", "a".repeat(40))))
+        dao.saveNote(NoteRow(3, "a".repeat(40), "c".repeat(40), "core/a.md", "core", "<main/>", 0))
         dao.saveNote(NoteRow(1, "a".repeat(40), "c".repeat(40), "old/a.md", "Old title", "<main/>", 0))
         dao.saveNote(NoteRow(9, "a".repeat(40), "c".repeat(40), "removed.md", "removed", "<main/>", 0))
-        val partial = dao.practicePages().first()
+        val partial = dao.bankPages().first()
         assertEquals(listOf(1L, 2L), partial.map { it.documentId })
-        assertEquals("core/a.md", partial.first().path)
+        assertEquals("core/interview/a.md", partial.first().path)
         assertEquals("a", partial.first().title)
         assertEquals("a".repeat(40), partial.first().blobSha)
         assertNull(partial.last().blobSha)
         assertEquals(1, partial.count { it.html != null })
-        dao.saveNote(NoteRow(2, "b".repeat(40), "c".repeat(40), "core/b.md", "b", "<main>complete</main>", 0))
-        assertEquals(2, dao.practicePages().first().count { it.html != null })
-        dao.replaceDocuments(7, listOf(DocumentRow(2, 7, "core/b.md", "b", "b".repeat(40))))
-        assertEquals(listOf(2L), dao.practicePages().first().map { it.documentId })
-        dao.forgetRepository(7, listOf(1L, 2L))
-        assertEquals(emptyList<PracticePage>(), dao.practicePages().first())
+        dao.saveNote(NoteRow(2, "b".repeat(40), "c".repeat(40), "interview/b.md", "b", "<main>complete</main>", 0))
+        assertEquals(2, dao.bankPages().first().count { it.html != null })
+        dao.replaceDocuments(7, listOf(DocumentRow(2, 7, "interview/b.md", "b", "b".repeat(40))))
+        assertEquals(listOf(2L), dao.bankPages().first().map { it.documentId })
+        dao.forgetRepository(7, listOf(1L, 2L, 3L))
+        assertEquals(emptyList<PracticePage>(), dao.bankPages().first())
     }
 
     private fun readAt(documentId: Long, blobSha: String, at: Long) =
