@@ -94,7 +94,7 @@ internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<N
 
 /**
  * The session's queue after grading its front question: one graded below Good goes to the back, to be answered again
- * until it is graded Good or Easy — SM-2's same-day repetition (super-memory.com/english/ol/sm2.htm, step 7).
+ * until it is graded Good or Easy.
  */
 internal fun afterGrade(queue: List<String>, grade: Int): List<String> = queue.drop(1) + if (grade < 4) queue.take(1) else emptyList()
 
@@ -155,7 +155,7 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
     val outlook = rememberReviewOutlook(dao)
     val cap by dao.reviewLimit().collectAsState(null)
     Column(Modifier.fillMaxSize()) {
-        outlook?.let { EntryRow("Review", outlookLine(it, cap, ZoneId.systemDefault()), R.drawable.ic_refresh) { push(Screen.Review) } }
+        outlook?.let { EntryRow("Review", outlookLine(it, cap, System.currentTimeMillis(), ZoneId.systemDefault()), R.drawable.ic_refresh) { push(Screen.Review) } }
         StatusLine("New questions: each is asked once; your grade puts it on your review schedule.")
         val ready = banks
         val notebook = cards
@@ -258,7 +258,7 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             if (again) Text("Asked again: its first grade is saved. This grade only decides whether it comes back in this session.",
                 style = MaterialTheme.typography.bodySmall)
             BankAnswer(question.question, question.documentId, question.path, sync, dao, Modifier.weight(1f), push)
-            GradeBar(enabled = !saving) { grade ->
+            GradeBar(enabled = !saving, gaps = if (again) null else gaps(null)) { grade ->
                 saving = true
                 scope.launch {
                     try {

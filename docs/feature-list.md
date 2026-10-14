@@ -79,7 +79,7 @@ The user chose to start post-MVP work on 2026-10-07, before the Stage 6 gate. Ea
 | P1 | Long and wide notes: outline and current section, footnotes, code Copy and Wrap, full-screen tables and diagrams, bars that hide while reading | US-12 | Built 2026-10-07; gate pending: reading long notes on the phone without switching to GitHub or the laptop because of layout |
 | P2 | Every note saved on the phone, link previews, Linked from (ADR-19) | US-13 | Gate passed 2026-10-07 for the cases tried |
 | P3 | LeetCode study view and Practice (ADR-20) | US-14 | Built 2026-10-09; its question source was replaced by interview banks (2026-10-13) and its question list by Practice sessions (2026-10-14). Gate pending: the developer uses it in real sessions and says whether it beats rereading |
-| P4 | Review cards with phone-side SM-2, the Notebook, Markdown export (ADR-13) | US-15 | Built 2026-10-09; review moved into the Practice tab 2026-10-14. Gate pending: two weeks of real review sessions |
+| P4 | Review cards with phone-side scheduling, the Notebook, Markdown export (ADR-13) | US-15 | Built 2026-10-09; review moved into the Practice tab 2026-10-14; SM-2 replaced by a fixed gap ladder 2026-10-15. Gate pending: two weeks of real review sessions |
 | — | GitHub sign-ins renewed, stored encrypted, and revoked on the last sign-out (ADR-03); hosted backend (ADR-14); releases through Obtainium (ADR-15) | — | Built 2026-10-13/14 |
 
 ## Out of scope
@@ -113,7 +113,7 @@ These are exclusions, not hidden stretch goals.
 | --- | --- |
 | Drawing edge to edge | When the reader hides the system bars, the camera cutout area shows as a black band. Left for the user to decide |
 | Phone storage eviction | None; every saved note is kept (ADR-19). Revisit if storage matters |
-| Scheduler | SM-2; switch to FSRS only if review data shows a need (ADR-13) |
+| Scheduler | Fixed ladder of 1, 3, 7, 14, 30, 60, 120 days (replaced SM-2 on 2026-10-15); consider FSRS only if review data shows a need (ADR-13) |
 | Notebook paging | Not paged; revisit as the review log nears about 40,000 grades (ADR-13) |
 | KaTeX advisory | npm's only fix is downgrading Mermaid to 10.8.0; not applied, waiting for a Mermaid release |
 | AI-drafted questions | Intent recorded; not designed (ADR-20) |
