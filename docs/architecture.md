@@ -270,7 +270,7 @@ flowchart TB
     App --> Screens
 
     subgraph Core["Shared code"]
-        Sync["sync/Sync<br/>owns every server round trip<br/>and what it does to Room"]
+        Sync["sync/Sync<br/>owns every server call<br/>whose answer reaches Room"]
         Store["data/LocalStore<br/>Room database + DAOs"]
         Api["core/network/Api<br/>HTTP + JSON, 8 MiB cap"]
         Session["auth/SessionStore<br/>Keystore AES-GCM bearer token"]
@@ -292,6 +292,8 @@ flowchart TB
     Reader --> Page
     Figure --> Page
     Sync --> Api
+    App -- "sign-in, sign-out" --> Api
+    Available -- "list, connect" --> Api
     Sync --> Store
     Api --> Session
     Page -- "images" --> Sync
@@ -302,7 +304,7 @@ flowchart TB
 | `auth` | PKCE sign-in through a Custom Tab; the encrypted bearer session |
 | `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made |
 | `data` | `LocalStore`: Room entities and DAOs (schema history in `android/schemas/`) |
-| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change |
+| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion, all under sign-out's lock (ADR-22); `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
 | `library` | Library tabs, Notebook (with Markdown export), Practice sessions, Review sessions, and the SM-2 scheduler (`Review.kt`) |
 | `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
@@ -458,7 +460,7 @@ A refused item (400/404/409/410/422) is marked and the run continues; any other 
 
 ### Re-anchoring
 
-When a note changes, each highlight or card is resolved against the new version the next time the note's annotations are listed. The original anchor never changes ([ADR-05](adrs.md#adr-05--anchors-are-block-ids-and-utf-16-offsets-into-canonical-text-of-one-version), [ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)).
+When a note changes, each highlight or card is resolved against the new version the next time the note's annotations are listed, not at refresh ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan) says why). The original anchor never changes ([ADR-05](adrs.md#adr-05--anchors-are-block-ids-and-utf-16-offsets-into-canonical-text-of-one-version), [ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)).
 
 ```mermaid
 stateDiagram-v2

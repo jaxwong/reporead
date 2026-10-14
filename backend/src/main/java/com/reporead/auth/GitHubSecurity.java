@@ -235,8 +235,7 @@ public class GitHubSecurity {
 
     /**
      * Hands out a user's GitHub token, first refreshing it (one token-endpoint call) when it expires within a minute.
-     * GitHub App user tokens last 8 hours; the refresh token GitHub rotates on every use. GitHubApi.userToken decides what
-     * a failed refresh means, so this manager neither removes nor keeps the client on failure.
+     * GitHub App user tokens last 8 hours; the refresh token GitHub rotates on every use.
      */
     @Bean
     OAuth2AuthorizedClientManager githubTokens(ClientRegistrationRepository registrations, OAuth2AuthorizedClientService clients,
@@ -248,6 +247,8 @@ public class GitHubSecurity {
             clients.saveAuthorizedClient(client, principal);
             LOG.info("GitHub user token refreshed; githubUserId={} expiresAt={}", principal.getName(), client.getAccessToken().getExpiresAt());
         });
+        // Replaces Spring's default, which removes the stored token on some refusals: GitHubApi.userToken alone decides
+        // what a failed refresh means, and removes the token itself when GitHub refused it.
         manager.setAuthorizationFailureHandler((error, principal, attributes) -> { });
         return manager;
     }

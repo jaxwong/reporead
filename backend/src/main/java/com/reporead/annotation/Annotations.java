@@ -21,7 +21,8 @@ import java.util.UUID;
 
 /**
  * Owns HIGHLIGHT and CARD annotations: their original anchors, their current locations and status, and the idempotency record
- * of each client creation.
+ * of each client creation. Bookmarks share the table (ADR-17) and are written by Bookmarks; disconnecting deletes a
+ * connection's rows of every type here.
  */
 @Component
 public class Annotations {

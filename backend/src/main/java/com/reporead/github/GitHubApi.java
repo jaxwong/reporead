@@ -89,7 +89,9 @@ public class GitHubApi {
     /**
      * The server-side GitHub user token saved by the OAuth callback. One expiring within a minute is first refreshed with
      * one token-endpoint call. A user's refreshes are serialized: GitHub rotates the refresh token on use, so a second
-     * concurrent refresh with the old one would be refused. Tokens are stored encrypted (GitHubTokens) and survive restarts.
+     * concurrent refresh with the old one would be refused. The lock is this process's, which is enough because the
+     * backend is one process by design (ADR-14: one systemd unit on one fixed loopback port); a second instance would
+     * need a row lock on the stored token instead. Tokens are stored encrypted (GitHubTokens) and survive restarts.
      */
     public String userToken(long githubUserId) {
         String principal = Long.toString(githubUserId);

@@ -47,8 +47,10 @@ public class DocumentController {
         return new DocumentList(id, connection.lastSyncedCommitSha(), documents.list(id));
     }
 
-    /** [text]: the canonical text of the note's blocks, one per line, for search on the phone. */
-    /** [renderFormat]: MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format. */
+    /**
+     * [text]: the canonical text of the note's blocks, one per line, for search on the phone. [renderFormat]:
+     * MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format.
+     */
     record Content(long documentId, String path, String title, String sourceBlobSha, String commitSha,
                    int blockCount, int diagramCount, String html, String text, int renderFormat) {}
 
