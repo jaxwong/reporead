@@ -1,12 +1,12 @@
 package com.reporead.document;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
 import com.reporead.repository.RepositoryConnections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -43,7 +43,7 @@ public class DocumentController {
 
     @GetMapping("/api/repositories/{id}/documents")
     DocumentList list(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        var connection = connections.find(user.id(), id).orElseThrow(DocumentController::notFound);
+        var connection = connections.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         return new DocumentList(id, connection.lastSyncedCommitSha(), documents.list(id));
     }
 
@@ -54,10 +54,7 @@ public class DocumentController {
 
     @GetMapping("/api/documents/{id}/content")
     Content content(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        var document = documents.find(user.id(), id).orElseThrow(DocumentController::notFound);
-        if (document.deleted()) {
-            throw new ApiFailure(HttpStatus.GONE, "DOCUMENT_DELETED", "This note was not present in the latest complete repository refresh.");
-        }
+        var document = present(user, id);
         var version = noteVersions.render(user, document, document.blobSha());
         var rendered = version.note();
         LOG.info("Document rendered; userId={} documentId={} blobSha={} bytes={} blocks={} diagrams={}",
@@ -65,6 +62,15 @@ public class DocumentController {
         return new Content(id, document.path(), document.title(), document.blobSha(), document.commitSha(),
             rendered.blocks().size(), rendered.diagramCount(), rendered.html(),
             String.join("\n", rendered.blocks().stream().map(MarkdownRenderer.Block::text).toList()), MarkdownRenderer.FORMAT);
+    }
+
+    /** An owned note that was in the latest complete repository refresh. */
+    private Documents.Located present(AppUser user, long id) {
+        var document = documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
+        if (document.deleted()) {
+            throw new ApiFailure(Code.DOCUMENT_DELETED, "This note was not present in the latest complete repository refresh.");
+        }
+        return document;
     }
 
     enum ChangeStatus { CHANGED, UNCHANGED, SINCE_UNAVAILABLE, TOO_LARGE }
@@ -83,12 +89,9 @@ public class DocumentController {
     Changes changes(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestParam(required = false) String since,
                     @RequestParam(required = false) String to) {
         if (since == null || to == null || !since.matches("[0-9a-f]{40}") || !to.matches("[0-9a-f]{40}")) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_VERSIONS", "since and to must be lowercase 40-character blob SHAs.");
+            throw new ApiFailure(Code.INVALID_VERSIONS, "since and to must be lowercase 40-character blob SHAs.");
         }
-        var document = documents.find(user.id(), id).orElseThrow(DocumentController::notFound);
-        if (document.deleted()) {
-            throw new ApiFailure(HttpStatus.GONE, "DOCUMENT_DELETED", "This note was not present in the latest complete repository refresh.");
-        }
+        var document = present(user, id);
         Changes result;
         if (since.equals(to)) {
             result = new Changes(id, since, to, ChangeStatus.UNCHANGED, null, 0, 0, List.of());
@@ -105,7 +108,7 @@ public class DocumentController {
         try {
             old = noteVersions.render(user, document, since);
         } catch (ApiFailure failure) {
-            if (!failure.code.equals("SOURCE_NOT_FOUND") && !failure.code.equals("UNSUPPORTED_CONTENT")) throw failure;
+            if (failure.code != Code.SOURCE_NOT_FOUND && failure.code != Code.UNSUPPORTED_CONTENT) throw failure;
             return new Changes(document.id(), since, to, ChangeStatus.SINCE_UNAVAILABLE, failure.getMessage(), 0, 0, List.of());
         }
         var current = noteVersions.render(user, document, to);
@@ -125,15 +128,12 @@ public class DocumentController {
     ResponseEntity<byte[]> image(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestParam(required = false) String path,
                                  @RequestParam(required = false) String embed) {
         if ((path == null) == (embed == null)) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_IMAGE_PATH", "Give exactly one of path or embed.");
+            throw new ApiFailure(Code.INVALID_IMAGE_PATH, "Give exactly one of path or embed.");
         }
         if (path != null ? !MarkdownRenderer.isImagePath(path) : embed.length() > 1024 || !MarkdownRenderer.isImagePath(embed)) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_IMAGE_PATH", "path or embed must name a png, jpg, gif, webp, or svg image.");
+            throw new ApiFailure(Code.INVALID_IMAGE_PATH, "path or embed must name a png, jpg, gif, webp, or svg image.");
         }
-        var document = documents.find(user.id(), id).orElseThrow(DocumentController::notFound);
-        if (document.deleted()) {
-            throw new ApiFailure(HttpStatus.GONE, "DOCUMENT_DELETED", "This note was not present in the latest complete repository refresh.");
-        }
+        var document = present(user, id);
         if (embed != null) path = attachments.resolve(document.connectionId(), document.path(), embed);
         String token = github.userToken(user.githubUserId());
         byte[] bytes = github.imageFile(token, document.owner(), document.repositoryName(), path, document.commitSha());
@@ -141,9 +141,5 @@ public class DocumentController {
         LOG.info("Document image served; userId={} documentId={} bytes={}", user.id(), id, bytes.length);
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(MarkdownRenderer.IMAGE_TYPES.get(extension)))
             .header("X-Content-Type-Options", "nosniff").body(bytes);
-    }
-
-    private static ApiFailure notFound() {
-        return new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found.");
     }
 }

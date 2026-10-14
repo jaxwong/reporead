@@ -1,13 +1,13 @@
 package com.reporead.repository;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
 import com.reporead.sync.RepositorySync;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -49,7 +49,7 @@ public class RepositoryController {
     /** What disconnecting this repository would delete, for the confirmation. */
     @GetMapping("/api/repositories/{id}/stored-data")
     ConnectionData.Counts storedData(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        connections.find(user.id(), id).orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Repository connection not found."));
+        connections.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         return data.count(id);
     }
 
@@ -88,7 +88,7 @@ public class RepositoryController {
         for (long installationId : github.installations(token)) {
             for (var repository : github.repositories(token, installationId)) {
                 if (!seen.add(repository.id())) {
-                    throw new ApiFailure(HttpStatus.BAD_GATEWAY, "GITHUB_INVALID_RESPONSE", "GitHub listed one repository in two installations.");
+                    throw new ApiFailure(Code.GITHUB_INVALID_RESPONSE, "GitHub listed one repository in two installations.");
                 }
                 result.add(new Available(repository.id(), installationId, repository.fullName(), repository.privateRepository(),
                     repository.defaultBranch(), connected.get(repository.id())));
@@ -104,18 +104,17 @@ public class RepositoryController {
     RepositoryConnections.Connection connect(@AuthenticationPrincipal AppUser user, @PathVariable long githubRepositoryId,
                                              @RequestBody ConnectRequest body) {
         if (githubRepositoryId <= 0 || body.installationId() == null || body.installationId() <= 0) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_REPOSITORY", "githubRepositoryId and installationId must be positive integers.");
+            throw new ApiFailure(Code.INVALID_REPOSITORY, "githubRepositoryId and installationId must be positive integers.");
         }
         String token = github.userToken(user.githubUserId());
         var repository = github.repositories(token, body.installationId()).stream()
             .filter(candidate -> candidate.id() == githubRepositoryId).findFirst()
-            .orElseThrow(() -> new ApiFailure(HttpStatus.FORBIDDEN, "REPOSITORY_NOT_AUTHORIZED",
-                "This repository is not available to you through the RepoRead GitHub App installation."));
+            .orElseThrow(() -> new ApiFailure(Code.REPOSITORY_NOT_AUTHORIZED, "This repository is not available to you through the RepoRead GitHub App installation."));
         long id = transaction.execute(status -> {
             // Account deletion locks the user before listing connections to delete, so this connection is either listed
             // and deleted with the rest, or added after the account is gone, which is refused here.
             if (!sessions.lockUserForWrite(user.id())) {
-                throw new ApiFailure(HttpStatus.UNAUTHORIZED, "SIGN_IN_REQUIRED", "This RepoRead account was deleted; sign in again.");
+                throw new ApiFailure(Code.SIGN_IN_REQUIRED, "This RepoRead account was deleted; sign in again.");
             }
             return connections.connect(user.id(), repository);
         });

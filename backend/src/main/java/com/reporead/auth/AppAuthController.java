@@ -1,6 +1,7 @@
 package com.reporead.auth;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.github.GitHubApi;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -42,7 +43,7 @@ public class AppAuthController {
     @GetMapping("/app/sign-in")
     RedirectView signIn(@RequestParam("code_challenge") String codeChallenge, HttpServletRequest request) {
         if (!AppSessions.TOKEN.matcher(codeChallenge).matches()) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_CODE_CHALLENGE", "code_challenge must be a 43-character S256 PKCE challenge.");
+            throw new ApiFailure(Code.INVALID_CODE_CHALLENGE, "code_challenge must be a 43-character S256 PKCE challenge.");
         }
         request.getSession(true).setAttribute(CHALLENGE_ATTRIBUTE, codeChallenge);
         return new RedirectView("/oauth2/authorization/github");
@@ -53,7 +54,7 @@ public class AppAuthController {
     @PostMapping("/api/app-auth/token")
     AppSessions.IssuedSession token(@RequestBody TokenRequest body) {
         var issued = sessions.exchange(body.code(), body.codeVerifier()).orElseThrow(() ->
-            new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_SIGN_IN_CODE", "The sign-in code is invalid, expired, already used, or does not match this app; sign in again."));
+            new ApiFailure(Code.INVALID_SIGN_IN_CODE, "The sign-in code is invalid, expired, already used, or does not match this app; sign in again."));
         LOG.info("App session issued; userId={}", issued.user().id());
         return issued;
     }

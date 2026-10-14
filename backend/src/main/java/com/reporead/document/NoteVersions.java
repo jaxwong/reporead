@@ -1,9 +1,9 @@
 package com.reporead.document;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 import java.nio.ByteBuffer;
@@ -33,18 +33,18 @@ public class NoteVersions {
         String token = github.userToken(user.githubUserId());
         byte[] bytes = github.blob(token, owner, repositoryName, blobSha);
         if (!MarkdownRenderer.blobSha(bytes).equals(blobSha)) {
-            throw new ApiFailure(HttpStatus.BAD_GATEWAY, "GITHUB_INVALID_RESPONSE", "GitHub returned bytes that do not match the note's blob SHA.");
+            throw new ApiFailure(Code.GITHUB_INVALID_RESPONSE, "GitHub returned bytes that do not match the note's blob SHA.");
         }
         String markdown;
         try {
             markdown = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
         } catch (CharacterCodingException error) {
-            throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", "This note is not valid UTF-8 text.");
+            throw new ApiFailure(Code.UNSUPPORTED_CONTENT, "This note is not valid UTF-8 text.");
         }
         try {
             return new Rendered(MarkdownRenderer.render(markdown, blobSha, path), bytes.length, markdown);
         } catch (MarkdownRenderer.ContentRejected rejected) {
-            throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", rejected.getMessage());
+            throw new ApiFailure(Code.UNSUPPORTED_CONTENT, rejected.getMessage());
         }
     }
 }

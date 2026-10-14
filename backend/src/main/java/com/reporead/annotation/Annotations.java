@@ -1,9 +1,9 @@
 package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.repository.RepositoryConnections;
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -118,10 +118,10 @@ public class Annotations {
             .query((row, n) -> new Mutation(row.getBytes(1), (Long) row.getObject(2))).optional();
         if (mutation.isEmpty()) return Optional.empty();
         if (!MessageDigest.isEqual(mutation.get().hash(), requestHash)) {
-            throw new ApiFailure(HttpStatus.CONFLICT, "MUTATION_ID_REUSED", "This mutationId was already used for a different annotation request.");
+            throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId was already used for a different annotation request.");
         }
         if (mutation.get().annotationId() == null) {
-            throw new ApiFailure(HttpStatus.GONE, "ANNOTATION_DELETED", "The annotation created by this mutation has since been deleted.");
+            throw new ApiFailure(Code.ANNOTATION_DELETED, "The annotation created by this mutation has since been deleted.");
         }
         return Optional.of(find(userId, mutation.get().annotationId()).orElseThrow(() -> new IllegalStateException(
             "Mutation " + mutationId + " for user " + userId + " references missing annotation " + mutation.get().annotationId())));
@@ -229,11 +229,10 @@ public class Annotations {
                 and d.current_blob_sha = :sha and d.deleted_at is null""")
             .param("sha", blobSha).param("id", id).param("userId", userId).param("expected", expectedVersion).update();
         if (updated == 0) {
-            var card = find(userId, id).filter(a -> a.type().equals("CARD"))
-                .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found."));
+            var card = find(userId, id).filter(a -> a.type().equals("CARD")).orElseThrow(ApiFailure::notFound);
             // A stale version is another edit landing first, as for edit, delete, and reattach.
             if (card.version() != expectedVersion) throw missingOrConflict(userId, id);
-            throw new ApiFailure(HttpStatus.CONFLICT, "CARD_CHANGED", "Check this card in its current version; reattach an orphan before confirming.");
+            throw new ApiFailure(Code.CARD_CHANGED, "Check this card in its current version; reattach an orphan before confirming.");
         }
         return find(userId, id).orElseThrow();
     }
@@ -262,8 +261,8 @@ public class Annotations {
     }
 
     private ApiFailure missingOrConflict(long userId, long id) {
-        if (find(userId, id).isEmpty()) return new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found.");
-        return new ApiFailure(HttpStatus.CONFLICT, "ANNOTATION_CONFLICT", "This annotation was changed elsewhere; reload it and choose which text to keep.");
+        if (find(userId, id).isEmpty()) return ApiFailure.notFound();
+        return new ApiFailure(Code.ANNOTATION_CONFLICT, "This annotation was changed elsewhere; reload it and choose which text to keep.");
     }
 
     private Annotation annotation(ResultSet row, int n) throws SQLException {

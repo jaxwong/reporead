@@ -3,7 +3,6 @@ package com.reporead.repository;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.reporead.ApiFailure;
 import com.reporead.github.GitHubApi;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -77,8 +76,7 @@ public class RepositoryConnections {
      */
     public Checkpoint lockForSync(long userId, long connectionId) {
         return db.sql("select last_synced_commit_sha from repository_connections where id = :id and user_id = :userId for update")
-            .param("id", connectionId).param("userId", userId).query((row, n) -> new Checkpoint(row.getString(1))).optional()
-            .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Repository connection not found."));
+            .param("id", connectionId).param("userId", userId).query((row, n) -> new Checkpoint(row.getString(1))).optional().orElseThrow(ApiFailure::notFound);
     }
 
     /**
@@ -91,8 +89,7 @@ public class RepositoryConnections {
         db.sql("""
                 select c.id from repository_connections c join documents d on d.repository_connection_id = c.id
                 where d.id = :documentId and c.user_id = :userId for share of c""")
-            .param("documentId", documentId).param("userId", userId).query(Long.class).optional()
-            .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found."));
+            .param("documentId", documentId).param("userId", userId).query(Long.class).optional().orElseThrow(ApiFailure::notFound);
     }
 
     /** Deletes the connection row; its documents and their reading and annotation rows must already be deleted. */

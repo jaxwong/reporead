@@ -1,6 +1,7 @@
 package com.reporead.sync;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
 import com.reporead.document.Attachments;
 import com.reporead.document.Documents;
@@ -11,7 +12,6 @@ import com.reporead.repository.RepositoryConnections;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -69,7 +69,7 @@ public class RepositorySync {
         try {
             result = publish(user, connectionId);
         } catch (RuntimeException failure) {
-            meters.counter(SYNCS, "outcome", "failure", "code", failure instanceof ApiFailure api ? api.code : "UNEXPECTED").increment();
+            meters.counter(SYNCS, "outcome", "failure", "code", failure instanceof ApiFailure api ? api.code.name() : "UNEXPECTED").increment();
             throw failure;
         }
         meters.counter(SYNCS, "outcome", "success", "code", "NONE").increment();
@@ -78,8 +78,7 @@ public class RepositorySync {
     }
 
     private Result publish(AppUser user, long connectionId) {
-        var connection = connections.find(user.id(), connectionId).orElseThrow(() ->
-            new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Repository connection not found."));
+        var connection = connections.find(user.id(), connectionId).orElseThrow(ApiFailure::notFound);
         String token = github.userToken(user.githubUserId());
         var branch = github.branch(token, connection.owner(), connection.name(), connection.defaultBranch());
         var tree = github.completeTree(token, connection.owner(), connection.name(), branch.treeSha());
@@ -93,8 +92,7 @@ public class RepositorySync {
             if (!Objects.equals(checkpoint, connection.lastSyncedCommitSha()) && !branch.commitSha().equals(checkpoint)) {
                 LOG.info("Sync superseded; connectionId={} fetched={} startedFrom={} published={}", connectionId, branch.commitSha(),
                     connection.lastSyncedCommitSha(), checkpoint);
-                throw new ApiFailure(HttpStatus.CONFLICT, "SYNC_SUPERSEDED",
-                    "Another refresh of this repository finished first; refresh again to get the latest notes.");
+                throw new ApiFailure(Code.SYNC_SUPERSEDED, "Another refresh of this repository finished first; refresh again to get the latest notes.");
             }
             var applied = documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt, contentMoves, checkpoint != null);
             attachments.replace(connectionId, images);
@@ -151,7 +149,7 @@ public class RepositorySync {
         try {
             return Optional.of(ContentMoves.shingles(noteVersions.render(user, connection.owner(), connection.name(), path, blobSha).note().blocks()));
         } catch (ApiFailure failure) {
-            if (!failure.code.equals("SOURCE_NOT_FOUND") && !failure.code.equals("UNSUPPORTED_CONTENT")) throw failure;
+            if (failure.code != Code.SOURCE_NOT_FOUND && failure.code != Code.UNSUPPORTED_CONTENT) throw failure;
             LOG.info("Content move candidate skipped; connectionId={} path={} blobSha={} code={}", connection.id(), path, blobSha, failure.code);
             return Optional.empty();
         }
@@ -171,11 +169,10 @@ public class RepositorySync {
             boolean regularFile = entry.type().equals("blob") && (entry.mode().equals("100644") || entry.mode().equals("100755"));
             if (!regularFile || !entry.path().toLowerCase(Locale.ROOT).endsWith(".md")) continue;
             if (!paths.add(entry.path())) {
-                throw new ApiFailure(HttpStatus.BAD_GATEWAY, "GITHUB_INVALID_RESPONSE", "GitHub tree listed one path twice.");
+                throw new ApiFailure(Code.GITHUB_INVALID_RESPONSE, "GitHub tree listed one path twice.");
             }
             if (result.size() == MAX_DOCUMENTS) {
-                throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "DOCUMENT_LIMIT",
-                    "This repository has more than 5000 Markdown files; no documents were changed.");
+                throw new ApiFailure(Code.DOCUMENT_LIMIT, "This repository has more than 5000 Markdown files; no documents were changed.");
             }
             result.add(new Documents.SourceFile(entry.path(), entry.sha()));
         }

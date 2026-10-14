@@ -1,12 +1,12 @@
 package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.ClientClock;
 import com.reporead.auth.AppUser;
 import com.reporead.repository.RepositoryConnections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -72,8 +72,7 @@ public class Reviews {
             long connectionId = db.sql("""
                     select d.repository_connection_id from annotations a join documents d on d.id = a.document_id
                     where a.id = :id and a.user_id = :userId and a.type = 'CARD'""")
-                .param("id", id).param("userId", user.id()).query(Long.class).optional()
-                .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Card not found."));
+                .param("id", id).param("userId", user.id()).query(Long.class).optional().orElseThrow(ApiFailure::notFound);
             connections.lockForSync(user.id(), connectionId);
             var current = db.sql("""
                     select a.checked_blob_sha, d.current_blob_sha, d.deleted_at is not null, a.status
@@ -81,7 +80,7 @@ public class Reviews {
                     where a.id = :id and a.user_id = :userId and a.type = 'CARD' for update of a""")
                 .param("id", id).param("userId", user.id())
                 .query((row, n) -> new Current(row.getString(1), row.getString(2), row.getBoolean(3), row.getString(4))).optional()
-                .orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Card not found."));
+                .orElseThrow(ApiFailure::notFound);
             int inserted = db.sql("""
                     insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha)
                     values (:userId, :mutation, :id, :grade, :at, :sha) on conflict do nothing""")
@@ -91,12 +90,12 @@ public class Reviews {
                 .param("userId", user.id()).param("mutation", mutation)
                 .query((row, n) -> new Stored(row.getLong(1), row.getInt(2), row.getTimestamp(3).toInstant(), row.getString(4))).single();
             if (stored.id() != id || stored.grade() != body.grade() || !stored.at().equals(body.reviewedAt()) || !stored.sha().equals(body.blobSha())) {
-                throw new ApiFailure(HttpStatus.CONFLICT, "MUTATION_ID_REUSED", "This mutationId belongs to a different review.");
+                throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
             }
             // Replays remain successful even if the note changed after the original grade was committed.
             if (inserted != 0 && (current.deleted() || current.status().equals("ORPHANED")
                 || !body.blobSha().equals(current.checked()) || !body.blobSha().equals(current.sha()))) {
-                throw new ApiFailure(HttpStatus.CONFLICT, "CARD_CHANGED", "Check this card in the current note before reviewing it.");
+                throw new ApiFailure(Code.CARD_CHANGED, "Check this card in the current note before reviewing it.");
             }
             return db.sql(SELECT + " and r.mutation_id = :mutation").param("userId", user.id()).param("mutation", mutation)
                 .query(Reviews::review).single();
@@ -112,5 +111,5 @@ public class Reviews {
         return new Review(row.getString(1), row.getString(2), row.getInt(3), row.getTimestamp(4).toInstant(), row.getString(5));
     }
 
-    private static ApiFailure invalid(String message) { return new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_REVIEW", message); }
+    private static ApiFailure invalid(String message) { return new ApiFailure(Code.INVALID_REVIEW, message); }
 }
