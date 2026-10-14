@@ -106,8 +106,8 @@ class DataControlTest {
 
     private long document(long connectionId, String path, boolean deleted) {
         return db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at, deleted_at)
-                values (:connectionId, :path, 'title', :sha, :sha, now(), case when :deleted then now() end) returning id""")
+                insert into documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
+                values (:connectionId, :path, 'title', :sha, case when :deleted then now() end) returning id""")
             .param("connectionId", connectionId).param("path", path).param("sha", SHA).param("deleted", deleted).query(Long.class).single();
     }
 

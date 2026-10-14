@@ -94,7 +94,7 @@ public class RepositorySync {
                     connection.lastSyncedCommitSha(), checkpoint);
                 throw new ApiFailure(Code.SYNC_SUPERSEDED, "Another refresh of this repository finished first; refresh again to get the latest notes.");
             }
-            var applied = documents.publishSnapshot(connectionId, branch.commitSha(), markdown, syncedAt, contentMoves, checkpoint != null);
+            var applied = documents.publishSnapshot(connectionId, markdown, syncedAt, contentMoves, checkpoint != null);
             attachments.replace(connectionId, images);
             connections.markSynced(connectionId, branch.commitSha(), syncedAt);
             return applied;

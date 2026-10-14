@@ -96,8 +96,8 @@ class AnnotationTest {
         db.sql("insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch) values (1, 11, 7, 'test-only', 'notes', 'main')").update();
         // The note has moved on to CURRENT; annotations are created against the older version the user was reading.
         note = db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at)
-                values (1, 'backend/spring.md', 'spring', :sha, :sha, now()) returning id""").param("sha", CURRENT_SHA).query(Long.class).single();
+                insert into documents (repository_connection_id, path, title, current_blob_sha)
+                values (1, 'backend/spring.md', 'spring', :sha) returning id""").param("sha", CURRENT_SHA).query(Long.class).single();
     }
 
     @AfterEach void verifyOnlyExpectedReads() {

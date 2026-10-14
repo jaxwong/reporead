@@ -68,7 +68,7 @@ class ReaderLifecycleTest {
             <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
             <p id="render-status"></p><main id="note">$body</main></body></html>"""
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, path, title, sha)))
-        dao.saveNote(NoteRow(1, sha, sha, path, title, html, 0, renderFormat = RENDER_FORMAT))
+        dao.saveNote(NoteRow(1, sha, path, title, html, 0, renderFormat = RENDER_FORMAT))
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
         val sync = Sync(api, store, files) {}
         ReaderTestActivity.content = {

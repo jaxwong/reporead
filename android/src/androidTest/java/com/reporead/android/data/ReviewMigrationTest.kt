@@ -12,7 +12,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
 
-/** Builds a test-only v6 database from the exported schema, then exercises the production v6→v7 migration. */
+/**
+ * Builds a test-only v6 database from the exported schema, then opens it with the current schema, which runs every
+ * production migration from v6 on: v7 adds the review tables, v9 rebuilds notes without commitSha.
+ */
 @RunWith(AndroidJUnit4::class)
 class ReviewMigrationTest {
     @Test fun migratingPreservesSavedNotesAndUnsentHighlightsAndCreatesEmptyReviewTables() = runBlocking {

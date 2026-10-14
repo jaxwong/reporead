@@ -59,8 +59,8 @@ class ReadingStateTest {
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
         db.sql("insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch) values (1, 11, 7, 'test-only', 'notes', 'main')").update();
         note = db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at)
-                values (1, 'backend/spring.md', 'spring', :sha, :sha, now()) returning id""").param("sha", SHA_A).query(Long.class).single();
+                insert into documents (repository_connection_id, path, title, current_blob_sha)
+                values (1, 'backend/spring.md', 'spring', :sha) returning id""").param("sha", SHA_A).query(Long.class).single();
     }
 
     private static String body(String sha, int progress, Instant at, String anchor) {
@@ -114,7 +114,7 @@ class ReadingStateTest {
 
     @Test void repositoryRefreshDoesNotChangeTheLastReadVersion() throws Exception {
         save(alice, note, body(SHA_A, 50, Instant.now(), ANCHOR)).andExpect(status().isOk());
-        transaction.executeWithoutResult(status -> documents.publishSnapshot(1, SHA_B,
+        transaction.executeWithoutResult(status -> documents.publishSnapshot(1,
             List.of(new Documents.SourceFile("backend/spring.md", SHA_B)), Instant.now(), List.of(), true));
         list(alice).andExpect(jsonPath("$.readingStates[0].lastReadBlobSha").value(SHA_A))
             .andExpect(jsonPath("$.readingStates[0].currentBlobSha").value(SHA_B));
@@ -122,7 +122,7 @@ class ReadingStateTest {
 
     @Test void deletedDocumentKeepsItsReadingHistory() throws Exception {
         save(alice, note, body(SHA_A, 50, Instant.now(), ANCHOR)).andExpect(status().isOk());
-        transaction.executeWithoutResult(status -> documents.publishSnapshot(1, SHA_B, List.of(), Instant.now(), List.of(), true));
+        transaction.executeWithoutResult(status -> documents.publishSnapshot(1, List.of(), Instant.now(), List.of(), true));
         list(alice).andExpect(jsonPath("$.readingStates[0].deleted").value(true)).andExpect(jsonPath("$.readingStates[0].progressPercent").value(50));
     }
 

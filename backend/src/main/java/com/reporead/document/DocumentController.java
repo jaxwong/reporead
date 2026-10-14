@@ -49,7 +49,8 @@ public class DocumentController {
 
     /**
      * [text]: the canonical text of the note's blocks, one per line, for search on the phone. [renderFormat]:
-     * MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format.
+     * MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format. [commitSha]: the
+     * connection's commit; the app no longer reads it, but releases before its Room v9 require it.
      */
     record Content(long documentId, String path, String title, String sourceBlobSha, String commitSha,
                    int blockCount, int diagramCount, String html, String text, int renderFormat) {}

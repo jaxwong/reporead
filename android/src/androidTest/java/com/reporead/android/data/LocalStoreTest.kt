@@ -97,9 +97,9 @@ class LocalStoreTest {
             // Not banks: their pages are never loaded for practice.
             DocumentRow(3, 7, "core/a.md", "core", "a".repeat(40)), DocumentRow(4, 7, "core/interview.md", "x", "a".repeat(40)),
             DocumentRow(5, 7, "core/interviews/a.md", "y", "a".repeat(40))))
-        dao.saveNote(NoteRow(3, "a".repeat(40), "c".repeat(40), "core/a.md", "core", "<main/>", 0))
-        dao.saveNote(NoteRow(1, "a".repeat(40), "c".repeat(40), "old/a.md", "Old title", "<main/>", 0))
-        dao.saveNote(NoteRow(9, "a".repeat(40), "c".repeat(40), "removed.md", "removed", "<main/>", 0))
+        dao.saveNote(NoteRow(3, "a".repeat(40), "core/a.md", "core", "<main/>", 0))
+        dao.saveNote(NoteRow(1, "a".repeat(40), "old/a.md", "Old title", "<main/>", 0))
+        dao.saveNote(NoteRow(9, "a".repeat(40), "removed.md", "removed", "<main/>", 0))
         val partial = dao.bankPages().first()
         assertEquals(listOf(1L, 2L), partial.map { it.documentId })
         assertEquals("core/interview/a.md", partial.first().path)
@@ -107,7 +107,7 @@ class LocalStoreTest {
         assertEquals("a".repeat(40), partial.first().blobSha)
         assertNull(partial.last().blobSha)
         assertEquals(1, partial.count { it.html != null })
-        dao.saveNote(NoteRow(2, "b".repeat(40), "c".repeat(40), "interview/b.md", "b", "<main>complete</main>", 0))
+        dao.saveNote(NoteRow(2, "b".repeat(40), "interview/b.md", "b", "<main>complete</main>", 0))
         assertEquals(2, dao.bankPages().first().count { it.html != null })
         dao.replaceDocuments(7, listOf(DocumentRow(2, 7, "interview/b.md", "b", "b".repeat(40))))
         assertEquals(listOf(2L), dao.bankPages().first().map { it.documentId })
@@ -121,9 +121,9 @@ class LocalStoreTest {
             DocumentRow(3, 7, "c.md", "c", sha)))
         dao.replaceDocuments(8, listOf(DocumentRow(4, 8, "d.md", "d", sha)))
         val linking = """<main><a href="/note-link?target=b">b</a></main>"""
-        dao.saveNote(NoteRow(1, sha, sha, "a.md", "a", linking, 0))
-        dao.saveNote(NoteRow(2, sha, sha, "b.md", "b", "<main>no links</main>", 0))
-        dao.saveNote(NoteRow(4, sha, sha, "d.md", "d", linking, 0))
+        dao.saveNote(NoteRow(1, sha, "a.md", "a", linking, 0))
+        dao.saveNote(NoteRow(2, sha, "b.md", "b", "<main>no links</main>", 0))
+        dao.saveNote(NoteRow(4, sha, "d.md", "d", linking, 0))
         // Note 3 is listed but not saved; note 4 links but belongs to another repository.
         assertEquals(listOf(1L), dao.notesWithNoteLinks(7))
         assertEquals(listOf(SavedPage(1, linking)), dao.savedPages(listOf(1L, 3L)))
@@ -165,8 +165,8 @@ class LocalStoreTest {
     @Test fun searchMatchesSavedTitlesTextAndHighlightsWithLiteralWildcards() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "java/Spring.md", "Spring", "a".repeat(40)),
             DocumentRow(2, 7, "db/Postgres.md", "Postgres", "b".repeat(40)), DocumentRow(3, 7, "misc/100_percent.md", "100_percent", "c".repeat(40))))
-        dao.saveNote(NoteRow(2, "b".repeat(40), "c".repeat(40), "db/Postgres.md", "Postgres", "<html/>", 0, "MVCC\nUse 100% of the TRANSACTION log"))
-        dao.saveNote(NoteRow(9, "d".repeat(40), "c".repeat(40), "gone/Old.md", "Old", "<html/>", 0, null))
+        dao.saveNote(NoteRow(2, "b".repeat(40), "db/Postgres.md", "Postgres", "<html/>", 0, "MVCC\nUse 100% of the TRANSACTION log"))
+        dao.saveNote(NoteRow(9, "d".repeat(40), "gone/Old.md", "Old", "<html/>", 0, null))
         dao.saveAnnotation(AnnotationRow("m1", 5, 1, "a".repeat(40), "b1", 0, 4, "Propagation", "about transactions", 1, 0, pending = false, rejection = null))
 
         // Title in a saved list, saved text (ASCII case-insensitive), and a highlight's note all match "transaction".
@@ -187,7 +187,7 @@ class LocalStoreTest {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
         for (id in listOf(1L, 2L, 3L)) {
-            dao.saveNote(NoteRow(id, "a".repeat(40), "c".repeat(40), "n.md", "n", "<html/>", 0, "text"))
+            dao.saveNote(NoteRow(id, "a".repeat(40), "n.md", "n", "<html/>", 0, "text"))
             dao.saveReading(readAt(id, "a".repeat(40), at = id).copy(pending = id == 2L))
             dao.saveBookmark(bookmark(id, bookmarked = true, pending = false, at = id))
             dao.saveAnnotation(annotation("m$id", null, null, pending = true).copy(documentId = id))
@@ -208,7 +208,7 @@ class LocalStoreTest {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
         for (id in listOf(1L, 3L)) {
-            dao.saveNote(NoteRow(id, "a".repeat(40), "c".repeat(40), "n.md", "n", "<html/>", 0, "text"))
+            dao.saveNote(NoteRow(id, "a".repeat(40), "n.md", "n", "<html/>", 0, "text"))
             dao.saveReading(readAt(id, "a".repeat(40), at = id).copy(pending = true))
             dao.saveAnnotation(annotation("m$id", null, null, pending = true).copy(documentId = id))
         }
@@ -234,7 +234,7 @@ class LocalStoreTest {
 
     @Test fun onlySavedCopiesThatNothingListsOrRefersToAreForgotten() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "listed.md", "listed", "a".repeat(40))))
-        for (id in 1L..5L) dao.saveNote(NoteRow(id, "a".repeat(40), "c".repeat(40), "n$id.md", "n", "<html/>", 0))
+        for (id in 1L..5L) dao.saveNote(NoteRow(id, "a".repeat(40), "n$id.md", "n", "<html/>", 0))
         dao.saveReading(readAt(2, "a".repeat(40), at = 1))
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = false, at = 1))
         dao.saveAnnotation(annotation("m4", 4, null, pending = false).copy(documentId = 4))
@@ -334,7 +334,7 @@ class LocalStoreTest {
     @Test fun gradesSurviveNotebookRefreshAndAcknowledgementAndOnlyCurrentAnswersCanBeGraded() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, sha, "a.md", "a", "<html/>", 0))
+        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
         val card = annotation("card", null, null, true).copy(type = "CARD", question = "Why?", checkedBlobSha = sha)
         dao.saveAnnotation(card)
         val grades = (1..10).map { ReviewRow("g$it", "card", 4, it.toLong(), sha, true) }

@@ -78,9 +78,9 @@ class DocumentContentTest {
 
     private long document(String path, String blobSha, boolean deleted) {
         return db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at, deleted_at)
-                values (1, :path, 'title', :blob, :commit, now(), case when :deleted then now() end) returning id""")
-            .param("path", path).param("blob", blobSha).param("commit", "c".repeat(40)).param("deleted", deleted)
+                insert into documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
+                values (1, :path, 'title', :blob, case when :deleted then now() end) returning id""")
+            .param("path", path).param("blob", blobSha).param("deleted", deleted)
             .query(Long.class).single();
     }
 

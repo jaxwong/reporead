@@ -145,7 +145,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     private suspend fun fetchNote(documentId: Long): NoteRow {
         val json = api.get("/api/documents/$documentId/content")
         val note = contract {
-            NoteRow(documentId, json.getString("sourceBlobSha"), json.getString("commitSha"), json.getString("path"),
+            NoteRow(documentId, json.getString("sourceBlobSha"), json.getString("path"),
                 json.getString("title"), json.getString("html"), System.currentTimeMillis(), json.getString("text"), json.getInt("renderFormat"))
         }
         dao.saveNote(note)

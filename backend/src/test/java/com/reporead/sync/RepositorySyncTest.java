@@ -145,8 +145,10 @@ class RepositorySyncTest {
         sync(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.commitSha").value(COMMIT_A))
             .andExpect(jsonPath("$.documentCount").value(2));
         var ids = db.sql("select id from documents order by id").query(Long.class).list();
+        var rowVersions = rowVersions();
         sync(alice, connection).andExpect(status().isOk());
         assertEquals(ids, db.sql("select id from documents order by id").query(Long.class).list());
+        assertEquals(rowVersions, rowVersions(), "a refresh that finds nothing changed rewrites no document row");
         assertEquals(List.of("algorithms/Graphs.MD", "intro.md"), activePaths());
         documents(alice, connection).andExpect(status().isOk()).andExpect(jsonPath("$.lastSyncedCommitSha").value(COMMIT_A))
             .andExpect(jsonPath("$.documents[0].path").value("algorithms/Graphs.MD"))
@@ -213,6 +215,15 @@ class RepositorySyncTest {
         return at.map(java.sql.Timestamp::toInstant).orElse(null);
     }
 
+    /** PostgreSQL's row version (xmin): it changes whenever a row is rewritten, even with identical values. */
+    private String rowVersion(String path) {
+        return db.sql("select xmin::text from documents where path = :path").param("path", path).query(String.class).single();
+    }
+
+    private List<String> rowVersions() {
+        return db.sql("select xmin::text from documents order by id").query(String.class).list();
+    }
+
     private java.time.Instant lastSyncedAt() {
         return db.sql("select last_synced_at from repository_connections where id = :id").param("id", connection)
             .query((row, n) -> row.getTimestamp(1).toInstant()).single();
@@ -223,6 +234,7 @@ class RepositorySyncTest {
             entry("gone.md", "100644", "blob", "5".repeat(40)), entry("old/moved.md", "100644", "blob", "6".repeat(40))), MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isOk());
         for (var path : List.of("same.md", "edited.md", "gone.md", "old/moved.md")) assertNull(changedAt(path), path);
+        String sameVersion = rowVersion("same.md");
 
         next();
         expectSync(COMMIT_B, TREE_B, withSuccess(tree(false, entry("same.md", "100644", "blob", BLOB_1), entry("edited.md", "100644", "blob", BLOB_2),
@@ -230,6 +242,7 @@ class RepositorySyncTest {
         sync(alice, connection).andExpect(status().isOk());
         var second = lastSyncedAt();
         assertNull(changedAt("same.md"));
+        assertEquals(sameVersion, rowVersion("same.md"), "a new commit that leaves a note unchanged does not rewrite its row");
         assertEquals(second, changedAt("edited.md"));
         assertEquals(second, changedAt("new.md"));
         assertNull(changedAt("new/moved.md"), "a path-only move is not a content change");
@@ -311,7 +324,7 @@ class RepositorySyncTest {
      */
     @Test void aContentMoveChosenBeforeTheLockAppliesOnlyIfBothSidesAreStillUnmatched() {
         var first = java.time.Instant.parse("2026-10-01T00:00:00Z");
-        transaction.executeWithoutResult(status -> documentRows.publishSnapshot(connection, COMMIT_A, List.of(
+        transaction.executeWithoutResult(status -> documentRows.publishSnapshot(connection, List.of(
             source("a.md", '5'), source("b.md", '6'), source("c.md", '7'), source("d.md", '8'), source("g.md", '9'), source("h.md", 'c')),
             first, List.of(), false));
         long a = documentId("a.md"), c = documentId("c.md"), d = documentId("d.md"), g = documentId("g.md"), h = documentId("h.md");
@@ -321,7 +334,7 @@ class RepositorySyncTest {
             new com.reporead.document.Documents.Move(d, "d.md", "f.md"),          // d.md moved exactly to e.md
             new com.reporead.document.Documents.Move(g, "elsewhere.md", "y.md"),  // g is not at the path it left
             new com.reporead.document.Documents.Move(h, "h.md", "e.md"));         // e.md is d's exact move
-        var applied = transaction.execute(status -> documentRows.publishSnapshot(connection, COMMIT_B, List.of(
+        var applied = transaction.execute(status -> documentRows.publishSnapshot(connection, List.of(
             source("b.md", '6'), source("x.md", 'd'), source("e.md", '8'), source("f.md", 'e'), source("y.md", 'f')),
             first.plusSeconds(60), contentMoves, true));
         assertEquals(List.of(new com.reporead.document.Documents.Move(d, "d.md", "e.md"), contentMoves.getFirst()), applied);
