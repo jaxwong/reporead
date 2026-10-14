@@ -45,7 +45,6 @@ data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val co
                    @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0)
 
 
-/** One listed interview bank; null HTML means its questions are not available on this phone. */
 /** A saved note's rendered page. */
 data class SavedPage(val documentId: Long, val html: String)
 
