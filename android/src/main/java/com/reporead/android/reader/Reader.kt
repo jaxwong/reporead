@@ -67,7 +67,7 @@ private const val NOTE_LINK = "/note-link"
 /** The reader page's Copy link on a code block (reader.js addCodeTools); the text is then read with codeText(). */
 private const val COPY_CODE = "/copy-code"
 /** The reader page's Full screen link on a wide table or a diagram (reader.js addFigureTools). */
-private const val FULL_SCREEN = "/full-screen"
+internal const val FULL_SCREEN = "/full-screen"
 private const val SAVE_AFTER_SCROLL_MS = 700L
 private const val SECTION_AFTER_SCROLL_MS = 150L
 /** How far one swipe must scroll before the bars hide or come back, so small jitters do nothing. */

@@ -251,8 +251,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                     val question = verified.question
                     if (question != null) {
                         Text("Interview bank · ${item.path}", style = MaterialTheme.typography.labelMedium)
-                        BankAnswer(question, row.documentId, item.path, sync, dao, Modifier.weight(1f),
-                            onOpen = { note, heading -> push(Screen.Reader(note.id, note.title, heading)) })
+                        BankAnswer(question, row.documentId, item.path, sync, dao, Modifier.weight(1f), push)
                     } else Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(row.drawn.exactText, style = MaterialTheme.typography.titleLarge)
                         Text("Context · ${item.path}", style = MaterialTheme.typography.labelMedium)
