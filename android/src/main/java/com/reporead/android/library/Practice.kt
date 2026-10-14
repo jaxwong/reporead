@@ -117,7 +117,7 @@ private fun topicName(topic: String?) = when (topic) {
 
 /**
  * Saves a new question's first grade on this phone: its card, whose answer is the question's Canonical line in the
- * saved version it was asked from, then that grade. Library sync sends both. Returns why it saved nothing or only the
+ * saved version it was asked from, then that grade. The background sync sends both. Returns why it saved nothing or only the
  * card, or null. A question that already has a card (graded just before the screen was recreated) is not saved twice.
  */
 internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: PracticeQuestion, grade: Int): String? {
@@ -129,7 +129,7 @@ internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: Pra
     val selection = JSONObject().put("sourceBlobSha", question.blobSha).put("blockId", answer.blockId)
         .put("startOffset", 0).put("endOffset", answer.text.length).put("exactText", answer.text)
     val card = sync.createAnnotation(selection, question.documentId, null, question.question.prompt)
-    val graded = dao.recordReview(ReviewRow(UUID.randomUUID().toString(), card, grade, System.currentTimeMillis(), question.blobSha, true))
+    val graded = sync.recordReview(ReviewRow(UUID.randomUUID().toString(), card, grade, System.currentTimeMillis(), question.blobSha, true))
     return if (graded) null else "The card was saved but not its grade, so it is due now in Review cards."
 }
 

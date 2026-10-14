@@ -31,7 +31,7 @@ import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.LocalStore
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.appSync
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
@@ -42,9 +42,7 @@ import com.reporead.android.reader.FigureScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** One navigation entry, encoded as strings so the back stack survives process death. */
 sealed interface Screen {
@@ -115,7 +113,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val store = remember { SessionStore(context.applicationContext) }
     val api = remember { Api(BuildConfig.API_BASE_URL) { store.accessToken() } }
     val local = remember { LocalStore.get(context) }
-    val sync = remember { Sync(api, local, context.applicationContext.filesDir) }
+    val sync = remember { appSync(context) }
     val dao = remember { local.library() }
     var signedIn by remember { mutableStateOf(store.accessToken() != null) }
     var signInMessage by remember { mutableStateOf<String?>(null) }
@@ -144,7 +142,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         signInMessage = "Finishing sign-in…"
         try {
             completeSignIn(code, api, store) {
-                withContext(Dispatchers.IO) { sync.clearAll() }
+                sync.clearAll()
                 screenStates.removeState(ROOT_STATE)
             }
             signedIn = true
@@ -195,7 +193,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                     else "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
                 }
                 // Explicit sign-out removes this phone's copy of private notes, including unsynced changes.
-                withContext(Dispatchers.IO) { sync.clearAll() }
+                sync.clearAll()
                 screenStates.removeState(ROOT_STATE)
                 store.clear()
                 store.dataOwner = null

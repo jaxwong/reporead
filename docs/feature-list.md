@@ -91,7 +91,7 @@ The user chose to start post-MVP work on 2026-10-07, before the Stage 6 gate. Ea
 - AI summaries or chat with notes.
 - Other Git providers, arbitrary binary formats, and rich drawing/canvas tools.
 - iOS, Google Play distribution, and LaTeX/math rendering.
-- Webhook-triggered sync, AST-aware diffing, Elasticsearch, Kafka, microservices, a generic sync engine, and cache or retry frameworks.
+- Webhook-triggered sync, AST-aware diffing, Elasticsearch, Kafka, microservices, a generic sync engine, and cache or retry frameworks (beyond WorkManager's backoff for the phone's background sync, ADR-08).
 
 **Excluded from the MVP, built afterwards:** spaced-repetition review, approved by the user as P3 and P4 on 2026-10-09 (ADR-13, ADR-20).
 

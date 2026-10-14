@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
@@ -111,9 +112,10 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
     var refreshing by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     val repositories by dao.repositories().collectAsState(emptyList())
+    val waiting by dao.waitingCount().collectAsState(0)
     val outlook = rememberReviewOutlook(dao)
     if (signedIn) {
-        // Pushes pending reading saves and bookmarks, then pulls the server's view: the explicit foreground sync point.
+        // Pushes pending changes, then pulls the server's view. The background sync sends changes without this (ADR-08).
         RefreshOnEntry(refresh, onFailure, { refreshing = it }, { status = it }) {
             sync.refreshRepositories()
             val synced = sync.syncLocalChanges()
@@ -129,7 +131,6 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
             AppBar("Library", actions = {
                 IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
                 OverflowMenu(if (signedIn) listOf(
-                    MenuAction("Sync now") { refresh++ },
                     MenuAction("Sign out and remove from phone…") { scope.launch { confirmSignOut = dao.unsentCount() } },
                     MenuAction("Delete account…") { confirmDeleteAccount = true },
                 ) else listOf(MenuAction("Sign in with GitHub", onSignIn)))
@@ -158,6 +159,14 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                 FilledTonalButton(onClick = onSignIn, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Sign in with GitHub") }
             }
             StatusLine(status)
+            if (signedIn && waiting > 0) {
+                // The background sync sends these once the phone is online; Sync now sends them while you watch.
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${counted(waiting, "change")} waiting to sync", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { refresh++ }, enabled = !refreshing) { Text("Sync now") }
+                }
+            }
             TextButton(onClick = { push(Screen.Notebook) }) { Text("Notebook") }
             val content: @Composable () -> Unit = {
                 when (tab) {

@@ -37,7 +37,7 @@ class ReviewSyncTest {
                     dao.saveAnnotation(card)
                     val grades = (1..10).map { ReviewRow(UUID.randomUUID().toString(), "card", 4, it.toLong(), "a".repeat(40), true) }
                     grades.forEach { dao.saveReview(it) }
-                    val sync = Sync(Api("http://127.0.0.1:${server.localPort}") { "TEST_ONLY_SESSION" }, store, directory)
+                    val sync = Sync(Api("http://127.0.0.1:${server.localPort}") { "TEST_ONLY_SESSION" }, store, directory) {}
                     val stored = mutableMapOf<String, JSONObject>()
                     val first = async(Dispatchers.IO) { respond(server, 6, failLast = true, stored) }
                     try {

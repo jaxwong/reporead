@@ -320,7 +320,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                 TextButton(onClick = { scope.launch { dao.dismissRefusedReviews() } }) { Text("Dismiss") }
             }
             val pending = log.count { it.pending && it.rejection == null }
-            if (pending > 0) Text("$pending grades saved on this phone; they are sent when Library syncs.", style = MaterialTheme.typography.bodySmall)
+            if (pending > 0) Text("$pending grades saved on this phone; they are sent once it is online.", style = MaterialTheme.typography.bodySmall)
             if (cap == null) {
                 Text("Review starts after one sync with the server: open Library while signed in and online.")
                 return@Column
@@ -363,7 +363,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             if (answer == null) Text("The saved page cannot verify this answer in context. Open the note to check it.")
             else CardAnswer(item, answer, sync, dao, push)
             TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, annotation = id)) }) { Text("Open in note") }
-            // Each saved grade is one immutable local mutation; network I/O waits for Library sync.
+            // Each saved grade is one immutable local mutation; the background sync sends it.
             if (answer != null) GradeBar(enabled = !saving) { grade ->
                 if (again) next(afterGrade(ids, grade))
                 else {
@@ -371,7 +371,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                     val review = ReviewRow(UUID.randomUUID().toString(), id, grade, System.currentTimeMillis(), row.drawn.blobSha, true)
                     scope.launch {
                         try {
-                            val saved = withContext(NonCancellable) { dao.recordReview(review) }
+                            val saved = withContext(NonCancellable) { sync.recordReview(review) }
                             if (saved) next(afterGrade(ids, grade))
                             else {
                                 notice = "Card changed while answering; grade not saved. Open it to check the answer."
