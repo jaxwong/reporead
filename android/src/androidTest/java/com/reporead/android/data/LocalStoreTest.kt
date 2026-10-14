@@ -115,7 +115,7 @@ class LocalStoreTest {
         assertEquals(emptyList<PracticePage>(), dao.bankPages().first())
     }
 
-    @Test fun linkingPagesAreListedByIdAndReadOneAtATime() = runBlocking {
+    @Test fun linkingPagesAreListedByIdAndReadInBatches() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha), DocumentRow(2, 7, "b.md", "b", sha),
             DocumentRow(3, 7, "c.md", "c", sha)))
@@ -126,8 +126,8 @@ class LocalStoreTest {
         dao.saveNote(NoteRow(4, sha, sha, "d.md", "d", linking, 0))
         // Note 3 is listed but not saved; note 4 links but belongs to another repository.
         assertEquals(listOf(1L), dao.notesWithNoteLinks(7))
-        assertEquals(linking, dao.savedPage(1))
-        assertNull(dao.savedPage(3))
+        assertEquals(listOf(SavedPage(1, linking)), dao.savedPages(listOf(1L, 3L)))
+        assertEquals(emptyList<SavedPage>(), dao.savedPages(emptyList()))
     }
 
     private fun readAt(documentId: Long, blobSha: String, at: Long) =
