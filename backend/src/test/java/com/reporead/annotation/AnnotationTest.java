@@ -378,21 +378,6 @@ class AnnotationTest {
             .andExpect(jsonPath("$.annotations[0].location.blockId").value("b2"));
     }
 
-    @Test void aHighlightFromBeforeStage4GetsItsEvidenceFromItsOwnVersionOnce() throws Exception {
-        moveNoteTo(OLD_SHA);
-        expectSource(ExpectedCount.once());
-        createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
-        // As V4 migrated Stage 3 highlights: a location copied from the anchor, distinguishability unknown.
-        db.sql("update annotation_locations set block_sha = null, quote_occurrences = null, rival_context = null, rival_quote = null").update();
-        next();
-        expectSource(ExpectedCount.once());
-        list(alice).andExpect(jsonPath("$.annotations[0].status").value("ANCHORED"));
-        assertEquals(1, db.sql("select quote_occurrences from annotation_locations").query(Integer.class).single());
-        assertEquals(0.0, db.sql("select rival_context from annotation_locations").query(Double.class).single());
-        next();
-        list(alice).andExpect(status().isOk());
-    }
-
     @Test void aDeletedNoteKeepsItsHighlightsWithoutGitHubRequests() throws Exception {
         expectSource(ExpectedCount.once());
         createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, "still here"));

@@ -25,16 +25,14 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
-import java.util.function.Function;
 
 /**
  * Highlights and cards with optional notes. External-call ceilings: create and reattach 1 GitHub request (the selected
  * version's blob, to verify the anchor), or 0 when replaying a known mutation id; list 0 when every highlight is resolved
- * against the note's current version, else 1 (the current version) plus 1 per older version holding a pre-Stage-4
- * location; edit, delete, and card confirmation 0. Source Markdown is never written.
+ * against the note's current version, else 1 (the current version); edit, delete, and card confirmation 0. Source
+ * Markdown is never written.
  */
 @RestController
 public class AnnotationController {
@@ -72,46 +70,23 @@ public class AnnotationController {
         return new AnnotationList(all);
     }
 
-    /**
-     * Resolves every highlight against the note's current version. A pre-Stage-4 location first gets its
-     * distinguishability from its own version. Returns whether anything needed resolving.
-     */
+    /** Resolves every highlight against the note's current version. Returns whether anything needed resolving. */
     private boolean bringUpToDate(AppUser user, Documents.Located document, List<Annotations.Annotation> all) {
         String current = document.blobSha();
-        var stale = all.stream().filter(annotation -> !annotation.resolvedBlobSha().equals(current)
-            || annotation.location().rivalContext() == null).toList();
+        var stale = all.stream().filter(annotation -> !annotation.resolvedBlobSha().equals(current)).toList();
         if (stale.isEmpty()) return false;
-        var versions = new HashMap<String, List<MarkdownRenderer.Block>>();
-        Function<String, List<MarkdownRenderer.Block>> blocks =
-            sha -> versions.computeIfAbsent(sha, version -> noteVersions.render(user, document, version).note().blocks());
+        var currentBlocks = noteVersions.render(user, document, current).note().blocks();
         for (var annotation : stale) {
-            var location = annotation.location();
-            if (location.rivalContext() == null) {
-                location = withEvidence(location, blocks.apply(location.sourceBlobSha()), annotation.id());
-                annotations.fillEvidence(annotation.id(), location);
-            }
-            if (annotation.resolvedBlobSha().equals(current)) continue;
-            var currentBlocks = blocks.apply(current);
-            var from = location;
+            var from = annotation.location();
             var resolved = meters.timer(REANCHOR_DURATION).record(() -> Anchoring.resolve(from, current, currentBlocks));
             boolean applied = annotations.resolved(annotation, current, resolved.map(Anchoring.Resolved::anchor));
             String outcome = resolved.map(found -> found.method().name()).orElse("ORPHANED");
             // Counted once per applied resolution; a concurrent listing that lost the race changed nothing.
             if (applied) meters.counter(REANCHOR, "outcome", outcome).increment();
             LOG.info("Highlight resolved; userId={} documentId={} annotationId={} from={} to={} outcome={} applied={}", user.id(),
-                document.id(), annotation.id(), location.sourceBlobSha(), current, outcome, applied);
+                document.id(), annotation.id(), from.sourceBlobSha(), current, outcome, applied);
         }
         return true;
-    }
-
-    /** A location recomputed in its own version, which must still contain it exactly. */
-    private static Annotations.Anchor withEvidence(Annotations.Anchor location, List<MarkdownRenderer.Block> own, long annotationId) {
-        var block = own.stream().filter(candidate -> candidate.id().equals(location.blockId())).findFirst()
-            .filter(candidate -> candidate.text().length() >= location.endOffset()
-                && candidate.text().substring(location.startOffset(), location.endOffset()).equals(location.exactText()))
-            .orElseThrow(() -> new IllegalStateException("Annotation " + annotationId + " location " + location.blockId() + "["
-                + location.startOffset() + "," + location.endOffset() + ") is not in its own version " + location.sourceBlobSha()));
-        return Anchoring.anchorAt(location.sourceBlobSha(), own, block, location.startOffset(), location.endOffset());
     }
 
     /** What the client selected; the server verifies it and derives everything else from the canonical text. */

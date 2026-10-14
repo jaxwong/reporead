@@ -49,7 +49,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **An annotation is never attached to a place RepoRead cannot identify with measured confidence; it is orphaned instead, with its original selection and context.**
 
-- Enforced by: `Anchoring` with thresholds from `AnchorMeasurement`, never chosen by hand.
+- Enforced by: `Anchoring` with thresholds from `AnchorMeasurement`, never chosen by hand; every location records how distinguishable its passage was in its own version, which `Anchoring` requires (not null since V12).
 - Checked by: re-running `AnchorMeasurement` whenever `Anchoring` changes; the bar is 0 wrong attachments.
 - Why: [ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan).
 
