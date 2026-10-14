@@ -11,7 +11,6 @@ import com.reporead.android.data.BookmarkRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
-import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
@@ -23,8 +22,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
-import java.net.URLEncoder
-import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
@@ -53,7 +50,7 @@ internal fun ApiException.refusesItem() = status in REFUSAL_STATUSES && !code.st
 /**
  * Every Sync operation that writes the server's answers into Room, and clearing the phone, run under this lock, so nothing
  * fetched before sign-out or an account switch is written after it (ADR-22). Not reentrant: locked operations call only
- * private helpers. Local saves and the reader's image fetches do not wait; a late image is removed at the next clear.
+ * private helpers. Local saves and the reader's image fetches ([NoteImages]) do not wait; a late image is removed at the next clear.
  */
 private val oneSyncAtATime = Mutex()
 
@@ -71,10 +68,9 @@ data class LocalSync(val refused: List<String>, val notSent: ApiException?)
  */
 class Sync(private val api: Api, private val store: LocalStore, filesDir: File, private val onPendingChange: () -> Unit) {
     private val dao = store.library()
-    private val imageRoot = File(filesDir, "images")
+    /** Saved notes' images; deleted here whenever their notes go. */
+    val images = NoteImages(api, filesDir)
     private val exportRoot = exportDirectory(filesDir)
-
-    private fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else getString(name)
 
     suspend fun refreshRepositories() = oneSyncAtATime.withLock { loadRepositories() }
 
@@ -88,7 +84,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
             }
         }
         // A repository missing from the server's complete list was disconnected: here with its answer lost, or elsewhere.
-        deleteImages(dao.replaceRepositories(rows))
+        images.delete(dao.replaceRepositories(rows))
     }
 
     suspend fun refreshDocuments(repositoryId: Long) = oneSyncAtATime.withLock { loadDocuments(repositoryId) }
@@ -150,9 +146,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
                 json.getString("title"), json.getString("html"), System.currentTimeMillis(), json.getString("text"), json.getInt("renderFormat"))
         }
         dao.saveNote(note)
-        File(imageRoot, documentId.toString()).listFiles()?.filter { it.name != note.blobSha }?.forEach { old ->
-            check(old.deleteRecursively()) { "Could not remove images of an older version at $old" }
-        }
+        images.keepOnly(documentId, note.blobSha)
         return note
     }
 
@@ -255,12 +249,8 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         val documentIds = contract { json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } } }
         dao.forgetRepository(repositoryId, documentIds)
         check(!exportRoot.exists() || exportRoot.deleteRecursively()) { "Could not remove private notebook exports at $exportRoot" }
-        deleteImages(documentIds)
+        images.delete(documentIds)
         Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
-    }
-
-    private fun deleteImages(documentIds: List<Long>) {
-        for (id in documentIds) File(imageRoot, id.toString()).let { check(!it.exists() || it.deleteRecursively()) { "Could not remove saved images at $it" } }
     }
 
     /** Online only: the server deletes the account and everything it stored; then this phone's copy is cleared. */
@@ -362,7 +352,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
         })
         refreshNotebook()
         // Last, once every list is the server's complete one: copies nothing refers to any more.
-        deleteImages(dao.forgetUnreferencedNotes())
+        images.delete(dao.forgetUnreferencedNotes())
         return LocalSync(refused, notSent)
     }
 
@@ -545,69 +535,13 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
             JSONObject().put("expectedVersion", row.version).put("blobSha", blobSha))))
     }
 
-    private fun reviewRow(json: JSONObject) = contract {
-        val grade = json.getInt("grade")
-        if (grade !in 0..5) throw JSONException("Invalid review grade $grade")
-        ReviewRow(json.getString("mutationId"), json.getString("cardMutationId"), grade,
-            Instant.parse(json.getString("reviewedAt")).toEpochMilli(), json.getString("blobSha"), pending = false)
-    }
-
-    private fun annotationRow(json: JSONObject) = contract {
-        val anchor = json.getJSONObject("anchor")
-        val location = json.getJSONObject("location")
-        AnnotationRow(json.getString("mutationId"), json.getLong("id"), json.getLong("documentId"), anchor.getString("sourceBlobSha"),
-            anchor.getString("blockId"), anchor.getInt("startOffset"), anchor.getInt("endOffset"), anchor.getString("exactText"),
-            json.nullableString("note"), json.getInt("version"), Instant.parse(json.getString("createdAt")).toEpochMilli(),
-            state = AnnotationState.ACKNOWLEDGED, prefixText = anchor.getString("prefixText"), suffixText = anchor.getString("suffixText"),
-            status = json.getString("status"), resolvedBlobSha = json.getString("resolvedBlobSha"),
-            location = Passage(location.getString("sourceBlobSha"), location.getString("blockId"), location.getInt("startOffset"),
-                location.getInt("endOffset"), location.getString("exactText")),
-            type = json.getString("type"), question = json.nullableString("question"), checkedBlobSha = json.nullableString("checkedBlobSha"),
-            cachedTitle = json.getString("title"), cachedPath = json.getString("path"),
-            cachedCurrentBlobSha = json.getString("currentBlobSha"), cachedDeleted = json.getBoolean("deleted"))
-    }
-
-    private fun readingRow(json: JSONObject) = contract {
-        ReadingRow(json.getLong("documentId"), json.getString("title"), json.getString("path"), json.getString("lastReadBlobSha"),
-            json.getInt("progressPercent"), json.getJSONObject("anchor").toString(), Instant.parse(json.getString("lastReadAt")).toEpochMilli(),
-            pending = false, deleted = json.getBoolean("deleted"))
-    }
-
-    /**
-     * A repository image for the displayed note version: from the cache, else fetched through the backend with the
-     * bearer token (blocking; call from a background thread). Null when it is neither cached nor fetchable.
-     */
-    fun image(documentId: Long, blobSha: String, path: String): ByteArray? =
-        cachedImage(documentId, blobSha, sha256(path), "path=${URLEncoder.encode(path, Charsets.UTF_8)}")
-
-    /** The same for an Obsidian embed by attachment name; the server resolves the name (missing or ambiguous: null). */
-    fun embedImage(documentId: Long, blobSha: String, name: String): ByteArray? =
-        cachedImage(documentId, blobSha, sha256("embed:$name"), "embed=${URLEncoder.encode(name, Charsets.UTF_8)}")
-
-    private fun cachedImage(documentId: Long, blobSha: String, key: String, query: String): ByteArray? {
-        val file = File(imageRoot, "$documentId/$blobSha/$key")
-        if (file.isFile) return file.readBytes()
-        val bytes = try {
-            api.bytes("/api/documents/$documentId/image?$query")
-        } catch (error: ApiException) {
-            Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
-            return null
-        }
-        file.parentFile!!.mkdirs()
-        val partial = File(file.parentFile, file.name + ".partial")
-        partial.writeBytes(bytes)
-        check(partial.renameTo(file)) { "Could not publish cached image for document $documentId" }
-        return bytes
-    }
-
     /** Explicit sign-out removes every cached note, image, and pending change from this phone; a running sync finishes first. */
     suspend fun clearAll() = oneSyncAtATime.withLock {
         withContext(Dispatchers.IO) {
             store.clearAllTables()
-            check(!imageRoot.exists() || imageRoot.deleteRecursively()) { "Could not remove saved images at $imageRoot" }
+            images.clear()
             check(!exportRoot.exists() || exportRoot.deleteRecursively()) { "Could not remove private notebook exports at $exportRoot" }
         }
     }
 
-    private fun sha256(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 }

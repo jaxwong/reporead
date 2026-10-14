@@ -7,7 +7,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.data.NoteRow
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.NoteImages
 import org.json.JSONTokener
 import java.io.ByteArrayInputStream
 
@@ -47,14 +47,14 @@ internal fun readerAssets(context: Context): WebViewAssetLoader =
  * cache or the authenticated backend). Everything else is a 404. Called on a WebView background thread, so the
  * blocking image fetch is allowed here.
  */
-internal fun readerResource(assets: WebViewAssetLoader, sync: Sync, note: NoteRow, url: Uri): WebResourceResponse {
+internal fun readerResource(assets: WebViewAssetLoader, images: NoteImages, note: NoteRow, url: Uri): WebResourceResponse {
     if (url.host == ASSET_HOST && url.path?.startsWith("/assets/") == true) {
         assets.shouldInterceptRequest(url)?.let { return it }
     }
     if (url.host == ASSET_HOST && url.path?.startsWith(IMAGE_PREFIX) == true) {
         val path = url.path!!.removePrefix(IMAGE_PREFIX)
         val type = IMAGE_TYPES[path.substringAfterLast('.', "").lowercase()]
-        val bytes = type?.let { sync.image(note.documentId, note.blobSha, path) }
+        val bytes = type?.let { images.image(note.documentId, note.blobSha, path) }
         if (type != null && bytes != null) {
             return WebResourceResponse(type, null, 200, "OK", mapOf("X-Content-Type-Options" to "nosniff"), ByteArrayInputStream(bytes))
         }
@@ -62,7 +62,7 @@ internal fun readerResource(assets: WebViewAssetLoader, sync: Sync, note: NoteRo
     if (url.host == ASSET_HOST && url.path?.startsWith(EMBED_PREFIX) == true) {
         val name = url.path!!.removePrefix(EMBED_PREFIX)
         val type = IMAGE_TYPES[name.substringAfterLast('.', "").lowercase()]
-        val bytes = type?.let { sync.embedImage(note.documentId, note.blobSha, name) }
+        val bytes = type?.let { images.embedImage(note.documentId, note.blobSha, name) }
         if (type != null && bytes != null) {
             return WebResourceResponse(type, null, 200, "OK", mapOf("X-Content-Type-Options" to "nosniff"), ByteArrayInputStream(bytes))
         }
