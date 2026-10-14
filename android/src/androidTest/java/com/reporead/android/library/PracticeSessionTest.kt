@@ -74,8 +74,8 @@ class PracticeSessionTest {
             block("c4", "h2", "Second answer") + block("c5", "p", "Test-only second answer text.") + wideTable)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/topic/interview/bank.md", "Test-only bank", bankSha),
             DocumentRow(2, 7, "test-only/topic/core.md", "Test-only core", coreSha)))
-        dao.saveNote(NoteRow(1, bankSha, bankSha, "test-only/topic/interview/bank.md", "Test-only bank", bank, 0, renderFormat = RENDER_FORMAT))
-        dao.saveNote(NoteRow(2, coreSha, coreSha, "test-only/topic/core.md", "Test-only core", core, 0, renderFormat = RENDER_FORMAT))
+        dao.saveNote(NoteRow(1, bankSha, "test-only/topic/interview/bank.md", "Test-only bank", bank, 0, renderFormat = RENDER_FORMAT))
+        dao.saveNote(NoteRow(2, coreSha, "test-only/topic/core.md", "Test-only core", core, 0, renderFormat = RENDER_FORMAT))
         val sync = Sync(Api("http://127.0.0.1:1", { error("Practice fixture must not call the network") }) {}, store, files) {}
         ReaderTestActivity.content = {
             MaterialTheme {

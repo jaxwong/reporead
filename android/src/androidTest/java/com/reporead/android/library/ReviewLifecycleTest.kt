@@ -40,7 +40,7 @@ class ReviewLifecycleTest {
             """<p data-block-id="b$it" data-anchor-text="Test-only answer $it in context.">Test-only answer $it in context.</p>"""
         } + "</main>"
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/review.md", "Test-only review", sha)))
-        dao.saveNote(NoteRow(1, sha, sha, "test-only/review.md", "Test-only review", html, 0))
+        dao.saveNote(NoteRow(1, sha, "test-only/review.md", "Test-only review", html, 0))
         dao.saveReviewLimit(ReviewLimitRow(sessionLimit = 40))
         // No token and a closed local port: a server call fails as unreachable instead of leaving the phone.
         val sync = Sync(Api("http://127.0.0.1:1", { null }) {}, store, File(instrumentation.targetContext.cacheDir, "review-lifecycle-test")) {}

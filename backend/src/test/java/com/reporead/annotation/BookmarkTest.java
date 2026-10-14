@@ -44,8 +44,8 @@ class BookmarkTest {
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
         db.sql("insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch) values (1, 11, 7, 'test-only', 'notes', 'main')").update();
         note = db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at)
-                values (1, 'a.md', 'a', :sha, :sha, now()) returning id""").param("sha", SHA).query(Long.class).single();
+                insert into documents (repository_connection_id, path, title, current_blob_sha)
+                values (1, 'a.md', 'a', :sha) returning id""").param("sha", SHA).query(Long.class).single();
     }
 
     private ResultActions set(String bearer, long id, String sha) throws Exception {

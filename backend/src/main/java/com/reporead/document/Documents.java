@@ -31,18 +31,20 @@ public class Documents {
     /** A document that kept its identity under a new path. */
     public record Move(long documentId, String fromPath, String toPath) {}
     public record Existing(long id, String path, String blobSha, boolean deleted) {}
+    /** [commitSha]: the connection's last published commit, which the document is at unless [deleted]. */
     public record Located(long id, String path, String title, String blobSha, String commitSha, boolean deleted,
                           String owner, String repositoryName, long connectionId) {}
 
     /**
      * Applies one complete tree snapshot. Moved documents take their new path first; then paths in the snapshot are
-     * inserted or updated (and undeleted), and paths absent from it are marked deleted, never removed. [contentMoves]
-     * were decided before the lock and apply only if both their sides are still unmatched in the locked rows. A note
-     * that is new, has a new blob, or is back after being deleted records [syncedAt] as its content change, except in a
-     * connection's first snapshot ([previouslySynced] false), where RepoRead has seen nothing change. Callers must hold
-     * the connection's sync lock inside a transaction. Returns the moves applied.
+     * inserted, or updated when their content changed or they were deleted, and paths absent from it are marked deleted,
+     * never removed. An unchanged document's row is not rewritten. [contentMoves] were decided before the lock and apply
+     * only if both their sides are still unmatched in the locked rows. A note that is new, has a new blob, or is back
+     * after being deleted records [syncedAt] as its content change, except in a connection's first snapshot
+     * ([previouslySynced] false), where RepoRead has seen nothing change. Callers must hold the connection's sync lock
+     * inside a transaction. Returns the moves applied.
      */
-    public List<Move> publishSnapshot(long connectionId, String commitSha, List<SourceFile> files, Instant syncedAt, List<Move> contentMoves,
+    public List<Move> publishSnapshot(long connectionId, List<SourceFile> files, Instant syncedAt, List<Move> contentMoves,
                                       boolean previouslySynced) {
         var unmatched = unmatched(existing(connectionId), files);
         var moves = new ArrayList<>(unmatched.exact());
@@ -61,16 +63,13 @@ public class Documents {
         String[] blobs = files.stream().map(SourceFile::blobSha).toArray(String[]::new);
         var now = Timestamp.from(syncedAt);
         db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at,
-                                       content_changed_at)
-                select :connectionId, source.path, source.title, source.blob, :commitSha, :now, cast(:firstSeenChange as timestamptz)
+                insert into documents (repository_connection_id, path, title, current_blob_sha, content_changed_at)
+                select :connectionId, source.path, source.title, source.blob, cast(:firstSeenChange as timestamptz)
                 from unnest(:paths::text[], :titles::text[], :blobs::text[]) as source (path, title, blob)
                 on conflict (repository_connection_id, path) do update
-                set title = excluded.title, current_blob_sha = excluded.current_blob_sha,
-                    current_commit_sha = excluded.current_commit_sha, last_synced_at = excluded.last_synced_at, deleted_at = null,
-                    content_changed_at = case when documents.current_blob_sha <> excluded.current_blob_sha or documents.deleted_at is not null
-                                              then excluded.last_synced_at else documents.content_changed_at end""")
-            .param("connectionId", connectionId).param("commitSha", commitSha).param("now", now).param("firstSeenChange", previouslySynced ? now : null)
+                set current_blob_sha = excluded.current_blob_sha, deleted_at = null, content_changed_at = :now
+                where documents.current_blob_sha <> excluded.current_blob_sha or documents.deleted_at is not null""")
+            .param("connectionId", connectionId).param("now", now).param("firstSeenChange", previouslySynced ? now : null)
             .param("paths", paths).param("titles", titles).param("blobs", blobs).update();
         db.sql("""
                 update documents set deleted_at = :now
@@ -148,7 +147,7 @@ public class Documents {
     /** Finds a document only if it belongs to one of this user's connections. */
     public Optional<Located> find(long userId, long documentId) {
         return db.sql("""
-                select d.id, d.path, d.title, d.current_blob_sha, d.current_commit_sha, d.deleted_at is not null, c.owner, c.name, c.id
+                select d.id, d.path, d.title, d.current_blob_sha, c.last_synced_commit_sha, d.deleted_at is not null, c.owner, c.name, c.id
                 from documents d join repository_connections c on c.id = d.repository_connection_id
                 where d.id = :id and c.user_id = :userId""")
             .param("id", documentId).param("userId", userId)

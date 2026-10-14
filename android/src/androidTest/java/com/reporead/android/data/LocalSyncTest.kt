@@ -179,7 +179,7 @@ class LocalSyncTest {
 
     @Test fun everyLocalChangeAsksForABackgroundSync() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, sha, "a.md", "a", "<html/>", 0, "text"))
+        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "text"))
         var requested = 0
         // Nothing listens on the port: saving a change never waits for the network.
         val sync = Sync(Api("http://127.0.0.1:${closedPort()}", { "TEST_ONLY_SESSION" }) {}, store, directory) { requested++ }
@@ -317,7 +317,7 @@ class LocalSyncTest {
     @Test fun aRepositoryTheServerAlreadyDisconnectedIsRemovedFromThePhoneInsteadOfFailing() = runBlocking {
         dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, sha, "a.md", "a", "<html/>", 0, "private text"))
+        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
         LoopbackServer(emptyLists + mapOf(
             "GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"),
             "GET /api/repositories" to (200 to """{"repositories":[]}"""),

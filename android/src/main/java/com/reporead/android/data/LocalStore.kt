@@ -5,6 +5,7 @@ import androidx.room.AutoMigration
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.DeleteColumn
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Index
@@ -15,6 +16,7 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.AutoMigrationSpec
 import kotlinx.coroutines.flow.Flow
 
 /*
@@ -40,7 +42,7 @@ data class ChangedNote(val documentId: Long, val title: String, val path: String
  * format for [html]; 0 for copies saved before formats were recorded.
  */
 @Entity(tableName = "notes")
-data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val commitSha: String, val path: String,
+data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val path: String,
                    val title: String, val html: String, val fetchedAt: Long, val searchText: String? = null,
                    @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0)
 
@@ -561,12 +563,17 @@ interface LibraryDao {
     }
 }
 
+/** v9: a saved note no longer records the commit it was fetched at, which nothing read. */
+@DeleteColumn(tableName = "notes", columnName = "commitSha")
+class DropNoteCommit : AutoMigrationSpec
+
 @Database(
     entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, ReadingRow::class, BookmarkRow::class, AnnotationRow::class,
         ReviewRow::class, ReviewLimitRow::class, ChangeBaselineRow::class],
-    version = 8,
+    version = 9,
     autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8)],
+        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
+        AutoMigration(from = 8, to = 9, spec = DropNoteCommit::class)],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao
