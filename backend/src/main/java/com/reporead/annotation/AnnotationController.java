@@ -1,6 +1,7 @@
 package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
 import com.reporead.document.Documents;
 import com.reporead.document.MarkdownRenderer;
@@ -64,7 +65,7 @@ public class AnnotationController {
 
     @GetMapping("/api/documents/{id}/annotations")
     AnnotationList list(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        var document = documents.find(user.id(), id).orElseThrow(AnnotationController::notFound);
+        var document = documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         var all = annotations.list(user.id(), id);
         // A deleted note has no current version; its highlights keep their last resolution.
         if (!document.deleted() && bringUpToDate(user, document, all)) all = annotations.list(user.id(), id);
@@ -134,11 +135,11 @@ public class AnnotationController {
         if (!(type.equals("HIGHLIGHT") || type.equals("CARD"))
             || (type.equals("CARD") ? body.question() == null || body.question().isBlank() || !validNote(body.question()) : body.question() != null)
             || !validSelection(selection) || !validNote(body.note())) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION",
+            throw new ApiFailure(Code.INVALID_ANNOTATION,
                 "An annotation needs a source blob SHA, a block id, a non-empty UTF-16 range matching exactText (at most " + MAX_TEXT_CHARS
                     + " characters), an optional note of at most " + MAX_TEXT_CHARS + " characters, and a non-blank question for type CARD.");
         }
-        var document = documents.find(user.id(), id).orElseThrow(AnnotationController::notFound);
+        var document = documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         byte[] hash = fingerprint(id, selection, body.note(), type, body.question());
         var replayed = annotations.replay(user.id(), mutationId, hash);
         if (replayed.isPresent()) {
@@ -159,11 +160,11 @@ public class AnnotationController {
     @PostMapping("/api/annotations/{id}/reattach")
     Annotations.Annotation reattach(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody ReattachRequest body) {
         if (body.expectedVersion() == null || body.expectedVersion() < 1 || !validSelection(body.anchor())) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION",
+            throw new ApiFailure(Code.INVALID_ANNOTATION,
                 "A reattachment needs expectedVersion and a selection: source blob SHA, block id, and a non-empty UTF-16 range matching exactText (at most "
                     + MAX_TEXT_CHARS + " characters).");
         }
-        var annotation = annotations.find(user.id(), id).orElseThrow(AnnotationController::notFound);
+        var annotation = annotations.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         var document = documents.find(user.id(), annotation.documentId()).orElseThrow(() -> new IllegalStateException(
             "Annotation " + id + " of user " + user.id() + " references document " + annotation.documentId() + " outside their connections"));
         var location = verifiedAnchor(body.anchor(), noteVersions.render(user, document, body.anchor().sourceBlobSha()).note());
@@ -178,7 +179,7 @@ public class AnnotationController {
     @PostMapping("/api/annotations/{id}/check")
     Annotations.Annotation checkCard(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CheckRequest body) {
         if (body.expectedVersion() == null || body.expectedVersion() < 1 || body.blobSha() == null || !body.blobSha().matches("[0-9a-f]{40}")) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION", "Card confirmation needs expectedVersion and a blob SHA.");
+            throw new ApiFailure(Code.INVALID_ANNOTATION, "Card confirmation needs expectedVersion and a blob SHA.");
         }
         var checked = annotations.checkCard(user.id(), id, body.expectedVersion(), body.blobSha());
         LOG.info("Card checked; userId={} annotationId={} blobSha={}", user.id(), id, body.blobSha());
@@ -190,7 +191,7 @@ public class AnnotationController {
     @PatchMapping("/api/annotations/{id}")
     Annotations.Annotation edit(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody EditRequest body) {
         if (body.expectedVersion() == null || body.expectedVersion() < 1 || !validNote(body.note())) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION", "An edit needs expectedVersion and a note of at most " + MAX_TEXT_CHARS + " characters (or null).");
+            throw new ApiFailure(Code.INVALID_ANNOTATION, "An edit needs expectedVersion and a note of at most " + MAX_TEXT_CHARS + " characters (or null).");
         }
         return annotations.updateNote(user.id(), id, body.expectedVersion(), body.note());
     }
@@ -217,7 +218,7 @@ public class AnnotationController {
         try {
             return UUID.fromString(value == null ? "" : value);
         } catch (IllegalArgumentException error) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_ANNOTATION", "mutationId must be a client-generated UUID.");
+            throw new ApiFailure(Code.INVALID_ANNOTATION, "mutationId must be a client-generated UUID.");
         }
     }
 
@@ -235,11 +236,7 @@ public class AnnotationController {
     }
 
     private static ApiFailure invalidAnchor(String message) {
-        return new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "INVALID_ANCHOR", message);
-    }
-
-    private static ApiFailure notFound() {
-        return new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found.");
+        return new ApiFailure(Code.INVALID_ANCHOR, message);
     }
 
     private static byte[] sha256(byte[] value) {

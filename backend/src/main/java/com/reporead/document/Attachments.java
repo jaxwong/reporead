@@ -1,7 +1,7 @@
 package com.reporead.document;
 
 import com.reporead.ApiFailure;
-import org.springframework.http.HttpStatus;
+import com.reporead.ApiFailure.Code;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -39,11 +39,11 @@ public class Attachments {
             }).toList();
         if (matches.size() == 1) return matches.getFirst();
         if (matches.isEmpty()) {
-            throw new ApiFailure(HttpStatus.NOT_FOUND, "IMAGE_NOT_FOUND", "No image named " + name + " in the repository's latest refresh.");
+            throw new ApiFailure(Code.IMAGE_NOT_FOUND, "No image named " + name + " in the repository's latest refresh.");
         }
         String folder = notePath.contains("/") ? notePath.substring(0, notePath.lastIndexOf('/') + 1) : "";
         var local = matches.stream().filter(path -> path.startsWith(folder) && path.indexOf('/', folder.length()) < 0).toList();
         if (local.size() == 1) return local.getFirst();
-        throw new ApiFailure(HttpStatus.CONFLICT, "IMAGE_AMBIGUOUS", matches.size() + " images are named " + name + "; give the embed its folder.");
+        throw new ApiFailure(Code.IMAGE_AMBIGUOUS, matches.size() + " images are named " + name + "; give the embed its folder.");
     }
 }

@@ -1,13 +1,13 @@
 package com.reporead.github;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.auth.GitHubSecurity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -100,18 +101,18 @@ public class GitHubApi {
                 Throwable unanswered = unanswered(error);
                 if (unanswered != null) {
                     LOG.warn("GitHub token refresh failed; githubUserId={} failureType={}", githubUserId, unanswered.getClass().getSimpleName());
-                    throw new ApiFailure(HttpStatus.SERVICE_UNAVAILABLE, "GITHUB_UNAVAILABLE", "GitHub could not renew your sign-in; nothing was changed.");
+                    throw new ApiFailure(Code.GITHUB_UNAVAILABLE, "GitHub could not renew your sign-in; nothing was changed.");
                 }
                 // A refused refresh token stays refused; dropping it makes later requests ask for sign-in without a call.
                 clients.removeAuthorizedClient("github", principal);
                 LOG.warn("GitHub refused the token refresh; githubUserId={} error={}", githubUserId, error.getError().getErrorCode());
-                throw new ApiFailure(HttpStatus.UNAUTHORIZED, "SIGN_IN_REQUIRED", "GitHub refused to renew your sign-in; sign in again.");
+                throw new ApiFailure(Code.SIGN_IN_REQUIRED, "GitHub refused to renew your sign-in; sign in again.");
             }
         }
         // Without a refresh token the manager returns the expired client unchanged.
         if (client == null || (client.getAccessToken().getExpiresAt() != null &&
             !client.getAccessToken().getExpiresAt().isAfter(Instant.now()))) {
-            throw new ApiFailure(HttpStatus.UNAUTHORIZED, "SIGN_IN_REQUIRED", "No current GitHub user token is available; sign in again.");
+            throw new ApiFailure(Code.SIGN_IN_REQUIRED, "No current GitHub user token is available; sign in again.");
         }
         return client.getAccessToken().getTokenValue();
     }
@@ -139,7 +140,7 @@ public class GitHubApi {
             return Optional.of(userToken(githubUserId));
         } catch (ApiFailure failure) {
             // SIGN_IN_REQUIRED: no stored token, or GitHub refused to renew it, so RepoRead holds nothing usable.
-            if (failure.code.equals("SIGN_IN_REQUIRED")) LOG.info("GitHub authorization not revoked: no usable token; githubUserId={}", githubUserId);
+            if (failure.code == Code.SIGN_IN_REQUIRED) LOG.info("GitHub authorization not revoked: no usable token; githubUserId={}", githubUserId);
             else LOG.warn("GitHub authorization not revoked; githubUserId={} code={}", githubUserId, failure.code);
             return Optional.empty();
         }
@@ -171,8 +172,8 @@ public class GitHubApi {
 
     /** Installation IDs of this GitHub App that the user can access; a complete list of at most 10. */
     public List<Long> installations(String token) {
-        var page = object(get(githubUserApi, uri("/user/installations?per_page=100"), token, JSON, accessDenied()), "installation");
-        var items = completeList(page, "installations", MAX_INSTALLATIONS, "GITHUB_INSTALLATION_LIMIT",
+        var page = object(get(githubUserApi, uri("/user/installations?per_page=100"), token, JSON, GitHubApi::accessDenied), "installation");
+        var items = completeList(page, "installations", MAX_INSTALLATIONS, Code.GITHUB_INSTALLATION_LIMIT,
             "RepoRead supports at most 10 accessible GitHub App installations; nothing was published.");
         var ids = new ArrayList<Long>();
         for (var installation : items) {
@@ -187,8 +188,8 @@ public class GitHubApi {
     /** Repositories in one installation that this user can access; a complete list of at most 100. */
     public List<Repository> repositories(String token, long installationId) {
         var page = object(get(githubUserApi, uri("/user/installations/" + installationId + "/repositories?per_page=" + MAX_REPOSITORIES),
-            token, JSON, accessDenied()), "repository");
-        var items = completeList(page, "repositories", MAX_REPOSITORIES, "GITHUB_REPOSITORY_LIMIT",
+            token, JSON, GitHubApi::accessDenied), "repository");
+        var items = completeList(page, "repositories", MAX_REPOSITORIES, Code.GITHUB_REPOSITORY_LIMIT,
             "RepoRead requires a complete list of at most 100 repositories per installation; no next page was fetched.");
         var result = new ArrayList<Repository>();
         var ids = new HashSet<Long>();
@@ -210,7 +211,7 @@ public class GitHubApi {
 
     public Branch branch(String token, String owner, String name, String branch) {
         var body = object(get(githubUserApi, uri("/repos/{owner}/{name}/branches/{branch}", owner, name, branch), token, JSON,
-            new ApiFailure(HttpStatus.NOT_FOUND, "DEFAULT_BRANCH_NOT_FOUND",
+            () -> new ApiFailure(Code.DEFAULT_BRANCH_NOT_FOUND,
                 "The default branch was not found; the repository may be empty, renamed, or no longer accessible.")), "branch");
         var commit = body.get("commit");
         String commitSha = string(commit, "sha", "branch commit");
@@ -223,15 +224,14 @@ public class GitHubApi {
     /** The full recursive tree. A truncated tree is incomplete and is never treated as the repository's contents. */
     public List<TreeEntry> completeTree(String token, String owner, String name, String treeSha) {
         var body = object(get(githubTreeApi, uri("/repos/{owner}/{name}/git/trees/{sha}?recursive=1", owner, name, treeSha), token, JSON,
-            accessDenied()), "tree");
+            GitHubApi::accessDenied), "tree");
         var truncated = body.get("truncated");
         var entries = body.get("tree");
         if (truncated == null || !truncated.isBoolean() || entries == null || !entries.isArray()) {
             throw invalid("GitHub tree response requires truncated and tree.");
         }
         if (truncated.booleanValue()) {
-            throw new ApiFailure(HttpStatus.BAD_GATEWAY, "GITHUB_TREE_INCOMPLETE",
-                "GitHub returned a truncated repository tree; no documents were changed.");
+            throw new ApiFailure(Code.GITHUB_TREE_INCOMPLETE, "GitHub returned a truncated repository tree; no documents were changed.");
         }
         var result = new ArrayList<TreeEntry>(entries.size());
         for (var entry : entries) {
@@ -246,15 +246,14 @@ public class GitHubApi {
 
     /** Raw blob bytes, bounded by the shared 1 MiB response ceiling, which equals the reader's note limit. */
     public byte[] blob(String token, String owner, String name, String sha) {
-        var tooLarge = new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT",
-            "This note exceeds the " + com.reporead.document.MarkdownRenderer.MAX_NOTE_MIB + " MiB reader limit.");
         byte[] bytes;
         try {
             bytes = get(githubUserApi, uri("/repos/{owner}/{name}/git/blobs/{sha}", owner, name, sha), token, RAW,
-                new ApiFailure(HttpStatus.NOT_FOUND, "SOURCE_NOT_FOUND", "GitHub no longer has this note version; refresh the repository."));
+                () -> new ApiFailure(Code.SOURCE_NOT_FOUND, "GitHub no longer has this note version; refresh the repository."));
         } catch (ApiFailure failure) {
-            if (failure.code.equals("GITHUB_RESPONSE_LIMIT")) throw tooLarge;
-            throw failure;
+            if (failure.code != Code.GITHUB_RESPONSE_LIMIT) throw failure;
+            throw new ApiFailure(Code.UNSUPPORTED_CONTENT,
+                "This note exceeds the " + com.reporead.document.MarkdownRenderer.MAX_NOTE_MIB + " MiB reader limit.");
         }
         LOG.info("GitHub blob read; bytes={}", bytes.length);
         return bytes;
@@ -275,12 +274,10 @@ public class GitHubApi {
         byte[] bytes;
         try {
             bytes = get(githubImageApi, uri, token, RAW,
-                new ApiFailure(HttpStatus.NOT_FOUND, "IMAGE_NOT_FOUND", "This image is not in the repository at the note's commit."));
+                () -> new ApiFailure(Code.IMAGE_NOT_FOUND, "This image is not in the repository at the note's commit."));
         } catch (ApiFailure failure) {
-            if (failure.code.equals("GITHUB_RESPONSE_LIMIT")) {
-                throw new ApiFailure(HttpStatus.UNPROCESSABLE_CONTENT, "UNSUPPORTED_CONTENT", "This image exceeds the 5 MiB reader limit.");
-            }
-            throw failure;
+            if (failure.code != Code.GITHUB_RESPONSE_LIMIT) throw failure;
+            throw new ApiFailure(Code.UNSUPPORTED_CONTENT, "This image exceeds the 5 MiB reader limit.");
         }
         LOG.info("GitHub image read; bytes={}", bytes.length);
         return bytes;
@@ -291,28 +288,28 @@ public class GitHubApi {
         return UriComponentsBuilder.fromUriString("https://api.github.com" + template).encode().buildAndExpand(variables).toUri();
     }
 
-    private byte[] get(RestTemplate api, URI uri, String token, MediaType accept, ApiFailure notFound) {
+    private byte[] get(RestTemplate api, URI uri, String token, MediaType accept, Supplier<ApiFailure> notFound) {
         var request = RequestEntity.get(uri).header(HttpHeaders.AUTHORIZATION, "Bearer " + token).accept(accept).build();
         ResponseEntity<byte[]> response;
         try {
             response = api.exchange(request, byte[].class);
         } catch (RestClientResponseException error) {
             int status = error.getStatusCode().value();
-            if (status == 401) throw new ApiFailure(HttpStatus.UNAUTHORIZED, "SIGN_IN_REQUIRED", "GitHub rejected the user token; sign in again.");
+            if (status == 401) throw new ApiFailure(Code.SIGN_IN_REQUIRED, "GitHub rejected the user token; sign in again.");
             var headers = error.getResponseHeaders();
             boolean rateLimited = status == 429 || (status == 403 && headers != null &&
                 ("0".equals(headers.getFirst("X-RateLimit-Remaining")) || headers.getFirst(HttpHeaders.RETRY_AFTER) != null));
             if (rateLimited || status >= 500) {
-                throw new ApiFailure(HttpStatus.SERVICE_UNAVAILABLE, "GITHUB_UNAVAILABLE", "GitHub is unavailable or rate limited; nothing was changed.");
+                throw new ApiFailure(Code.GITHUB_UNAVAILABLE, "GitHub is unavailable or rate limited; nothing was changed.");
             }
-            if (status == 404) throw notFound;
+            if (status == 404) throw notFound.get();
             if (status == 403) throw accessDenied();
             throw invalid("GitHub returned an unexpected HTTP status.");
         } catch (ResourceAccessException error) {
             if (error.getCause() instanceof GitHubSecurity.ResponseTooLarge) {
-                throw new ApiFailure(HttpStatus.BAD_GATEWAY, "GITHUB_RESPONSE_LIMIT", "GitHub exceeded the response-size limit; nothing was changed.");
+                throw new ApiFailure(Code.GITHUB_RESPONSE_LIMIT, "GitHub exceeded the response-size limit; nothing was changed.");
             }
-            throw new ApiFailure(HttpStatus.SERVICE_UNAVAILABLE, "GITHUB_UNAVAILABLE", "The GitHub request failed or timed out; nothing was changed.");
+            throw new ApiFailure(Code.GITHUB_UNAVAILABLE, "The GitHub request failed or timed out; nothing was changed.");
         }
         if (response.getStatusCode().value() != 200) throw invalid("GitHub did not return a complete response.");
         // RestTemplate gives a null body for a 200 with no bytes, which is how GitHub returns an empty file. Empty raw
@@ -331,13 +328,13 @@ public class GitHubApi {
         return node;
     }
 
-    private static JsonNode completeList(JsonNode page, String field, int max, String limitCode, String limitMessage) {
+    private static JsonNode completeList(JsonNode page, String field, int max, Code limit, String limitMessage) {
         var total = page.get("total_count");
         var items = page.get(field);
         if (total == null || !total.isIntegralNumber() || !total.canConvertToInt() || total.intValue() < 0 || items == null || !items.isArray()) {
             throw invalid("GitHub list response requires total_count and " + field + ".");
         }
-        if (total.intValue() > max || items.size() > max) throw new ApiFailure(HttpStatus.BAD_GATEWAY, limitCode, limitMessage);
+        if (total.intValue() > max || items.size() > max) throw new ApiFailure(limit, limitMessage);
         if (items.size() != total.intValue()) throw invalid("GitHub returned an incomplete " + field + " list.");
         return items;
     }
@@ -359,10 +356,10 @@ public class GitHubApi {
     }
 
     private static ApiFailure accessDenied() {
-        return new ApiFailure(HttpStatus.FORBIDDEN, "GITHUB_ACCESS_DENIED", "This GitHub resource is not accessible through your GitHub App user token.");
+        return new ApiFailure(Code.GITHUB_ACCESS_DENIED, "This GitHub resource is not accessible through your GitHub App user token.");
     }
 
     private static ApiFailure invalid(String message) {
-        return new ApiFailure(HttpStatus.BAD_GATEWAY, "GITHUB_INVALID_RESPONSE", message);
+        return new ApiFailure(Code.GITHUB_INVALID_RESPONSE, message);
     }
 }

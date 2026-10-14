@@ -1,12 +1,12 @@
 package com.reporead.reading;
 
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.ClientClock;
 import com.reporead.auth.AppUser;
 import com.reporead.document.Documents;
 import com.reporead.document.MarkdownRenderer;
 import com.reporead.repository.RepositoryConnections;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -50,7 +50,7 @@ public class ReadingController {
     @PutMapping("/api/documents/{id}/reading-state")
     ReadingStates.State save(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SaveRequest body) {
         validate(body);
-        documents.find(user.id(), id).orElseThrow(() -> new ApiFailure(HttpStatus.NOT_FOUND, "NOT_FOUND", "Not found."));
+        documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         return transaction.execute(status -> {
             connections.lockForDocumentWrite(user.id(), id);
             return states.save(user.id(), id, body.lastReadBlobSha(), body.progressPercent(), body.anchor(), body.lastReadAt());
@@ -67,13 +67,11 @@ public class ReadingController {
             && (anchor.textPrefix() == null || anchor.textPrefix().length() <= MAX_PREFIX_CHARS)
             && anchor.blockIndex() != null && anchor.blockIndex() >= 0 && anchor.blockIndex() <= MAX_BLOCK_INDEX;
         if (!valid) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_READING_STATE",
-                "Reading state requires a blob SHA, progress 0-100, lastReadAt, and an anchor with at most " + MAX_HEADINGS + " headings of "
+            throw new ApiFailure(Code.INVALID_READING_STATE, "Reading state requires a blob SHA, progress 0-100, lastReadAt, and an anchor with at most " + MAX_HEADINGS + " headings of "
                     + MAX_HEADING_CHARS + " characters, a prefix of at most " + MAX_PREFIX_CHARS + " characters, and a block index 0-" + MAX_BLOCK_INDEX + ".");
         }
         if (body.lastReadAt().isAfter(Instant.now().plus(ClientClock.MAX_AHEAD))) {
-            throw new ApiFailure(HttpStatus.BAD_REQUEST, "INVALID_READING_STATE",
-                "lastReadAt is more than " + ClientClock.MAX_AHEAD.toMinutes() + " minutes in the future; check the phone's clock.");
+            throw new ApiFailure(Code.INVALID_READING_STATE, "lastReadAt is more than " + ClientClock.MAX_AHEAD.toMinutes() + " minutes in the future; check the phone's clock.");
         }
     }
 }
