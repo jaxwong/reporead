@@ -1,6 +1,7 @@
 package com.reporead.android.reader
 
 import com.reporead.android.data.DocumentRow
+import com.reporead.android.data.noteLinkQueries
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -9,6 +10,8 @@ class BacklinksTest {
         .mapIndexed { index, path -> DocumentRow(index.toLong(), 7, path, path.substringAfterLast('/').removeSuffix(".md"), "a".repeat(40)) }
     private fun note(path: String) = notes.single { it.path == path }
     private fun link(query: String) = """<p><a href="/note-link?$query">x</a></p>"""
+    /** As Linked from reads a page: the queries saved with it, decoded. */
+    private fun noteLinks(html: String) = noteLinkQueries(html).mapNotNull(::noteLinkTarget)
 
     @Test fun linksAreDecodedLikeTheReaderAndSameNoteHeadingsAreLeftOut() {
         val html = link("target=T1.%20It's%20Your%20Life") + link("path=core/backend%20engineering/01.md&amp;heading=2-separate") +
