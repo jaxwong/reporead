@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -109,6 +111,7 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
     var refreshing by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     val repositories by dao.repositories().collectAsState(emptyList())
+    val outlook = rememberReviewOutlook(dao)
     if (signedIn) {
         // Pushes pending reading saves and bookmarks, then pulls the server's view: the explicit foreground sync point.
         RefreshOnEntry(refresh, onFailure, { refreshing = it }, { status = it }) {
@@ -135,8 +138,10 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
         bottomBar = {
             NavigationBar {
                 for (entry in LibraryTab.entries) {
-                    NavigationBarItem(selected = tab == entry, onClick = { tab = entry },
-                        icon = { AppIcon(entry.icon, null) }, label = { Text(entry.label) })
+                    // Practice carries the review cards due now, so they are seen without opening it.
+                    val due = if (entry == LibraryTab.PRACTICE) outlook?.due ?: 0 else 0
+                    NavigationBarItem(selected = tab == entry, onClick = { tab = entry }, label = { Text(entry.label) },
+                        icon = { BadgedBox(badge = { if (due > 0) Badge { Text("$due") } }) { AppIcon(entry.icon, null) } })
                 }
             }
         },
@@ -153,10 +158,7 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, onFailure: (Ap
                 FilledTonalButton(onClick = onSignIn, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Sign in with GitHub") }
             }
             StatusLine(status)
-            Row {
-                TextButton(onClick = { push(Screen.Review) }) { Text("Review cards") }
-                TextButton(onClick = { push(Screen.Notebook) }) { Text("Notebook") }
-            }
+            TextButton(onClick = { push(Screen.Notebook) }) { Text("Notebook") }
             val content: @Composable () -> Unit = {
                 when (tab) {
                     LibraryTab.READING -> ReadingTab(dao, push)

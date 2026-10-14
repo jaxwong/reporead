@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.UUID
+import java.time.ZoneId
 import kotlin.random.Random
 
 internal data class PracticeQuestion(val documentId: Long, val title: String, val path: String, val blobSha: String, val question: StudyQuestion) {
@@ -143,13 +144,19 @@ private fun rememberBanks(dao: LibraryDao): Banks? {
     return banks
 }
 
-/** Entirely local. Topics are the folders that hold an interview folder; All topics mixes them. */
+/**
+ * Entirely local. Review comes first: the cards due now, or when the next ones are. Below it, the topics ask new
+ * questions: the folders that hold an interview folder, and All topics mixing them.
+ */
 @Composable
 internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
     val banks = rememberBanks(dao)
     val cards by dao.notebook().collectAsState(null)
+    val outlook = rememberReviewOutlook(dao)
+    val cap by dao.reviewLimit().collectAsState(null)
     Column(Modifier.fillMaxSize()) {
-        StatusLine("Each new question in a topic's interview folder is asked once here; your grade puts it on your review schedule.")
+        outlook?.let { EntryRow("Review", outlookLine(it, cap, ZoneId.systemDefault()), R.drawable.ic_refresh) { push(Screen.Review) } }
+        StatusLine("New questions: each is asked once; your grade puts it on your review schedule.")
         val ready = banks
         val notebook = cards
         if (ready == null || notebook == null) {
@@ -225,8 +232,8 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             StatusLine(notice)
             val key = ids.firstOrNull()
             if (key == null) {
-                Text(if (started.isEmpty()) "No new questions here: each saved question already has a card. Review cards brings them back when due."
-                    else "Session complete: ${counted(started.count { it in scheduled }, "question")} graded. Review cards brings them back when due.")
+                Text(if (started.isEmpty()) "No new questions here: each saved question already has a card. They come back under Review when due."
+                    else "Session complete: ${counted(started.count { it in scheduled }, "question")} graded. They come back under Review when due.")
                 TextButton(onClick = onBack) { Text("Finish") }
                 return@Column
             }

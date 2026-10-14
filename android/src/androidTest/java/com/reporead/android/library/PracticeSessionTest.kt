@@ -126,7 +126,7 @@ class PracticeSessionTest {
             assertEquals(first, shownAnswer(scenario))
             awaitText("Asked again: its first grade is saved. This grade only decides whether it comes back in this session.")
             click("Good")
-            awaitText("Session complete: 2 questions graded. Review cards brings them back when due.")
+            awaitText("Session complete: 2 questions graded. They come back under Review when due.")
             assertEquals(2, dao.pendingAnnotations().size)
             assertEquals(setOf("Canonical answer: First answer", "Canonical answer: Second answer"), dao.pendingAnnotations().map { it.exactText }.toSet())
             assertEquals(listOf(0, 4), dao.reviews().first().map { it.grade })
@@ -134,7 +134,7 @@ class PracticeSessionTest {
         assertEquals(emptyList<Screen>(), pushed)
         // A new session asks only questions without a card.
         ActivityScenario.launch(ReaderTestActivity::class.java).use {
-            awaitText("No new questions here: each saved question already has a card. Review cards brings them back when due.")
+            awaitText("No new questions here: each saved question already has a card. They come back under Review when due.")
         }
     }
 
