@@ -226,9 +226,13 @@ class LocalSyncTest {
             val sending = async(Dispatchers.IO) { sync.pushAnnotations() }
             assertTrue(arrived.await(10, SECONDS))
             val clearing = async(Dispatchers.IO) { sync.clearAll() }
-            delay(500)
-            assertFalse("Clearing the phone must wait for the highlight being sent", clearing.isCompleted)
-            release.countDown()
+            try {
+                delay(500)
+                assertFalse("Clearing the phone must wait for the highlight being sent", clearing.isCompleted)
+            } finally {
+                // A failed check must still free the server thread, or its timeout crashes the run and hides the failure.
+                release.countDown()
+            }
             assertNull(sending.await())
             clearing.await()
             assertNull(dao.annotation("sent"))
