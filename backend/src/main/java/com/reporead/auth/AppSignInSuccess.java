@@ -13,7 +13,8 @@ import java.io.IOException;
 
 /**
  * Completes the browser half of app sign-in: saves the user, issues a single-use code bound to the app's PKCE
- * challenge, ends the browser session, and redirects to the app. A login not started by /app/sign-in gets no code.
+ * challenge, ends the browser session, and redirects to the app. A login can only start from /app/sign-in
+ * (GitHubSecurity.startedByTheApp), so the challenge is always in the session that reaches this callback.
  */
 final class AppSignInSuccess implements AuthenticationSuccessHandler {
     private static final Logger LOG = LoggerFactory.getLogger(AppSignInSuccess.class);
@@ -33,9 +34,7 @@ final class AppSignInSuccess implements AuthenticationSuccessHandler {
         if (session != null) session.invalidate();
         SecurityContextHolder.clearContext();
         if (!(challenge instanceof String codeChallenge)) {
-            LOG.warn("GitHub sign-in completed without an app challenge; no app code issued");
-            response.sendRedirect("/auth/failed");
-            return;
+            throw new IllegalStateException("GitHub sign-in completed without the app's PKCE challenge in its browser session");
         }
         var user = (OAuth2User) authentication.getPrincipal();
         Object id = user.getAttribute("id");
