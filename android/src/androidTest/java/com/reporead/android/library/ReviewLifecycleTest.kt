@@ -6,12 +6,14 @@ import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReviewLimitRow
 import com.reporead.android.reader.ReaderTestActivity
+import com.reporead.android.sync.Sync
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -19,6 +21,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /** Real native review UI with test-only Room rows; no network, real account, or GitHub writes. */
 @RunWith(AndroidJUnit4::class)
@@ -41,18 +44,20 @@ class ReviewLifecycleTest {
                 dao.saveAnnotation(AnnotationRow("card$i", i.toLong(), 1, sha, "b$i", 0, exact.length, exact, null, 1, 0,
                     pending = false, rejection = null, type = "CARD", question = "Test-only question $i?", checkedBlobSha = sha))
             }
+            val sync = Sync(Api("http://127.0.0.1:1") { error("Review fixture must not call the network") }, store,
+                File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"))
             ReaderTestActivity.content = {
-                MaterialTheme { ReviewScreen(dao, push = { error("Review fixture must not navigate") }, onBack = {}) }
+                MaterialTheme { ReviewScreen(dao, sync, push = { error("Review fixture must not navigate") }, onBack = {}) }
             }
             try {
                 ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
                     click("Start review")
                     click("Reveal answer")
-                    awaitText("Good — correct with hesitation")
+                    awaitText("Good")
                     scenario.recreate()
-                    awaitText("Good — correct with hesitation")
+                    awaitText("Good")
                     for (i in 1..10) {
-                        click("Good — correct with hesitation")
+                        click("Good")
                         withTimeout(5_000) { while (dao.pendingReviews().size != i) delay(20) }
                         if (i < 10) click("Reveal answer")
                     }

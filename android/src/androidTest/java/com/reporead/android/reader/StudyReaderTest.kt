@@ -29,14 +29,9 @@ class StudyReaderTest {
         if (::view.isInitialized) instrumentation.runOnMainSync { view.destroy() }
     }
 
-    private fun load(questions: Boolean) {
-        fun block(id: Int, tag: String, text: String) = """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
-        val body = block(0, "h1", "Test-only study fixture") + block(1, "h2", "Problem") + block(2, "p", "Solve this problem.") +
-            block(3, "h2", "Approach") + block(4, "p", "The revealed answer.") + block(5, "h3", "Mistakes") +
-            block(6, "p", "A nested mistake.") + block(7, "h2", "Complexities") + block(8, "p", "Linear time.") +
-            (if (questions) block(9, "h2", "1. Foundations") + block(10, "h3", "1. First question?") + block(11, "h3", "2. Second question?") + block(44, "h3", "3. First question?") +
-                block(41, "h2", "3. Design follow-ups") + block(42, "h3", "After you trace a request") + "<ol>" + block(43, "li", "empty input") + "</ol>" else "") +
-            block(12, "h2", "Context") + (13..40).joinToString("") { block(it, "p", "Test-only context paragraph $it. ".repeat(10)) }
+    private fun block(id: Int, tag: String, text: String) = """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
+
+    private fun load(body: String) {
         val html = """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
             <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
             <body data-source-blob-sha="${"a".repeat(40)}" data-max-diagram-chars="20000" data-max-edges="200">
@@ -65,7 +60,7 @@ class StudyReaderTest {
         }
         assertTrue("Study fixture did not finish within 25 seconds", ready.await(25, TimeUnit.SECONDS))
         assertEquals("ready", state)
-        checkScript("window.reporead.configureStudy(${studyNote(html, "test-only/interview/study.md").json()}); return true;")
+        checkScript("window.reporead.configureStudy(${studyNote(html).json()}); return true;")
     }
 
     private fun checkScript(script: String) {
@@ -82,7 +77,10 @@ class StudyReaderTest {
     }
 
     @Test fun collapsingPreservesCanonicalTextRestoresToVisibleHeadingAndAllowsHighlights() {
-        load(questions = false)
+        load(block(0, "h1", "Test-only study fixture") + block(1, "h2", "Problem") + block(2, "p", "Solve this problem.") +
+            block(3, "h2", "Approach") + block(4, "p", "The revealed answer.") + block(5, "h3", "Mistakes") +
+            block(6, "p", "A nested mistake.") + block(7, "h2", "Complexities") + block(8, "p", "Linear time.") +
+            block(12, "h2", "Context") + (13..40).joinToString("") { block(it, "p", "Test-only context paragraph $it. ".repeat(10)) })
         checkScript("""
             const api = window.reporead;
             const block = id => document.querySelector('[data-block-id="' + id + '"]');
@@ -106,33 +104,22 @@ class StudyReaderTest {
         """.trimIndent())
     }
 
-    @Test fun questionsAppearOneAtATimeRestoreAndRevealTheUnchangedNote() {
-        load(questions = true)
+    @Test fun anAnswerPageShowsOnlyTheLinkedSectionWithItsSubsections() {
+        load(block(0, "h1", "Test-only core note") + block(1, "p", "Introduction.") + block(2, "h2", "What SQL is") +
+            block(3, "p", "The answer.") + block(4, "h3", "A detail") + "<ul>" + block(5, "li", "Inside the answer.") + "</ul>" +
+            block(6, "h2", "The logical order") + block(7, "p", "Another answer.") + block(8, "h1", "Appendix") + block(9, "p", "Last."))
         checkScript("""
             const api = window.reporead;
-            api.setStudy(true);
-            check(getComputedStyle(document.getElementById('note')).display === 'none', 'Recall must hide answers');
-            check(document.querySelector('.study-question').textContent === 'First question?', 'First question');
-            check(api.position().progressPercent < 100, 'Recall panel must not mark the note finished');
-            document.querySelector('.study-next').click();
-            const saved = api.position();
-            check(saved.anchor.blockIndex === 11, 'Save the current question, not the first hidden block');
-            api.setStudy(false); api.setStudy(true);
-            check(api.restore(saved.anchor, saved.progressPercent) === 'exact', 'Question position restores exactly');
-            check(document.querySelector('.study-question').textContent === 'Second question?', 'Restored question');
-            document.querySelector('.study-answer').click();
-            check(getComputedStyle(document.getElementById('note')).display !== 'none', 'Read the answer shows note');
-            check(api.currentStudyQuestion() === 'b11', 'Add to review keeps the authored question after revealing');
-            const sha = 'a'.repeat(40);
-            check(api.studyQuestion(sha, 'b10'), 'Queue question opens');
-            check(api.studyQuestion(sha, 'b44'), 'Duplicate prompt opens by its own block');
-            check(api.currentStudyQuestion() === 'b44', 'Duplicate questions retain distinct review identities');
-            check(api.position().anchor.blockIndex === [...document.querySelectorAll('#note [data-block-id]')].findIndex(b => b.dataset.blockId === 'b44'), 'Second identical prompt must not open first');
-            check(!api.studyQuestion('b'.repeat(40), 'b44'), 'A different source version must reject the block identity');
-            check(api.studyQuestion(sha, 'b43'), 'Queue opens an instruction-aware prompt');
-            check(document.querySelector('.study-question').textContent === 'After you trace a request\n\nempty input', 'Prompt retains leading instruction');
-            check(!api.studyQuestion(sha, 'removed'), 'Missing question must not silently open another');
-            check([...document.querySelectorAll('#note [data-block-id]')].every(b => b.textContent === b.dataset.anchorText), 'Canonical text after recall');
+            const shown = id => document.querySelector('[data-block-id="' + id + '"]').getBoundingClientRect().height > 0;
+            const only = ids => ['b0','b1','b2','b3','b4','b5','b6','b7','b8','b9'].every(id => shown(id) === ids.includes(id));
+            check(api.showSection('what-sql-is'), 'A GitHub anchor names the section');
+            check(only(['b2','b3','b4','b5']), 'Only the section and its subsections show');
+            check(window.scrollY === 0, 'The section starts at the top');
+            check(api.showSection('The logical order'), 'Heading text names the section too');
+            check(only(['b6','b7']), 'A section ends at the next heading of its level or higher');
+            check(!api.showSection('missing-heading'), 'A missing heading is reported');
+            check(api.showSection(null), 'A link to the whole note keeps everything else as it was');
+            check([...document.querySelectorAll('#note [data-block-id]')].every(b => b.textContent === b.dataset.anchorText), 'Canonical text after showSection');
             return true;
         """.trimIndent())
     }

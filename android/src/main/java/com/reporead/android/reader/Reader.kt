@@ -93,13 +93,13 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             sinceCaptured = true
         }
         val opened = sync.openNote(screen.documentId)
-        StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html, opened.note.path) })
+        StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html) })
     }
     val displayed = (load as? Load.Ready)?.value?.opened?.note?.blobSha
     val study = (load as? Load.Ready)?.value?.study
-    var studying by rememberSaveable(screen.documentId) { mutableStateOf(screen.question != null) }
+    var studying by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     /*
-     * The screen's one-shot target — a linked heading, a practice question, or a notebook passage — has been shown. Saved,
+     * The screen's one-shot target — a linked heading or a notebook passage — has been shown. Saved,
      * so rotating or returning to this screen restores the reading position instead of jumping back to the target.
      */
     var targetShown by rememberSaveable(screen.documentId) { mutableStateOf(false) }
@@ -131,10 +131,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var restoreNotice by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var notesOpen by remember { mutableStateOf(false) }
-    /** Practice's Add to review has offered its question's card; saved, so recreation does not offer it again. */
-    var reviewOffered by rememberSaveable(screen.documentId) { mutableStateOf(!screen.review) }
     var newCardSelection by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
-    var newCardPrompt by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var newSelection by remember { mutableStateOf<JSONObject?>(null) }
     var notShown by remember { mutableStateOf(emptySet<String>()) }
     /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here. */
@@ -198,27 +195,6 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
         }
     }
 
-    /** A bank question becomes a card whose answer is its authored "Canonical answer" line in the version on screen. */
-    val offerCard: (StudyQuestion, String) -> Unit = { question, blobSha ->
-        val answer = question.answer
-        if (answer == null) message = "This question has no Canonical answer line in its bank, so it can't become a card."
-        else {
-            newCardSelection = JSONObject().put("sourceBlobSha", blobSha).put("blockId", answer.blockId)
-                .put("startOffset", 0).put("endOffset", answer.text.length).put("exactText", answer.text).toString()
-            newCardPrompt = question.prompt
-        }
-    }
-    (load as? Load.Ready)?.value?.let { page ->
-        LaunchedEffect(page) {
-            if (reviewOffered) return@LaunchedEffect
-            reviewOffered = true
-            val target = checkNotNull(screen.question) { "Add to review opened note ${screen.documentId} without a question" }
-            val question = page.study.questions.firstOrNull { it.blockId == target.blockId }
-            if (page.opened.note.blobSha != target.blobSha || question == null) message = "This question isn't in the version on screen; find it in Study."
-            else offerCard(question, target.blobSha)
-        }
-    }
-
     Column(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedVisibility(barsShown) {
             AppBar(screen.title, subtitle = section?.text?.ifBlank { null }, onBack = onBack, actions = {
@@ -251,14 +227,6 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
             if (since != null && since != opened.note.blobSha && !signedIn) Notice("This note changed since you last read it. Sign in to see what changed.")
-            if (studying && page.study.questions.isNotEmpty()) {
-                TextButton(onClick = {
-                    sessionRef?.currentQuestion { blockId ->
-                        val question = page.study.questions.firstOrNull { it.blockId == blockId }
-                        if (question != null) offerCard(question, opened.note.blobSha) else message = "Show a question first, then add it to review."
-                    }
-                }) { Text("Add question to review") }
-            }
             reattaching?.let { row ->
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Select the passage for “${row.exactText}”, then choose Reattach here.", style = MaterialTheme.typography.bodySmall,
@@ -272,9 +240,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                     onHeadingOpened = { targetShown = true },
                     study = page.study, studying = { studying },
                     openAtAnnotation = screen.annotation.takeUnless { targetShown },
-                    onAnnotationOpened = { targetShown = true; notesOpen = true }, openAtQuestion = screen.question.takeUnless { targetShown },
-                    onQuestionOpened = { targetShown = true },
-                    onQuestionMissing = { studying = false },
+                    onAnnotationOpened = { targetShown = true; notesOpen = true },
                     onRestoreNotice = { restoreNotice = it },
                     onNoteLink = { target, path, heading ->
                         scope.launch {
@@ -312,10 +278,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                             else -> when (action) {
                                 SelectionAction.REATTACH ->
                                     if (placing != null) reattach(placing, selection) else message = "Reattaching was cancelled; choose Reattach again in Notes."
-                                SelectionAction.MAKE_QUESTION -> {
-                                    newCardSelection = selection.toString()
-                                    newCardPrompt = null
-                                }
+                                SelectionAction.MAKE_QUESTION -> newCardSelection = selection.toString()
                                 SelectionAction.ADD_NOTE -> newSelection = selection
                                 SelectionAction.HIGHLIGHT -> save(selection, null, null)
                             }
@@ -351,7 +314,6 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                         val passage = row.drawn
                         newCardSelection = JSONObject().put("sourceBlobSha", passage.blobSha).put("blockId", passage.blockId)
                             .put("startOffset", passage.startOffset).put("endOffset", passage.endOffset).put("exactText", passage.exactText).toString()
-                        newCardPrompt = null
                     },
                     onReattach = { row ->
                         reattaching = row
@@ -395,7 +357,7 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     }
     newCardSelection?.let { encoded ->
         val selection = JSONObject(encoded)
-        NoteDialog(title = "Make a question", quote = selection.getString("exactText"), initial = newCardPrompt.orEmpty(),
+        NoteDialog(title = "Make a question", quote = selection.getString("exactText"), initial = "",
             label = "Question", allowBlank = false, onDismiss = { newCardSelection = null }, onSave = { question ->
                 newCardSelection = null
                 save(selection, null, question)
@@ -448,9 +410,6 @@ private class ReaderSession(
     private val studying: () -> Boolean,
     private var openAtAnnotation: String?,
     private val onAnnotationOpened: () -> Unit,
-    private val openAtQuestion: StudyTarget?,
-    private val onQuestionOpened: () -> Unit,
-    private val onQuestionMissing: () -> Unit,
     private val onRestoreNotice: (String?) -> Unit,
     /** A tapped note link: an Obsidian [target] name or a repository [path], and an optional heading. */
     private val onNoteLink: (target: String?, path: String?, heading: String?) -> Unit,
@@ -594,21 +553,6 @@ private class ReaderSession(
     }
 
     private fun restore(view: WebView) {
-        val question = openAtQuestion
-        if (question != null) {
-            view.evaluateJavascript("window.reporead.studyQuestion(${JSONObject.quote(question.blobSha)}, ${JSONObject.quote(question.blockId)})") { encoded ->
-                val shown = JSONTokener(encoded).nextValue() == true
-                onQuestionOpened()
-                onRestoreNotice(if (shown) null else "This practice question isn't in the displayed version; showing the note. Choose it again from Practice.")
-                if (!shown) {
-                    onQuestionMissing()
-                    view.evaluateJavascript("window.reporead.setStudy(false)", null)
-                }
-                restored = true
-                capture()
-            }
-            return
-        }
         val heading = openAtHeading
         if (heading != null) {
             view.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(heading)})") { encoded ->
@@ -747,15 +691,6 @@ private class ReaderSession(
         if (!ready || !restored || highlights.none { it.mutationId == key }) return
         openAtAnnotation = null
         webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})") { onAnnotationOpened() }
-    }
-
-    fun currentQuestion(then: (String?) -> Unit) {
-        val webView = view
-        if (webView == null || !ready) { then(null); return }
-        webView.evaluateJavascript("window.reporead.currentStudyQuestion()") { encoded ->
-            val blockId = JSONTokener(encoded).nextValue() as? String
-            then(blockId)
-        }
     }
 
     fun setStudy(enabled: Boolean) {
