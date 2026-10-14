@@ -300,9 +300,16 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     }
 
     private suspend fun sendAndReplace(): LocalSync {
-        val notSent = sendAnnotations()
-        // Nothing else can reach the server either.
-        if (notSent?.status == 0) throw notSent
+        // The one push step whose failure does not end the run: creations need GitHub, so when it fails they wait and the
+        // database-only work below still runs (ADR-03).
+        val notSent = try {
+            sendAnnotations()
+            null
+        } catch (error: ApiException) {
+            // Nothing else can reach the server either.
+            if (error.status == 0) throw error
+            error
+        }
         sendReviews()
         val refused = mutableListOf<String>()
         for (row in dao.pendingReading()) {
@@ -379,13 +386,13 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
     }
 
     /**
-     * Sends pending creations and returns the failure that stopped it, if any: the rest wait, unsent, for the next sync.
-     * The same mutation id is replayed until the server answers, so a lost acknowledgement cannot create a duplicate. A
-     * refusal is kept on the row and shown; it is not retried.
+     * Sends pending creations; a failure that is not one item's refusal stops it, and the rest wait, unsent, for the next
+     * sync. The same mutation id is replayed until the server answers, so a lost acknowledgement cannot create a
+     * duplicate. A refusal is kept on the row and shown; it is not retried.
      */
-    suspend fun pushAnnotations(): ApiException? = oneSyncAtATime.withLock { sendAnnotations() }
+    suspend fun pushAnnotations() = oneSyncAtATime.withLock { sendAnnotations() }
 
-    private suspend fun sendAnnotations(): ApiException? {
+    private suspend fun sendAnnotations() {
         for (row in dao.pendingAnnotations()) {
             check(row.serverId == null || row.deleting) { "Pending ${row.mutationId} has a server id but is not being deleted" }
             // A deletion whose creation the server has not acknowledged replays the creation first, to learn its id.
@@ -402,7 +409,7 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
                         error.refusesItem() -> dao.rejectAnnotation(row.mutationId, error.describe())
                         else -> {
                             Log.w("RepoRead", "Highlight creations stopped; documentId=${row.documentId} code=${error.code}")
-                            return error
+                            throw error
                         }
                     }
                     Log.w("RepoRead", "Highlight creation refused; documentId=${row.documentId} code=${error.code} deleting=${row.deleting}")
@@ -410,36 +417,34 @@ class Sync(private val api: Api, private val store: LocalStore, filesDir: File, 
                 }
                 annotationRow(created).also { dao.saveServerAnnotation(it) }
             }
-            if (row.deleting) sendDeletion(acknowledged)?.let { return it }
+            if (row.deleting) sendDeletion(acknowledged)
         }
-        return null
     }
 
-    /** Deletes on the server a creation the user deleted before it was acknowledged; returns a failure that is not this item's. */
-    private suspend fun sendDeletion(row: AnnotationRow): ApiException? {
+    /** Deletes on the server a creation the user deleted before it was acknowledged; throws a failure that is not this item's. */
+    private suspend fun sendDeletion(row: AnnotationRow) {
         val serverId = checkNotNull(row.serverId) { "Deleting ${row.mutationId} needs its server id" }
         try {
             api.delete("/api/annotations/$serverId?expectedVersion=${row.version}")
         } catch (error: ApiException) {
             if (!error.refusesItem()) {
                 Log.w("RepoRead", "Highlight deletions stopped; annotationId=$serverId code=${error.code}")
-                return error
+                throw error
             }
             if (error.code != "NOT_FOUND") {
                 // Changed elsewhere first (409): shown again rather than deleted unseen.
                 Log.w("RepoRead", "Highlight deletion refused; annotationId=$serverId code=${error.code}")
                 dao.saveAnnotation(row.copy(pending = false, deleting = false))
-                return null
+                return
             }
         }
         dao.removeAnnotation(row.mutationId)
         Log.i("RepoRead", "Highlight deleted after its creation was acknowledged; annotationId=$serverId")
-        return null
     }
 
     /** Pending creations are sent first, so the server's list already contains them where possible. */
     suspend fun refreshAnnotations(documentId: Long) = oneSyncAtATime.withLock {
-        sendAnnotations()?.let { throw it }
+        sendAnnotations()
         val json = api.get("/api/documents/$documentId/annotations")
         dao.replaceRemoteAnnotations(documentId, contract {
             json.getJSONArray("annotations").let { array -> List(array.length()) { annotationRow(array.getJSONObject(it)) } }

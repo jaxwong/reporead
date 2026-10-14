@@ -120,6 +120,24 @@ class LocalSyncTest {
         }
     }
 
+    /** Any failure of the creation step, including an answer that breaks the contract, waits like a GitHub failure does. */
+    @Test fun aCreationAnswerThatBreaksTheContractWaitsWhileDatabaseOnlyWorkStillSyncs() = runBlocking {
+        dao.saveAnnotation(AnnotationRow("unparsed", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, pending = true, rejection = null))
+        dao.saveReading(reading(1, "Note"))
+        LoopbackServer(emptyLists + mapOf(
+            "POST /api/documents/1/annotations" to (201 to """{"id":9}"""),
+            "PUT /api/documents/1/reading-state" to (200 to serverReading),
+        )).use { server ->
+            val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
+            assertEquals("INVALID_RESPONSE", result.notSent?.code)
+            assertEquals(listOf("POST /api/documents/1/annotations", "PUT /api/documents/1/reading-state", "GET /api/reading-states",
+                "GET /api/bookmarks", "GET /api/notebook"), server.requests)
+            // Still pending under its mutation id: the next sync replays it, and the server answers with the same highlight.
+            assertEquals(listOf("unparsed"), dao.pendingAnnotations().map { it.mutationId })
+            assertTrue(dao.pendingReading().isEmpty())
+        }
+    }
+
     @Test fun aDeletedCreationIsReplayedThenDeletedOnTheServer() = runBlocking {
         dao.saveAnnotation(AnnotationRow("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, pending = true, rejection = null))
         Sync(Api("http://127.0.0.1:9", { "TEST_ONLY_SESSION" }) {}, store, directory) {}.deleteAnnotation(dao.annotation("deleted")!!)
@@ -233,7 +251,7 @@ class LocalSyncTest {
                 // A failed check must still free the server thread, or its timeout crashes the run and hides the failure.
                 release.countDown()
             }
-            assertNull(sending.await())
+            sending.await()
             clearing.await()
             assertNull(dao.annotation("sent"))
         }

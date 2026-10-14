@@ -168,9 +168,8 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             val id = withContext(NonCancellable) { sync.createAnnotation(selection, screen.documentId, note, question) }
             val kind = if (question == null) "Highlight" else "Card"
             message = if (!signedIn) "$kind saved on this phone; it is sent after you sign in." else try {
-                val notSent = sync.pushAnnotations()
-                notSent?.let { "$kind saved on this phone; it will sync later. ${it.describe()}" }
-                    ?: dao.annotation(id)?.rejection?.let { "$kind kept on this phone only; the server refused it: $it" }
+                sync.pushAnnotations()
+                dao.annotation(id)?.rejection?.let { "$kind kept on this phone only; the server refused it: $it" }
             } catch (error: ApiException) {
                 "$kind saved on this phone; it will sync later. ${error.describe()}"
             }
