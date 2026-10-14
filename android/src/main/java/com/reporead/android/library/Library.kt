@@ -292,8 +292,8 @@ private fun DeleteAccountDialog(repositories: List<String>, onDismiss: () -> Uni
             Text("RepoRead will delete, on its server and this phone, your connections" +
                 (if (repositories.isEmpty()) "" else " (${repositories.joinToString()})") +
                 ", note lists, reading progress, bookmarks, highlights and notes, cards and review logs, and sign this phone out. This cannot be undone. " +
-                "Your GitHub repositories are not changed. To also remove RepoRead's GitHub authorization and App, use GitHub's " +
-                "Settings → Applications.")
+                "Your GitHub repositories are not changed. RepoRead asks GitHub to revoke its authorization; to also uninstall " +
+                "the RepoRead App, use GitHub's Settings → Applications.")
         },
         confirmButton = { TextButton(onClick = onConfirm) { Text("Delete account") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

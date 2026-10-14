@@ -1,6 +1,7 @@
 package com.reporead.auth;
 
 import com.reporead.annotation.Annotations;
+import com.reporead.github.GitHubApi;
 import com.reporead.repository.ConnectionData;
 import com.reporead.repository.RepositoryConnections;
 import org.slf4j.Logger;
@@ -21,27 +22,30 @@ public class AccountController {
     private final AppSessions sessions;
     private final OAuth2AuthorizedClientService clients;
     private final TransactionTemplate transaction;
+    private final GitHubApi github;
 
     public AccountController(RepositoryConnections connections, ConnectionData data, Annotations annotations, AppSessions sessions,
-                             OAuth2AuthorizedClientService clients, TransactionTemplate transaction) {
+                             OAuth2AuthorizedClientService clients, TransactionTemplate transaction, GitHubApi github) {
         this.connections = connections;
         this.data = data;
         this.annotations = annotations;
         this.sessions = sessions;
         this.clients = clients;
         this.transaction = transaction;
+        this.github = github;
     }
 
     record Deleted(int repositories, int readingStates, int bookmarks, int highlights, int cards) {}
 
     /**
      * Deletes everything RepoRead holds for the signed-in user in one transaction — every connection and its data, the
-     * annotation mutation records, sign-in codes, sessions, the user, and the stored GitHub token.
-     * RepoRead keeps no credential afterwards. GitHub is not called: the user revokes the authorization and uninstalls
-     * the App on GitHub if they want.
+     * annotation mutation records, sign-in codes, sessions, the user, and the stored GitHub token — after revoking
+     * RepoRead's authorization on GitHub, which needs that token. RepoRead keeps no credential afterwards. The App stays
+     * installed on GitHub until the user uninstalls it.
      */
     @DeleteMapping("/api/account")
     Deleted delete(@AuthenticationPrincipal AppUser user) {
+        github.revokeAuthorization(user.githubUserId());
         var deleted = transaction.execute(status -> {
             // First, so a connection being added concurrently commits before the list below, or waits and then fails.
             sessions.lockUserForDeletion(user.id());
