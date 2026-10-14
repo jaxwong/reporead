@@ -169,7 +169,7 @@ Recommended order: P1, then P3's in-note study view, then P2, then the rest of P
      - Collapsing is CSS only; block text stays unchanged.
      - Saving and restoring the reading position must handle collapsed blocks, as it already does for Mermaid sources ([reader.js:83-89](../android/reader-web/reader.js#L83-L89)).
      - Highlighting works inside revealed sections.
-2. **Practice queue in the Library.**
+2. **Practice queue in the Library.** *Superseded 2026-10-14: Practice is a session over the interview folders' new questions, with the linked section as the answer; see the [practice session record](reporead-practice-session-record.md).*
    - Choose a topic from the repository’s folder hierarchy first (including descendant folders); **All topics** explicitly selects the mixed queue. Questions within the selected topic are shuffled across notes (interleaving).
    - Each item opens its note at that question.
    - It is complete only once P2 has saved every note; until then it says how many notes it covers.
