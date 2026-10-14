@@ -66,15 +66,40 @@ internal fun cardCheckReason(item: NotebookItem): String? {
     }
 }
 
+/**
+ * A card a review session can show: the server did not refuse it and its note is still listed. A card that needs
+ * checking is shown too, to be fixed in place; refused and removed ones are dealt with in Notebook.
+ */
+private fun reviewable(item: NotebookItem) = item.annotation.type == "CARD" && item.annotation.rejection == null && !item.removed
+
+/** When each reviewable card is next due. */
+private fun dueTimes(items: List<NotebookItem>, reviews: List<ReviewRow>, zone: ZoneId): List<Pair<NotebookItem, Long>> {
+    val logs = reviews.groupBy { it.cardMutationId }
+    return items.filter(::reviewable).map { it to scheduleReviews(it.annotation.createdAt, logs[it.annotation.mutationId].orEmpty(), zone).dueAt }
+}
+
 /** Due cards, interleaving shuffled note groups; the cap comes only from the server's notebook response. */
 internal fun dueSession(items: List<NotebookItem>, reviews: List<ReviewRow>, now: Long, limit: Int, seed: Int, zone: ZoneId): List<NotebookItem> {
     require(limit > 0) { "Expected positive server sessionLimit, got $limit" }
-    val logs = reviews.groupBy { it.cardMutationId }
-    val due = items.filter { it.annotation.type == "CARD" && cardCheckReason(it) == null &&
-        scheduleReviews(it.annotation.createdAt, logs[it.annotation.mutationId].orEmpty(), zone).dueAt <= now }
+    val due = dueTimes(items, reviews, zone).filter { it.second <= now }.map { it.first }
     val random = Random(seed)
     val groups = due.groupBy { it.annotation.documentId }.values.shuffled(random).map { it.shuffled(random) }
     return (0 until (groups.maxOfOrNull { it.size } ?: 0)).flatMap { round -> groups.mapNotNull { it.getOrNull(round) } }.take(limit)
+}
+
+/**
+ * What review holds now: [due] cards, of which [blocked] need checking first, and when none are due, the start of the
+ * next day with cards due ([next], null with no cards) and how many fall due that day.
+ */
+internal data class ReviewOutlook(val due: Int, val blocked: Int, val next: Long?, val nextCount: Int)
+
+internal fun reviewOutlook(items: List<NotebookItem>, reviews: List<ReviewRow>, now: Long, zone: ZoneId): ReviewOutlook {
+    val times = dueTimes(items, reviews, zone)
+    val due = times.filter { it.second <= now }
+    val next = times.filter { it.second > now }.minOfOrNull { it.second }
+    val nextDay = next?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
+    return ReviewOutlook(due.size, due.count { cardCheckReason(it.first) != null }, next,
+        if (nextDay == null) 0 else times.count { it.second > now && Instant.ofEpochMilli(it.second).atZone(zone).toLocalDate() == nextDay })
 }
 
 /** Exact canonical context, not an inferred answer or rendered DOM text. Null means the saved page cannot verify it. */

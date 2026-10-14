@@ -67,16 +67,40 @@ class ReviewTest {
         assertTrue(dueSession(listOf(card(1)), easy.map { it.copy(cardMutationId = "m1") }, 61 * day, 40, 1).isEmpty())
     }
 
-    @Test fun staleOrOrphanedOrUnconfirmedAnswersAndMissingSavedPagesAreNeverScheduled() {
+    @Test fun dueCardsNeedingACheckJoinTheSessionToBeFixedButRefusedOrRemovedOnesDoNot() {
         val ready = card(1)
         assertNull(cardCheckReason(ready))
         for (changed in listOf(ready.copy(currentBlobSha = "new"), ready.copy(currentBlobSha = null),
-            ready.copy(annotation = ready.annotation.copy(cachedCurrentBlobSha = "server-newer")), ready.copy(savedBlobSha = null), ready.copy(removed = true),
+            ready.copy(annotation = ready.annotation.copy(cachedCurrentBlobSha = "server-newer")), ready.copy(savedBlobSha = null),
             ready.copy(annotation = ready.annotation.copy(checkedBlobSha = null)),
             ready.copy(annotation = ready.annotation.copy(status = "ORPHANED")))) {
             assertNotNull(cardCheckReason(changed))
-            assertTrue(dueSession(listOf(changed), emptyList(), 0, 40, 1).isEmpty())
+            assertEquals(listOf(changed), dueSession(listOf(changed), emptyList(), 0, 40, 1))
         }
+        for (gone in listOf(ready.copy(removed = true), ready.copy(annotation = ready.annotation.copy(rejection = "refused")))) {
+            assertNotNull(cardCheckReason(gone))
+            assertTrue(dueSession(listOf(gone), emptyList(), 0, 40, 1).isEmpty())
+            assertEquals(ReviewOutlook(0, 0, null, 0), reviewOutlook(listOf(gone), emptyList(), 0, utc))
+        }
+    }
+
+    @Test fun theOutlookCountsDueAndBlockedCardsOrTheNextDayWithCardsDue() {
+        val blocked = card(2).let { it.copy(currentBlobSha = "new") }
+        assertEquals(ReviewOutlook(2, 1, null, 0), reviewOutlook(listOf(card(1), blocked), emptyList(), 0, utc))
+        // Two cards fall due on day 1 and one on day 7, so the next day with cards is day 1, with two.
+        val log = listOf(grade(1, 4, 0).copy(cardMutationId = "m1"), grade(2, 4, 0).copy(cardMutationId = "m2"),
+            grade(3, 4, 0).copy(cardMutationId = "m3"), grade(4, 4, day).copy(cardMutationId = "m3"))
+        assertEquals(ReviewOutlook(0, 0, day, 2), reviewOutlook(listOf(card(1), card(2), card(3)), log, day / 2, utc))
+        assertEquals(ReviewOutlook(0, 0, null, 0), reviewOutlook(emptyList(), emptyList(), 0, utc))
+    }
+
+    @Test fun theOutlookLineSaysWhatIsDueAndTheSessionSize() {
+        assertEquals("45 due · 40 per session · 2 to check first", outlookLine(ReviewOutlook(45, 2, null, 0), 40, utc))
+        assertEquals("3 due", outlookLine(ReviewOutlook(3, 0, null, 0), 40, utc))
+        assertEquals("3 due", outlookLine(ReviewOutlook(3, 0, null, 0), null, utc))
+        assertTrue(outlookLine(ReviewOutlook(0, 0, day, 2), 40, utc).startsWith("Nothing due · next on "))
+        assertTrue(outlookLine(ReviewOutlook(0, 0, day, 2), 40, utc).endsWith(", 2 cards"))
+        assertEquals("No cards yet: grade a question below, or make one from a passage in a note.", outlookLine(ReviewOutlook(0, 0, null, 0), 40, utc))
     }
 
     @Test fun sessionsRespectTheServerCapInterleaveNotesAndExcludeNotDueCards() {
