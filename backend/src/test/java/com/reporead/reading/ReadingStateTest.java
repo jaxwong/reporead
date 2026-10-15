@@ -106,7 +106,7 @@ class ReadingStateTest {
         save(alice, note, body(SHA_B, 40, at, ANCHOR))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.lastReadBlobSha").value(SHA_B))
-                .andExpect(jsonPath("$.currentBlobSha").value(SHA_A))
+                .andExpect(jsonPath("$.title").doesNotExist())
                 .andExpect(jsonPath("$.anchor.headingPath[1]").value("Proxies"))
                 .andExpect(jsonPath("$.anchor.blockIndex").value(43));
         save(alice, note, body(SHA_B, 40, at, ANCHOR)).andExpect(status().isOk());
@@ -115,7 +115,7 @@ class ReadingStateTest {
                 .andExpect(jsonPath("$.readingStates.length()").value(1))
                 .andExpect(jsonPath("$.readingStates[0].progressPercent").value(40))
                 .andExpect(jsonPath("$.readingStates[0].lastReadAt").value(at.toString()))
-                .andExpect(jsonPath("$.readingStates[0].title").value("spring"));
+                .andExpect(jsonPath("$.readingStates[0].documentId").value(note));
     }
 
     @Test
@@ -152,9 +152,7 @@ class ReadingStateTest {
         save(alice, note, body(SHA_A, 50, Instant.now(), ANCHOR)).andExpect(status().isOk());
         transaction.executeWithoutResult(status -> documents.publishSnapshot(
                 1, List.of(new Documents.SourceFile("backend/spring.md", SHA_B)), Instant.now(), List.of(), true));
-        list(alice)
-                .andExpect(jsonPath("$.readingStates[0].lastReadBlobSha").value(SHA_A))
-                .andExpect(jsonPath("$.readingStates[0].currentBlobSha").value(SHA_B));
+        list(alice).andExpect(jsonPath("$.readingStates[0].lastReadBlobSha").value(SHA_A));
     }
 
     @Test
@@ -162,9 +160,9 @@ class ReadingStateTest {
         save(alice, note, body(SHA_A, 50, Instant.now(), ANCHOR)).andExpect(status().isOk());
         transaction.executeWithoutResult(
                 status -> documents.publishSnapshot(1, List.of(), Instant.now(), List.of(), true));
-        list(alice)
-                .andExpect(jsonPath("$.readingStates[0].deleted").value(true))
-                .andExpect(jsonPath("$.readingStates[0].progressPercent").value(50));
+        list(alice).andExpect(jsonPath("$.readingStates[0].progressPercent").value(50));
+        mvc.perform(get("/api/repositories/1/documents").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(jsonPath("$.documents[0].deleted").value(true));
     }
 
     @Test

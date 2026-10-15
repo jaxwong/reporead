@@ -36,8 +36,10 @@ data class RepositoryRow(
 )
 
 /**
- * [changedAt]: when a repository refresh found the note new or changed (epoch ms); null if RepoRead never saw it
- * change.
+ * One note of a repository's complete server list, and the phone's one owner of its title, path, current version and
+ * removal. [changedAt]: when a repository refresh found the note new or changed (epoch ms); null if RepoRead never saw
+ * it change. [deleted]: the latest complete refresh did not have it; it stays here so the reading position, bookmark
+ * and highlights kept on it are named, and the screens that list notes leave it out.
  */
 @Entity(tableName = "documents", indices = [Index("repositoryId")])
 data class DocumentRow(
@@ -47,6 +49,7 @@ data class DocumentRow(
     val title: String,
     val blobSha: String,
     val changedAt: Long? = null,
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
 )
 
 /**
@@ -115,7 +118,19 @@ data class PracticePage(
 /** A saved note matching a search: [searchText] is set when it matched by text, for a snippet. */
 data class NoteMatch(val documentId: Long, val title: String, val path: String, val searchText: String?)
 
-/** A highlight matching a search, with its note's title from the saved lists or saved copies. */
+/** A read note in Continue reading, named by its documents row. */
+data class ReadNote(
+    val documentId: Long,
+    val title: String,
+    val path: String,
+    val deleted: Boolean,
+    val progressPercent: Int,
+)
+
+/** A bookmarked note, named by its documents row. */
+data class BookmarkedNote(val documentId: Long, val title: String, val path: String, val deleted: Boolean)
+
+/** A highlight matching a search, with its note's title and path. */
 data class HighlightMatch(
     val documentId: Long,
     val title: String,
@@ -124,33 +139,24 @@ data class HighlightMatch(
     val note: String?,
 )
 
-/**
- * [pending] is a local save the backend has not acknowledged. Last write wins by [lastReadAt]. [deleted]: the note was
- * not in the latest complete repository refresh, as last reported by the backend.
- */
+/** [pending] is a local save the backend has not acknowledged. Last write wins by [lastReadAt]. */
 @Entity(tableName = "reading_states")
 data class ReadingRow(
     @PrimaryKey val documentId: Long,
-    val title: String,
-    val path: String,
     val lastReadBlobSha: String,
     val progressPercent: Int,
     val anchorJson: String,
     val lastReadAt: Long,
     val pending: Boolean,
-    @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
 )
 
 /** A row with bookmarked=false is a pending removal; it is deleted once the backend acknowledges it. */
 @Entity(tableName = "bookmarks")
 data class BookmarkRow(
     @PrimaryKey val documentId: Long,
-    val title: String,
-    val path: String,
     val bookmarked: Boolean,
     val pending: Boolean,
     val changedAt: Long,
-    @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
 )
 
 /** A passage in one source version of a note, as UTF-16 offsets into a block's canonical text. */
@@ -208,10 +214,6 @@ data class AnnotationRow(
     @ColumnInfo(defaultValue = "'HIGHLIGHT'") val type: String = "HIGHLIGHT",
     val question: String? = null,
     val checkedBlobSha: String? = null,
-    @ColumnInfo(defaultValue = "''") val cachedTitle: String = "",
-    @ColumnInfo(defaultValue = "''") val cachedPath: String = "",
-    val cachedCurrentBlobSha: String? = null,
-    @ColumnInfo(defaultValue = "0") val cachedDeleted: Boolean = false,
 ) {
     /** Where to draw it: the server's current location, or the original selection while the creation is pending. */
     val drawn: Passage
@@ -221,18 +223,16 @@ data class AnnotationRow(
     fun orphanedIn(blobSha: String) = status == "ORPHANED" && resolvedBlobSha == blobSha
 
     /**
-     * Why this card cannot be graded in [currentBlobSha] (null: unlisted) with [savedBlobSha] saved; the phone's one
-     * rule (ADR-13).
+     * Why this card cannot be graded when its note is [deleted] from the repository or at [currentBlobSha] (null:
+     * unlisted), with [savedBlobSha] saved; the phone's one rule (ADR-13).
      */
-    fun cardBlock(currentBlobSha: String?, savedBlobSha: String?): CardBlock? =
+    fun cardBlock(deleted: Boolean, currentBlobSha: String?, savedBlobSha: String?): CardBlock? =
         when {
             state == AnnotationState.REFUSED -> CardBlock.NOT_SYNCED
-            cachedDeleted -> CardBlock.REMOVED
+            deleted -> CardBlock.REMOVED
             status == "ORPHANED" -> CardBlock.ORPHANED
-            checkedBlobSha == null ||
-                checkedBlobSha != currentBlobSha ||
-                drawn.blobSha != currentBlobSha ||
-                (cachedCurrentBlobSha != null && cachedCurrentBlobSha != currentBlobSha) -> CardBlock.UNCONFIRMED
+            checkedBlobSha == null || checkedBlobSha != currentBlobSha || drawn.blobSha != currentBlobSha ->
+                CardBlock.UNCONFIRMED
             savedBlobSha != currentBlobSha -> CardBlock.NOT_SAVED
             else -> null
         }
@@ -269,11 +269,13 @@ data class ReviewRow(
 /** The server supplies this ceiling; a phone without a complete notebook response cannot start a session. */
 @Entity(tableName = "review_limits") data class ReviewLimitRow(@PrimaryKey val id: Int = 1, val sessionLimit: Int)
 
+/** A highlight or card with its note's documents row: [deleted] from the repository, at [currentBlobSha]. */
 data class NotebookItem(
     @Embedded val annotation: AnnotationRow,
     val title: String,
     val path: String,
-    val currentBlobSha: String?,
+    val currentBlobSha: String,
+    val deleted: Boolean,
     val savedBlobSha: String?,
 )
 
@@ -297,7 +299,7 @@ interface LibraryDao {
         val listed = rows.map { it.id }.toSet()
         val forgotten = mutableListOf<Long>()
         for (gone in repositoryIds().filter { it !in listed }) {
-            val ids = documentsOnce(gone).map { it.id }
+            val ids = documentIds(gone)
             forgetRepository(gone, ids)
             forgotten += ids
         }
@@ -306,11 +308,16 @@ interface LibraryDao {
         return forgotten
     }
 
-    @Query("select * from documents where repositoryId = :repositoryId order by path")
+    @Query("select * from documents where repositoryId = :repositoryId and not deleted order by path")
     fun documents(repositoryId: Long): Flow<List<DocumentRow>>
 
-    @Query("select * from documents where repositoryId = :repositoryId")
-    suspend fun documentsOnce(repositoryId: Long): List<DocumentRow>
+    /** The notes [repositoryId] lists now: what note links resolve against and Save all fetches. */
+    @Query("select * from documents where repositoryId = :repositoryId and not deleted")
+    suspend fun listedDocuments(repositoryId: Long): List<DocumentRow>
+
+    /** Every note of [repositoryId], removed ones too. */
+    @Query("select id from documents where repositoryId = :repositoryId")
+    suspend fun documentIds(repositoryId: Long): List<Long>
 
     @Query("select * from documents where id = :id") suspend fun document(id: Long): DocumentRow?
 
@@ -369,15 +376,19 @@ interface LibraryDao {
     @Query(
         """select d.id as documentId, d.title, d.path, n.html, n.blobSha
               from documents d left join notes n on n.documentId = d.id
-              where ('/' || d.path) like '%/interview/%' order by d.id"""
+              where not d.deleted and ('/' || d.path) like '%/interview/%' order by d.id"""
     )
     fun bankPages(): Flow<List<PracticePage>>
 
     /** The note links in [repositoryId]'s saved pages, for Linked from; the pages themselves are not read. */
-    @Query("select l.* from note_links l join documents d on d.id = l.documentId where d.repositoryId = :repositoryId")
+    @Query(
+        "select l.* from note_links l join documents d on d.id = l.documentId where d.repositoryId = :repositoryId and not d.deleted"
+    )
     suspend fun noteLinks(repositoryId: Long): List<NoteLinkRow>
 
-    @Query("select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId")
+    @Query(
+        "select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId and not d.deleted"
+    )
     suspend fun savedNoteCount(repositoryId: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertNote(row: NoteRow)
@@ -397,16 +408,16 @@ interface LibraryDao {
     }
 
     @Query(
-        """select documentId from notes where documentId not in (select id from documents)
+        """select documentId from notes where documentId not in (select id from documents where not deleted)
               and documentId not in (select documentId from reading_states) and documentId not in (select documentId from bookmarks)
               and documentId not in (select documentId from annotations)"""
     )
     suspend fun unreferencedNoteIds(): List<Long>
 
     /**
-     * Deletes saved copies of notes that are in no saved note list and that no reading, bookmark, or annotation row
-     * refers to — for example a disconnected repository's removed notes. Run only after those rows were replaced from
-     * the server's complete lists. Returns the deleted ids, for their images.
+     * Deletes saved copies of notes that no saved list lists now and that no reading, bookmark, or annotation row
+     * refers to — for example notes removed from their repository. Run only after those rows were replaced from the
+     * server's complete lists. Returns the deleted ids, for their images.
      */
     @Transaction
     suspend fun forgetUnreferencedNotes(): List<Long> {
@@ -449,7 +460,7 @@ interface LibraryDao {
      */
     @Query(
         """select id as documentId, title, path, null as searchText from documents
-              where title like :pattern escape '\' or path like :pattern escape '\'
+              where not deleted and (title like :pattern escape '\' or path like :pattern escape '\')
               union
               select documentId, title, path, case when searchText like :pattern escape '\' then searchText end from notes
               where title like :pattern escape '\' or path like :pattern escape '\' or searchText like :pattern escape '\'
@@ -458,21 +469,26 @@ interface LibraryDao {
     suspend fun searchNotes(pattern: String, limit: Int): List<NoteMatch>
 
     @Query(
-        """select a.documentId, coalesce(d.title, n.title, '') as title, coalesce(d.path, n.path, '') as path, a.exactText, a.note
-              from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
+        """select a.documentId, d.title, d.path, a.exactText, a.note
+              from annotations a join documents d on d.id = a.documentId
               where a.state <> 'DELETING' and (a.exactText like :pattern escape '\' or a.note like :pattern escape '\')
               order by a.createdAt desc limit :limit"""
     )
     suspend fun searchHighlights(pattern: String, limit: Int): List<HighlightMatch>
 
-    @Query("select count(*) from documents") suspend fun savedListCount(): Int
+    @Query("select count(*) from documents where not deleted") suspend fun savedListCount(): Int
 
     /** Notes in the saved lists whose saved copy has search text: the part of [savedListCount] searched by text. */
-    @Query("select count(*) from notes n join documents d on d.id = n.documentId where n.searchText is not null")
+    @Query(
+        "select count(*) from notes n join documents d on d.id = n.documentId where not d.deleted and n.searchText is not null"
+    )
     suspend fun searchableNoteCount(): Int
 
-    @Query("select * from reading_states order by lastReadAt desc limit :limit")
-    fun recentReading(limit: Int): Flow<List<ReadingRow>>
+    @Query(
+        """select r.documentId, d.title, d.path, d.deleted, r.progressPercent
+              from reading_states r join documents d on d.id = r.documentId order by r.lastReadAt desc limit :limit"""
+    )
+    fun recentReading(limit: Int): Flow<List<ReadNote>>
 
     @Query("select * from reading_states where documentId = :documentId")
     suspend fun reading(documentId: Long): ReadingRow?
@@ -485,7 +501,7 @@ interface LibraryDao {
     @Query(
         """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, coalesce(b.sinceBlobSha, r.lastReadBlobSha) as lastReadBlobSha
               from reading_states r join documents d on d.id = r.documentId left join change_baselines b on b.documentId = d.id
-              where d.blobSha != r.lastReadBlobSha or b.sinceBlobSha is not null
+              where not d.deleted and (d.blobSha != r.lastReadBlobSha or b.sinceBlobSha is not null)
               order by d.changedAt is null, d.changedAt desc, r.lastReadAt desc"""
     )
     fun updatedSinceRead(): Flow<List<ChangedNote>>
@@ -497,7 +513,7 @@ interface LibraryDao {
     @Query(
         """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
               from documents d left join reading_states r on r.documentId = d.id
-              where d.changedAt is not null and (r.lastReadBlobSha is null or r.lastReadBlobSha = d.blobSha)
+              where not d.deleted and d.changedAt is not null and (r.lastReadBlobSha is null or r.lastReadBlobSha = d.blobSha)
               and d.id not in (select documentId from change_baselines)
               order by d.changedAt desc limit :limit"""
     )
@@ -558,7 +574,11 @@ interface LibraryDao {
         remote.forEach { mergeRemoteReading(it) }
     }
 
-    @Query("select * from bookmarks where bookmarked order by changedAt desc") fun bookmarks(): Flow<List<BookmarkRow>>
+    @Query(
+        """select b.documentId, d.title, d.path, d.deleted from bookmarks b join documents d on d.id = b.documentId
+              where b.bookmarked order by b.changedAt desc"""
+    )
+    fun bookmarks(): Flow<List<BookmarkedNote>>
 
     @Query("select * from bookmarks where documentId = :documentId") fun bookmark(documentId: Long): Flow<BookmarkRow?>
 
@@ -589,10 +609,8 @@ interface LibraryDao {
     suspend fun waitingAnnotations(): List<AnnotationRow>
 
     @Query(
-        """select a.*, coalesce(d.title, n.title, a.cachedTitle) as title,
-              coalesce(d.path, n.path, a.cachedPath) as path, d.blobSha as currentBlobSha,
-              n.blobSha as savedBlobSha
-              from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
+        """select a.*, d.title, d.path, d.blobSha as currentBlobSha, d.deleted, n.blobSha as savedBlobSha
+              from annotations a join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
               where a.state <> 'DELETING' order by a.createdAt, a.mutationId"""
     )
     fun notebook(): Flow<List<NotebookItem>>
@@ -609,11 +627,12 @@ interface LibraryDao {
     suspend fun recordReview(row: ReviewRow): Boolean {
         require(row.grade in 0..5 && row.pending && row.rejection == null) { "Invalid local review ${row.mutationId}" }
         val card = annotation(row.cardMutationId) ?: return false
+        val document = document(card.documentId) ?: return false
         if (
             card.type != "CARD" ||
                 card.state == AnnotationState.DELETING ||
-                row.blobSha != document(card.documentId)?.blobSha ||
-                card.cardBlock(row.blobSha, note(card.documentId)?.blobSha) != null
+                row.blobSha != document.blobSha ||
+                card.cardBlock(document.deleted, row.blobSha, note(card.documentId)?.blobSha) != null
         )
             return false
         saveReview(row)
@@ -721,6 +740,24 @@ interface LibraryDao {
 /** v9: a saved note no longer records the commit it was fetched at, which nothing read. */
 @DeleteColumn(tableName = "notes", columnName = "commitSha") class DropNoteCommit : AutoMigrationSpec
 
+/**
+ * v13: a note's title, path, current version and removal live only in its documents row, which now keeps removed notes
+ * too. Reading, bookmark and annotation rows kept copies of them, and screens chose between the copies.
+ */
+@DeleteColumn.Entries(
+    DeleteColumn(tableName = "reading_states", columnName = "title"),
+    DeleteColumn(tableName = "reading_states", columnName = "path"),
+    DeleteColumn(tableName = "reading_states", columnName = "deleted"),
+    DeleteColumn(tableName = "bookmarks", columnName = "title"),
+    DeleteColumn(tableName = "bookmarks", columnName = "path"),
+    DeleteColumn(tableName = "bookmarks", columnName = "deleted"),
+    DeleteColumn(tableName = "annotations", columnName = "cachedTitle"),
+    DeleteColumn(tableName = "annotations", columnName = "cachedPath"),
+    DeleteColumn(tableName = "annotations", columnName = "cachedCurrentBlobSha"),
+    DeleteColumn(tableName = "annotations", columnName = "cachedDeleted"),
+)
+class DocumentsOwnNoteFacts : AutoMigrationSpec
+
 /** v12: a bookmark no longer records the version bookmarked, which nothing read; a bookmark is of the note. */
 @DeleteColumn(tableName = "bookmarks", columnName = "sourceBlobSha") class DropBookmarkVersion : AutoMigrationSpec
 
@@ -778,7 +815,7 @@ val ANNOTATION_STATE_10_11 =
             ReviewLimitRow::class,
             ChangeBaselineRow::class,
         ],
-    version = 12,
+    version = 13,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -791,6 +828,7 @@ val ANNOTATION_STATE_10_11 =
             AutoMigration(from = 8, to = 9, spec = DropNoteCommit::class),
             AutoMigration(from = 9, to = 10, spec = KeepNoteLinks::class),
             AutoMigration(from = 11, to = 12, spec = DropBookmarkVersion::class),
+            AutoMigration(from = 12, to = 13, spec = DocumentsOwnNoteFacts::class),
         ],
 )
 abstract class LocalStore : RoomDatabase() {

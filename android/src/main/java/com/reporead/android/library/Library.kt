@@ -135,7 +135,6 @@ fun LibraryScreen(
         // Pushes pending changes, then pulls the server's view. The background sync sends changes without this
         // (ADR-08).
         RefreshOnEntry(refresh, { refreshing = it }, { status = it }) {
-            sync.refreshRepositories()
             val synced = sync.syncLocalChanges()
             listOfNotNull(
                     synced.notSent?.let { "New highlights and cards stay on this phone for now. ${it.describe()}" },

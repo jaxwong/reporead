@@ -66,16 +66,15 @@ class LocalSyncTest {
     /** The empty complete lists a sync ends with. */
     private val emptyLists =
         mapOf(
+            "GET /api/repositories" to (200 to """{"repositories":[]}"""),
             "GET /api/reading-states" to (200 to """{"readingStates":[]}"""),
             "GET /api/bookmarks" to (200 to """{"bookmarks":[]}"""),
             "GET /api/notebook" to (200 to """{"annotations":[],"reviews":[],"sessionLimit":40}"""),
         )
 
-    private fun reading(documentId: Long, title: String) =
+    private fun reading(documentId: Long) =
         ReadingRow(
             documentId,
-            title,
-            "n.md",
             sha,
             50,
             """{"headingPath":[],"textPrefix":null,"blockIndex":0}""",
@@ -85,8 +84,7 @@ class LocalSyncTest {
 
     /** The server's reading state for document 1, as the reading-state PUT and the complete list return it. */
     private val serverReading =
-        """{"documentId":1,"repositoryId":7,"path":"n.md","title":"Note","currentBlobSha":"$sha",
-        "deleted":false,"lastReadBlobSha":"$sha","progressPercent":50,"anchor":{"headingPath":[],"textPrefix":null,"blockIndex":0},
+        """{"documentId":1,"lastReadBlobSha":"$sha","progressPercent":50,"anchor":{"headingPath":[],"textPrefix":null,"blockIndex":0},
         "lastReadAt":"1970-01-01T00:00:01Z"}"""
 
     private fun sync(url: String) = Sync(Api(url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}
@@ -96,8 +94,9 @@ class LocalSyncTest {
 
     @Test
     fun aRefusedReadingPositionStaysOnThePhoneWithoutStoppingTheRestOfTheSync() = runBlocking {
-        dao.saveReading(reading(1, "Long heading note"))
-        dao.saveBookmark(BookmarkRow(2, "Kept", "k.md", bookmarked = true, pending = true, changedAt = 5))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Long heading note", sha)))
+        dao.saveReading(reading(1))
+        dao.saveBookmark(BookmarkRow(2, bookmarked = true, pending = true, changedAt = 5))
         LoopbackServer(
                 emptyLists +
                     mapOf(
@@ -115,6 +114,7 @@ class LocalSyncTest {
                     listOf(
                         "PUT /api/documents/1/reading-state",
                         "PUT /api/documents/2/bookmark",
+                        "GET /api/repositories",
                         "GET /api/reading-states",
                         "GET /api/bookmarks",
                         "GET /api/notebook",
@@ -151,7 +151,7 @@ class LocalSyncTest {
             )
         )
         dao.saveReview(ReviewRow("grade-of-unsent-card", "unsent-card", 4, 2, sha, pending = true))
-        dao.saveReading(reading(1, "Note"))
+        dao.saveReading(reading(1))
         LoopbackServer(
                 emptyLists +
                     mapOf(
@@ -168,6 +168,7 @@ class LocalSyncTest {
                     listOf(
                         "POST /api/documents/1/annotations",
                         "PUT /api/documents/1/reading-state",
+                        "GET /api/repositories",
                         "GET /api/reading-states",
                         "GET /api/bookmarks",
                         "GET /api/notebook",
@@ -189,7 +190,7 @@ class LocalSyncTest {
         dao.saveAnnotation(
             AnnotationRow("unparsed", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
-        dao.saveReading(reading(1, "Note"))
+        dao.saveReading(reading(1))
         LoopbackServer(
                 emptyLists +
                     mapOf(
@@ -204,6 +205,7 @@ class LocalSyncTest {
                     listOf(
                         "POST /api/documents/1/annotations",
                         "PUT /api/documents/1/reading-state",
+                        "GET /api/repositories",
                         "GET /api/reading-states",
                         "GET /api/bookmarks",
                         "GET /api/notebook",
@@ -239,6 +241,7 @@ class LocalSyncTest {
                     listOf(
                         "POST /api/documents/1/annotations",
                         "DELETE /api/annotations/9?expectedVersion=1",
+                        "GET /api/repositories",
                         "GET /api/reading-states",
                         "GET /api/bookmarks",
                         "GET /api/notebook",
@@ -266,10 +269,6 @@ class LocalSyncTest {
             .put("resolvedBlobSha", sha)
             .put("question", JSONObject.NULL)
             .put("checkedBlobSha", JSONObject.NULL)
-            .put("title", "n")
-            .put("path", "n.md")
-            .put("currentBlobSha", sha)
-            .put("deleted", false)
             .toString()
 
     private fun passage() =
@@ -288,7 +287,7 @@ class LocalSyncTest {
         dao.saveAnnotation(
             AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
-        dao.saveReading(reading(1, "Note"))
+        dao.saveReading(reading(1))
         try {
             sync("http://127.0.0.1:${closedPort()}").syncLocalChanges()
             fail("Expected the unreachable server to end the sync")
@@ -307,9 +306,9 @@ class LocalSyncTest {
         // Nothing listens on the port: saving a change never waits for the network.
         val sync =
             Sync(Api("http://127.0.0.1:${closedPort()}", { "TEST_ONLY_SESSION" }) {}, store, directory) { requested++ }
-        sync.saveReading(reading(1, "a"))
+        sync.saveReading(reading(1))
         assertEquals(1, requested)
-        sync.setBookmark(dao.note(1)!!, true)
+        sync.setBookmark(1, true)
         assertEquals(2, requested)
         val selection =
             JSONObject()
@@ -334,7 +333,7 @@ class LocalSyncTest {
 
     @Test
     fun signingOutWaitsForARunningSyncSoTheServersListsCannotComeBack() = runBlocking {
-        dao.saveReading(reading(1, "Note"))
+        dao.saveReading(reading(1))
         val arrived = CountDownLatch(1)
         val release = CountDownLatch(1)
         LoopbackServer(
@@ -362,7 +361,7 @@ class LocalSyncTest {
                 // The sync wrote the server's reading state, then sign-out cleared it.
                 assertNull(dao.reading(1))
                 assertEquals(Result.success(), backgroundSync(sync, 0))
-                assertEquals(4, server.requests.size)
+                assertEquals(5, server.requests.size)
             }
     }
 
@@ -427,13 +426,14 @@ class LocalSyncTest {
 
     @Test
     fun theBackgroundSyncSendsWhatWaits() = runBlocking {
-        dao.saveReading(reading(1, "Note"))
+        dao.saveReading(reading(1))
         LoopbackServer(emptyLists + mapOf("PUT /api/documents/1/reading-state" to (200 to serverReading))).use { server
             ->
             assertEquals(Result.success(), backgroundSync(sync(server.url), 0))
             assertEquals(
                 listOf(
                     "PUT /api/documents/1/reading-state",
+                    "GET /api/repositories",
                     "GET /api/reading-states",
                     "GET /api/bookmarks",
                     "GET /api/notebook",
@@ -446,7 +446,7 @@ class LocalSyncTest {
 
     @Test
     fun anUnreachableServerIsTriedAgainUpToTenAttempts() = runBlocking {
-        dao.saveReading(reading(1, "Note"))
+        dao.saveReading(reading(1))
         val sync = sync("http://127.0.0.1:${closedPort()}")
         assertEquals(Result.retry(), backgroundSync(sync, 0))
         assertEquals(Result.retry(), backgroundSync(sync, 8))
@@ -459,7 +459,7 @@ class LocalSyncTest {
         dao.saveAnnotation(
             AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
-        dao.saveReading(reading(1, "Note"))
+        dao.saveReading(reading(1))
         LoopbackServer(
                 emptyLists +
                     mapOf(
@@ -476,7 +476,7 @@ class LocalSyncTest {
 
     @Test
     fun signedOutOrAccessDeniedStopsUntilTheNextChange() = runBlocking {
-        dao.saveReading(reading(1, "Note"))
+        dao.saveReading(reading(1))
         LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to failure(401, "SIGN_IN_REQUIRED"))).use { server ->
             assertEquals(Result.failure(), backgroundSync(sync(server.url), 0))
             assertEquals(1, dao.pendingReading().size)
@@ -494,6 +494,43 @@ class LocalSyncTest {
             .use { server ->
                 assertEquals(Result.failure(), backgroundSync(sync(server.url), 0))
                 assertEquals(1, dao.waitingAnnotations().size)
+            }
+    }
+
+    @Test
+    fun aSyncLoadsEveryRepositorysNotesSoARemovedNoteWithKeptDataIsNamed() = runBlocking {
+        val notes =
+            """{"repositoryId":7,"lastSyncedCommitSha":"$sha","documents":[
+            {"id":1,"path":"kept.md","title":"kept","blobSha":"$sha","contentChangedAt":null,"deleted":false},
+            {"id":2,"path":"gone.md","title":"gone","blobSha":"$sha","contentChangedAt":null,"deleted":true}]}"""
+        val readingOfTheRemovedNote = serverReading.replace("\"documentId\":1", "\"documentId\":2")
+        LoopbackServer(
+                emptyLists +
+                    mapOf(
+                        "GET /api/repositories" to
+                            (200 to
+                                """{"repositories":[{"id":7,"fullName":"test-only/notes","documentCount":1,"lastSyncedCommitSha":"$sha"}]}"""),
+                        "GET /api/repositories/7/documents" to (200 to notes),
+                        "GET /api/reading-states" to (200 to """{"readingStates":[$readingOfTheRemovedNote]}"""),
+                    )
+            )
+            .use { server ->
+                sync(server.url).syncLocalChanges()
+                assertEquals(
+                    listOf(
+                        "GET /api/repositories",
+                        "GET /api/repositories/7/documents",
+                        "GET /api/reading-states",
+                        "GET /api/bookmarks",
+                        "GET /api/notebook",
+                    ),
+                    server.requests,
+                )
+                assertEquals(listOf(1L), dao.documents(7).first().map { it.id })
+                assertEquals(
+                    listOf(ReadNote(2, "gone", "gone.md", deleted = true, progressPercent = 50)),
+                    dao.recentReading(5).first(),
+                )
             }
     }
 

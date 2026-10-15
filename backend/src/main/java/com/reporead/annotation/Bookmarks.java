@@ -17,14 +17,11 @@ public class Bookmarks {
         this.db = db;
     }
 
-    /** {@code deleted}: the note was not in the latest complete repository refresh; the bookmark is kept. */
-    public record Bookmark(
-            long documentId, long repositoryId, String path, String title, Instant createdAt, boolean deleted) {}
+    /** A note deleted upstream keeps its bookmark; the note's title, path and removal are in its document list. */
+    public record Bookmark(long documentId, Instant createdAt) {}
 
     private static final String SELECT = """
-        select a.document_id, d.repository_connection_id, d.path, d.title, a.created_at, d.deleted_at is not null as deleted
-        from annotations a join documents d on d.id = a.document_id
-        where a.type = 'BOOKMARK' and a.user_id = :userId""";
+        select a.document_id, a.created_at from annotations a where a.type = 'BOOKMARK' and a.user_id = :userId""";
 
     /** Bookmarking an already bookmarked document keeps the original bookmark. */
     Bookmark set(long userId, long documentId) {
@@ -59,11 +56,6 @@ public class Bookmarks {
 
     private static Bookmark bookmark(ResultSet row, int n) throws SQLException {
         return new Bookmark(
-                row.getLong("document_id"),
-                row.getLong("repository_connection_id"),
-                row.getString("path"),
-                row.getString("title"),
-                row.getTimestamp("created_at").toInstant(),
-                row.getBoolean("deleted"));
+                row.getLong("document_id"), row.getTimestamp("created_at").toInstant());
     }
 }

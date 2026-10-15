@@ -22,7 +22,7 @@ class BookmarkVersionMigrationTest {
             },
         ) { dao ->
             assertEquals(
-                listOf(BookmarkRow(1, "Test-only note", "a.md", bookmarked = true, pending = true, changedAt = 5)),
+                listOf(BookmarkRow(1, bookmarked = true, pending = true, changedAt = 5)),
                 dao.pendingBookmarks(),
             )
         }

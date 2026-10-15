@@ -56,23 +56,21 @@ class AnnotationRowTest {
                 resolvedBlobSha = current,
                 location = Passage(current, "b2", 12, 30, "declarative transactions"),
                 checkedBlobSha = current,
-                cachedCurrentBlobSha = current,
             )
-        assertNull(card.cardBlock(current, current))
+        assertNull(card.cardBlock(false, current, current))
+        assertEquals(CardBlock.REMOVED, card.cardBlock(true, current, current))
         for ((block, changed) in
             listOf(
                 CardBlock.NOT_SYNCED to card.copy(state = AnnotationState.REFUSED, rejection = "Test-only refusal"),
-                CardBlock.REMOVED to card.copy(cachedDeleted = true),
                 CardBlock.ORPHANED to card.copy(status = "ORPHANED"),
                 CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = null),
                 CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = "a".repeat(40)),
                 CardBlock.UNCONFIRMED to
                     card.copy(location = Passage("a".repeat(40), "b2", 12, 30, "declarative transactions")),
-                CardBlock.UNCONFIRMED to card.copy(cachedCurrentBlobSha = "d".repeat(40)),
-            )) assertEquals(changed.toString(), block, changed.cardBlock(current, current))
-        assertEquals("the note is no longer listed", CardBlock.UNCONFIRMED, card.cardBlock(null, current))
-        assertEquals(CardBlock.NOT_SAVED, card.cardBlock(current, "a".repeat(40)))
-        assertEquals(CardBlock.NOT_SAVED, card.cardBlock(current, null))
+            )) assertEquals(changed.toString(), block, changed.cardBlock(false, current, current))
+        assertEquals("the note is no longer listed", CardBlock.UNCONFIRMED, card.cardBlock(false, null, current))
+        assertEquals(CardBlock.NOT_SAVED, card.cardBlock(false, current, "a".repeat(40)))
+        assertEquals(CardBlock.NOT_SAVED, card.cardBlock(false, current, null))
     }
 
     @Test

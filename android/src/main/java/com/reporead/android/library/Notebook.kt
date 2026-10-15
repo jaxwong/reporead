@@ -161,7 +161,9 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
                             item.annotation.note?.let { Text(it) }
                             val reason =
                                 if (item.annotation.type == "CARD")
-                                    item.annotation.cardBlock(item.currentBlobSha, item.savedBlobSha)?.reason
+                                    item.annotation
+                                        .cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
+                                        ?.reason
                                 else if (item.annotation.status == "ORPHANED") "Orphaned passage" else null
                             StatusLine(
                                 listOfNotNull(reason, item.annotation.rejection).joinToString(": ").ifEmpty { null }

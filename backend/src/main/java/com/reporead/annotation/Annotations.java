@@ -97,6 +97,7 @@ public class Annotations {
      * trusted location, and {@code status} says what it means for version {@code resolvedBlobSha}: ANCHORED (the
      * original selection, in that version), REANCHORED (found again in that version, by the server or by the user), or
      * ORPHANED (not reliably found in that version; {@code location} is the last place the passage was known to be).
+     * The note's title, path, current version and removal are in its document list.
      */
     public record Annotation(
             long id,
@@ -112,11 +113,7 @@ public class Annotations {
             Location location,
             String resolvedBlobSha,
             String question,
-            String checkedBlobSha,
-            String title,
-            String path,
-            String currentBlobSha,
-            boolean deleted) {}
+            String checkedBlobSha) {}
 
     /** The result of a creation request, and whether it was the replay of an earlier identical request. */
     record Created(Annotation annotation, boolean replayed) {}
@@ -129,9 +126,8 @@ public class Annotations {
                l.source_blob_sha as location_source_blob_sha, l.block_id as location_block_id, l.exact_text as location_exact_text,
                l.prefix_text as location_prefix_text, l.suffix_text as location_suffix_text, l.start_offset as location_start_offset,
                l.end_offset as location_end_offset, l.heading_path::text as location_heading_path,
-               l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote, a.question, a.checked_blob_sha,
-               d.title, d.path, d.current_blob_sha, d.deleted_at is not null as deleted
-        from annotations a join documents d on d.id = a.document_id join annotation_anchors n on n.annotation_id = a.id
+               l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote, a.question, a.checked_blob_sha
+        from annotations a join annotation_anchors n on n.annotation_id = a.id
         join annotation_locations l on l.annotation_id = a.id
         where a.type in ('HIGHLIGHT', 'CARD') and a.user_id = :userId""";
 
@@ -400,11 +396,7 @@ public class Annotations {
                         row.getDouble("rival_quote")),
                 row.getString("resolved_blob_sha"),
                 row.getString("question"),
-                row.getString("checked_blob_sha"),
-                row.getString("title"),
-                row.getString("path"),
-                row.getString("current_blob_sha"),
-                row.getBoolean("deleted"));
+                row.getString("checked_blob_sha"));
     }
 
     /** The eight passage columns of an anchor or a location, named with {@code prefix}. */

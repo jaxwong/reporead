@@ -99,8 +99,10 @@ class Sync(
     val images = NoteImages(api, filesDir)
     private val exportRoot = exportDirectory(filesDir)
 
-    suspend fun refreshRepositories() = oneSyncAtATime.withLock { loadRepositories() }
-
+    /**
+     * The server's complete repository list, then each repository's complete note list (one request each, no GitHub
+     * call): the documents table names every note the reading, bookmark and annotation rows refer to.
+     */
     private suspend fun loadRepositories() {
         val json = api.get("/api/repositories")
         val rows = contract {
@@ -118,6 +120,7 @@ class Sync(
         // A repository missing from the server's complete list was disconnected: here with its answer lost, or
         // elsewhere.
         images.delete(dao.replaceRepositories(rows))
+        for (row in rows) loadDocuments(row.id)
     }
 
     suspend fun refreshDocuments(repositoryId: Long) = oneSyncAtATime.withLock { loadDocuments(repositoryId) }
@@ -135,6 +138,7 @@ class Sync(
                     item.getString("title"),
                     item.getString("blobSha"),
                     item.nullableString("contentChangedAt")?.let { Instant.parse(it).toEpochMilli() },
+                    item.getBoolean("deleted"),
                 )
             }
         }
@@ -144,18 +148,21 @@ class Sync(
     /** Asks the backend to reconcile with GitHub, then reloads the now-current lists. */
     suspend fun refreshFromGitHub(repositoryId: Long) = oneSyncAtATime.withLock {
         api.post("/api/repositories/$repositoryId/sync")
-        loadDocuments(repositoryId)
         loadRepositories()
     }
 
     data class Opened(val note: NoteRow, val staleReason: String?)
 
     /**
-     * The saved copy is [document]'s current version: same blob and same path (the page shows the path and resolves
-     * relative images against it).
+     * The saved copy is the current version of [document], a listed note: same blob and same path (the page shows the
+     * path and resolves relative images against it).
      */
     private fun sameVersion(cached: NoteRow?, document: DocumentRow?) =
-        cached != null && document != null && cached.blobSha == document.blobSha && cached.path == document.path
+        cached != null &&
+            document != null &&
+            !document.deleted &&
+            cached.blobSha == document.blobSha &&
+            cached.path == document.path
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
     private fun upToDate(cached: NoteRow?, document: DocumentRow?) =
@@ -219,7 +226,7 @@ class Sync(
      */
     suspend fun saveAllNotes(repositoryId: Long, onProgress: (done: Int, toFetch: Int) -> Unit): SavedAll {
         refreshDocuments(repositoryId)
-        val documents = dao.documentsOnce(repositoryId)
+        val documents = dao.listedDocuments(repositoryId)
         val missing = documents.filter { !upToDate(dao.note(it.id), it) }
         Log.i(
             "RepoRead",
@@ -363,17 +370,8 @@ class Sync(
         onPendingChange()
     }
 
-    suspend fun setBookmark(note: NoteRow, bookmarked: Boolean) {
-        dao.saveBookmark(
-            BookmarkRow(
-                note.documentId,
-                note.title,
-                note.path,
-                bookmarked,
-                pending = true,
-                System.currentTimeMillis(),
-            )
-        )
+    suspend fun setBookmark(documentId: Long, bookmarked: Boolean) {
+        dao.saveBookmark(BookmarkRow(documentId, bookmarked, pending = true, System.currentTimeMillis()))
         onPendingChange()
     }
 
@@ -385,11 +383,11 @@ class Sync(
 
     /**
      * The sync of local changes, run by library open, pull to refresh, Sync now, and the background sync: sends pending
-     * work, then replaces acknowledged local reading, bookmark, and notebook rows with the server's complete lists.
-     * Highlight and card creations need GitHub; when GitHub, or access to it, fails they wait, and the database-only
-     * work still runs (ADR-03). A refused item is marked and the run goes on; any other failure ends the run with
-     * unacknowledged changes still pending. The notebook, which grows without paging, is read last so its failure
-     * cannot hold back the rest.
+     * work, then loads the server's complete lists: repositories and every repository's notes (one request each), then
+     * reading, bookmark, and notebook rows, which replace the acknowledged local ones. Highlight and card creations
+     * need GitHub; when GitHub, or access to it, fails they wait, and the database-only work still runs (ADR-03). A
+     * refused item is marked and the run goes on; any other failure ends the run with unacknowledged changes still
+     * pending. The notebook, which grows without paging, is read last so its failure cannot hold back the rest.
      */
     suspend fun syncLocalChanges(): LocalSync = oneSyncAtATime.withLock { sendAndReplace() }
 
@@ -400,6 +398,10 @@ class Sync(
     suspend fun syncWaitingChanges(): LocalSync? = oneSyncAtATime.withLock {
         if (dao.waitingCount().first() == 0) null else sendAndReplace()
     }
+
+    /** A note named in a message: its title, or what it is when no saved list has it (the server no longer does). */
+    private suspend fun noteName(documentId: Long) =
+        dao.document(documentId)?.let { "“${it.title}”" } ?: "a note no longer in your lists"
 
     private suspend fun sendAndReplace(): LocalSync {
         // The one push step whose failure does not end the run: creations need GitHub, so when it fails they wait and
@@ -432,7 +434,7 @@ class Sync(
                     // replaced below. Any other refusal keeps the position on this phone, pending, and offers it
                     // again at the next sync.
                     if (error.status == 404) dao.acknowledgeReading(row.documentId, row.lastReadAt)
-                    refused += "Your place in “${row.title}” (${error.describe()})"
+                    refused += "Your place in ${noteName(row.documentId)} (${error.describe()})"
                     continue
                 }
             dao.acknowledgeReading(row.documentId, row.lastReadAt)
@@ -451,9 +453,10 @@ class Sync(
                 if (!error.refusesItem()) throw error
                 Log.w("RepoRead", "Bookmark refused; documentId=${row.documentId} code=${error.code}")
                 dao.dropBookmark(row.documentId, row.changedAt)
-                refused += "The bookmark on “${row.title}” (${error.describe()})"
+                refused += "The bookmark on ${noteName(row.documentId)} (${error.describe()})"
             }
         }
+        loadRepositories()
         val states = api.get("/api/reading-states")
         val remoteReading = contract {
             states.getJSONArray("readingStates").let { array ->
@@ -469,12 +472,9 @@ class Sync(
                         val item = array.getJSONObject(it)
                         BookmarkRow(
                             item.getLong("documentId"),
-                            item.getString("title"),
-                            item.getString("path"),
                             bookmarked = true,
                             pending = false,
                             Instant.parse(item.getString("createdAt")).toEpochMilli(),
-                            deleted = item.getBoolean("deleted"),
                         )
                     }
                 }
@@ -496,11 +496,9 @@ class Sync(
         note: String?,
         question: String? = null,
     ): String {
-        val saved =
-            checkNotNull(dao.note(documentId)) {
-                "Cannot create an annotation without its displayed saved note; documentId=$documentId"
-            }
-        val current = dao.document(documentId)
+        checkNotNull(dao.note(documentId)) {
+            "Cannot create an annotation without its displayed saved note; documentId=$documentId"
+        }
         val row = contract {
             AnnotationRow(
                 UUID.randomUUID().toString(),
@@ -518,9 +516,6 @@ class Sync(
                 type = if (question == null) "HIGHLIGHT" else "CARD",
                 question = question,
                 checkedBlobSha = if (question == null) null else selection.getString("sourceBlobSha"),
-                cachedTitle = saved.title,
-                cachedPath = saved.path,
-                cachedCurrentBlobSha = current?.blobSha,
             )
         }
         dao.saveAnnotation(row)

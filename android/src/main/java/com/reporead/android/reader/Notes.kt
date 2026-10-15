@@ -80,6 +80,8 @@ internal fun NotesPanel(
     var conflict by remember { mutableStateOf<Conflict?>(null) }
     /** The highlight or card the user asked to delete, until they confirm. */
     var deleting by remember { mutableStateOf<AnnotationRow?>(null) }
+    /** Whether this note left its repository, which a card's status names. */
+    val removed by produceState(false, documentId) { value = dao.document(documentId)?.deleted == true }
     // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
     val backlinks by
         produceState<Backlinks?>(null, documentId) {
@@ -88,7 +90,7 @@ internal fun NotesPanel(
                 value = Backlinks(emptyList(), 0, 0)
                 return@produceState
             }
-            val documents = dao.documentsOnce(note.repositoryId)
+            val documents = dao.listedDocuments(note.repositoryId)
             val started = System.currentTimeMillis()
             val links =
                 dao.noteLinks(note.repositoryId).groupBy({ it.documentId }, { it.query }).mapValues { (_, queries) ->
@@ -139,7 +141,8 @@ internal fun NotesPanel(
                         overflow = TextOverflow.Ellipsis,
                     )
                     row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                    val block = if (row.type == "CARD") row.cardBlock(displayedBlobSha, displayedBlobSha) else null
+                    val block =
+                        if (row.type == "CARD") row.cardBlock(removed, displayedBlobSha, displayedBlobSha) else null
                     block?.let { Text(it.reason, style = MaterialTheme.typography.labelLarge) }
                     row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
                     status(row, displayedBlobSha, notShown)?.let {
