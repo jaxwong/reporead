@@ -14,8 +14,8 @@ import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.github.GitHubHttp;
+import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -354,11 +354,18 @@ class RepositorySyncTest {
                 .list();
     }
 
-    /** The time a refresh published its snapshot at, from its own answer; PostgreSQL keeps microseconds. */
+    /** The time a refresh published its snapshot at, from its own answer. */
     private static Instant syncedAt(ResultActions refresh) throws Exception {
         String body =
                 refresh.andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-        return Instant.parse(JsonPath.read(body, "$.syncedAt")).truncatedTo(ChronoUnit.MICROS);
+        return Instant.parse(JsonPath.read(body, "$.syncedAt"));
+    }
+
+    /** A row records its refresh's time as PostgreSQL keeps it: to the microsecond, which the driver rounds to. */
+    private static void assertRecordedAt(Instant syncedAt, Instant recorded) {
+        assertTrue(
+                Duration.between(syncedAt, recorded).abs().compareTo(Duration.ofNanos(1_000)) < 0,
+                "recorded " + recorded + " for a refresh at " + syncedAt);
     }
 
     @Test
@@ -391,18 +398,19 @@ class RepositorySyncTest {
                                 entry("new/moved.md", "100644", "blob", "6".repeat(40))),
                         MediaType.APPLICATION_JSON));
         var second = syncedAt(sync(alice, connection));
+        var recorded = changedAt("edited.md");
+        assertRecordedAt(second, recorded);
         assertNull(changedAt("same.md"));
         assertEquals(
                 sameVersion,
                 rowVersion("same.md"),
                 "a new commit that leaves a note unchanged does not rewrite its row");
-        assertEquals(second, changedAt("edited.md"));
-        assertEquals(second, changedAt("new.md"));
+        assertEquals(recorded, changedAt("new.md"));
         assertNull(changedAt("new/moved.md"), "a path-only move is not a content change");
         documents(alice, connection)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.documents[?(@.path == 'edited.md')].contentChangedAt")
-                        .value(second.toString()))
+                        .value(recorded.toString()))
                 .andExpect(jsonPath("$.documents[?(@.path == 'same.md')].contentChangedAt")
                         .value(contains((Object) null)));
 
@@ -421,8 +429,8 @@ class RepositorySyncTest {
                                 entry("gone.md", "100644", "blob", "5".repeat(40))),
                         MediaType.APPLICATION_JSON));
         var third = syncedAt(sync(alice, connection));
-        assertEquals(second, changedAt("edited.md"));
-        assertEquals(third, changedAt("gone.md"));
+        assertEquals(recorded, changedAt("edited.md"));
+        assertRecordedAt(third, changedAt("gone.md"));
     }
 
     @Test
