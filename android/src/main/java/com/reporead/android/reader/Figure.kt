@@ -38,9 +38,9 @@ import org.json.JSONObject
 import org.json.JSONTokener
 
 /**
- * One table or diagram of a note, full screen, with pinch zoom, turning with the phone even when rotation is locked.
- * It loads the saved copy of the version the reader showed in a second isolated page (no bridge, the same resources)
- * and asks the page to keep only that figure, so it is rebuilt from small keys when rotating recreates the activity.
+ * One table or diagram of a note, full screen, with pinch zoom, turning with the phone even when rotation is locked. It
+ * loads the saved copy of the version the reader showed in a second isolated page (no bridge, the same resources) and
+ * asks the page to keep only that figure, so it is rebuilt from small keys when rotating recreates the activity.
  * Highlights are neither drawn nor made here.
  */
 @Composable
@@ -53,8 +53,10 @@ fun FigureScreen(sync: com.reporead.android.sync.Sync, dao: LibraryDao, screen: 
         bars.hide(WindowInsets.Type.systemBars())
         onDispose {
             bars.show(WindowInsets.Type.systemBars())
-            // Rotating recreates the activity, which keeps the requested orientation; only leaving the figure resets it.
-            if (!activity.isChangingConfigurations) activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            // Rotating recreates the activity, which keeps the requested orientation; only leaving the figure resets
+            // it.
+            if (!activity.isChangingConfigurations)
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
     val note by produceState<NoteRow?>(null, screen) { value = dao.note(screen.documentId) }
@@ -64,22 +66,34 @@ fun FigureScreen(sync: com.reporead.android.sync.Sync, dao: LibraryDao, screen: 
         when {
             failure != null -> EmptyState(failure!!)
             saved == null -> Unit
-            saved.blobSha != screen.blobSha -> EmptyState("This note was updated since it was opened. Go back and open the table or diagram again.")
-            else -> AndroidView(
-                factory = { context -> figureView(context, sync, saved, screen.figure) { failure = it } },
-                onRelease = { it.destroy() },
-                modifier = Modifier.fillMaxSize(),
-            )
+            saved.blobSha != screen.blobSha ->
+                EmptyState("This note was updated since it was opened. Go back and open the table or diagram again.")
+            else ->
+                AndroidView(
+                    factory = { context -> figureView(context, sync, saved, screen.figure) { failure = it } },
+                    onRelease = { it.destroy() },
+                    modifier = Modifier.fillMaxSize(),
+                )
         }
-        IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape)) {
+        IconButton(
+            onClick = onBack,
+            modifier =
+                Modifier.align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
+        ) {
             AppIcon(R.drawable.ic_close, "Close full screen")
         }
     }
 }
 
-private fun figureView(context: android.content.Context, sync: com.reporead.android.sync.Sync, note: NoteRow, figure: String,
-                       onFailure: (String) -> Unit): WebView {
+private fun figureView(
+    context: android.content.Context,
+    sync: com.reporead.android.sync.Sync,
+    note: NoteRow,
+    figure: String,
+    onFailure: (String) -> Unit,
+): WebView {
     val assets = readerAssets(context)
     val main = Handler(Looper.getMainLooper())
     return WebView(context).apply {
@@ -89,25 +103,29 @@ private fun figureView(context: android.content.Context, sync: com.reporead.andr
         settings.displayZoomControls = false
         // Hidden until the page has removed everything but the figure.
         alpha = 0f
-        webViewClient = object : WebViewClient() {
-            // Nothing navigates here; links are followed in the reader.
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
+        webViewClient =
+            object : WebViewClient() {
+                // Nothing navigates here; links are followed in the reader.
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
 
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync.images, note, request.url)
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                    readerResource(assets, sync.images, note, request.url)
 
-            override fun onPageFinished(view: WebView, url: String) = awaitRendered(view, main) { state, _ ->
-                if (state != "ready") {
-                    Log.w("RepoRead", "Figure page did not render; documentId=${note.documentId} state=$state")
-                    onFailure("This note could not be displayed.")
-                    return@awaitRendered
-                }
-                view.evaluateJavascript("window.reporead.figure(${JSONObject.quote(figure)})") { encoded ->
-                    val shown = JSONTokener(encoded).nextValue() == true
-                    Log.i("RepoRead", "Figure shown; documentId=${note.documentId} figure=$figure found=$shown")
-                    if (shown) view.alpha = 1f else onFailure("That table or diagram is not in this version of the note.")
-                }
+                override fun onPageFinished(view: WebView, url: String) =
+                    awaitRendered(view, main) { state, _ ->
+                        if (state != "ready") {
+                            Log.w("RepoRead", "Figure page did not render; documentId=${note.documentId} state=$state")
+                            onFailure("This note could not be displayed.")
+                            return@awaitRendered
+                        }
+                        view.evaluateJavascript("window.reporead.figure(${JSONObject.quote(figure)})") { encoded ->
+                            val shown = JSONTokener(encoded).nextValue() == true
+                            Log.i("RepoRead", "Figure shown; documentId=${note.documentId} figure=$figure found=$shown")
+                            if (shown) view.alpha = 1f
+                            else onFailure("That table or diagram is not in this version of the note.")
+                        }
+                    }
             }
-        }
         loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
     }
 }

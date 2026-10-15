@@ -23,7 +23,10 @@ private const val WORK_NAME = "sync-local-changes"
 /** A burst of reading saves (one per scroll stop) becomes one sync. */
 private val SETTLE: Duration = Duration.ofSeconds(5)
 
-/** Doubling from 30 s, ten attempts span about 8.5 hours of server or GitHub failure; time without a network does not count. */
+/**
+ * Doubling from 30 s, ten attempts span about 8.5 hours of server or GitHub failure; time without a network does not
+ * count.
+ */
 private val FIRST_BACKOFF: Duration = Duration.ofSeconds(30)
 private const val MAX_ATTEMPTS = 10
 
@@ -44,11 +47,12 @@ fun appSync(context: Context): Sync {
  * so the run cannot miss it; sending again is idempotent (mutation ids, last-write-wins positions; ADR-08).
  */
 private fun requestSync(context: Context) {
-    val request = OneTimeWorkRequestBuilder<SyncWorker>()
-        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-        .setInitialDelay(SETTLE)
-        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, FIRST_BACKOFF)
-        .build()
+    val request =
+        OneTimeWorkRequestBuilder<SyncWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setInitialDelay(SETTLE)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, FIRST_BACKOFF)
+            .build()
     WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
 }
 
@@ -57,21 +61,24 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 }
 
 /**
- * One background run: sends what waits and reads the server's lists, as library open does. An unreachable server, a 5xx,
- * or GitHub unavailable is tried again by WorkManager; anything else (signed out, access denied) waits for the next
- * change or library open, which show it. [attempt] counts from 0.
+ * One background run: sends what waits and reads the server's lists, as library open does. An unreachable server, a
+ * 5xx, or GitHub unavailable is tried again by WorkManager; anything else (signed out, access denied) waits for the
+ * next change or library open, which show it. [attempt] counts from 0.
  */
 internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
-    val synced = try {
-        sync.syncWaitingChanges()
-    } catch (error: ApiException) {
-        return afterFailure(error, attempt)
-    }
+    val synced =
+        try {
+            sync.syncWaitingChanges()
+        } catch (error: ApiException) {
+            return afterFailure(error, attempt)
+        }
     if (synced == null) {
         Log.i("RepoRead", "Background sync: nothing waiting; attempt=$attempt")
         return Result.success()
     }
-    synced.notSent?.let { return afterFailure(it, attempt) }
+    synced.notSent?.let {
+        return afterFailure(it, attempt)
+    }
     Log.i("RepoRead", "Background sync done; attempt=$attempt refused=${synced.refused.size}")
     return Result.success()
 }

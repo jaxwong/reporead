@@ -23,9 +23,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.reporead.android.R
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
-import com.reporead.android.R
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.CardBlock
@@ -48,39 +48,59 @@ private data class Backlinks(val notes: List<DocumentRow>, val saved: Int, val l
 /** An edit the server refused because another edit landed first: the user picks which text to keep. */
 private data class Conflict(val current: AnnotationRow, val mine: String?)
 
-private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<String>): String? = when {
-    row.state == AnnotationState.REFUSED -> "Not saved to the server: ${row.rejection}"
-    row.state == AnnotationState.UNSENT -> "Saved on this phone; waiting to sync"
-    row.orphanedIn(displayedBlobSha) -> "The note changed and this passage could not be found reliably. Originally: …${row.prefixText}[${row.exactText}]${row.suffixText}…"
-    row.drawn.blobSha != displayedBlobSha -> "Placed in another version of this note; not shown in the text"
-    row.mutationId in notShown -> "Its text was not found in this version; not shown"
-    row.drawn.exactText != row.exactText -> "Followed an edit of the note; now “${row.drawn.exactText}”"
-    else -> null
-}
+private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<String>): String? =
+    when {
+        row.state == AnnotationState.REFUSED -> "Not saved to the server: ${row.rejection}"
+        row.state == AnnotationState.UNSENT -> "Saved on this phone; waiting to sync"
+        row.orphanedIn(displayedBlobSha) ->
+            "The note changed and this passage could not be found reliably. Originally: …${row.prefixText}[${row.exactText}]${row.suffixText}…"
+        row.drawn.blobSha != displayedBlobSha -> "Placed in another version of this note; not shown in the text"
+        row.mutationId in notShown -> "Its text was not found in this version; not shown"
+        row.drawn.exactText != row.exactText -> "Followed an edit of the note; now “${row.drawn.exactText}”"
+        else -> null
+    }
 
 @Composable
-internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, displayedBlobSha: String, notShown: Set<String>, sync: Sync,
-                        dao: LibraryDao, scope: CoroutineScope, onReveal: (AnnotationRow) -> Unit,
-                        onMessage: (String?) -> Unit, onMakeQuestion: (AnnotationRow) -> Unit, onReattach: (AnnotationRow) -> Unit, onOpenNote: (DocumentRow) -> Unit, modifier: Modifier) {
+internal fun NotesPanel(
+    documentId: Long,
+    annotations: List<AnnotationRow>,
+    displayedBlobSha: String,
+    notShown: Set<String>,
+    sync: Sync,
+    dao: LibraryDao,
+    scope: CoroutineScope,
+    onReveal: (AnnotationRow) -> Unit,
+    onMessage: (String?) -> Unit,
+    onMakeQuestion: (AnnotationRow) -> Unit,
+    onReattach: (AnnotationRow) -> Unit,
+    onOpenNote: (DocumentRow) -> Unit,
+    modifier: Modifier,
+) {
     var editing by remember { mutableStateOf<AnnotationRow?>(null) }
     var conflict by remember { mutableStateOf<Conflict?>(null) }
     /** The highlight or card the user asked to delete, until they confirm. */
     var deleting by remember { mutableStateOf<AnnotationRow?>(null) }
     // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
-    val backlinks by produceState<Backlinks?>(null, documentId) {
-        val note = dao.document(documentId)
-        if (note == null) {
-            value = Backlinks(emptyList(), 0, 0)
-            return@produceState
+    val backlinks by
+        produceState<Backlinks?>(null, documentId) {
+            val note = dao.document(documentId)
+            if (note == null) {
+                value = Backlinks(emptyList(), 0, 0)
+                return@produceState
+            }
+            val documents = dao.documentsOnce(note.repositoryId)
+            val started = System.currentTimeMillis()
+            val links =
+                dao.noteLinks(note.repositoryId).groupBy({ it.documentId }, { it.query }).mapValues { (_, queries) ->
+                    queries.mapNotNull(::noteLinkTarget)
+                }
+            val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, links) }
+            Log.i(
+                "RepoRead",
+                "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}",
+            )
+            value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
         }
-        val documents = dao.documentsOnce(note.repositoryId)
-        val started = System.currentTimeMillis()
-        val links = dao.noteLinks(note.repositoryId).groupBy({ it.documentId }, { it.query })
-            .mapValues { (_, queries) -> queries.mapNotNull(::noteLinkTarget) }
-        val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, links) }
-        Log.i("RepoRead", "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}")
-        value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
-    }
 
     // Editing and deleting acknowledged highlights need the server; offline they fail visibly and change nothing.
     fun save(row: AnnotationRow, note: String?, expectedVersion: Int) = scope.launch {
@@ -91,9 +111,12 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
             if (error.code == "ANNOTATION_CONFLICT") {
                 try {
                     sync.refreshAnnotations(row.documentId)
-                    dao.annotation(row.mutationId)?.let { conflict = Conflict(it, note) } ?: onMessage("This highlight was deleted elsewhere.")
+                    dao.annotation(row.mutationId)?.let { conflict = Conflict(it, note) }
+                        ?: onMessage("This highlight was deleted elsewhere.")
                 } catch (refresh: ApiException) {
-                    onMessage("This note was changed elsewhere, and the latest version could not be loaded. ${refresh.describe()}")
+                    onMessage(
+                        "This note was changed elsewhere, and the latest version could not be loaded. ${refresh.describe()}"
+                    )
                 }
             } else {
                 onMessage("Edit not saved. ${error.describe()}")
@@ -109,32 +132,45 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
         LazyColumn {
             items(annotations, key = { it.mutationId }) { row ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text("“${if (row.type == "CARD") row.drawn.exactText else row.exactText}”", style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        "“${if (row.type == "CARD") row.drawn.exactText else row.exactText}”",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                     val block = if (row.type == "CARD") row.cardBlock(displayedBlobSha, displayedBlobSha) else null
                     block?.let { Text(it.reason, style = MaterialTheme.typography.labelLarge) }
                     row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
-                    status(row, displayedBlobSha, notShown)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    status(row, displayedBlobSha, notShown)?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
+                    }
                     val shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown
                     Row {
                         if (shown) TextButton(onClick = { onReveal(row) }) { Text("Show") }
-                        if (shown && row.type == "HIGHLIGHT") TextButton(onClick = { onMakeQuestion(row) }) { Text("Make a question") }
+                        if (shown && row.type == "HIGHLIGHT")
+                            TextButton(onClick = { onMakeQuestion(row) }) { Text("Make a question") }
                         if (shown && block == CardBlock.UNCONFIRMED && row.serverId != null) {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    try {
-                                        sync.checkCard(row, displayedBlobSha)
-                                        onMessage("Card confirmed for this version.")
-                                    } catch (error: ApiException) {
-                                        onMessage("Card not confirmed. ${error.describe()}")
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            sync.checkCard(row, displayedBlobSha)
+                                            onMessage("Card confirmed for this version.")
+                                        } catch (error: ApiException) {
+                                            onMessage("Card not confirmed. ${error.describe()}")
+                                        }
                                     }
                                 }
-                            }) { Text("Answer is correct") }
+                            ) {
+                                Text("Answer is correct")
+                            }
                         }
                     }
                     Row {
                         // Online: the server verifies the new selection against the version it was made on.
-                        if (row.serverId != null && !shown) TextButton(onClick = { onReattach(row) }) { Text("Reattach") }
+                        if (row.serverId != null && !shown)
+                            TextButton(onClick = { onReattach(row) }) { Text("Reattach") }
                         if (row.serverId != null) TextButton(onClick = { editing = row }) { Text("Edit note") }
                         TextButton(onClick = { deleting = row }) { Text("Delete") }
                     }
@@ -142,54 +178,92 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
                 HorizontalDivider()
             }
             item {
-                Text("Linked from", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp))
+                Text(
+                    "Linked from",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp),
+                )
                 val found = backlinks
-                val summary = when {
-                    found == null -> "Finding notes that link here…"
-                    found.listed == 0 -> "This note isn't in a saved note list, so links to it can't be found. Refresh the repository."
-                    else -> listOfNotNull(
-                        if (found.notes.isEmpty()) "No saved note links here." else null,
-                        if (found.saved < found.listed) "Searched the ${found.saved} of ${found.listed} notes saved on this phone." else null,
-                    ).joinToString(" ").ifEmpty { null }
+                val summary =
+                    when {
+                        found == null -> "Finding notes that link here…"
+                        found.listed == 0 ->
+                            "This note isn't in a saved note list, so links to it can't be found. Refresh the repository."
+                        else ->
+                            listOfNotNull(
+                                    if (found.notes.isEmpty()) "No saved note links here." else null,
+                                    if (found.saved < found.listed)
+                                        "Searched the ${found.saved} of ${found.listed} notes saved on this phone."
+                                    else null,
+                                )
+                                .joinToString(" ")
+                                .ifEmpty { null }
+                    }
+                summary?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
                 }
-                summary?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) }
             }
             items(backlinks?.notes.orEmpty(), key = { "linked-${it.id}" }) { from ->
-                EntryRow(from.title, folderOf(from.path).ifEmpty { null }, R.drawable.ic_description) { onOpenNote(from) }
+                EntryRow(from.title, folderOf(from.path).ifEmpty { null }, R.drawable.ic_description) {
+                    onOpenNote(from)
+                }
             }
         }
     }
 
     editing?.let { row ->
-        NoteDialog(title = "Edit note", quote = row.exactText, initial = row.note ?: "", onDismiss = { editing = null }, onSave = { text ->
-            editing = null
-            save(row, text.ifBlank { null }, row.version)
-        })
+        NoteDialog(
+            title = "Edit note",
+            quote = row.exactText,
+            initial = row.note ?: "",
+            onDismiss = { editing = null },
+            onSave = { text ->
+                editing = null
+                save(row, text.ifBlank { null }, row.version)
+            },
+        )
     }
     deleting?.let { row ->
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text(if (row.type == "CARD") "Delete this card?" else "Delete this highlight?") },
             text = {
-                Text("“${row.drawn.exactText}”" + when {
-                    row.type == "CARD" -> "\n\nIts question and its review history are deleted too. This cannot be undone."
-                    row.note != null -> "\n\nIts note is deleted too. This cannot be undone."
-                    else -> "\n\nThis cannot be undone."
-                }, maxLines = 8, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "“${row.drawn.exactText}”" +
+                        when {
+                            row.type == "CARD" ->
+                                "\n\nIts question and its review history are deleted too. This cannot be undone."
+                            row.note != null -> "\n\nIts note is deleted too. This cannot be undone."
+                            else -> "\n\nThis cannot be undone."
+                        },
+                    maxLines = 8,
+                    overflow = TextOverflow.Ellipsis,
+                )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    deleting = null
-                    scope.launch {
-                        try {
-                            sync.deleteAnnotation(row)
-                            onMessage(null)
-                        } catch (error: ApiException) {
-                            onMessage(if (error.code == "ANNOTATION_CONFLICT") "This highlight was changed elsewhere; sync and review it before deleting."
-                                else "Not deleted. ${error.describe()}")
+                TextButton(
+                    onClick = {
+                        deleting = null
+                        scope.launch {
+                            try {
+                                sync.deleteAnnotation(row)
+                                onMessage(null)
+                            } catch (error: ApiException) {
+                                onMessage(
+                                    if (error.code == "ANNOTATION_CONFLICT")
+                                        "This highlight was changed elsewhere; sync and review it before deleting."
+                                    else "Not deleted. ${error.describe()}"
+                                )
+                            }
                         }
                     }
-                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
@@ -204,26 +278,56 @@ internal fun NotesPanel(documentId: Long, annotations: List<AnnotationRow>, disp
                     Text("Your edit: ${mine ?: "(none)"}", Modifier.padding(top = 8.dp))
                 }
             },
-            confirmButton = { TextButton(onClick = { conflict = null; save(current, mine, current.version) }) { Text("Keep mine") } },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        conflict = null
+                        save(current, mine, current.version)
+                    }
+                ) {
+                    Text("Keep mine")
+                }
+            },
             dismissButton = { TextButton(onClick = { conflict = null }) { Text("Keep current") } },
         )
     }
 }
 
 @Composable
-internal fun NoteDialog(title: String, quote: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit, label: String = "Note", allowBlank: Boolean = true) {
+internal fun NoteDialog(
+    title: String,
+    quote: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    label: String = "Note",
+    allowBlank: Boolean = true,
+) {
     var text by rememberSaveable(title, quote, initial) { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
-                Text("“$quote”", maxLines = 4, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
-                // No length cap here: the server owns it (AnnotationController.MAX_TEXT_CHARS) and its refusal is shown.
-                OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().padding(top = 8.dp), label = { Text(label) })
+                Text(
+                    "“$quote”",
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                // No length cap here: the server owns it (AnnotationController.MAX_TEXT_CHARS) and its refusal is
+                // shown.
+                OutlinedTextField(
+                    text,
+                    { text = it },
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    label = { Text(label) },
+                )
             }
         },
-        confirmButton = { TextButton(enabled = allowBlank || text.isNotBlank(), onClick = { onSave(text) }) { Text("Save") } },
+        confirmButton = {
+            TextButton(enabled = allowBlank || text.isNotBlank(), onClick = { onSave(text) }) { Text("Save") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

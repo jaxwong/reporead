@@ -6,8 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -30,8 +30,6 @@ import com.reporead.android.auth.startSignIn
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.LocalStore
-import com.reporead.android.sync.appApi
-import com.reporead.android.sync.appSync
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
@@ -41,67 +39,95 @@ import com.reporead.android.library.ReviewScreen
 import com.reporead.android.reader.FigureScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
+import com.reporead.android.sync.appApi
+import com.reporead.android.sync.appSync
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** One navigation entry, encoded as strings so the back stack survives process death. */
 sealed interface Screen {
     data object Repositories : Screen
+
     data object Available : Screen
+
     data class Folder(val repositoryId: Long, val repositoryName: String, val path: String) : Screen
-    /** [heading]: open at this heading (from a note link) instead of the saved reading position; [annotation]: at this highlight. */
-    data class Reader(val documentId: Long, val title: String, val heading: String? = null, val annotation: String? = null) : Screen
+
+    /**
+     * [heading]: open at this heading (from a note link) instead of the saved reading position; [annotation]: at this
+     * highlight.
+     */
+    data class Reader(
+        val documentId: Long,
+        val title: String,
+        val heading: String? = null,
+        val annotation: String? = null,
+    ) : Screen
+
     /** One table or diagram ([figure], the page's id for it) of the saved version [blobSha] of a note, full screen. */
     data class Figure(val documentId: Long, val blobSha: String, val figure: String, val title: String) : Screen
+
     data object Notebook : Screen
+
     data object Review : Screen
+
     /** A practice session over the questions of one topic's interview folder; null mixes every topic. */
     data class Practice(val topic: String?) : Screen
+
     data object Search : Screen
 }
 
-private fun encode(screen: Screen): List<String> = when (screen) {
-    Screen.Repositories -> listOf("repositories")
-    Screen.Available -> listOf("available")
-    is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
-    is Screen.Reader -> listOf("reader", screen.documentId.toString(), screen.title, screen.heading.orEmpty(), screen.annotation.orEmpty())
-    is Screen.Figure -> listOf("figure", screen.documentId.toString(), screen.blobSha, screen.figure, screen.title)
-    Screen.Notebook -> listOf("notebook")
-    Screen.Review -> listOf("review")
-    is Screen.Practice -> listOfNotNull("practice", screen.topic)
-    Screen.Search -> listOf("search")
-}
+private fun encode(screen: Screen): List<String> =
+    when (screen) {
+        Screen.Repositories -> listOf("repositories")
+        Screen.Available -> listOf("available")
+        is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
+        is Screen.Reader ->
+            listOf(
+                "reader",
+                screen.documentId.toString(),
+                screen.title,
+                screen.heading.orEmpty(),
+                screen.annotation.orEmpty(),
+            )
+        is Screen.Figure -> listOf("figure", screen.documentId.toString(), screen.blobSha, screen.figure, screen.title)
+        Screen.Notebook -> listOf("notebook")
+        Screen.Review -> listOf("review")
+        is Screen.Practice -> listOfNotNull("practice", screen.topic)
+        Screen.Search -> listOf("search")
+    }
 
-private fun decode(parts: List<String>): Screen = when (parts[0]) {
-    "repositories" -> Screen.Repositories
-    "available" -> Screen.Available
-    "folder" -> Screen.Folder(parts[1].toLong(), parts[2], parts[3])
-    "reader" -> Screen.Reader(parts[1].toLong(), parts[2], parts[3].ifEmpty { null }, parts[4].ifEmpty { null })
-    "figure" -> Screen.Figure(parts[1].toLong(), parts[2], parts[3], parts[4])
-    "notebook" -> Screen.Notebook
-    "review" -> Screen.Review
-    "practice" -> Screen.Practice(parts.getOrNull(1))
-    "search" -> Screen.Search
-    else -> error("Unknown saved screen ${parts[0]}")
-}
+private fun decode(parts: List<String>): Screen =
+    when (parts[0]) {
+        "repositories" -> Screen.Repositories
+        "available" -> Screen.Available
+        "folder" -> Screen.Folder(parts[1].toLong(), parts[2], parts[3])
+        "reader" -> Screen.Reader(parts[1].toLong(), parts[2], parts[3].ifEmpty { null }, parts[4].ifEmpty { null })
+        "figure" -> Screen.Figure(parts[1].toLong(), parts[2], parts[3], parts[4])
+        "notebook" -> Screen.Notebook
+        "review" -> Screen.Review
+        "practice" -> Screen.Practice(parts.getOrNull(1))
+        "search" -> Screen.Search
+        else -> error("Unknown saved screen ${parts[0]}")
+    }
 
-private val StackSaver = listSaver<List<Screen>, String>(
-    save = { stack -> stack.flatMap { screen -> encode(screen).let { listOf(it.size.toString()) + it } } },
-    restore = { flat ->
-        val stack = mutableListOf<Screen>()
-        var index = 0
-        while (index < flat.size) {
-            val size = flat[index].toInt()
-            stack += decode(flat.subList(index + 1, index + 1 + size))
-            index += size + 1
-        }
-        stack
-    },
-)
+private val StackSaver =
+    listSaver<List<Screen>, String>(
+        save = { stack -> stack.flatMap { screen -> encode(screen).let { listOf(it.size.toString()) + it } } },
+        restore = { flat ->
+            val stack = mutableListOf<Screen>()
+            var index = 0
+            while (index < flat.size) {
+                val size = flat[index].toInt()
+                stack += decode(flat.subList(index + 1, index + 1 + size))
+                index += size + 1
+            }
+            stack
+        },
+    )
 
 /**
- * The key of one back-stack entry's saved UI state. The index tells repeated screens apart (a note linking to a note that
- * links back), so each entry keeps its own state while it is in the stack.
+ * The key of one back-stack entry's saved UI state. The index tells repeated screens apart (a note linking to a note
+ * that links back), so each entry keeps its own state while it is in the stack.
  */
 private fun entryKey(index: Int, screen: Screen) = "$index:" + encode(screen).joinToString("\u001f")
 
@@ -120,7 +146,8 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     var signInMessage by remember { mutableStateOf<String?>(null) }
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     val scope = rememberCoroutineScope()
-    // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a summary
+    // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a
+    // summary
     // starts from) while covered, as they do across recreation; it is dropped once the entry leaves the stack.
     val screenStates = rememberSaveableStateHolder()
     var keptStates by remember { mutableStateOf(emptySet<String>()) }
@@ -172,44 +199,65 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     // Keyed by entry so each screen starts with its own remembered state, also when it follows one of the same kind (a
     // note opened from a note, a subfolder): otherwise an open notes panel or a status line carries over.
     key(current.last()) {
-    screenStates.SaveableStateProvider(current.last()) {
-    when (screen) {
-        Screen.Repositories ->
-        LibraryScreen(sync, dao, signedIn, push, onSignIn = signIn, onSignOut = {
-            scope.launch {
-                val message = try {
-                    api.delete("/api/app-auth/session")
-                    null
-                } catch (error: ApiException) {
-                    if (error.status == 401) null
-                    else "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
-                }
-                // Explicit sign-out removes this phone's copy of private notes, including unsynced changes.
-                sync.clearAll()
-                screenStates.removeState(ROOT_STATE)
-                store.clear()
-                store.dataOwner = null
-                signInMessage = message
-                stack = listOf(Screen.Repositories)
+        screenStates.SaveableStateProvider(current.last()) {
+            when (screen) {
+                Screen.Repositories ->
+                    LibraryScreen(
+                        sync,
+                        dao,
+                        signedIn,
+                        push,
+                        onSignIn = signIn,
+                        onSignOut = {
+                            scope.launch {
+                                val message =
+                                    try {
+                                        api.delete("/api/app-auth/session")
+                                        null
+                                    } catch (error: ApiException) {
+                                        if (error.status == 401) null
+                                        else
+                                            "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
+                                    }
+                                // Explicit sign-out removes this phone's copy of private notes, including unsynced
+                                // changes.
+                                sync.clearAll()
+                                screenStates.removeState(ROOT_STATE)
+                                store.clear()
+                                store.dataOwner = null
+                                signInMessage = message
+                                stack = listOf(Screen.Repositories)
+                            }
+                        },
+                        onAccountDeleted = {
+                            // The server deleted the account and its sessions, and Sync cleared this phone's copy.
+                            store.clear()
+                            store.dataOwner = null
+                            screenStates.removeState(ROOT_STATE)
+                            signInMessage =
+                                "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
+                            stack = listOf(Screen.Repositories)
+                        },
+                    )
+                Screen.Available ->
+                    AvailableScreen(api, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
+                is Screen.Folder ->
+                    FolderScreen(
+                        sync,
+                        dao,
+                        signedIn,
+                        screen,
+                        push,
+                        onBack = pop,
+                        onDisconnected = { stack = listOf(Screen.Repositories) },
+                    )
+                is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, screen, onBack = pop, push = push)
+                is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
+                Screen.Notebook -> NotebookScreen(dao, push, onBack = pop)
+                Screen.Review -> ReviewScreen(dao, sync, push, onBack = pop)
+                is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, push, onBack = pop)
+                Screen.Search -> SearchScreen(dao, push, onBack = pop)
             }
-        }, onAccountDeleted = {
-            // The server deleted the account and its sessions, and Sync cleared this phone's copy.
-            store.clear()
-            store.dataOwner = null
-            screenStates.removeState(ROOT_STATE)
-            signInMessage = "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
-            stack = listOf(Screen.Repositories)
-        })
-        Screen.Available -> AvailableScreen(api, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
-        is Screen.Folder -> FolderScreen(sync, dao, signedIn, screen, push, onBack = pop,
-            onDisconnected = { stack = listOf(Screen.Repositories) })
-        is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, screen, onBack = pop, push = push)
-        is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
-        Screen.Notebook -> NotebookScreen(dao, push, onBack = pop)
-        Screen.Review -> ReviewScreen(dao, sync, push, onBack = pop)
-        is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, push, onBack = pop)
-        Screen.Search -> SearchScreen(dao, push, onBack = pop)
-    }
-    }
+        }
     }
 }

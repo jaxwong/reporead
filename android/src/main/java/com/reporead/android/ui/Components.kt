@@ -31,18 +31,24 @@ import com.reporead.android.R
 
 /* Shared building blocks so every screen has the same bar, rows, and messages. */
 
-@Composable
-fun AppIcon(@DrawableRes icon: Int, description: String?) = Icon(painterResource(icon), description)
+@Composable fun AppIcon(@DrawableRes icon: Int, description: String?) = Icon(painterResource(icon), description)
 
 /** A screen's top bar: back arrow when [onBack] is set, a one-line title with an optional subtitle, and actions. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppBar(title: String, subtitle: String? = null, onBack: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
+fun AppBar(
+    title: String,
+    subtitle: String? = null,
+    onBack: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
     TopAppBar(
         title = {
             Column {
                 Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                subtitle?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         },
         navigationIcon = { onBack?.let { IconButton(onClick = it) { AppIcon(R.drawable.ic_arrow_back, "Back") } } },
@@ -59,7 +65,13 @@ fun OverflowMenu(items: List<MenuAction>) {
     Box {
         IconButton(onClick = { open = true }) { AppIcon(R.drawable.ic_more_vert, "More") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            for (item in items) DropdownMenuItem(text = { Text(item.label) }, onClick = { open = false; item.onClick() })
+            for (item in items) DropdownMenuItem(
+                text = { Text(item.label) },
+                onClick = {
+                    open = false
+                    item.onClick()
+                },
+            )
         }
     }
 }
@@ -70,10 +82,19 @@ fun counted(count: Int, one: String, many: String = one + "s") = "$count ${if (c
 /** The folder part of a repository path ("" at the root), shown under a note's title instead of the whole path. */
 fun folderOf(path: String) = path.substringBeforeLast('/', "")
 
-/** One note or folder in a list. [progress] (0–100) draws a reading-progress bar; [flags] are short states such as "Updated". */
+/**
+ * One note or folder in a list. [progress] (0–100) draws a reading-progress bar; [flags] are short states such as
+ * "Updated".
+ */
 @Composable
-fun EntryRow(title: String, detail: String?, @DrawableRes icon: Int, flags: List<String> = emptyList(), progress: Int? = null,
-             onClick: () -> Unit) {
+fun EntryRow(
+    title: String,
+    detail: String?,
+    @DrawableRes icon: Int,
+    flags: List<String> = emptyList(),
+    progress: Int? = null,
+    onClick: () -> Unit,
+) {
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
         leadingContent = { AppIcon(icon, null) },
@@ -83,7 +104,11 @@ fun EntryRow(title: String, detail: String?, @DrawableRes icon: Int, flags: List
                 val line = (flags + listOfNotNull(detail?.ifEmpty { null })).joinToString(" · ")
                 if (line.isNotEmpty()) Text(line, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 progress?.let {
-                    LinearProgressIndicator(progress = { it / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp), drawStopIndicator = {})
+                    LinearProgressIndicator(
+                        progress = { it / 100f },
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        drawStopIndicator = {},
+                    )
                 }
             }
         },
@@ -93,23 +118,35 @@ fun EntryRow(title: String, detail: String?, @DrawableRes icon: Int, flags: List
 
 fun LazyListScope.sectionTitle(title: String) {
     item(key = "section:$title") {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp),
+        )
     }
 }
 
 /** A calm explanation where a list would be, so an empty screen never looks broken. */
 @Composable
 fun EmptyState(text: String) {
-    Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(24.dp))
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(24.dp),
+    )
 }
 
 /** A one-line status or failure under the top bar. */
 @Composable
 fun StatusLine(text: String?) {
     text?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp))
+        Text(
+            it,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        )
     }
 }

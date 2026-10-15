@@ -28,66 +28,140 @@ import kotlinx.coroutines.flow.Flow
  */
 
 @Entity(tableName = "repositories")
-data class RepositoryRow(@PrimaryKey val id: Long, val fullName: String, val documentCount: Int, val lastSyncedCommitSha: String?)
+data class RepositoryRow(
+    @PrimaryKey val id: Long,
+    val fullName: String,
+    val documentCount: Int,
+    val lastSyncedCommitSha: String?,
+)
 
-/** [changedAt]: when a repository refresh found the note new or changed (epoch ms); null if RepoRead never saw it change. */
+/**
+ * [changedAt]: when a repository refresh found the note new or changed (epoch ms); null if RepoRead never saw it
+ * change.
+ */
 @Entity(tableName = "documents", indices = [Index("repositoryId")])
-data class DocumentRow(@PrimaryKey val id: Long, val repositoryId: Long, val path: String, val title: String, val blobSha: String,
-                       val changedAt: Long? = null)
+data class DocumentRow(
+    @PrimaryKey val id: Long,
+    val repositoryId: Long,
+    val path: String,
+    val title: String,
+    val blobSha: String,
+    val changedAt: Long? = null,
+)
 
-/** A note in the library's change lists: its current version, when it was seen changing, and the version last read (null: never). */
-data class ChangedNote(val documentId: Long, val title: String, val path: String, val blobSha: String, val changedAt: Long?,
-                       val lastReadBlobSha: String?)
+/**
+ * A note in the library's change lists: its current version, when it was seen changing, and the version last read
+ * (null: never).
+ */
+data class ChangedNote(
+    val documentId: Long,
+    val title: String,
+    val path: String,
+    val blobSha: String,
+    val changedAt: Long?,
+    val lastReadBlobSha: String?,
+)
 
 /**
  * The latest complete rendered copy of an opened note, identified by document and source version. [searchText] is its
- * blocks' canonical text, one per line; null for a copy saved before search existed. [renderFormat] is the server's page
- * format for [html]; 0 for copies saved before formats were recorded.
+ * blocks' canonical text, one per line; null for a copy saved before search existed. [renderFormat] is the server's
+ * page format for [html]; 0 for copies saved before formats were recorded.
  */
 @Entity(tableName = "notes")
-data class NoteRow(@PrimaryKey val documentId: Long, val blobSha: String, val path: String,
-                   val title: String, val html: String, val fetchedAt: Long, val searchText: String? = null,
-                   @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0)
-
+data class NoteRow(
+    @PrimaryKey val documentId: Long,
+    val blobSha: String,
+    val path: String,
+    val title: String,
+    val html: String,
+    val fetchedAt: Long,
+    val searchText: String? = null,
+    @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0,
+)
 
 private val NOTE_LINK_QUERY = Regex("""href="/note-link\?([^"]*)"""")
 
 /** The query of each /note-link in a saved page, in page order, as the reader receives it when the link is tapped. */
-fun noteLinkQueries(html: String): List<String> = NOTE_LINK_QUERY.findAll(html).map { it.groupValues[1].replace("&amp;", "&") }.toList()
+fun noteLinkQueries(html: String): List<String> =
+    NOTE_LINK_QUERY.findAll(html).map { it.groupValues[1].replace("&amp;", "&") }.toList()
 
 /**
  * One /note-link in a saved page, written with the page ([LibraryDao.saveNote]) and deleted with it, so Linked from
  * reads these rows instead of every saved page.
  */
-@Entity(tableName = "note_links", primaryKeys = ["documentId", "position"],
-    foreignKeys = [ForeignKey(entity = NoteRow::class, parentColumns = ["documentId"], childColumns = ["documentId"], onDelete = ForeignKey.CASCADE)])
+@Entity(
+    tableName = "note_links",
+    primaryKeys = ["documentId", "position"],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = NoteRow::class,
+                parentColumns = ["documentId"],
+                childColumns = ["documentId"],
+                onDelete = ForeignKey.CASCADE,
+            )
+        ],
+)
 data class NoteLinkRow(val documentId: Long, val position: Int, val query: String)
 
-data class PracticePage(val documentId: Long, val title: String, val path: String, val html: String?, val blobSha: String?)
+data class PracticePage(
+    val documentId: Long,
+    val title: String,
+    val path: String,
+    val html: String?,
+    val blobSha: String?,
+)
 
 /** A saved note matching a search: [searchText] is set when it matched by text, for a snippet. */
 data class NoteMatch(val documentId: Long, val title: String, val path: String, val searchText: String?)
 
 /** A highlight matching a search, with its note's title from the saved lists or saved copies. */
-data class HighlightMatch(val documentId: Long, val title: String, val path: String, val exactText: String, val note: String?)
+data class HighlightMatch(
+    val documentId: Long,
+    val title: String,
+    val path: String,
+    val exactText: String,
+    val note: String?,
+)
 
 /**
  * [pending] is a local save the backend has not acknowledged. Last write wins by [lastReadAt]. [deleted]: the note was
  * not in the latest complete repository refresh, as last reported by the backend.
  */
 @Entity(tableName = "reading_states")
-data class ReadingRow(@PrimaryKey val documentId: Long, val title: String, val path: String, val lastReadBlobSha: String,
-                      val progressPercent: Int, val anchorJson: String, val lastReadAt: Long, val pending: Boolean,
-                      @ColumnInfo(defaultValue = "0") val deleted: Boolean = false)
+data class ReadingRow(
+    @PrimaryKey val documentId: Long,
+    val title: String,
+    val path: String,
+    val lastReadBlobSha: String,
+    val progressPercent: Int,
+    val anchorJson: String,
+    val lastReadAt: Long,
+    val pending: Boolean,
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
+)
 
 /** A row with bookmarked=false is a pending removal; it is deleted once the backend acknowledges it. */
 @Entity(tableName = "bookmarks")
-data class BookmarkRow(@PrimaryKey val documentId: Long, val title: String, val path: String, val sourceBlobSha: String,
-                       val bookmarked: Boolean, val pending: Boolean, val changedAt: Long,
-                       @ColumnInfo(defaultValue = "0") val deleted: Boolean = false)
+data class BookmarkRow(
+    @PrimaryKey val documentId: Long,
+    val title: String,
+    val path: String,
+    val sourceBlobSha: String,
+    val bookmarked: Boolean,
+    val pending: Boolean,
+    val changedAt: Long,
+    @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
+)
 
 /** A passage in one source version of a note, as UTF-16 offsets into a block's canonical text. */
-data class Passage(val blobSha: String, val blockId: String, val startOffset: Int, val endOffset: Int, val exactText: String)
+data class Passage(
+    val blobSha: String,
+    val blockId: String,
+    val startOffset: Int,
+    val endOffset: Int,
+    val exactText: String,
+)
 
 /** Where a highlight or card stands with the server. */
 enum class AnnotationState {
@@ -107,41 +181,62 @@ enum class AnnotationState {
 /**
  * A highlight, keyed by the client mutation id that created it (the server returns it for every highlight). [state]
  * says where it stands with the server; the row is the local annotation and its unsent mutation in one write.
- * [rejection] is set only when [state] is REFUSED. The source/block/offset/exact fields and [prefixText]/[suffixText] are the original selection. [location], [status]
- * and [resolvedBlobSha] are the server's: where the highlight is now and what that means for that version (ANCHORED,
- * REANCHORED, ORPHANED). A pending creation has none of them and is drawn where it was made.
+ * [rejection] is set only when [state] is REFUSED. The source/block/offset/exact fields and [prefixText]/[suffixText]
+ * are the original selection. [location], [status] and [resolvedBlobSha] are the server's: where the highlight is now
+ * and what that means for that version (ANCHORED, REANCHORED, ORPHANED). A pending creation has none of them and is
+ * drawn where it was made.
  */
 @Entity(tableName = "annotations", indices = [Index("documentId")])
-data class AnnotationRow(@PrimaryKey val mutationId: String, val serverId: Long?, val documentId: Long, val sourceBlobSha: String,
-                         val blockId: String, val startOffset: Int, val endOffset: Int, val exactText: String, val note: String?,
-                         val version: Int, val createdAt: Long,
-                         @ColumnInfo(defaultValue = "'ACKNOWLEDGED'") val state: AnnotationState, val rejection: String? = null,
-                         @ColumnInfo(defaultValue = "") val prefixText: String = "",
-                         @ColumnInfo(defaultValue = "") val suffixText: String = "",
-                         val status: String? = null, val resolvedBlobSha: String? = null,
-                         @Embedded(prefix = "location") val location: Passage? = null,
-                         @ColumnInfo(defaultValue = "'HIGHLIGHT'") val type: String = "HIGHLIGHT",
-                         val question: String? = null, val checkedBlobSha: String? = null,
-                         @ColumnInfo(defaultValue = "''") val cachedTitle: String = "",
-                         @ColumnInfo(defaultValue = "''") val cachedPath: String = "",
-                         val cachedCurrentBlobSha: String? = null,
-                         @ColumnInfo(defaultValue = "0") val cachedDeleted: Boolean = false) {
+data class AnnotationRow(
+    @PrimaryKey val mutationId: String,
+    val serverId: Long?,
+    val documentId: Long,
+    val sourceBlobSha: String,
+    val blockId: String,
+    val startOffset: Int,
+    val endOffset: Int,
+    val exactText: String,
+    val note: String?,
+    val version: Int,
+    val createdAt: Long,
+    @ColumnInfo(defaultValue = "'ACKNOWLEDGED'") val state: AnnotationState,
+    val rejection: String? = null,
+    @ColumnInfo(defaultValue = "") val prefixText: String = "",
+    @ColumnInfo(defaultValue = "") val suffixText: String = "",
+    val status: String? = null,
+    val resolvedBlobSha: String? = null,
+    @Embedded(prefix = "location") val location: Passage? = null,
+    @ColumnInfo(defaultValue = "'HIGHLIGHT'") val type: String = "HIGHLIGHT",
+    val question: String? = null,
+    val checkedBlobSha: String? = null,
+    @ColumnInfo(defaultValue = "''") val cachedTitle: String = "",
+    @ColumnInfo(defaultValue = "''") val cachedPath: String = "",
+    val cachedCurrentBlobSha: String? = null,
+    @ColumnInfo(defaultValue = "0") val cachedDeleted: Boolean = false,
+) {
     /** Where to draw it: the server's current location, or the original selection while the creation is pending. */
-    val drawn: Passage get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
+    val drawn: Passage
+        get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
     /** The server could not find it reliably in [blobSha]. */
     fun orphanedIn(blobSha: String) = status == "ORPHANED" && resolvedBlobSha == blobSha
 
-    /** Why this card cannot be graded in [currentBlobSha] (null: unlisted) with [savedBlobSha] saved; the phone's one rule (ADR-13). */
-    fun cardBlock(currentBlobSha: String?, savedBlobSha: String?): CardBlock? = when {
-        state == AnnotationState.REFUSED -> CardBlock.NOT_SYNCED
-        cachedDeleted -> CardBlock.REMOVED
-        status == "ORPHANED" -> CardBlock.ORPHANED
-        checkedBlobSha == null || checkedBlobSha != currentBlobSha || drawn.blobSha != currentBlobSha ||
-            (cachedCurrentBlobSha != null && cachedCurrentBlobSha != currentBlobSha) -> CardBlock.UNCONFIRMED
-        savedBlobSha != currentBlobSha -> CardBlock.NOT_SAVED
-        else -> null
-    }
+    /**
+     * Why this card cannot be graded in [currentBlobSha] (null: unlisted) with [savedBlobSha] saved; the phone's one
+     * rule (ADR-13).
+     */
+    fun cardBlock(currentBlobSha: String?, savedBlobSha: String?): CardBlock? =
+        when {
+            state == AnnotationState.REFUSED -> CardBlock.NOT_SYNCED
+            cachedDeleted -> CardBlock.REMOVED
+            status == "ORPHANED" -> CardBlock.ORPHANED
+            checkedBlobSha == null ||
+                checkedBlobSha != currentBlobSha ||
+                drawn.blobSha != currentBlobSha ||
+                (cachedCurrentBlobSha != null && cachedCurrentBlobSha != currentBlobSha) -> CardBlock.UNCONFIRMED
+            savedBlobSha != currentBlobSha -> CardBlock.NOT_SAVED
+            else -> null
+        }
 }
 
 enum class CardBlock(val reason: String) {
@@ -154,37 +249,44 @@ enum class CardBlock(val reason: String) {
 
 /**
  * The version a note was last read in before a newer one was shown, kept until a change summary from it has been shown,
- * so opening the note offline or leaving before the summary loads does not use it up. Phone-only: what the user has
- * not seen yet is not the server's.
+ * so opening the note offline or leaving before the summary loads does not use it up. Phone-only: what the user has not
+ * seen yet is not the server's.
  */
 @Entity(tableName = "change_baselines")
 data class ChangeBaselineRow(@PrimaryKey val documentId: Long, val sinceBlobSha: String)
 
 /** Pending grades and the server log share the same immutable client mutation id. */
 @Entity(tableName = "review_log", indices = [Index("cardMutationId")])
-data class ReviewRow(@PrimaryKey val mutationId: String, val cardMutationId: String, val grade: Int,
-                     val reviewedAt: Long, val blobSha: String, val pending: Boolean, val rejection: String? = null)
+data class ReviewRow(
+    @PrimaryKey val mutationId: String,
+    val cardMutationId: String,
+    val grade: Int,
+    val reviewedAt: Long,
+    val blobSha: String,
+    val pending: Boolean,
+    val rejection: String? = null,
+)
 
 /** The server supplies this ceiling; a phone without a complete notebook response cannot start a session. */
-@Entity(tableName = "review_limits")
-data class ReviewLimitRow(@PrimaryKey val id: Int = 1, val sessionLimit: Int)
+@Entity(tableName = "review_limits") data class ReviewLimitRow(@PrimaryKey val id: Int = 1, val sessionLimit: Int)
 
-data class NotebookItem(@Embedded val annotation: AnnotationRow, val title: String, val path: String,
-                        val currentBlobSha: String?, val savedBlobSha: String?)
+data class NotebookItem(
+    @Embedded val annotation: AnnotationRow,
+    val title: String,
+    val path: String,
+    val currentBlobSha: String?,
+    val savedBlobSha: String?,
+)
 
 @Dao
 interface LibraryDao {
-    @Query("select * from repositories order by fullName")
-    fun repositories(): Flow<List<RepositoryRow>>
+    @Query("select * from repositories order by fullName") fun repositories(): Flow<List<RepositoryRow>>
 
-    @Query("delete from repositories")
-    suspend fun clearRepositories()
+    @Query("delete from repositories") suspend fun clearRepositories()
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertRepositories(rows: List<RepositoryRow>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertRepositories(rows: List<RepositoryRow>)
 
-    @Query("select id from repositories")
-    suspend fun repositoryIds(): List<Long>
+    @Query("select id from repositories") suspend fun repositoryIds(): List<Long>
 
     /**
      * The server's complete list replaces the saved one. A repository no longer listed was disconnected — here with its
@@ -211,14 +313,11 @@ interface LibraryDao {
     @Query("select * from documents where repositoryId = :repositoryId")
     suspend fun documentsOnce(repositoryId: Long): List<DocumentRow>
 
-    @Query("select * from documents where id = :id")
-    suspend fun document(id: Long): DocumentRow?
+    @Query("select * from documents where id = :id") suspend fun document(id: Long): DocumentRow?
 
-    @Query("delete from documents where repositoryId = :repositoryId")
-    suspend fun clearDocuments(repositoryId: Long)
+    @Query("delete from documents where repositoryId = :repositoryId") suspend fun clearDocuments(repositoryId: Long)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertDocuments(rows: List<DocumentRow>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDocuments(rows: List<DocumentRow>)
 
     @Transaction
     suspend fun replaceDocuments(repositoryId: Long, rows: List<DocumentRow>) {
@@ -226,11 +325,9 @@ interface LibraryDao {
         insertDocuments(rows)
     }
 
-    @Query("delete from repositories where id = :repositoryId")
-    suspend fun deleteRepository(repositoryId: Long)
+    @Query("delete from repositories where id = :repositoryId") suspend fun deleteRepository(repositoryId: Long)
 
-    @Query("delete from notes where documentId in (:documentIds)")
-    suspend fun deleteNotes(documentIds: List<Long>)
+    @Query("delete from notes where documentId in (:documentIds)") suspend fun deleteNotes(documentIds: List<Long>)
 
     @Query("delete from reading_states where documentId in (:documentIds)")
     suspend fun deleteReading(documentIds: List<Long>)
@@ -263,17 +360,18 @@ interface LibraryDao {
         deleteRepository(repositoryId)
     }
 
-    @Query("select * from notes where documentId = :documentId")
-    suspend fun note(documentId: Long): NoteRow?
+    @Query("select * from notes where documentId = :documentId") suspend fun note(documentId: Long): NoteRow?
 
     /**
-     * The listed notes in a folder named `interview`, with their saved pages. Only banks: loading every saved note's page
-     * to find them exhausted the 256 MB heap on the Pixel (OutOfMemoryError in this query, 2026-10-14). The match is a
-     * superset of isInterviewBank (LIKE ignores ASCII case), which still decides.
+     * The listed notes in a folder named `interview`, with their saved pages. Only banks: loading every saved note's
+     * page to find them exhausted the 256 MB heap on the Pixel (OutOfMemoryError in this query, 2026-10-14). The match
+     * is a superset of isInterviewBank (LIKE ignores ASCII case), which still decides.
      */
-    @Query("""select d.id as documentId, d.title, d.path, n.html, n.blobSha
+    @Query(
+        """select d.id as documentId, d.title, d.path, n.html, n.blobSha
               from documents d left join notes n on n.documentId = d.id
-              where ('/' || d.path) like '%/interview/%' order by d.id""")
+              where ('/' || d.path) like '%/interview/%' order by d.id"""
+    )
     fun bankPages(): Flow<List<PracticePage>>
 
     /** The note links in [repositoryId]'s saved pages, for Linked from; the pages themselves are not read. */
@@ -283,26 +381,27 @@ interface LibraryDao {
     @Query("select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId")
     suspend fun savedNoteCount(repositoryId: Long): Int
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertNote(row: NoteRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertNote(row: NoteRow)
 
-    @Insert
-    suspend fun insertNoteLinks(rows: List<NoteLinkRow>)
+    @Insert suspend fun insertNoteLinks(rows: List<NoteLinkRow>)
 
-    @Query("delete from note_links where documentId = :documentId")
-    suspend fun deleteNoteLinks(documentId: Long)
+    @Query("delete from note_links where documentId = :documentId") suspend fun deleteNoteLinks(documentId: Long)
 
     /** Saves a page with the note links it holds, replacing an older copy and its links. */
     @Transaction
     suspend fun saveNote(row: NoteRow) {
         deleteNoteLinks(row.documentId)
         insertNote(row)
-        insertNoteLinks(noteLinkQueries(row.html).mapIndexed { position, query -> NoteLinkRow(row.documentId, position, query) })
+        insertNoteLinks(
+            noteLinkQueries(row.html).mapIndexed { position, query -> NoteLinkRow(row.documentId, position, query) }
+        )
     }
 
-    @Query("""select documentId from notes where documentId not in (select id from documents)
+    @Query(
+        """select documentId from notes where documentId not in (select id from documents)
               and documentId not in (select documentId from reading_states) and documentId not in (select documentId from bookmarks)
-              and documentId not in (select documentId from annotations)""")
+              and documentId not in (select documentId from annotations)"""
+    )
     suspend fun unreferencedNoteIds(): List<Long>
 
     /**
@@ -317,43 +416,57 @@ interface LibraryDao {
         return ids
     }
 
-    /** Highlights, cards, and grades on [repositoryId]'s listed notes that exist only on this phone (unsent or refused). */
-    @Query("""select (select count(*) from annotations a join documents d on d.id = a.documentId where d.repositoryId = :repositoryId and a.state <> 'ACKNOWLEDGED')
+    /**
+     * Highlights, cards, and grades on [repositoryId]'s listed notes that exist only on this phone (unsent or refused).
+     */
+    @Query(
+        """select (select count(*) from annotations a join documents d on d.id = a.documentId where d.repositoryId = :repositoryId and a.state <> 'ACKNOWLEDGED')
               + (select count(*) from review_log l join annotations a on a.mutationId = l.cardMutationId join documents d on d.id = a.documentId
-                 where d.repositoryId = :repositoryId and l.pending)""")
+                 where d.repositoryId = :repositoryId and l.pending)"""
+    )
     suspend fun unsentInRepository(repositoryId: Long): Int
 
     /** Every change on this phone that the server has not acknowledged (unsent or refused): what signing out loses. */
-    @Query("""select (select count(*) from annotations where state <> 'ACKNOWLEDGED') + (select count(*) from review_log where pending)
-              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)""")
+    @Query(
+        """select (select count(*) from annotations where state <> 'ACKNOWLEDGED') + (select count(*) from review_log where pending)
+              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)"""
+    )
     suspend fun unsentCount(): Int
 
-    /** Changes waiting to be sent: [unsentCount] without the ones the server refused, which sending again cannot deliver. */
-    @Query("""select (select count(*) from annotations where state in ('UNSENT', 'DELETING'))
+    /**
+     * Changes waiting to be sent: [unsentCount] without the ones the server refused, which sending again cannot
+     * deliver.
+     */
+    @Query(
+        """select (select count(*) from annotations where state in ('UNSENT', 'DELETING'))
               + (select count(*) from review_log where pending and rejection is null)
-              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)""")
+              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)"""
+    )
     fun waitingCount(): Flow<Int>
 
     /**
      * Notes in the saved lists whose title or path matches, and saved copies whose title, path, or text matches.
      * [pattern] is a LIKE pattern with \ as the escape character (ASCII letters match case-insensitively).
      */
-    @Query("""select id as documentId, title, path, null as searchText from documents
+    @Query(
+        """select id as documentId, title, path, null as searchText from documents
               where title like :pattern escape '\' or path like :pattern escape '\'
               union
               select documentId, title, path, case when searchText like :pattern escape '\' then searchText end from notes
               where title like :pattern escape '\' or path like :pattern escape '\' or searchText like :pattern escape '\'
-              order by title limit :limit""")
+              order by title limit :limit"""
+    )
     suspend fun searchNotes(pattern: String, limit: Int): List<NoteMatch>
 
-    @Query("""select a.documentId, coalesce(d.title, n.title, '') as title, coalesce(d.path, n.path, '') as path, a.exactText, a.note
+    @Query(
+        """select a.documentId, coalesce(d.title, n.title, '') as title, coalesce(d.path, n.path, '') as path, a.exactText, a.note
               from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
               where a.state <> 'DELETING' and (a.exactText like :pattern escape '\' or a.note like :pattern escape '\')
-              order by a.createdAt desc limit :limit""")
+              order by a.createdAt desc limit :limit"""
+    )
     suspend fun searchHighlights(pattern: String, limit: Int): List<HighlightMatch>
 
-    @Query("select count(*) from documents")
-    suspend fun savedListCount(): Int
+    @Query("select count(*) from documents") suspend fun savedListCount(): Int
 
     /** Notes in the saved lists whose saved copy has search text: the part of [savedListCount] searched by text. */
     @Query("select count(*) from notes n join documents d on d.id = n.documentId where n.searchText is not null")
@@ -366,28 +479,35 @@ interface LibraryDao {
     suspend fun reading(documentId: Long): ReadingRow?
 
     /**
-     * Read notes whose current version in the saved note lists is not the one last read, or whose changes since an older
-     * version have not been shown yet; most recently changed first. [ChangedNote.lastReadBlobSha] is that baseline.
+     * Read notes whose current version in the saved note lists is not the one last read, or whose changes since an
+     * older version have not been shown yet; most recently changed first. [ChangedNote.lastReadBlobSha] is that
+     * baseline.
      */
-    @Query("""select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, coalesce(b.sinceBlobSha, r.lastReadBlobSha) as lastReadBlobSha
+    @Query(
+        """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, coalesce(b.sinceBlobSha, r.lastReadBlobSha) as lastReadBlobSha
               from reading_states r join documents d on d.id = r.documentId left join change_baselines b on b.documentId = d.id
               where d.blobSha != r.lastReadBlobSha or b.sinceBlobSha is not null
-              order by d.changedAt is null, d.changedAt desc, r.lastReadAt desc""")
+              order by d.changedAt is null, d.changedAt desc, r.lastReadAt desc"""
+    )
     fun updatedSinceRead(): Flow<List<ChangedNote>>
 
-    /** The most recently changed notes other than those updated since read: never read, or read (and seen) in their current version. */
-    @Query("""select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
+    /**
+     * The most recently changed notes other than those updated since read: never read, or read (and seen) in their
+     * current version.
+     */
+    @Query(
+        """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
               from documents d left join reading_states r on r.documentId = d.id
               where d.changedAt is not null and (r.lastReadBlobSha is null or r.lastReadBlobSha = d.blobSha)
               and d.id not in (select documentId from change_baselines)
-              order by d.changedAt desc limit :limit""")
+              order by d.changedAt desc limit :limit"""
+    )
     fun recentlyChanged(limit: Int): Flow<List<ChangedNote>>
 
     @Query("select sinceBlobSha from change_baselines where documentId = :documentId")
     suspend fun changeBaseline(documentId: Long): String?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun saveBaseline(row: ChangeBaselineRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBaseline(row: ChangeBaselineRow)
 
     /** The summary of changes since [since] has been shown; a different baseline set meanwhile stays. */
     @Query("delete from change_baselines where documentId = :documentId and sinceBlobSha = :since")
@@ -395,22 +515,25 @@ interface LibraryDao {
 
     /**
      * Saves the reader's position in the version it displayed. Moving to another version keeps the version left behind
-     * as the change baseline, unless an older one is still unseen, so the next summary covers every change not yet seen.
+     * as the change baseline, unless an older one is still unseen, so the next summary covers every change not yet
+     * seen.
      */
     @Transaction
     suspend fun saveDisplayedReading(row: ReadingRow) {
         val previous = reading(row.documentId)
-        if (previous != null && previous.lastReadBlobSha != row.lastReadBlobSha && changeBaseline(row.documentId) == null) {
+        if (
+            previous != null &&
+                previous.lastReadBlobSha != row.lastReadBlobSha &&
+                changeBaseline(row.documentId) == null
+        ) {
             saveBaseline(ChangeBaselineRow(row.documentId, previous.lastReadBlobSha))
         }
         saveReading(row)
     }
 
-    @Query("select * from reading_states where pending")
-    suspend fun pendingReading(): List<ReadingRow>
+    @Query("select * from reading_states where pending") suspend fun pendingReading(): List<ReadingRow>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun saveReading(row: ReadingRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReading(row: ReadingRow)
 
     /** Acknowledges only the save that was sent; a newer local save made meanwhile stays pending. */
     @Query("update reading_states set pending = 0 where documentId = :documentId and lastReadAt = :lastReadAt")
@@ -420,30 +543,29 @@ interface LibraryDao {
     @Transaction
     suspend fun mergeRemoteReading(remote: ReadingRow) {
         val local = reading(remote.documentId)
-        if (local == null || !local.pending || remote.lastReadAt >= local.lastReadAt) saveReading(remote.copy(pending = false))
+        if (local == null || !local.pending || remote.lastReadAt >= local.lastReadAt)
+            saveReading(remote.copy(pending = false))
     }
 
-    @Query("delete from reading_states where not pending")
-    suspend fun clearAcknowledgedReading()
+    @Query("delete from reading_states where not pending") suspend fun clearAcknowledgedReading()
 
-    /** The server's complete list replaces acknowledged rows; pending local saves are kept or yield as [mergeRemoteReading] says. */
+    /**
+     * The server's complete list replaces acknowledged rows; pending local saves are kept or yield as
+     * [mergeRemoteReading] says.
+     */
     @Transaction
     suspend fun replaceRemoteReading(remote: List<ReadingRow>) {
         clearAcknowledgedReading()
         remote.forEach { mergeRemoteReading(it) }
     }
 
-    @Query("select * from bookmarks where bookmarked order by changedAt desc")
-    fun bookmarks(): Flow<List<BookmarkRow>>
+    @Query("select * from bookmarks where bookmarked order by changedAt desc") fun bookmarks(): Flow<List<BookmarkRow>>
 
-    @Query("select * from bookmarks where documentId = :documentId")
-    fun bookmark(documentId: Long): Flow<BookmarkRow?>
+    @Query("select * from bookmarks where documentId = :documentId") fun bookmark(documentId: Long): Flow<BookmarkRow?>
 
-    @Query("select * from bookmarks where pending")
-    suspend fun pendingBookmarks(): List<BookmarkRow>
+    @Query("select * from bookmarks where pending") suspend fun pendingBookmarks(): List<BookmarkRow>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun saveBookmark(row: BookmarkRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBookmark(row: BookmarkRow)
 
     @Query("update bookmarks set pending = 0 where documentId = :documentId and changedAt = :changedAt and bookmarked")
     suspend fun acknowledgeBookmarkSet(documentId: Long, changedAt: Long)
@@ -454,11 +576,9 @@ interface LibraryDao {
     @Query("delete from bookmarks where documentId = :documentId and changedAt = :changedAt")
     suspend fun dropBookmark(documentId: Long, changedAt: Long)
 
-    @Query("delete from bookmarks where not pending")
-    suspend fun clearAcknowledgedBookmarks()
+    @Query("delete from bookmarks where not pending") suspend fun clearAcknowledgedBookmarks()
 
-    @Query("select documentId from bookmarks where pending")
-    suspend fun pendingBookmarkIds(): List<Long>
+    @Query("select documentId from bookmarks where pending") suspend fun pendingBookmarkIds(): List<Long>
 
     @Query("select * from annotations where documentId = :documentId and state <> 'DELETING' order by createdAt")
     fun annotations(documentId: Long): Flow<List<AnnotationRow>>
@@ -469,29 +589,34 @@ interface LibraryDao {
     @Query("select * from annotations where state in ('UNSENT', 'DELETING') order by createdAt")
     suspend fun waitingAnnotations(): List<AnnotationRow>
 
-    @Query("""select a.*, coalesce(d.title, n.title, a.cachedTitle) as title,
+    @Query(
+        """select a.*, coalesce(d.title, n.title, a.cachedTitle) as title,
               coalesce(d.path, n.path, a.cachedPath) as path, d.blobSha as currentBlobSha,
               n.blobSha as savedBlobSha
               from annotations a left join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
-              where a.state <> 'DELETING' order by a.createdAt, a.mutationId""")
+              where a.state <> 'DELETING' order by a.createdAt, a.mutationId"""
+    )
     fun notebook(): Flow<List<NotebookItem>>
 
-    @Query("select * from review_log order by reviewedAt, mutationId")
-    fun reviews(): Flow<List<ReviewRow>>
+    @Query("select * from review_log order by reviewedAt, mutationId") fun reviews(): Flow<List<ReviewRow>>
 
     @Query("select * from review_log where pending and rejection is null order by reviewedAt, mutationId")
     suspend fun pendingReviews(): List<ReviewRow>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun saveReview(row: ReviewRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReview(row: ReviewRow)
 
     /** A concurrent sync may invalidate/delete a card after it was revealed; never persist that stale grade. */
     @Transaction
     suspend fun recordReview(row: ReviewRow): Boolean {
         require(row.grade in 0..5 && row.pending && row.rejection == null) { "Invalid local review ${row.mutationId}" }
         val card = annotation(row.cardMutationId) ?: return false
-        if (card.type != "CARD" || card.state == AnnotationState.DELETING || row.blobSha != document(card.documentId)?.blobSha ||
-            card.cardBlock(row.blobSha, note(card.documentId)?.blobSha) != null) return false
+        if (
+            card.type != "CARD" ||
+                card.state == AnnotationState.DELETING ||
+                row.blobSha != document(card.documentId)?.blobSha ||
+                card.cardBlock(row.blobSha, note(card.documentId)?.blobSha) != null
+        )
+            return false
         saveReview(row)
         return true
     }
@@ -500,29 +625,26 @@ interface LibraryDao {
     suspend fun rejectReview(mutationId: String, reason: String)
 
     /** Forgets grades the server refused; they never reached it and the schedule already ignores them. */
-    @Query("delete from review_log where rejection is not null")
-    suspend fun dismissRefusedReviews()
+    @Query("delete from review_log where rejection is not null") suspend fun dismissRefusedReviews()
 
-    @Query("select sessionLimit from review_limits where id = 1")
-    fun reviewLimit(): Flow<Int?>
+    @Query("select sessionLimit from review_limits where id = 1") fun reviewLimit(): Flow<Int?>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun saveReviewLimit(row: ReviewLimitRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReviewLimit(row: ReviewLimitRow)
 
     @Query("delete from review_log where cardMutationId = :mutationId")
     suspend fun deleteCardReviews(mutationId: String)
 
-    @Query("delete from review_log where cardMutationId in (select mutationId from annotations where documentId in (:ids))")
+    @Query(
+        "delete from review_log where cardMutationId in (select mutationId from annotations where documentId in (:ids))"
+    )
     suspend fun deleteReviewsOnDocuments(ids: List<Long>)
 
-    @Query("delete from review_log where not pending")
-    suspend fun clearAcknowledgedReviews()
+    @Query("delete from review_log where not pending") suspend fun clearAcknowledgedReviews()
 
     @Query("delete from review_log where cardMutationId not in (select mutationId from annotations)")
     suspend fun deleteMissingCardReviews()
 
-    @Query("delete from annotations where state = 'ACKNOWLEDGED'")
-    suspend fun clearAcknowledgedNotebook()
+    @Query("delete from annotations where state = 'ACKNOWLEDGED'") suspend fun clearAcknowledgedNotebook()
 
     @Transaction
     suspend fun replaceRemoteNotebook(rows: List<AnnotationRow>, reviews: List<ReviewRow>, limit: Int) {
@@ -540,8 +662,7 @@ interface LibraryDao {
         deleteAnnotation(mutationId)
     }
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun saveAnnotation(row: AnnotationRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveAnnotation(row: AnnotationRow)
 
     /**
      * Saves the server's copy of an annotation, acknowledging a pending creation of it. One the user deleted meanwhile
@@ -550,7 +671,9 @@ interface LibraryDao {
     @Transaction
     suspend fun saveServerAnnotation(row: AnnotationRow) {
         val deleting = annotation(row.mutationId)?.state == AnnotationState.DELETING
-        saveAnnotation(row.copy(state = if (deleting) AnnotationState.DELETING else AnnotationState.ACKNOWLEDGED, rejection = null))
+        saveAnnotation(
+            row.copy(state = if (deleting) AnnotationState.DELETING else AnnotationState.ACKNOWLEDGED, rejection = null)
+        )
     }
 
     @Query("update annotations set state = 'DELETING' where mutationId = :mutationId")
@@ -559,15 +682,16 @@ interface LibraryDao {
     @Query("delete from review_log where cardMutationId = :mutationId and pending")
     suspend fun deletePendingCardReviews(mutationId: String)
 
-    /** The user deleted a creation the server has not acknowledged: hide it now and send the deletion at the next sync. */
+    /**
+     * The user deleted a creation the server has not acknowledged: hide it now and send the deletion at the next sync.
+     */
     @Transaction
     suspend fun markDeleting(mutationId: String) {
         deletePendingCardReviews(mutationId)
         setDeleting(mutationId)
     }
 
-    @Query("delete from annotations where mutationId = :mutationId")
-    suspend fun deleteAnnotation(mutationId: String)
+    @Query("delete from annotations where mutationId = :mutationId") suspend fun deleteAnnotation(mutationId: String)
 
     @Query("update annotations set state = 'REFUSED', rejection = :reason where mutationId = :mutationId")
     suspend fun rejectAnnotation(mutationId: String, reason: String)
@@ -596,8 +720,7 @@ interface LibraryDao {
 }
 
 /** v9: a saved note no longer records the commit it was fetched at, which nothing read. */
-@DeleteColumn(tableName = "notes", columnName = "commitSha")
-class DropNoteCommit : AutoMigrationSpec
+@DeleteColumn(tableName = "notes", columnName = "commitSha") class DropNoteCommit : AutoMigrationSpec
 
 /**
  * v10: the note links of each saved page get their own table, filled here once from the pages already saved; reading
@@ -608,11 +731,16 @@ class KeepNoteLinks : AutoMigrationSpec {
         val links = mutableListOf<NoteLinkRow>()
         db.query("select documentId, html from notes where html like '%/note-link?%'").use { pages ->
             while (pages.moveToNext()) {
-                noteLinkQueries(pages.getString(1)).forEachIndexed { position, query -> links += NoteLinkRow(pages.getLong(0), position, query) }
+                noteLinkQueries(pages.getString(1)).forEachIndexed { position, query ->
+                    links += NoteLinkRow(pages.getLong(0), position, query)
+                }
             }
         }
         for (link in links) {
-            db.execSQL("insert into note_links (documentId, position, query) values (?, ?, ?)", arrayOf<Any>(link.documentId, link.position, link.query))
+            db.execSQL(
+                "insert into note_links (documentId, position, query) values (?, ?, ?)",
+                arrayOf<Any>(link.documentId, link.position, link.query),
+            )
         }
     }
 }
@@ -621,23 +749,46 @@ class KeepNoteLinks : AutoMigrationSpec {
  * v11: a highlight's standing with the server is one [AnnotationState] instead of the pending, rejection and deleting
  * flags, five of whose eight combinations were valid. Hand-written: each row's state is computed from its old flags.
  */
-val ANNOTATION_STATE_10_11 = object : Migration(10, 11) {
-    override fun migrate(db: SupportSQLiteDatabase) {
-        db.execSQL("alter table annotations add column state TEXT NOT NULL DEFAULT 'ACKNOWLEDGED'")
-        db.execSQL("""update annotations set state = case when deleting then 'DELETING' when rejection is not null then 'REFUSED'
-                      when pending then 'UNSENT' else 'ACKNOWLEDGED' end""")
-        db.execSQL("alter table annotations drop column pending")
-        db.execSQL("alter table annotations drop column deleting")
+val ANNOTATION_STATE_10_11 =
+    object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("alter table annotations add column state TEXT NOT NULL DEFAULT 'ACKNOWLEDGED'")
+            db.execSQL(
+                """update annotations set state = case when deleting then 'DELETING' when rejection is not null then 'REFUSED'
+                      when pending then 'UNSENT' else 'ACKNOWLEDGED' end"""
+            )
+            db.execSQL("alter table annotations drop column pending")
+            db.execSQL("alter table annotations drop column deleting")
+        }
     }
-}
 
 @Database(
-    entities = [RepositoryRow::class, DocumentRow::class, NoteRow::class, NoteLinkRow::class, ReadingRow::class, BookmarkRow::class,
-        AnnotationRow::class, ReviewRow::class, ReviewLimitRow::class, ChangeBaselineRow::class],
+    entities =
+        [
+            RepositoryRow::class,
+            DocumentRow::class,
+            NoteRow::class,
+            NoteLinkRow::class,
+            ReadingRow::class,
+            BookmarkRow::class,
+            AnnotationRow::class,
+            ReviewRow::class,
+            ReviewLimitRow::class,
+            ChangeBaselineRow::class,
+        ],
     version = 11,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
-        AutoMigration(from = 8, to = 9, spec = DropNoteCommit::class), AutoMigration(from = 9, to = 10, spec = KeepNoteLinks::class)],
+    autoMigrations =
+        [
+            AutoMigration(from = 1, to = 2),
+            AutoMigration(from = 2, to = 3),
+            AutoMigration(from = 3, to = 4),
+            AutoMigration(from = 4, to = 5),
+            AutoMigration(from = 5, to = 6),
+            AutoMigration(from = 6, to = 7),
+            AutoMigration(from = 7, to = 8),
+            AutoMigration(from = 8, to = 9, spec = DropNoteCommit::class),
+            AutoMigration(from = 9, to = 10, spec = KeepNoteLinks::class),
+        ],
 )
 abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao
@@ -646,9 +797,11 @@ abstract class LocalStore : RoomDatabase() {
         @Volatile private var instance: LocalStore? = null
 
         /** One database instance per process, shared across activity recreation. */
-        fun get(context: Context): LocalStore = instance ?: synchronized(this) {
-            instance ?: open(context.applicationContext, "reporead.db").also { instance = it }
-        }
+        fun get(context: Context): LocalStore =
+            instance
+                ?: synchronized(this) {
+                    instance ?: open(context.applicationContext, "reporead.db").also { instance = it }
+                }
 
         /** The database file [name] with every migration: the automatic ones above and the hand-written ones here. */
         fun open(context: Context, name: String): LocalStore =

@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,24 +38,21 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.IconButton
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.ui.AppBar
-import com.reporead.android.ui.AppIcon
 import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.LoadContent
-import com.reporead.android.core.network.rememberLoad
-import com.reporead.android.data.LibraryDao
 import com.reporead.android.core.network.Load
+import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.describe
+import com.reporead.android.core.network.rememberLoad
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.sync.Changes
 import com.reporead.android.sync.Sync
+import com.reporead.android.ui.AppBar
+import com.reporead.android.ui.AppIcon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -77,8 +77,15 @@ private const val BARS_SCROLL_DP = 24
 private data class StudyPage(val opened: Sync.Opened, val study: StudyNote)
 
 @Composable
-fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn: Boolean,
-                 screen: Screen.Reader, onBack: () -> Unit, push: (Screen) -> Unit) {
+fun ReaderScreen(
+    sync: Sync,
+    dao: LibraryDao,
+    appScope: CoroutineScope,
+    signedIn: Boolean,
+    screen: Screen.Reader,
+    onBack: () -> Unit,
+    push: (Screen) -> Unit,
+) {
     var reload by remember { mutableIntStateOf(0) }
     /*
      * The version whose changes the summary starts from (null: never read): the oldest version read whose changes have
@@ -87,14 +94,15 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
      */
     var since by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var sinceCaptured by rememberSaveable(screen.documentId) { mutableStateOf(false) }
-    val load by rememberLoad(screen.documentId to reload) {
-        if (!sinceCaptured) {
-            since = dao.changeBaseline(screen.documentId) ?: dao.reading(screen.documentId)?.lastReadBlobSha
-            sinceCaptured = true
+    val load by
+        rememberLoad(screen.documentId to reload) {
+            if (!sinceCaptured) {
+                since = dao.changeBaseline(screen.documentId) ?: dao.reading(screen.documentId)?.lastReadBlobSha
+                sinceCaptured = true
+            }
+            val opened = sync.openNote(screen.documentId)
+            StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html) })
         }
-        val opened = sync.openNote(screen.documentId)
-        StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html) })
-    }
     val displayed = (load as? Load.Ready)?.value?.opened?.note?.blobSha
     val study = (load as? Load.Ready)?.value?.study
     var studying by rememberSaveable(screen.documentId) { mutableStateOf(false) }
@@ -105,26 +113,31 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var targetShown by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var changesReload by remember { mutableIntStateOf(0) }
     var changesExpanded by rememberSaveable(screen.documentId) { mutableStateOf(true) }
-    // Null when there is nothing to compare: never read, or reading the same version again. The baseline is used up only
+    // Null when there is nothing to compare: never read, or reading the same version again. The baseline is used up
+    // only
     // once the server's answer is on screen; offline or failing, it is kept for the next opening.
-    val changes by produceState<Load<Changes>?>(null, since, displayed, signedIn, changesReload) {
-        val from = since
-        if (from == null || displayed == null || !signedIn) {
-            value = null
-            return@produceState
+    val changes by
+        produceState<Load<Changes>?>(null, since, displayed, signedIn, changesReload) {
+            val from = since
+            if (from == null || displayed == null || !signedIn) {
+                value = null
+                return@produceState
+            }
+            if (from == displayed) {
+                dao.changesSeen(screen.documentId, from)
+                value = null
+                return@produceState
+            }
+            value = Load.Loading
+            value =
+                try {
+                    Load.Ready(sync.changes(screen.documentId, from, displayed)).also {
+                        dao.changesSeen(screen.documentId, from)
+                    }
+                } catch (error: ApiException) {
+                    Load.Failed(error)
+                }
         }
-        if (from == displayed) {
-            dao.changesSeen(screen.documentId, from)
-            value = null
-            return@produceState
-        }
-        value = Load.Loading
-        value = try {
-            Load.Ready(sync.changes(screen.documentId, from, displayed)).also { dao.changesSeen(screen.documentId, from) }
-        } catch (error: ApiException) {
-            Load.Failed(error)
-        }
-    }
     val bookmark by dao.bookmark(screen.documentId).collectAsState(null)
     val annotations by dao.annotations(screen.documentId).collectAsState(emptyList())
     var restoreNotice by remember { mutableStateOf<String?>(null) }
@@ -133,7 +146,9 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     var newCardSelection by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var newSelection by remember { mutableStateOf<JSONObject?>(null) }
     var notShown by remember { mutableStateOf(emptySet<String>()) }
-    /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here. */
+    /**
+     * The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here.
+     */
     var reattaching by remember { mutableStateOf<AnnotationRow?>(null) }
     /** A tapped link to one note and its heading, previewed before opening. */
     var preview by remember { mutableStateOf<Pair<com.reporead.android.data.DocumentRow, String?>?>(null) }
@@ -160,141 +175,206 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
         }
     }
     /**
-     * Saves a highlight (or, with a question, a card) on this phone — finished even if rotation cancels the screen — then
-     * sends it now when signed in. The message says where it stands: nothing when it reached the server.
+     * Saves a highlight (or, with a question, a card) on this phone — finished even if rotation cancels the screen —
+     * then sends it now when signed in. The message says where it stands: nothing when it reached the server.
      */
     val save: (selection: JSONObject, note: String?, question: String?) -> Unit = { selection, note, question ->
         appScope.launch {
             val id = withContext(NonCancellable) { sync.createAnnotation(selection, screen.documentId, note, question) }
             val kind = if (question == null) "Highlight" else "Card"
-            message = if (!signedIn) "$kind saved on this phone; it is sent after you sign in." else try {
-                sync.pushAnnotations()
-                dao.annotation(id)?.rejection?.let { "$kind kept on this phone only; the server refused it: $it" }
-            } catch (error: ApiException) {
-                "$kind saved on this phone; it will sync later. ${error.describe()}"
-            }
+            message =
+                if (!signedIn) "$kind saved on this phone; it is sent after you sign in."
+                else
+                    try {
+                        sync.pushAnnotations()
+                        dao.annotation(id)?.rejection?.let {
+                            "$kind kept on this phone only; the server refused it: $it"
+                        }
+                    } catch (error: ApiException) {
+                        "$kind saved on this phone; it will sync later. ${error.describe()}"
+                    }
         }
     }
 
     val reattach: (AnnotationRow, JSONObject) -> Unit = { row, selection ->
         appScope.launch {
-            message = try {
-                sync.reattachAnnotation(row, selection)
-                reattaching = null
-                null
-            } catch (error: ApiException) {
-                if (error.code == "ANNOTATION_CONFLICT") "This highlight was changed elsewhere; sync, reopen the note, and try again."
-                else "Not reattached. ${error.describe()}"
-            }
+            message =
+                try {
+                    sync.reattachAnnotation(row, selection)
+                    reattaching = null
+                    null
+                } catch (error: ApiException) {
+                    if (error.code == "ANNOTATION_CONFLICT")
+                        "This highlight was changed elsewhere; sync, reopen the note, and try again."
+                    else "Not reattached. ${error.describe()}"
+                }
         }
     }
 
     Column(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedVisibility(barsShown) {
-            AppBar(screen.title, subtitle = section?.text?.ifBlank { null }, onBack = onBack, actions = {
-                val opened = (load as? Load.Ready)?.value?.opened
-                if (!outline.isNullOrEmpty()) {
-                    IconButton(onClick = { outlineOpen = true }) { AppIcon(R.drawable.ic_toc, "Outline") }
-                }
-                if (opened != null) {
-                    if (study?.recognized == true) {
-                        TextButton(onClick = {
-                            studying = !studying
-                            sessionRef?.setStudy(studying)
-                        }) { Text(if (studying) "Read" else "Study") }
+            AppBar(
+                screen.title,
+                subtitle = section?.text?.ifBlank { null },
+                onBack = onBack,
+                actions = {
+                    val opened = (load as? Load.Ready)?.value?.opened
+                    if (!outline.isNullOrEmpty()) {
+                        IconButton(onClick = { outlineOpen = true }) { AppIcon(R.drawable.ic_toc, "Outline") }
                     }
-                    IconButton(onClick = { notesOpen = !notesOpen }) {
-                        BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
-                            AppIcon(R.drawable.ic_notes, if (notesOpen) "Hide highlights and notes" else "Highlights and notes")
+                    if (opened != null) {
+                        if (study?.recognized == true) {
+                            TextButton(
+                                onClick = {
+                                    studying = !studying
+                                    sessionRef?.setStudy(studying)
+                                }
+                            ) {
+                                Text(if (studying) "Read" else "Study")
+                            }
+                        }
+                        IconButton(onClick = { notesOpen = !notesOpen }) {
+                            BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
+                                AppIcon(
+                                    R.drawable.ic_notes,
+                                    if (notesOpen) "Hide highlights and notes" else "Highlights and notes",
+                                )
+                            }
+                        }
+                        val marked = bookmark?.bookmarked == true
+                        IconButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) {
+                            AppIcon(
+                                if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border,
+                                if (marked) "Remove bookmark" else "Bookmark",
+                            )
                         }
                     }
-                    val marked = bookmark?.bookmarked == true
-                    IconButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) {
-                        AppIcon(if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border, if (marked) "Remove bookmark" else "Bookmark")
-                    }
-                }
-            })
+                },
+            )
         }
         LoadContent(load, onRetry = { reload++ }) { page ->
             val opened = page.opened
             opened.staleReason?.let { Notice("Showing your saved copy. $it") }
             restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
-            if (since != null && since != opened.note.blobSha && !signedIn) Notice("This note changed since you last read it. Sign in to see what changed.")
+            if (since != null && since != opened.note.blobSha && !signedIn)
+                Notice("This note changed since you last read it. Sign in to see what changed.")
             reattaching?.let { row ->
-                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Select the passage for “${row.exactText}”, then choose Reattach here.", style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.weight(1f))
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Select the passage for “${row.exactText}”, then choose Reattach here.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
                     TextButton(onClick = { reattaching = null }) { Text("Cancel") }
                 }
             }
             val lifecycle = LocalLifecycleOwner.current.lifecycle
-            val session = remember(opened.note) {
-                ReaderSession(opened.note, sync, dao, appScope, openAtHeading = screen.heading.takeUnless { targetShown },
-                    onHeadingOpened = { targetShown = true },
-                    study = page.study, studying = { studying },
-                    openAtAnnotation = screen.annotation.takeUnless { targetShown },
-                    onAnnotationOpened = { targetShown = true; notesOpen = true },
-                    onRestoreNotice = { restoreNotice = it },
-                    onNoteLink = { target, path, heading ->
-                        scope.launch {
-                            // Resolved against the saved note list of this note's repository, so links work offline too.
-                            val from = dao.document(opened.note.documentId)
-                            when {
-                                target == null && path == null -> heading?.let { text ->
-                                    sessionRef?.showHeading(text) { shown -> if (!shown) message = "No heading “$text” in this note." }
-                                }
-                                from == null -> message = "This note isn't in a saved note list, so its links can't be followed. Refresh the repository."
-                                else -> {
-                                    val matches = resolveNoteLink(target, path, from.path, dao.documentsOnce(from.repositoryId))
-                                    when (matches.size) {
-                                        0 -> message = "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
-                                        1 -> preview = matches.first() to heading
-                                        else -> linkChoices = heading to matches
+            val session =
+                remember(opened.note) {
+                    ReaderSession(
+                        opened.note,
+                        sync,
+                        dao,
+                        appScope,
+                        openAtHeading = screen.heading.takeUnless { targetShown },
+                        onHeadingOpened = { targetShown = true },
+                        study = page.study,
+                        studying = { studying },
+                        openAtAnnotation = screen.annotation.takeUnless { targetShown },
+                        onAnnotationOpened = {
+                            targetShown = true
+                            notesOpen = true
+                        },
+                        onRestoreNotice = { restoreNotice = it },
+                        onNoteLink = { target, path, heading ->
+                            scope.launch {
+                                // Resolved against the saved note list of this note's repository, so links work offline
+                                // too.
+                                val from = dao.document(opened.note.documentId)
+                                when {
+                                    target == null && path == null ->
+                                        heading?.let { text ->
+                                            sessionRef?.showHeading(text) { shown ->
+                                                if (!shown) message = "No heading “$text” in this note."
+                                            }
+                                        }
+                                    from == null ->
+                                        message =
+                                            "This note isn't in a saved note list, so its links can't be followed. Refresh the repository."
+                                    else -> {
+                                        val matches =
+                                            resolveNoteLink(
+                                                target,
+                                                path,
+                                                from.path,
+                                                dao.documentsOnce(from.repositoryId),
+                                            )
+                                        when (matches.size) {
+                                            0 ->
+                                                message =
+                                                    "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
+                                            1 -> preview = matches.first() to heading
+                                            else -> linkChoices = heading to matches
+                                        }
                                     }
                                 }
                             }
-                        }
-                    },
-                    onNotShown = { notShown = it },
-                    onOutline = { outline = it },
-                    onFigure = { figure -> push(Screen.Figure(opened.note.documentId, opened.note.blobSha, figure, opened.note.title)) },
-                    onTopBlock = { topBlock = it },
-                    onBarsShown = { barsShown = it },
-                    reattaching = { reattaching != null },
-                    onMessage = { message = it },
-                    onSelection = { selection, action ->
-                        // The menu was built for the state at the time; Cancel may have ended that mode since.
-                        val placing = reattaching
-                        when {
-                            selection == null -> message = "Select some text first."
-                            selection.has("error") -> message = selection.getString("error")
-                            else -> when (action) {
-                                SelectionAction.REATTACH ->
-                                    if (placing != null) reattach(placing, selection) else message = "Reattaching was cancelled; choose Reattach again in Notes."
-                                SelectionAction.MAKE_QUESTION -> newCardSelection = selection.toString()
-                                SelectionAction.ADD_NOTE -> newSelection = selection
-                                SelectionAction.HIGHLIGHT -> save(selection, null, null)
+                        },
+                        onNotShown = { notShown = it },
+                        onOutline = { outline = it },
+                        onFigure = { figure ->
+                            push(Screen.Figure(opened.note.documentId, opened.note.blobSha, figure, opened.note.title))
+                        },
+                        onTopBlock = { topBlock = it },
+                        onBarsShown = { barsShown = it },
+                        reattaching = { reattaching != null },
+                        onMessage = { message = it },
+                        onSelection = { selection, action ->
+                            // The menu was built for the state at the time; Cancel may have ended that mode since.
+                            val placing = reattaching
+                            when {
+                                selection == null -> message = "Select some text first."
+                                selection.has("error") -> message = selection.getString("error")
+                                else ->
+                                    when (action) {
+                                        SelectionAction.REATTACH ->
+                                            if (placing != null) reattach(placing, selection)
+                                            else message = "Reattaching was cancelled; choose Reattach again in Notes."
+                                        SelectionAction.MAKE_QUESTION -> newCardSelection = selection.toString()
+                                        SelectionAction.ADD_NOTE -> newSelection = selection
+                                        SelectionAction.HIGHLIGHT -> save(selection, null, null)
+                                    }
                             }
-                        }
-                    })
-            }
+                        },
+                    )
+                }
             androidx.compose.runtime.SideEffect { sessionRef = session }
             DisposableEffect(lifecycle, session) {
                 // Process death can follow ON_STOP, so the position is captured whenever the reader leaves the screen.
-                val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) session.capture() }
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_STOP) session.capture()
+                }
                 lifecycle.addObserver(observer)
                 onDispose { lifecycle.removeObserver(observer) }
             }
             LaunchedEffect(session, annotations) { session.showHighlights(annotations) }
             changes?.let { comparison ->
-                ChangesPanel(comparison, changesExpanded, onToggle = { changesExpanded = !changesExpanded }, onRetry = { changesReload++ },
+                ChangesPanel(
+                    comparison,
+                    changesExpanded,
+                    onToggle = { changesExpanded = !changesExpanded },
+                    onRetry = { changesReload++ },
                     onOpen = { section ->
                         changesExpanded = false
                         session.showBlock(section.blockId) { shown ->
                             if (!shown) message = "That section isn't in the version on screen; reopen the note."
                         }
-                    })
+                    },
+                )
             }
             AndroidView(
                 factory = { context -> session.createView(context) },
@@ -302,12 +382,26 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
             if (notesOpen) {
-                NotesPanel(opened.note.documentId, annotations, opened.note.blobSha, notShown, sync, dao, appScope,
-                    onReveal = { session.reveal(it.mutationId) }, onMessage = { message = it },
+                NotesPanel(
+                    opened.note.documentId,
+                    annotations,
+                    opened.note.blobSha,
+                    notShown,
+                    sync,
+                    dao,
+                    appScope,
+                    onReveal = { session.reveal(it.mutationId) },
+                    onMessage = { message = it },
                     onMakeQuestion = { row ->
                         val passage = row.drawn
-                        newCardSelection = JSONObject().put("sourceBlobSha", passage.blobSha).put("blockId", passage.blockId)
-                            .put("startOffset", passage.startOffset).put("endOffset", passage.endOffset).put("exactText", passage.exactText).toString()
+                        newCardSelection =
+                            JSONObject()
+                                .put("sourceBlobSha", passage.blobSha)
+                                .put("blockId", passage.blockId)
+                                .put("startOffset", passage.startOffset)
+                                .put("endOffset", passage.endOffset)
+                                .put("exactText", passage.exactText)
+                                .toString()
                     },
                     onReattach = { row ->
                         reattaching = row
@@ -315,21 +409,38 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
                         message = null
                     },
                     onOpenNote = { from -> push(Screen.Reader(from.id, from.title)) },
-                    modifier = Modifier.fillMaxWidth().weight(0.7f))
+                    modifier = Modifier.fillMaxWidth().weight(0.7f),
+                )
             }
         }
     }
-    outline?.takeIf { outlineOpen && it.isNotEmpty() }?.let { headings ->
-        OutlineSheet(headings, section, onDismiss = { outlineOpen = false }, onJump = { entry ->
-            outlineOpen = false
-            sessionRef?.showBlock(entry.blockId) { shown -> if (!shown) message = "Couldn't scroll to “${entry.text}”; reopen the note." }
-        })
-    }
+    outline
+        ?.takeIf { outlineOpen && it.isNotEmpty() }
+        ?.let { headings ->
+            OutlineSheet(
+                headings,
+                section,
+                onDismiss = { outlineOpen = false },
+                onJump = { entry ->
+                    outlineOpen = false
+                    sessionRef?.showBlock(entry.blockId) { shown ->
+                        if (!shown) message = "Couldn't scroll to “${entry.text}”; reopen the note."
+                    }
+                },
+            )
+        }
     preview?.let { (target, heading) ->
-        LinkPreviewSheet(target, heading, sync, dao, onDismiss = { preview = null }, onOpen = {
-            preview = null
-            push(Screen.Reader(target.id, target.title, heading))
-        })
+        LinkPreviewSheet(
+            target,
+            heading,
+            sync,
+            dao,
+            onDismiss = { preview = null },
+            onOpen = {
+                preview = null
+                push(Screen.Reader(target.id, target.title, heading))
+            },
+        )
     }
     linkChoices?.let { (heading, choices) ->
         androidx.compose.material3.AlertDialog(
@@ -338,10 +449,14 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
             text = {
                 Column {
                     for (choice in choices) {
-                        TextButton(onClick = {
-                            linkChoices = null
-                            push(Screen.Reader(choice.id, choice.title, heading))
-                        }) { Text(choice.path) }
+                        TextButton(
+                            onClick = {
+                                linkChoices = null
+                                push(Screen.Reader(choice.id, choice.title, heading))
+                            }
+                        ) {
+                            Text(choice.path)
+                        }
                     }
                 }
             },
@@ -351,18 +466,30 @@ fun ReaderScreen(sync: Sync, dao: LibraryDao, appScope: CoroutineScope, signedIn
     }
     newCardSelection?.let { encoded ->
         val selection = JSONObject(encoded)
-        NoteDialog(title = "Make a question", quote = selection.getString("exactText"), initial = "",
-            label = "Question", allowBlank = false, onDismiss = { newCardSelection = null }, onSave = { question ->
+        NoteDialog(
+            title = "Make a question",
+            quote = selection.getString("exactText"),
+            initial = "",
+            label = "Question",
+            allowBlank = false,
+            onDismiss = { newCardSelection = null },
+            onSave = { question ->
                 newCardSelection = null
                 save(selection, null, question)
-            })
+            },
+        )
     }
     newSelection?.let { selection ->
-        NoteDialog(title = "Add a note", quote = selection.getString("exactText"), initial = "",
-            onDismiss = { newSelection = null }, onSave = { note ->
+        NoteDialog(
+            title = "Add a note",
+            quote = selection.getString("exactText"),
+            initial = "",
+            onDismiss = { newSelection = null },
+            onSave = { note ->
                 newSelection = null
                 save(selection, note.ifBlank { null }, null)
-            })
+            },
+        )
     }
 }
 
@@ -379,13 +506,18 @@ private fun ReadingBars(shown: Boolean) {
         onDispose { bars.show(android.view.WindowInsets.Type.systemBars()) }
     }
     LaunchedEffect(shown) {
-        if (shown) bars.show(android.view.WindowInsets.Type.systemBars()) else bars.hide(android.view.WindowInsets.Type.systemBars())
+        if (shown) bars.show(android.view.WindowInsets.Type.systemBars())
+        else bars.hide(android.view.WindowInsets.Type.systemBars())
     }
 }
 
 @Composable
 private fun Notice(text: String) {
-    Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    )
 }
 
 /**
@@ -414,7 +546,9 @@ private class ReaderSession(
     private val onOutline: (List<OutlineEntry>) -> Unit,
     /** The index of the first block visible at the top, after scrolling settles and whenever the position is saved. */
     private val onTopBlock: (Int) -> Unit,
-    /** Whether the bars should show: false after the reader scrolls down, true after scrolling up or reaching the top. */
+    /**
+     * Whether the bars should show: false after the reader scrolls down, true after scrolling up or reaching the top.
+     */
     private val onBarsShown: (Boolean) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
@@ -433,14 +567,14 @@ private class ReaderSession(
     private val saveAfterScroll = Runnable { capture() }
     private val sectionAfterScroll = Runnable { reportTopBlock() }
     /**
-     * Only scrolling that follows a touch on the page moves the bars; jumps made by the app (restoring the position, the
-     * outline, Show) clear it, so they never hide the bars.
+     * Only scrolling that follows a touch on the page moves the bars; jumps made by the app (restoring the position,
+     * the outline, Show) clear it, so they never hide the bars.
      */
     private var touched = false
     /**
      * The bars change only when the finger lifts, by that swipe's net scroll (pixels, positive down). Moving the view
-     * under a finger that is still down made the page read the move as more scrolling the other way, so the bars and the
-     * page oscillated during the drag (seen on the Pixel 8a).
+     * under a finger that is still down made the page read the move as more scrolling the other way, so the bars and
+     * the page oscillated during the drag (seen on the Pixel 8a).
      */
     private var fingerDown = false
     private var swipeScroll = 0
@@ -448,86 +582,103 @@ private class ReaderSession(
     fun createView(context: Context): WebView {
         val assets = readerAssets(context)
         return ReaderWebView(context, reattaching) { action, finish ->
-            captureSelection { selection ->
-                // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
-                if (selection != null && !selection.has("error")) finish()
-                onSelection(selection, action)
+                captureSelection { selection ->
+                    // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
+                    if (selection != null && !selection.has("error")) finish()
+                    onSelection(selection, action)
+                }
             }
-        }.apply {
-            isolateReaderPage()
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    val url = request.url
-                    if (request.hasGesture() && url.host == ASSET_HOST && url.path == NOTE_LINK) {
-                        val link = noteLinkParameters(url.encodedQuery.orEmpty())
-                        onNoteLink(link["target"], link["path"], link["heading"])
-                        return true
+            .apply {
+                isolateReaderPage()
+                webViewClient =
+                    object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            val url = request.url
+                            if (request.hasGesture() && url.host == ASSET_HOST && url.path == NOTE_LINK) {
+                                val link = noteLinkParameters(url.encodedQuery.orEmpty())
+                                onNoteLink(link["target"], link["path"], link["heading"])
+                                return true
+                            }
+                            if (request.hasGesture() && url.host == ASSET_HOST && url.path == COPY_CODE) {
+                                url.getQueryParameter("block")?.let { copyCode(view, it) }
+                                return true
+                            }
+                            if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN) {
+                                url.getQueryParameter("figure")?.let(onFigure)
+                                return true
+                            }
+                            val external = (url.scheme == "https" || url.scheme == "http") && url.host != ASSET_HOST
+                            if (request.hasGesture() && (external || url.scheme == "mailto")) {
+                                try {
+                                    view.context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE)
+                                    )
+                                } catch (error: ActivityNotFoundException) {
+                                    Log.w("RepoRead", "No app for an external note link; scheme=${url.scheme}")
+                                    onMessage(
+                                        if (external) "No browser is installed to open this link."
+                                        else "No email app is installed to open this link."
+                                    )
+                                }
+                            }
+                            // The page itself never navigates away; note links are opened by the app as new reader
+                            // screens.
+                            return true
+                        }
+
+                        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                            readerResource(assets, sync.images, note, request.url)
+
+                        override fun onPageFinished(view: WebView, url: String) = awaitReady(view)
                     }
-                    if (request.hasGesture() && url.host == ASSET_HOST && url.path == COPY_CODE) {
-                        url.getQueryParameter("block")?.let { copyCode(view, it) }
-                        return true
-                    }
-                    if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN) {
-                        url.getQueryParameter("figure")?.let(onFigure)
-                        return true
-                    }
-                    val external = (url.scheme == "https" || url.scheme == "http") && url.host != ASSET_HOST
-                    if (request.hasGesture() && (external || url.scheme == "mailto")) {
-                        try {
-                            view.context.startActivity(Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE))
-                        } catch (error: ActivityNotFoundException) {
-                            Log.w("RepoRead", "No app for an external note link; scheme=${url.scheme}")
-                            onMessage(if (external) "No browser is installed to open this link." else "No email app is installed to open this link.")
+                val barsThreshold = (BARS_SCROLL_DP * context.resources.displayMetrics.density).toInt()
+                setOnTouchListener { view, event ->
+                    when (event.actionMasked) {
+                        android.view.MotionEvent.ACTION_DOWN -> {
+                            touched = true
+                            fingerDown = true
+                            swipeScroll = 0
+                        }
+                        android.view.MotionEvent.ACTION_UP,
+                        android.view.MotionEvent.ACTION_CANCEL -> {
+                            fingerDown = false
+                            when {
+                                view.scrollY <= barsThreshold || swipeScroll < -barsThreshold -> onBarsShown(true)
+                                swipeScroll > barsThreshold -> onBarsShown(false)
+                            }
                         }
                     }
-                    // The page itself never navigates away; note links are opened by the app as new reader screens.
-                    return true
+                    false
                 }
-
-                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                    readerResource(assets, sync.images, note, request.url)
-
-                override fun onPageFinished(view: WebView, url: String) = awaitReady(view)
-            }
-            val barsThreshold = (BARS_SCROLL_DP * context.resources.displayMetrics.density).toInt()
-            setOnTouchListener { view, event ->
-                when (event.actionMasked) {
-                    android.view.MotionEvent.ACTION_DOWN -> {
-                        touched = true
-                        fingerDown = true
-                        swipeScroll = 0
-                    }
-                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                        fingerDown = false
-                        when {
-                            view.scrollY <= barsThreshold || swipeScroll < -barsThreshold -> onBarsShown(true)
-                            swipeScroll > barsThreshold -> onBarsShown(false)
-                        }
-                    }
+                setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                    main.removeCallbacks(saveAfterScroll)
+                    main.removeCallbacks(sectionAfterScroll)
+                    if (restored) main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
+                    if (ready) main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
+                    if (fingerDown) swipeScroll += scrollY - oldScrollY
+                    // A fling that reaches the top brings the bars back; nothing else changes them without a finger
+                    // lifting.
+                    else if (touched && scrollY <= barsThreshold) onBarsShown(true)
                 }
-                false
+                view = this
+                loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
             }
-            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                main.removeCallbacks(saveAfterScroll)
-                main.removeCallbacks(sectionAfterScroll)
-                if (restored) main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
-                if (ready) main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
-                if (fingerDown) swipeScroll += scrollY - oldScrollY
-                // A fling that reaches the top brings the bars back; nothing else changes them without a finger lifting.
-                else if (touched && scrollY <= barsThreshold) onBarsShown(true)
-            }
-            view = this
-            loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
-        }
     }
 
     private fun awaitReady(view: WebView) {
         awaitRendered(view, main) { state, attempt ->
             when (state) {
                 "ready" -> {
-                    view.evaluateJavascript("window.reporead.configureStudy(${study.json()}); window.reporead.setStudy(${studying()}); true") { encoded ->
-                        check(JSONTokener(encoded).nextValue() == true) { "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}" }
-                        Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height} attempt=$attempt")
+                    view.evaluateJavascript(
+                        "window.reporead.configureStudy(${study.json()}); window.reporead.setStudy(${studying()}); true"
+                    ) { encoded ->
+                        check(JSONTokener(encoded).nextValue() == true) {
+                            "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}"
+                        }
+                        Log.i(
+                            "RepoRead",
+                            "Reader ready; documentId=${note.documentId} viewHeight=${view.height} attempt=$attempt",
+                        )
                         ready = true
                         applyHighlights()
                         view.evaluateJavascript("JSON.stringify(window.reporead.outline())") { outline ->
@@ -540,7 +691,9 @@ private class ReaderSession(
                 "failed" -> Log.w("RepoRead", "Reader render failed; position not saved; documentId=${note.documentId}")
                 else -> {
                     Log.w("RepoRead", "Reader never became ready; position not saved; documentId=${note.documentId}")
-                    onMessage("This note did not finish rendering, so highlights and your reading position are off here. Reopen it to try again.")
+                    onMessage(
+                        "This note did not finish rendering, so highlights and your reading position are off here. Reopen it to try again."
+                    )
                 }
             }
         }
@@ -566,17 +719,27 @@ private class ReaderSession(
                 capture()
                 return@launch
             }
-            view.evaluateJavascript("window.reporead.restore(${saved.anchorJson}, ${saved.progressPercent})") { encoded ->
+            view.evaluateJavascript("window.reporead.restore(${saved.anchorJson}, ${saved.progressPercent})") { encoded
+                ->
                 val mode = JSONTokener(encoded).nextValue() as String
-                Log.i("RepoRead", "Reader restored; documentId=${note.documentId} mode=$mode savedPercent=${saved.progressPercent} " +
-                    "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}")
-                onRestoreNotice(when {
-                    mode == "collapsed" -> "Resumed at a collapsed study section; tap Show / hide section to reveal it."
-                    mode == "section" -> "Resumed at the start of the section you were reading; the exact passage changed."
-                    mode == "block" || mode == "percent" -> "Resumed near your last position; the exact passage could not be found."
-                    saved.lastReadBlobSha != note.blobSha -> "This note changed since you last read it; resumed at the same passage."
-                    else -> null
-                })
+                Log.i(
+                    "RepoRead",
+                    "Reader restored; documentId=${note.documentId} mode=$mode savedPercent=${saved.progressPercent} " +
+                        "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}",
+                )
+                onRestoreNotice(
+                    when {
+                        mode == "collapsed" ->
+                            "Resumed at a collapsed study section; tap Show / hide section to reveal it."
+                        mode == "section" ->
+                            "Resumed at the start of the section you were reading; the exact passage changed."
+                        mode == "block" || mode == "percent" ->
+                            "Resumed near your last position; the exact passage could not be found."
+                        saved.lastReadBlobSha != note.blobSha ->
+                            "This note changed since you last read it; resumed at the same passage."
+                        else -> null
+                    }
+                )
                 restored = true
                 capture()
             }
@@ -594,15 +757,28 @@ private class ReaderSession(
         }
         webView.evaluateJavascript("JSON.stringify(window.reporead.position())") { encoded ->
             val position = JSONObject(JSONTokener(encoded).nextValue() as String)
-            val row = ReadingRow(note.documentId, note.title, note.path, note.blobSha, position.getInt("progressPercent"),
-                position.getJSONObject("anchor").toString(), System.currentTimeMillis(), pending = true)
+            val row =
+                ReadingRow(
+                    note.documentId,
+                    note.title,
+                    note.path,
+                    note.blobSha,
+                    position.getInt("progressPercent"),
+                    position.getJSONObject("anchor").toString(),
+                    System.currentTimeMillis(),
+                    pending = true,
+                )
             val viewHeight = webView.height
-            // Teardown can cancel the UI scope before this callback. Finish this captured local write, not a network sync.
+            // Teardown can cancel the UI scope before this callback. Finish this captured local write, not a network
+            // sync.
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 withContext(NonCancellable) {
                     sync.saveReading(row)
-                    Log.i("RepoRead", "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} " +
-                        "block=${position.getJSONObject("anchor").getInt("blockIndex")} viewHeight=$viewHeight")
+                    Log.i(
+                        "RepoRead",
+                        "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} " +
+                            "block=${position.getJSONObject("anchor").getInt("blockIndex")} viewHeight=$viewHeight",
+                    )
                     then()
                 }
             }
@@ -613,7 +789,9 @@ private class ReaderSession(
     private fun reportTopBlock() {
         val webView = view ?: return
         if (!ready) return
-        webView.evaluateJavascript("window.reporead.position().anchor.blockIndex") { encoded -> onTopBlock(JSONTokener(encoded).nextValue() as Int) }
+        webView.evaluateJavascript("window.reporead.position().anchor.blockIndex") { encoded ->
+            onTopBlock(JSONTokener(encoded).nextValue() as Int)
+        }
     }
 
     /** Saves the final position before destroying the view; later lifecycle events no longer touch it. */
@@ -634,11 +812,20 @@ private class ReaderSession(
     private fun applyHighlights() {
         val webView = view ?: return
         if (!ready) return
-        val payload = JSONArray(highlights.filter { it.drawn.blobSha == note.blobSha }.map {
-            val passage = it.drawn
-            JSONObject().put("key", it.mutationId).put("blockId", passage.blockId).put("startOffset", passage.startOffset)
-                .put("endOffset", passage.endOffset).put("exactText", passage.exactText)
-        })
+        val payload =
+            JSONArray(
+                highlights
+                    .filter { it.drawn.blobSha == note.blobSha }
+                    .map {
+                        val passage = it.drawn
+                        JSONObject()
+                            .put("key", it.mutationId)
+                            .put("blockId", passage.blockId)
+                            .put("startOffset", passage.startOffset)
+                            .put("endOffset", passage.endOffset)
+                            .put("exactText", passage.exactText)
+                    }
+            )
         webView.evaluateJavascript("JSON.stringify(window.reporead.highlight($payload))") { encoded ->
             val missing = JSONArray(JSONTokener(encoded).nextValue() as String)
             onNotShown(List(missing.length()) { missing.getString(it) }.toSet())
@@ -646,7 +833,9 @@ private class ReaderSession(
         }
     }
 
-    /** Scrolls to a changed section's heading block in this version, or the top for null; reports whether it was found. */
+    /**
+     * Scrolls to a changed section's heading block in this version, or the top for null; reports whether it was found.
+     */
     fun showBlock(blockId: String?, then: (Boolean) -> Unit) {
         val webView = view
         if (webView == null || !ready) {
@@ -654,9 +843,15 @@ private class ReaderSession(
             return
         }
         touched = false
-        webView.evaluateJavascript("window.reporead.showBlock(${if (blockId == null) "null" else JSONObject.quote(blockId)})") { encoded ->
+        webView.evaluateJavascript(
+            "window.reporead.showBlock(${if (blockId == null) "null" else JSONObject.quote(blockId)})"
+        ) { encoded ->
             val shown = JSONTokener(encoded).nextValue() == true
-            if (!shown) Log.w("RepoRead", "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId")
+            if (!shown)
+                Log.w(
+                    "RepoRead",
+                    "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId",
+                )
             then(shown)
         }
     }
@@ -669,7 +864,9 @@ private class ReaderSession(
             return
         }
         touched = false
-        webView.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(text)})") { encoded -> then(JSONTokener(encoded).nextValue() == true) }
+        webView.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(text)})") { encoded ->
+            then(JSONTokener(encoded).nextValue() == true)
+        }
     }
 
     fun reveal(key: String) {
@@ -700,10 +897,12 @@ private class ReaderSession(
         if (!ready) return
         webView.evaluateJavascript("window.reporead.codeText(${JSONObject.quote(blockId)})") { encoded ->
             // A link in the note's own text can name /copy-code with something that is not a code block.
-            val text = JSONTokener(encoded).nextValue() as? String ?: run {
-                Log.w("RepoRead", "Copy link names no code block; documentId=${note.documentId} block=$blockId")
-                return@evaluateJavascript
-            }
+            val text =
+                JSONTokener(encoded).nextValue() as? String
+                    ?: run {
+                        Log.w("RepoRead", "Copy link names no code block; documentId=${note.documentId} block=$blockId")
+                        return@evaluateJavascript
+                    }
             val clipboard = webView.context.getSystemService(android.content.ClipboardManager::class.java)
             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Code", text))
             Log.i("RepoRead", "Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
@@ -720,10 +919,14 @@ private class ReaderSession(
             onMessage("The note is still loading; select the text again in a moment.")
             return
         }
-        webView.evaluateJavascript("(() => { try { return JSON.stringify({selection: window.reporead.capture()}); } " +
-            "catch (error) { return JSON.stringify({invariant: error.message}); } })()") { encoded ->
+        webView.evaluateJavascript(
+            "(() => { try { return JSON.stringify({selection: window.reporead.capture()}); } " +
+                "catch (error) { return JSON.stringify({invariant: error.message}); } })()"
+        ) { encoded ->
             val result = JSONObject(JSONTokener(encoded).nextValue() as String)
-            check(!result.has("invariant")) { "Selection capture failed; documentId=${note.documentId}: ${result.getString("invariant")}" }
+            check(!result.has("invariant")) {
+                "Selection capture failed; documentId=${note.documentId}: ${result.getString("invariant")}"
+            }
             then(result.optJSONObject("selection"))
         }
     }
