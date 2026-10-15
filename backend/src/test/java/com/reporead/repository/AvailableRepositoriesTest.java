@@ -329,12 +329,16 @@ class AvailableRepositoriesTest {
                 .andExpect(jsonPath("$.code").value("GITHUB_RESPONSE_LIMIT"));
     }
 
-    @Test
-    void redirectsAreNotFollowed() throws Exception {
-        expectListing(TOKEN, withStatus(HttpStatus.FOUND).location(java.net.URI.create("https://example.invalid")));
+    /** GitHub redirects a renamed repository's old name with 301 or 307; the message says how to recover. */
+    @ParameterizedTest
+    @ValueSource(ints = {301, 302, 307})
+    void redirectsAreNotFollowed(int status) throws Exception {
+        expectListing(
+                TOKEN, withStatus(HttpStatus.valueOf(status)).location(java.net.URI.create("https://example.invalid")));
         available(alice)
                 .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"));
+                .andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"))
+                .andExpect(jsonPath("$.message").value(containsString("tap Update on the repository")));
     }
 
     @Test
@@ -383,6 +387,30 @@ class AvailableRepositoriesTest {
         next();
         expectListing(TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
         available(alice).andExpect(jsonPath("$.repositories[0].connectionId").value(1));
+    }
+
+    @Test
+    void connectingAgainAfterARenameKeepsTheConnectionAndItsNotesUnderTheNewName() throws Exception {
+        expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
+        connect(alice, 11, "{\"installationId\":7}").andExpect(jsonPath("$.id").value(1));
+        db.sql(
+                        "insert into documents (repository_connection_id, path, title, current_blob_sha) values (1, 'a.md', 'a', '"
+                                + "a".repeat(40) + "')")
+                .update();
+        next();
+        String renamed = PAGE.replace("test-only/notes", "test-only/renamed").replace("\"main\"", "\"trunk\"");
+        expect(UPSTREAM, TOKEN, withSuccess(renamed, MediaType.APPLICATION_JSON));
+        connect(alice, 11, "{\"installationId\":7}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.fullName").value("test-only/renamed"))
+                .andExpect(jsonPath("$.defaultBranch").value("trunk"))
+                .andExpect(jsonPath("$.documentCount").value(1));
+        assertEquals(
+                1,
+                db.sql("select count(*) from repository_connections")
+                        .query(Integer.class)
+                        .single());
     }
 
     @Test

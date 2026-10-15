@@ -101,11 +101,13 @@ class GitHubTokensTest {
     }
 
     @Test
-    void aReplacedKeyDropsTheStoredTokenSoTheUserSignsInAgain() throws IOException {
+    void aWrongKeyReadsNoTokenAndKeepsItForTheRightKey() throws IOException {
         var otherKey = restartedWithKey("0f".repeat(32));
         assertNull(otherKey.loadAuthorizedClient("github", "42"));
-        assertEquals(0, rows(), "an unreadable token is deleted, not kept");
-        assertNull(clients.loadAuthorizedClient("github", "42"));
+        assertEquals(1, rows(), "a key file named by mistake must not destroy the stored token");
+        OAuth2AuthorizedClient restored =
+                restartedWithKey(TestEnvironment.TOKEN_KEY).loadAuthorizedClient("github", "42");
+        assertEquals("TEST_ONLY_ACCESS_TOKEN", restored.getAccessToken().getTokenValue());
     }
 
     @Test

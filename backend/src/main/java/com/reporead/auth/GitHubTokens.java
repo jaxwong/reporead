@@ -31,7 +31,7 @@ import org.springframework.stereotype.Component;
  * Replaces Spring's in-memory store; Spring's JDBC store would keep the tokens in plaintext. Both tokens are encrypted
  * with AES-256-GCM under the key in reporead.github.token-key-file, and each ciphertext is bound to its user and token
  * kind, so a row copied to another user does not decrypt. A row the current key cannot decrypt (the key file was
- * replaced) is deleted and reads as no token: that user signs in again.
+ * replaced) reads as no token: that user signs in again, which overwrites it.
  */
 @Component
 public class GitHubTokens implements OAuth2AuthorizedClientService {
@@ -93,9 +93,9 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
                             decrypt(row.get().refresh(), githubUserId, "refresh"),
                             row.get().refreshIssued());
         } catch (AEADBadTagException error) {
-            remove(githubUserId);
+            // Kept: a key file named by mistake must not destroy every token; the next sign-in overwrites the row.
             LOG.warn(
-                    "Stored GitHub token does not decrypt with the current key; deleted, sign-in required; githubUserId={}",
+                    "Stored GitHub token does not decrypt with the current key; sign-in required; githubUserId={}",
                     githubUserId);
             return null;
         }
