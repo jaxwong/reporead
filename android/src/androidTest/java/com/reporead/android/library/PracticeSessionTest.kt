@@ -156,8 +156,10 @@ class PracticeSessionTest {
                 assertEquals(bankSha, missed.checkedBlobSha)
                 assertEquals(listOf(0), dao.pendingReviews().map { it.grade })
 
-                // The miss went to the back; the other question is next, also after recreation.
-                awaitText("2 questions left · Foundations · Test-only bank")
+                // The miss went to the back; the other question is next, also after recreation. The grade is saved
+                // before the queue moves on, and the count reads the same either way, so recreating only once the next
+                // question is up (Show answer again) saves the moved queue.
+                awaitText("Show answer")
                 scenario.recreate()
                 awaitText("2 questions left · Foundations · Test-only bank")
                 click("Show answer")
