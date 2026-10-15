@@ -33,7 +33,7 @@ public class ConnectionData {
     }
 
     public record Counts(int documents, int readingStates, int bookmarks, int highlights, int cards) {}
-    /** [documentIds]: every deleted document, so the phone can delete its own rows for them. */
+    /** {@code documentIds}: every deleted document, so the phone can delete its own rows for them. */
     public record Deleted(List<Long> documentIds, int readingStates, int bookmarks, int highlights, int cards) {}
 
     /** What disconnecting would delete; a read-only projection of the owners' tables. */

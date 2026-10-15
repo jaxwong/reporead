@@ -201,7 +201,7 @@ class DataControlTest {
     }
 
     /**
-     * Runs [write] while a disconnect of [notes] holds its lock, as RepositoryController.disconnect does, and returns the
+     * Runs {@code write} while a disconnect of {@code notes} holds its lock, as RepositoryController.disconnect does, and returns the
      * write's HTTP status. A write that did not wait would commit rows the disconnect's deletes no longer see.
      */
     private int writeDuringDisconnect(Callable<ResultActions> write) throws Exception {

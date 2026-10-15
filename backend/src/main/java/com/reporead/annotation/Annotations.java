@@ -60,10 +60,10 @@ public class Annotations {
 
     /**
      * A passage in one source version. The last four fields say how distinguishable it was in that version:
-     * [blockSha] is the SHA-256 of its block's text when no other block has that text, [quoteOccurrences] how often its
-     * exact text occurs, [rivalContext] how similar the best other exact occurrence's context is (0 when unique), and
-     * [rivalQuote] how similar the closest look-alike in another block is (0 when none, 1 when there were too many to
-     * compare). Every location has the last three (and [blockSha] when its block is unique); an original anchor records
+     * {@code blockSha} is the SHA-256 of its block's text when no other block has that text, {@code quoteOccurrences} how often its
+     * exact text occurs, {@code rivalContext} how similar the best other exact occurrence's context is (0 when unique), and
+     * {@code rivalQuote} how similar the closest look-alike in another block is (0 when none, 1 when there were too many to
+     * compare). Every location has the last three (and {@code blockSha} when its block is unique); an original anchor records
      * none of them, and is never resolved from.
      */
     public record Anchor(String sourceBlobSha, String blockId, String exactText, String prefixText, String suffixText,
@@ -162,7 +162,7 @@ public class Annotations {
         });
     }
 
-    /** Optimistic update: applies only at [expectedVersion]; 409 if another edit landed first, 404 if absent. */
+    /** Optimistic update: applies only at {@code expectedVersion}; 409 if another edit landed first, 404 if absent. */
     Annotation updateNote(long userId, long id, int expectedVersion, String note) {
         int updated = db.sql("""
                 update annotations set note = :note, version = version + 1, updated_at = :now
@@ -180,9 +180,9 @@ public class Annotations {
     }
 
     /**
-     * Records resolving a highlight in version [blobSha], only while it is still resolved against the version and at the
-     * user-edit version [annotation] was read with, so a concurrent resolution, a reattachment, or a confirmation wins.
-     * Empty [found] orphans it and keeps its last location. The user-edit version is unchanged: re-anchoring is not an
+     * Records resolving a highlight in version {@code blobSha}, only while it is still resolved against the version and at the
+     * user-edit version {@code annotation} was read with, so a concurrent resolution, a reattachment, or a confirmation wins.
+     * Empty {@code found} orphans it and keeps its last location. The user-edit version is unchanged: re-anchoring is not an
      * edit. Returns whether this call applied.
      */
     boolean resolved(Annotation annotation, String blobSha, Optional<Anchor> found) {
@@ -269,7 +269,7 @@ public class Annotations {
             row.getString("current_blob_sha"), row.getBoolean("deleted"));
     }
 
-    /** The eight anchor columns named with [prefix]; distinguishability is not part of an original anchor. */
+    /** The eight anchor columns named with {@code prefix}; distinguishability is not part of an original anchor. */
     private Anchor anchor(ResultSet row, String prefix) throws SQLException {
         return new Anchor(row.getString(prefix + "source_blob_sha"), row.getString(prefix + "block_id"), row.getString(prefix + "exact_text"),
             row.getString(prefix + "prefix_text"), row.getString(prefix + "suffix_text"), row.getInt(prefix + "start_offset"),

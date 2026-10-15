@@ -29,7 +29,7 @@ class AnchoringTest {
         return blocks;
     }
 
-    /** Anchors [quote] in block [index] of the old version, exactly as creation does. */
+    /** Anchors {@code quote} in block {@code index} of the old version, exactly as creation does. */
     private static Annotations.Anchor anchor(List<Block> version, int index, String quote) {
         var block = version.get(index);
         int start = block.text().indexOf(quote);

@@ -81,7 +81,7 @@ public class RepositoryConnections {
     }
 
     /**
-     * Holds off a sync or disconnection of the connection that owns [documentId] while a write referencing the document
+     * Holds off a sync or disconnection of the connection that owns {@code documentId} while a write referencing the document
      * commits; must run inside that write's transaction, before it writes. Writes share the lock, so they do not wait for
      * each other. Without it, a row committed after a disconnect's deletes ran would break the disconnect.
      * A document disconnected meanwhile is not found.
