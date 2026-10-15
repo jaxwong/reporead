@@ -61,7 +61,7 @@ public class DataControlController {
      * its syncs. GitHub is not modified, and the GitHub App stays installed until the user removes it on GitHub.
      */
     @DeleteMapping("/api/repositories/{id}")
-    ConnectionData.Deleted disconnect(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
+    ConnectionData.Disconnected disconnect(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
         var deleted = transaction.execute(status -> {
             connections.lockForSync(user.id(), id);
             return data.delete(id);
@@ -78,7 +78,7 @@ public class DataControlController {
         return deleted;
     }
 
-    record Deleted(int repositories, int readingStates, int bookmarks, int highlights, int cards) {}
+    record AccountDeleted(int repositories, int readingStates, int bookmarks, int highlights, int cards) {}
 
     /**
      * Deletes everything RepoRead holds for the signed-in user in one transaction — every connection and its data, the
@@ -88,7 +88,7 @@ public class DataControlController {
      * RepoRead keeps no credential afterwards. The App stays installed on GitHub until the user uninstalls it.
      */
     @DeleteMapping("/api/account")
-    Deleted delete(@AuthenticationPrincipal AppUser user) {
+    AccountDeleted delete(@AuthenticationPrincipal AppUser user) {
         var token = github.tokenToRevoke(user.githubUserId());
         var deleted = transaction.execute(status -> {
             // First, so a connection being added concurrently commits before the list below, or waits and then fails.
@@ -110,7 +110,7 @@ public class DataControlController {
             annotations.deleteMutations(user.id());
             sessions.deleteUser(user.id());
             clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
-            return new Deleted(repositories, reading, bookmarks, highlights, cards);
+            return new AccountDeleted(repositories, reading, bookmarks, highlights, cards);
         });
         token.ifPresent(value -> github.revokeAuthorization(user.githubUserId(), value));
         LOG.info(

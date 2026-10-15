@@ -1,6 +1,6 @@
 package com.reporead.annotation;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonValue;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.repository.RepositoryConnections;
@@ -30,21 +30,29 @@ public class Annotations {
     private final TransactionTemplate transaction;
     private final RepositoryConnections connections;
 
-    public record Deleted(int highlights, int bookmarks, int cards) {}
+    public Annotations(
+            JdbcClient db, JsonMapper json, TransactionTemplate transaction, RepositoryConnections connections) {
+        this.db = db;
+        this.json = json;
+        this.transaction = transaction;
+        this.connections = connections;
+    }
+
+    public record DeletedAnnotations(int highlights, int bookmarks, int cards) {}
 
     /**
      * Deletes every annotation on a connection's documents: highlights and cards (their anchors, locations, and review
      * logs cascade) and bookmarks. Their mutation records stay, named by no annotation, so a late replay is answered as
      * deleted.
      */
-    public Deleted deleteOnConnection(long connectionId) {
+    public DeletedAnnotations deleteOnConnection(long connectionId) {
         var types = db.sql("""
                 delete from annotations where document_id in (select id from documents where repository_connection_id = :connectionId)
                 returning type""")
                 .param("connectionId", connectionId)
                 .query(String.class)
                 .list();
-        return new Deleted(
+        return new DeletedAnnotations(
                 (int) types.stream().filter("HIGHLIGHT"::equals).count(),
                 (int) types.stream().filter("BOOKMARK"::equals).count(),
                 (int) types.stream().filter("CARD"::equals).count());
@@ -57,23 +65,8 @@ public class Annotations {
                 .update();
     }
 
-    public Annotations(
-            JdbcClient db, JsonMapper json, TransactionTemplate transaction, RepositoryConnections connections) {
-        this.db = db;
-        this.json = json;
-        this.transaction = transaction;
-        this.connections = connections;
-    }
-
-    /**
-     * A passage in one source version. The last four fields say how distinguishable it was in that version:
-     * {@code blockSha} is the SHA-256 of its block's text when no other block has that text, {@code quoteOccurrences}
-     * how often its exact text occurs, {@code rivalContext} how similar the best other exact occurrence's context is (0
-     * when unique), and {@code rivalQuote} how similar the closest look-alike in another block is (0 when none, 1 when
-     * there were too many to compare). Every location has the last three (and {@code blockSha} when its block is
-     * unique); an original anchor records none of them, and is never resolved from.
-     */
-    public record Anchor(
+    /** A passage in one source version: a block's text from {@code startOffset} to {@code endOffset}, in context. */
+    public record Passage(
             String sourceBlobSha,
             String blockId,
             String exactText,
@@ -81,18 +74,29 @@ public class Annotations {
             String suffixText,
             int startOffset,
             int endOffset,
-            List<String> headingPath,
-            @JsonIgnore String blockSha,
-            @JsonIgnore Integer quoteOccurrences,
-            @JsonIgnore Double rivalContext,
-            @JsonIgnore Double rivalQuote) {}
+            List<String> headingPath) {}
+
+    /**
+     * Where a highlight is now: a passage, and how distinguishable it was in that version, which re-anchoring weighs.
+     * {@code blockSha} is the SHA-256 of its block's text when no other block has that text (else null),
+     * {@code quoteOccurrences} how often its exact text occurs, {@code rivalContext} how similar the best other exact
+     * occurrence's context is (0 when unique), and {@code rivalQuote} how similar the closest look-alike in another
+     * block is (0 when none, 1 when there were too many to compare). Clients are sent only the passage.
+     */
+    public record Location(
+            Passage passage, String blockSha, int quoteOccurrences, double rivalContext, double rivalQuote) {
+        @JsonValue
+        Passage json() {
+            return passage;
+        }
+    }
 
     /**
      * {@code mutationId} is the client id that created it, so a client can match a pending local copy to it.
-     * {@code anchor} is the original selection, never changed. {@code location} is the latest trusted location, and
-     * {@code status} says what it means for version {@code resolvedBlobSha}: ANCHORED (the original selection, in that
-     * version), REANCHORED (found again in that version, by the server or by the user), or ORPHANED (not reliably found
-     * in that version; {@code location} is the last place the passage was known to be).
+     * {@code anchor} is the original selection, never changed and never resolved from. {@code location} is the latest
+     * trusted location, and {@code status} says what it means for version {@code resolvedBlobSha}: ANCHORED (the
+     * original selection, in that version), REANCHORED (found again in that version, by the server or by the user), or
+     * ORPHANED (not reliably found in that version; {@code location} is the last place the passage was known to be).
      */
     public record Annotation(
             long id,
@@ -104,8 +108,8 @@ public class Annotations {
             int version,
             Instant createdAt,
             Instant updatedAt,
-            Anchor anchor,
-            Anchor location,
+            Passage anchor,
+            Location location,
             String resolvedBlobSha,
             String question,
             String checkedBlobSha,
@@ -183,19 +187,20 @@ public class Annotations {
     }
 
     /**
-     * Creates the annotation, its anchor, and the mutation record in one transaction. A concurrent request with the
-     * same mutation id waits on the primary key and then resolves as a replay; a concurrent disconnect is waited for
-     * (404).
+     * Creates the annotation, its anchor (the passage of {@code location}, where it is first), and the mutation record
+     * in one transaction. A concurrent request with the same mutation id waits on the primary key and then resolves as
+     * a replay; a concurrent disconnect is waited for (404).
      */
     Created create(
             long userId,
             long documentId,
             UUID mutationId,
             byte[] requestHash,
-            Anchor anchor,
+            Location location,
             String note,
             String type,
             String question) {
+        var anchor = location.passage();
         return transaction.execute(status -> {
             connections.lockForDocumentWrite(userId, documentId);
             Instant now = Instant.now();
@@ -238,7 +243,7 @@ public class Annotations {
                     .param("end", anchor.endOffset())
                     .param("headings", json.writeValueAsString(anchor.headingPath()))
                     .update();
-            writeLocation(id, anchor);
+            writeLocation(id, location);
             return new Created(find(userId, id).orElseThrow(), false);
         });
     }
@@ -274,8 +279,9 @@ public class Annotations {
      * confirmation wins. Empty {@code found} orphans it and keeps its last location. The user-edit version is
      * unchanged: re-anchoring is not an edit. Returns whether this call applied.
      */
-    boolean resolved(Annotation annotation, String blobSha, Optional<Anchor> found) {
-        String status = found.map(location -> sameSelection(location, annotation.anchor()) ? "ANCHORED" : "REANCHORED")
+    boolean resolved(Annotation annotation, String blobSha, Optional<Location> found) {
+        String status = found.map(
+                        location -> sameSelection(location.passage(), annotation.anchor()) ? "ANCHORED" : "REANCHORED")
                 .orElse("ORPHANED");
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             int updated = db.sql("""
@@ -294,12 +300,12 @@ public class Annotations {
     }
 
     /** The user's own placement: versioned like a note edit (409 if another change landed first, 404 if absent). */
-    Annotation reattach(long userId, long id, int expectedVersion, Anchor location) {
+    Annotation reattach(long userId, long id, int expectedVersion, Location location) {
         transaction.executeWithoutResult(tx -> {
             int updated = db.sql("""
                     update annotations set status = 'REANCHORED', resolved_blob_sha = :sha, checked_blob_sha = null, version = version + 1, updated_at = :now
                     where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
-                    .param("sha", location.sourceBlobSha())
+                    .param("sha", location.passage().sourceBlobSha())
                     .param("now", Timestamp.from(Instant.now()))
                     .param("id", id)
                     .param("userId", userId)
@@ -332,7 +338,8 @@ public class Annotations {
         return find(userId, id).orElseThrow();
     }
 
-    private void writeLocation(long id, Anchor location) {
+    private void writeLocation(long id, Location location) {
+        var passage = location.passage();
         db.sql("""
                 insert into annotation_locations (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset,
                                                   end_offset, heading_path, block_sha, quote_occurrences, rival_context, rival_quote)
@@ -344,14 +351,14 @@ public class Annotations {
                     block_sha = excluded.block_sha, quote_occurrences = excluded.quote_occurrences,
                     rival_context = excluded.rival_context, rival_quote = excluded.rival_quote""")
                 .param("id", id)
-                .param("sha", location.sourceBlobSha())
-                .param("block", location.blockId())
-                .param("exact", location.exactText())
-                .param("prefix", location.prefixText())
-                .param("suffix", location.suffixText())
-                .param("start", location.startOffset())
-                .param("end", location.endOffset())
-                .param("headings", json.writeValueAsString(location.headingPath()))
+                .param("sha", passage.sourceBlobSha())
+                .param("block", passage.blockId())
+                .param("exact", passage.exactText())
+                .param("prefix", passage.prefixText())
+                .param("suffix", passage.suffixText())
+                .param("start", passage.startOffset())
+                .param("end", passage.endOffset())
+                .param("headings", json.writeValueAsString(passage.headingPath()))
                 .param("blockSha", location.blockSha())
                 .param("occurrences", location.quoteOccurrences())
                 .param("rivalContext", location.rivalContext())
@@ -359,7 +366,7 @@ public class Annotations {
                 .update();
     }
 
-    private static boolean sameSelection(Anchor a, Anchor b) {
+    private static boolean sameSelection(Passage a, Passage b) {
         return a.sourceBlobSha().equals(b.sourceBlobSha())
                 && a.blockId().equals(b.blockId())
                 && a.startOffset() == b.startOffset()
@@ -384,8 +391,13 @@ public class Annotations {
                 row.getInt("version"),
                 row.getTimestamp("created_at").toInstant(),
                 row.getTimestamp("updated_at").toInstant(),
-                anchor(row, "anchor_", false),
-                anchor(row, "location_", true),
+                passage(row, "anchor_"),
+                new Location(
+                        passage(row, "location_"),
+                        row.getString("block_sha"),
+                        row.getInt("quote_occurrences"),
+                        row.getDouble("rival_context"),
+                        row.getDouble("rival_quote")),
                 row.getString("resolved_blob_sha"),
                 row.getString("question"),
                 row.getString("checked_blob_sha"),
@@ -395,12 +407,9 @@ public class Annotations {
                 row.getBoolean("deleted"));
     }
 
-    /**
-     * The eight anchor columns named with {@code prefix}, and with {@code evidence} how distinguishable the passage is,
-     * which only a location records: an original anchor is never resolved from.
-     */
-    private Anchor anchor(ResultSet row, String prefix, boolean evidence) throws SQLException {
-        return new Anchor(
+    /** The eight passage columns of an anchor or a location, named with {@code prefix}. */
+    private Passage passage(ResultSet row, String prefix) throws SQLException {
+        return new Passage(
                 row.getString(prefix + "source_blob_sha"),
                 row.getString(prefix + "block_id"),
                 row.getString(prefix + "exact_text"),
@@ -408,10 +417,6 @@ public class Annotations {
                 row.getString(prefix + "suffix_text"),
                 row.getInt(prefix + "start_offset"),
                 row.getInt(prefix + "end_offset"),
-                json.readValue(row.getString(prefix + "heading_path"), new TypeReference<List<String>>() {}),
-                evidence ? row.getString("block_sha") : null,
-                evidence ? (Integer) row.getObject("quote_occurrences") : null,
-                evidence ? (Double) row.getObject("rival_context") : null,
-                evidence ? (Double) row.getObject("rival_quote") : null);
+                json.readValue(row.getString(prefix + "heading_path"), new TypeReference<List<String>>() {}));
     }
 }

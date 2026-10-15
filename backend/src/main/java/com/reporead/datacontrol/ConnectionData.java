@@ -37,7 +37,7 @@ public class ConnectionData {
 
     public record Counts(int documents, int readingStates, int bookmarks, int highlights, int cards) {}
     /** {@code documentIds}: every deleted document, so the phone can delete its own rows for them. */
-    public record Deleted(List<Long> documentIds, int readingStates, int bookmarks, int highlights, int cards) {}
+    public record Disconnected(List<Long> documentIds, int readingStates, int bookmarks, int highlights, int cards) {}
 
     /** What disconnecting would delete; a read-only projection of the owners' tables. */
     public Counts count(long connectionId) {
@@ -65,12 +65,12 @@ public class ConnectionData {
      * Deletes the connection and everything stored for it. Must run in a transaction holding the connection's sync
      * lock.
      */
-    public Deleted delete(long connectionId) {
+    public Disconnected delete(long connectionId) {
         var deletedAnnotations = annotations.deleteOnConnection(connectionId);
         int deletedReading = readingStates.deleteOnConnection(connectionId);
         var documentIds = documents.deleteConnection(connectionId);
         connections.delete(connectionId);
-        return new Deleted(
+        return new Disconnected(
                 documentIds,
                 deletedReading,
                 deletedAnnotations.bookmarks(),

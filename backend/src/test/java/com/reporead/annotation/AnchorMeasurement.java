@@ -51,7 +51,7 @@ class AnchorMeasurement {
     record Case(
             String category,
             String path,
-            Annotations.Anchor from,
+            Annotations.Location from,
             List<MarkdownRenderer.Block> after,
             Truth truth,
             Anchoring.Evidence evidence) {}
@@ -204,7 +204,7 @@ class AnchorMeasurement {
         }
     }
 
-    private static Annotations.Anchor anchor(Note note, Selection selection) {
+    private static Annotations.Location anchor(Note note, Selection selection) {
         return Anchoring.anchorAt(
                 note.sha(),
                 note.blocks(),
@@ -229,7 +229,7 @@ class AnchorMeasurement {
             List<Case> cases,
             String category,
             Note note,
-            Annotations.Anchor from,
+            Annotations.Location from,
             List<MarkdownRenderer.Block> after,
             Truth truth) {
         var renumbered = renumber(after);
@@ -254,7 +254,7 @@ class AnchorMeasurement {
             var blocks = note.blocks();
             var target = blocks.get(t);
             String text = target.text();
-            String quote = from.exactText();
+            String quote = from.passage().exactText();
             var donor = donors.get(random.nextInt(donors.size()));
             if (donor.text().equals(text)) continue;
 
@@ -369,7 +369,7 @@ class AnchorMeasurement {
     private void editOutside(
             List<Case> cases,
             Note note,
-            Annotations.Anchor from,
+            Annotations.Location from,
             Selection selection,
             MarkdownRenderer.Block donor,
             boolean near) {
@@ -408,7 +408,7 @@ class AnchorMeasurement {
     private void heavyEdit(
             List<Case> cases,
             Note note,
-            Annotations.Anchor from,
+            Annotations.Location from,
             Selection selection,
             List<MarkdownRenderer.Block> donors) {
         var target = note.blocks().get(selection.blockIndex());
@@ -681,13 +681,13 @@ class AnchorMeasurement {
 
     private static void describe(StringBuilder samples, Case c, Optional<Anchoring.Found> found) {
         samples.append("  was:  …")
-                .append(c.from().prefixText())
+                .append(c.from().passage().prefixText())
                 .append('[')
-                .append(c.from().exactText())
+                .append(c.from().passage().exactText())
                 .append(']')
-                .append(c.from().suffixText())
+                .append(c.from().passage().suffixText())
                 .append("…  ")
-                .append(c.from().headingPath())
+                .append(c.from().passage().headingPath())
                 .append('\n');
         found.ifPresent(f -> {
             var candidate = f.candidate();

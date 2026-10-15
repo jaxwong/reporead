@@ -37,11 +37,11 @@ public class DocumentController {
             GitHubApi github,
             NoteVersions noteVersions,
             Attachments attachments) {
-        this.attachments = attachments;
         this.connections = connections;
         this.documents = documents;
         this.github = github;
         this.noteVersions = noteVersions;
+        this.attachments = attachments;
     }
 
     record DocumentList(long repositoryId, String lastSyncedCommitSha, List<Documents.Summary> documents) {}

@@ -56,13 +56,13 @@ public class RepositorySync {
             NoteVersions noteVersions,
             MeterRegistry meters,
             Attachments attachments) {
-        this.attachments = attachments;
-        this.meters = meters;
         this.github = github;
         this.connections = connections;
         this.documents = documents;
         this.transaction = transaction;
         this.noteVersions = noteVersions;
+        this.meters = meters;
+        this.attachments = attachments;
     }
 
     public record Result(long repositoryId, String commitSha, int documentCount, Instant syncedAt) {}
