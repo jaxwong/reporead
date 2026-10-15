@@ -1,11 +1,10 @@
 package com.reporead.auth;
 
 import com.reporead.RepoReadProperties;
-import org.springframework.stereotype.Component;
-
 import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.springframework.stereotype.Component;
 
 /**
  * The GitHub users this server serves (ADR-16). RepoRead is personal, and the hosted backend is on the internet with a
@@ -24,7 +23,9 @@ final class AllowedUsers {
         var parsed = new HashSet<Long>();
         for (String id : ids.split(",", -1)) {
             if (!ID.matcher(id.strip()).matches()) {
-                throw new IllegalArgumentException("reporead.allowed-github-user-ids must be comma-separated positive GitHub user ids, not: " + ids);
+                throw new IllegalArgumentException(
+                        "reporead.allowed-github-user-ids must be comma-separated positive GitHub user ids, not: "
+                                + ids);
             }
             parsed.add(Long.parseLong(id.strip()));
         }

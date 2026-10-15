@@ -3,9 +3,6 @@ package com.reporead.repository;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.reporead.ApiFailure;
 import com.reporead.github.GitHubApi;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.stereotype.Component;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -14,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Component;
 
 /** Owns repository_connections. Every read is scoped to the requesting user. */
 @Component
@@ -24,10 +23,20 @@ public class RepositoryConnections {
         this.db = db;
     }
 
-    public record Connection(long id, long githubRepositoryId, long installationId, String owner, String name,
-                             String defaultBranch, String lastSyncedCommitSha, Instant lastSyncedAt, int documentCount) {
+    public record Connection(
+            long id,
+            long githubRepositoryId,
+            long installationId,
+            String owner,
+            String name,
+            String defaultBranch,
+            String lastSyncedCommitSha,
+            Instant lastSyncedAt,
+            int documentCount) {
         @JsonProperty("fullName")
-        public String fullName() { return owner + "/" + name; }
+        public String fullName() {
+            return owner + "/" + name;
+        }
     }
 
     private static final String SELECT = """
@@ -38,19 +47,28 @@ public class RepositoryConnections {
 
     public List<Connection> list(long userId) {
         return db.sql(SELECT + " where c.user_id = :userId order by c.owner, c.name")
-            .param("userId", userId).query(RepositoryConnections::connection).list();
+                .param("userId", userId)
+                .query(RepositoryConnections::connection)
+                .list();
     }
 
     public Optional<Connection> find(long userId, long connectionId) {
         return db.sql(SELECT + " where c.user_id = :userId and c.id = :id")
-            .param("userId", userId).param("id", connectionId).query(RepositoryConnections::connection).optional();
+                .param("userId", userId)
+                .param("id", connectionId)
+                .query(RepositoryConnections::connection)
+                .optional();
     }
 
     /** GitHub repository id → connection id, for marking which available repositories are already connected. */
     Map<Long, Long> connectedIds(long userId) {
-        return db.sql("select github_repository_id, id from repository_connections where user_id = :userId")
-            .param("userId", userId).query((row, n) -> Map.entry(row.getLong("github_repository_id"), row.getLong("id"))).list()
-            .stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        return db
+                .sql("select github_repository_id, id from repository_connections where user_id = :userId")
+                .param("userId", userId)
+                .query((row, n) -> Map.entry(row.getLong("github_repository_id"), row.getLong("id")))
+                .list()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     /** Connecting twice returns the same connection, refreshed with GitHub's current metadata. */
@@ -62,10 +80,14 @@ public class RepositoryConnections {
                 set installation_id = excluded.installation_id, owner = excluded.owner,
                     name = excluded.name, default_branch = excluded.default_branch
                 returning id""")
-            .param("userId", userId).param("githubRepositoryId", repository.id())
-            .param("installationId", repository.installationId()).param("owner", repository.owner())
-            .param("name", repository.name()).param("defaultBranch", repository.defaultBranch())
-            .query(Long.class).single();
+                .param("userId", userId)
+                .param("githubRepositoryId", repository.id())
+                .param("installationId", repository.installationId())
+                .param("owner", repository.owner())
+                .param("name", repository.name())
+                .param("defaultBranch", repository.defaultBranch())
+                .query(Long.class)
+                .single();
     }
 
     /** The commit a connection last published (null before its first sync), read under its lock. */
@@ -76,37 +98,59 @@ public class RepositoryConnections {
      * checkpoint, read under the lock. A connection disconnected meanwhile is not found.
      */
     public Checkpoint lockForSync(long userId, long connectionId) {
-        return db.sql("select last_synced_commit_sha from repository_connections where id = :id and user_id = :userId for update")
-            .param("id", connectionId).param("userId", userId).query((row, n) -> new Checkpoint(row.getString("last_synced_commit_sha"))).optional().orElseThrow(ApiFailure::notFound);
+        return db.sql(
+                        "select last_synced_commit_sha from repository_connections where id = :id and user_id = :userId for update")
+                .param("id", connectionId)
+                .param("userId", userId)
+                .query((row, n) -> new Checkpoint(row.getString("last_synced_commit_sha")))
+                .optional()
+                .orElseThrow(ApiFailure::notFound);
     }
 
     /**
-     * Holds off a sync or disconnection of the connection that owns {@code documentId} while a write referencing the document
-     * commits; must run inside that write's transaction, before it writes. Writes share the lock, so they do not wait for
-     * each other. Without it, a row committed after a disconnect's deletes ran would break the disconnect.
+     * Holds off a sync or disconnection of the connection that owns {@code documentId} while a write referencing the
+     * document commits; must run inside that write's transaction, before it writes. Writes share the lock, so they do
+     * not wait for each other. Without it, a row committed after a disconnect's deletes ran would break the disconnect.
      * A document disconnected meanwhile is not found.
      */
     public void lockForDocumentWrite(long userId, long documentId) {
         db.sql("""
                 select c.id from repository_connections c join documents d on d.repository_connection_id = c.id
                 where d.id = :documentId and c.user_id = :userId for share of c""")
-            .param("documentId", documentId).param("userId", userId).query(Long.class).optional().orElseThrow(ApiFailure::notFound);
+                .param("documentId", documentId)
+                .param("userId", userId)
+                .query(Long.class)
+                .optional()
+                .orElseThrow(ApiFailure::notFound);
     }
 
     /** Deletes the connection row; its documents and their reading and annotation rows must already be deleted. */
     public void delete(long connectionId) {
-        db.sql("delete from repository_connections where id = :id").param("id", connectionId).update();
+        db.sql("delete from repository_connections where id = :id")
+                .param("id", connectionId)
+                .update();
     }
 
     public void markSynced(long connectionId, String commitSha, Instant syncedAt) {
-        db.sql("update repository_connections set last_synced_commit_sha = :commitSha, last_synced_at = :syncedAt where id = :id")
-            .param("commitSha", commitSha).param("syncedAt", Timestamp.from(syncedAt)).param("id", connectionId).update();
+        db.sql(
+                        "update repository_connections set last_synced_commit_sha = :commitSha, last_synced_at = :syncedAt where id = :id")
+                .param("commitSha", commitSha)
+                .param("syncedAt", Timestamp.from(syncedAt))
+                .param("id", connectionId)
+                .update();
     }
 
     private static Connection connection(ResultSet row, int n) throws SQLException {
         var synced = row.getTimestamp("last_synced_at");
-        return new Connection(row.getLong("id"), row.getLong("github_repository_id"), row.getLong("installation_id"), row.getString("owner"),
-            row.getString("name"), row.getString("default_branch"), row.getString("last_synced_commit_sha"),
-            synced == null ? null : synced.toInstant(), row.getInt("document_count"));
+        return new Connection(
+                row.getLong("id"),
+                row.getLong("github_repository_id"),
+                row.getLong("installation_id"),
+                row.getString("owner"),
+                row.getString("name"),
+                row.getString("default_branch"),
+                row.getString("last_synced_commit_sha"),
+                synced == null ? null : synced.toInstant(),
+                row.getInt("document_count"));
     }
 }

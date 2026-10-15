@@ -1,6 +1,9 @@
 package com.reporead;
 
-/** An expected, typed failure published to API clients as {code, message}. Messages never contain credentials or note content. */
+/**
+ * An expected, typed failure published to API clients as {code, message}. Messages never contain credentials or note
+ * content.
+ */
 public final class ApiFailure extends RuntimeException {
     /** Every code the API publishes, each with the one HTTP status it is published with. */
     public enum Code {
@@ -41,7 +44,9 @@ public final class ApiFailure extends RuntimeException {
 
         public final int status;
 
-        Code(int status) { this.status = status; }
+        Code(int status) {
+            this.status = status;
+        }
     }
 
     public final Code code;
@@ -52,5 +57,7 @@ public final class ApiFailure extends RuntimeException {
     }
 
     /** Absent and not this user's are one answer, so ids reveal nothing about other users' data. */
-    public static ApiFailure notFound() { return new ApiFailure(Code.NOT_FOUND, "Not found."); }
+    public static ApiFailure notFound() {
+        return new ApiFailure(Code.NOT_FOUND, "Not found.");
+    }
 }

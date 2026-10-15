@@ -4,10 +4,9 @@ import com.reporead.annotation.Annotations;
 import com.reporead.document.Documents;
 import com.reporead.reading.ReadingStates;
 import com.reporead.repository.RepositoryConnections;
+import java.util.List;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
-
-import java.util.List;
 
 /**
  * Everything RepoRead stores for one repository connection: its documents (paths, titles, versions) and the user's
@@ -23,8 +22,12 @@ public class ConnectionData {
     private final ReadingStates readingStates;
     private final Annotations annotations;
 
-    public ConnectionData(JdbcClient db, RepositoryConnections connections, Documents documents, ReadingStates readingStates,
-                          Annotations annotations) {
+    public ConnectionData(
+            JdbcClient db,
+            RepositoryConnections connections,
+            Documents documents,
+            ReadingStates readingStates,
+            Annotations annotations) {
         this.db = db;
         this.connections = connections;
         this.documents = documents;
@@ -48,17 +51,30 @@ public class ConnectionData {
                            as highlights,
                        (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'CARD')
                            as cards""")
-            .param("id", connectionId)
-            .query((row, n) -> new Counts(row.getInt("documents"), row.getInt("reading_states"), row.getInt("bookmarks"), row.getInt("highlights"),
-                row.getInt("cards"))).single();
+                .param("id", connectionId)
+                .query((row, n) -> new Counts(
+                        row.getInt("documents"),
+                        row.getInt("reading_states"),
+                        row.getInt("bookmarks"),
+                        row.getInt("highlights"),
+                        row.getInt("cards")))
+                .single();
     }
 
-    /** Deletes the connection and everything stored for it. Must run in a transaction holding the connection's sync lock. */
+    /**
+     * Deletes the connection and everything stored for it. Must run in a transaction holding the connection's sync
+     * lock.
+     */
     public Deleted delete(long connectionId) {
         var deletedAnnotations = annotations.deleteOnConnection(connectionId);
         int deletedReading = readingStates.deleteOnConnection(connectionId);
         var documentIds = documents.deleteConnection(connectionId);
         connections.delete(connectionId);
-        return new Deleted(documentIds, deletedReading, deletedAnnotations.bookmarks(), deletedAnnotations.highlights(), deletedAnnotations.cards());
+        return new Deleted(
+                documentIds,
+                deletedReading,
+                deletedAnnotations.bookmarks(),
+                deletedAnnotations.highlights(),
+                deletedAnnotations.cards());
     }
 }

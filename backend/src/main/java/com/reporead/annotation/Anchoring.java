@@ -1,13 +1,12 @@
 package com.reporead.annotation;
 
 import com.reporead.document.MarkdownRenderer;
-
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -17,39 +16,51 @@ import java.util.Set;
  * Finds an anchored passage in another version of its note, or decides that it cannot be found reliably. Pure: the
  * caller supplies the version's canonical blocks. Stages, in order: the passage's block unchanged (anywhere); unchanged
  * position with unchanged context; the exact quote, where context and heading must single out one occurrence; a bounded
- * fuzzy match that must be equally unique.
- * Anything else is an orphan: a passage is never attached merely because it is the closest text.
+ * fuzzy match that must be equally unique. Anything else is an orphan: a passage is never attached merely because it is
+ * the closest text.
  */
 final class Anchoring {
     /** Characters of block text kept on each side of a selection as its context. */
     static final int CONTEXT_CHARS = 32;
     /** Fuzzy matching is skipped for longer quotes and blocks, and when more blocks than this share the words. */
     static final int MAX_FUZZY_QUOTE_CHARS = 1_000;
+
     static final int MAX_FUZZY_BLOCK_CHARS = 20_000;
     static final int MAX_FUZZY_BLOCKS = 16;
 
     /**
-     * How much evidence each stage needs. {@code quoteContext}: context similarity that supports an exact-quote occurrence.
-     * {@code uniqueQuoteChars}: an exact quote at least this long that occurs once needs no context. {@code fuzzyQuote} and
-     * {@code fuzzyContext}: the quote and context similarity a fuzzy candidate needs.
+     * How much evidence each stage needs. {@code quoteContext}: context similarity that supports an exact-quote
+     * occurrence. {@code uniqueQuoteChars}: an exact quote at least this long that occurs once needs no context.
+     * {@code fuzzyQuote} and {@code fuzzyContext}: the quote and context similarity a fuzzy candidate needs.
      */
     record Thresholds(double quoteContext, int uniqueQuoteChars, double fuzzyQuote, double fuzzyContext) {}
 
     /** Set from the measurement recorded in docs/adrs.md (ADR-06), not chosen by hand. */
     static final Thresholds MEASURED = new Thresholds(0.5, 16, 0.85, 0.8);
 
-    enum Method { POSITION, BLOCK, QUOTE, FUZZY }
+    enum Method {
+        POSITION,
+        BLOCK,
+        QUOTE,
+        FUZZY
+    }
 
     record Resolved(Method method, Annotations.Anchor anchor) {}
 
-    record Candidate(MarkdownRenderer.Block block, int start, int end, double quote, double context, boolean sameHeadings) {}
+    record Candidate(
+            MarkdownRenderer.Block block, int start, int end, double quote, double context, boolean sameHeadings) {}
 
     /**
-     * What one version offers for an anchor, independent of thresholds. {@code position}: the passage at its old block id and
-     * offsets with unchanged context. {@code block}: the same offsets in the one block whose text is unchanged. {@code fuzzy} is only
-     * searched when none of those nor a full-context exact quote can decide.
+     * What one version offers for an anchor, independent of thresholds. {@code position}: the passage at its old block
+     * id and offsets with unchanged context. {@code block}: the same offsets in the one block whose text is unchanged.
+     * {@code fuzzy} is only searched when none of those nor a full-context exact quote can decide.
      */
-    record Evidence(Annotations.Anchor from, Candidate position, Candidate block, List<Candidate> exact, List<Candidate> fuzzy) {}
+    record Evidence(
+            Annotations.Anchor from,
+            Candidate position,
+            Candidate block,
+            List<Candidate> exact,
+            List<Candidate> fuzzy) {}
 
     private Anchoring() {}
 
@@ -57,35 +68,78 @@ final class Anchoring {
      * The anchor for [start, end) of a block in one source version, with its context and headings from that version and
      * how distinguishable its quote is among all of that version's blocks.
      */
-    static Annotations.Anchor anchorAt(String sourceBlobSha, List<MarkdownRenderer.Block> blocks, MarkdownRenderer.Block block, int start, int end) {
+    static Annotations.Anchor anchorAt(
+            String sourceBlobSha,
+            List<MarkdownRenderer.Block> blocks,
+            MarkdownRenderer.Block block,
+            int start,
+            int end) {
         String text = block.text();
         String quote = text.substring(start, end);
         String prefix = prefix(text, start);
         String suffix = suffix(text, end);
         int occurrences = 0;
         double rival = 0;
-        long sameBlocks = blocks.stream().filter(other -> other.text().equals(text)).count();
+        long sameBlocks =
+                blocks.stream().filter(other -> other.text().equals(text)).count();
         for (var other : blocks) {
-            for (int at = other.text().indexOf(quote); at >= 0; at = other.text().indexOf(quote, at + 1)) {
+            for (int at = other.text().indexOf(quote);
+                    at >= 0;
+                    at = other.text().indexOf(quote, at + 1)) {
                 occurrences++;
                 if (other != block || at != start) {
                     rival = Math.max(rival, context(prefix, suffix, other.text(), at, at + quote.length()));
                 }
             }
         }
-        var located = new Annotations.Anchor(sourceBlobSha, block.id(), quote, prefix, suffix, start, end, block.headingPath(),
-            null, null, null, null);
-        // Look-alikes too many (or too long) to compare are unknown, so the passage counts as indistinguishable from them.
-        double lookAlike = fuzzyCandidates(located, blocks).map(candidates -> candidates.stream()
-            .filter(candidate -> candidate.block() != block).mapToDouble(Candidate::quote).max().orElse(0)).orElse(1.0);
-        return new Annotations.Anchor(sourceBlobSha, block.id(), quote, prefix, suffix, start, end, block.headingPath(),
-            sameBlocks == 1 ? sha256(text) : null, occurrences, rival, lookAlike);
+        var located = new Annotations.Anchor(
+                sourceBlobSha,
+                block.id(),
+                quote,
+                prefix,
+                suffix,
+                start,
+                end,
+                block.headingPath(),
+                null,
+                null,
+                null,
+                null);
+        // Look-alikes too many (or too long) to compare are unknown, so the passage counts as indistinguishable from
+        // them.
+        double lookAlike = fuzzyCandidates(located, blocks)
+                .map(candidates -> candidates.stream()
+                        .filter(candidate -> candidate.block() != block)
+                        .mapToDouble(Candidate::quote)
+                        .max()
+                        .orElse(0))
+                .orElse(1.0);
+        return new Annotations.Anchor(
+                sourceBlobSha,
+                block.id(),
+                quote,
+                prefix,
+                suffix,
+                start,
+                end,
+                block.headingPath(),
+                sameBlocks == 1 ? sha256(text) : null,
+                occurrences,
+                rival,
+                lookAlike);
     }
 
-    static Optional<Resolved> resolve(Annotations.Anchor from, String sourceBlobSha, List<MarkdownRenderer.Block> blocks) {
+    static Optional<Resolved> resolve(
+            Annotations.Anchor from, String sourceBlobSha, List<MarkdownRenderer.Block> blocks) {
         return decide(evidence(from, blocks), MEASURED)
-            .map(found -> new Resolved(found.method(),
-                anchorAt(sourceBlobSha, blocks, found.candidate().block(), found.candidate().start(), found.candidate().end())));
+                .map(found -> new Resolved(
+                        found.method(),
+                        anchorAt(
+                                sourceBlobSha,
+                                blocks,
+                                found.candidate().block(),
+                                found.candidate().start(),
+                                found.candidate().end())));
     }
 
     static Evidence evidence(Annotations.Anchor from, List<MarkdownRenderer.Block> blocks) {
@@ -93,45 +147,70 @@ final class Anchoring {
         Candidate position = null;
         var exact = new ArrayList<Candidate>();
         for (var block : blocks) {
-            for (int at = block.text().indexOf(quote); at >= 0; at = block.text().indexOf(quote, at + 1)) {
+            for (int at = block.text().indexOf(quote);
+                    at >= 0;
+                    at = block.text().indexOf(quote, at + 1)) {
                 var candidate = candidate(from, block, at, at + quote.length());
                 exact.add(candidate);
-                if (block.id().equals(from.blockId()) && at == from.startOffset() && candidate.context() == 1.0) position = candidate;
+                if (block.id().equals(from.blockId()) && at == from.startOffset() && candidate.context() == 1.0)
+                    position = candidate;
             }
         }
         Candidate unchanged = null;
         if (from.blockSha() != null) {
-            var same = blocks.stream().filter(block -> sha256(block.text()).equals(from.blockSha())).toList();
+            var same = blocks.stream()
+                    .filter(block -> sha256(block.text()).equals(from.blockSha()))
+                    .toList();
             if (same.size() == 1) unchanged = candidate(from, same.getFirst(), from.startOffset(), from.endOffset());
         }
-        boolean decided = position != null || unchanged != null || exact.stream().anyMatch(candidate -> candidate.context() == 1.0);
+        boolean decided = position != null
+                || unchanged != null
+                || exact.stream().anyMatch(candidate -> candidate.context() == 1.0);
         // Unsearched (bounded) look-alikes are ambiguous, so they offer no fuzzy candidate.
-        return new Evidence(from, position, unchanged, List.copyOf(exact), decided ? List.of() : fuzzyCandidates(from, blocks).orElse(List.of()));
+        return new Evidence(
+                from,
+                position,
+                unchanged,
+                List.copyOf(exact),
+                decided ? List.of() : fuzzyCandidates(from, blocks).orElse(List.of()));
     }
 
     record Found(Method method, Candidate candidate) {}
 
     /**
-     * Block identity is the strongest evidence, then position. Elsewhere, a candidate must have more similar context than
-     * the passage's best rival had in its own version, and a fuzzy candidate must also resemble the quote more than its
-     * closest look-alike in another block did. A passage with an identical-context rival is found only by its block.
+     * Block identity is the strongest evidence, then position. Elsewhere, a candidate must have more similar context
+     * than the passage's best rival had in its own version, and a fuzzy candidate must also resemble the quote more
+     * than its closest look-alike in another block did. A passage with an identical-context rival is found only by its
+     * block.
      */
     static Optional<Found> decide(Evidence evidence, Thresholds thresholds) {
         if (evidence.block() != null) return Optional.of(new Found(Method.BLOCK, evidence.block()));
         var from = evidence.from();
         double rival = from.rivalContext();
-        // An identical-context rival can shift into the old position, so position only identifies a distinguishable passage.
-        if (evidence.position() != null && rival < 1.0) return Optional.of(new Found(Method.POSITION, evidence.position()));
+        // An identical-context rival can shift into the old position, so position only identifies a distinguishable
+        // passage.
+        if (evidence.position() != null && rival < 1.0)
+            return Optional.of(new Found(Method.POSITION, evidence.position()));
         double lookAlike = from.rivalQuote();
         boolean uniqueQuote = from.quoteOccurrences() == 1;
         var exact = evidence.exact();
-        var full = exact.stream().filter(candidate -> candidate.context() == 1.0).toList();
-        if (!full.isEmpty()) return rival < 1.0 ? single(full).map(found -> new Found(Method.QUOTE, found)) : Optional.empty();
-        var supported = exact.stream().filter(candidate -> (candidate.context() >= thresholds.quoteContext() && candidate.context() > rival)
-            || (exact.size() == 1 && uniqueQuote && from.exactText().length() >= thresholds.uniqueQuoteChars())).toList();
+        var full =
+                exact.stream().filter(candidate -> candidate.context() == 1.0).toList();
+        if (!full.isEmpty())
+            return rival < 1.0 ? single(full).map(found -> new Found(Method.QUOTE, found)) : Optional.empty();
+        var supported = exact.stream()
+                .filter(candidate -> (candidate.context() >= thresholds.quoteContext() && candidate.context() > rival)
+                        || (exact.size() == 1
+                                && uniqueQuote
+                                && from.exactText().length() >= thresholds.uniqueQuoteChars()))
+                .toList();
         if (!supported.isEmpty()) return single(supported).map(found -> new Found(Method.QUOTE, found));
-        var fuzzy = evidence.fuzzy().stream().filter(candidate -> candidate.quote() >= thresholds.fuzzyQuote() && candidate.quote() > lookAlike
-            && candidate.context() >= thresholds.fuzzyContext() && candidate.context() > rival).toList();
+        var fuzzy = evidence.fuzzy().stream()
+                .filter(candidate -> candidate.quote() >= thresholds.fuzzyQuote()
+                        && candidate.quote() > lookAlike
+                        && candidate.context() >= thresholds.fuzzyContext()
+                        && candidate.context() > rival)
+                .toList();
         return single(fuzzy).map(found -> new Found(Method.FUZZY, found));
     }
 
@@ -144,8 +223,13 @@ final class Anchoring {
 
     private static Candidate candidate(Annotations.Anchor from, MarkdownRenderer.Block block, int start, int end) {
         String text = block.text();
-        return new Candidate(block, start, end, similarity(from.exactText(), text.substring(start, end)),
-            context(from.prefixText(), from.suffixText(), text, start, end), block.headingPath().equals(from.headingPath()));
+        return new Candidate(
+                block,
+                start,
+                end,
+                similarity(from.exactText(), text.substring(start, end)),
+                context(from.prefixText(), from.suffixText(), text, start, end),
+                block.headingPath().equals(from.headingPath()));
     }
 
     /**
@@ -158,25 +242,31 @@ final class Anchoring {
 
     /**
      * The best approximate occurrence of context + quote in each block that shares most of its words. Bounded: empty
-     * (not searched) when the quote is long or too many blocks qualify (which is ambiguous anyway); oversized blocks are
-     * not searched.
+     * (not searched) when the quote is long or too many blocks qualify (which is ambiguous anyway); oversized blocks
+     * are not searched.
      */
-    private static Optional<List<Candidate>> fuzzyCandidates(Annotations.Anchor from, List<MarkdownRenderer.Block> blocks) {
+    private static Optional<List<Candidate>> fuzzyCandidates(
+            Annotations.Anchor from, List<MarkdownRenderer.Block> blocks) {
         if (from.exactText().length() > MAX_FUZZY_QUOTE_CHARS) return Optional.empty();
         String pattern = from.prefixText() + from.exactText() + from.suffixText();
         Set<String> words = words(pattern);
         if (words.isEmpty()) return Optional.of(List.of());
         var related = blocks.stream()
-            .filter(block -> block.text().length() <= MAX_FUZZY_BLOCK_CHARS)
-            .filter(block -> {
-                var shared = new HashSet<>(words(block.text()));
-                shared.retainAll(words);
-                return shared.size() * 2 >= words.size();
-            }).toList();
+                .filter(block -> block.text().length() <= MAX_FUZZY_BLOCK_CHARS)
+                .filter(block -> {
+                    var shared = new HashSet<>(words(block.text()));
+                    shared.retainAll(words);
+                    return shared.size() * 2 >= words.size();
+                })
+                .toList();
         if (related.size() > MAX_FUZZY_BLOCKS) return Optional.empty();
         var candidates = new ArrayList<Candidate>();
         for (var block : related) {
-            int[] span = align(pattern, from.prefixText().length(), from.prefixText().length() + from.exactText().length(), block.text());
+            int[] span = align(
+                    pattern,
+                    from.prefixText().length(),
+                    from.prefixText().length() + from.exactText().length(),
+                    block.text());
             if (span != null) candidates.add(candidate(from, block, span[0], span[1]));
         }
         return Optional.of(List.copyOf(candidates));
@@ -218,7 +308,8 @@ final class Anchoring {
                 cost[i][j] = Math.min(substitute, Math.min(cost[i - 1][j], cost[i][j - 1]) + 1);
             }
         }
-        // Walk back from (m, s). Text inserted at a boundary stays outside the range: walking backwards, the start keeps
+        // Walk back from (m, s). Text inserted at a boundary stays outside the range: walking backwards, the start
+        // keeps
         // the first (largest) column seen on its row and the end the last (smallest).
         int[] mapped = {-1, -1};
         int i = m;
@@ -261,7 +352,8 @@ final class Anchoring {
 
     private static String sha256(String text) {
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of()
+                    .formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException error) {
             throw new IllegalStateException("Anchoring requires the JDK SHA-256 implementation", error);
         }
@@ -269,7 +361,8 @@ final class Anchoring {
 
     private static Set<String> words(String text) {
         var words = new HashSet<String>();
-        for (String word : text.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+")) if (!word.isEmpty()) words.add(word);
+        for (String word : text.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+"))
+            if (!word.isEmpty()) words.add(word);
         return words;
     }
 

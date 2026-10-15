@@ -1,13 +1,12 @@
 package com.reporead.annotation;
 
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.stereotype.Component;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Component;
 
 /** Document-level bookmarks, stored in the annotation domain as type BOOKMARK. Setting and clearing are idempotent. */
 @Component
@@ -19,7 +18,14 @@ public class Bookmarks {
     }
 
     /** {@code deleted}: the note was not in the latest complete repository refresh; the bookmark is kept. */
-    public record Bookmark(long documentId, long repositoryId, String path, String title, String sourceBlobSha, Instant createdAt, boolean deleted) {}
+    public record Bookmark(
+            long documentId,
+            long repositoryId,
+            String path,
+            String title,
+            String sourceBlobSha,
+            Instant createdAt,
+            boolean deleted) {}
 
     private static final String SELECT = """
         select a.document_id, d.repository_connection_id, d.path, d.title, a.source_blob_sha, a.created_at, d.deleted_at is not null as deleted
@@ -32,23 +38,40 @@ public class Bookmarks {
                 insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at)
                 values (:userId, :documentId, :sha, 'BOOKMARK', :now, :now)
                 on conflict (user_id, document_id) where type = 'BOOKMARK' do nothing""")
-            .param("userId", userId).param("documentId", documentId).param("sha", sourceBlobSha)
-            .param("now", Timestamp.from(Instant.now())).update();
-        return db.sql(SELECT + " and a.document_id = :documentId").param("userId", userId).param("documentId", documentId)
-            .query(Bookmarks::bookmark).single();
+                .param("userId", userId)
+                .param("documentId", documentId)
+                .param("sha", sourceBlobSha)
+                .param("now", Timestamp.from(Instant.now()))
+                .update();
+        return db.sql(SELECT + " and a.document_id = :documentId")
+                .param("userId", userId)
+                .param("documentId", documentId)
+                .query(Bookmarks::bookmark)
+                .single();
     }
 
     void clear(long userId, long documentId) {
         db.sql("delete from annotations where type = 'BOOKMARK' and user_id = :userId and document_id = :documentId")
-            .param("userId", userId).param("documentId", documentId).update();
+                .param("userId", userId)
+                .param("documentId", documentId)
+                .update();
     }
 
     List<Bookmark> list(long userId) {
-        return db.sql(SELECT + " order by a.created_at desc").param("userId", userId).query(Bookmarks::bookmark).list();
+        return db.sql(SELECT + " order by a.created_at desc")
+                .param("userId", userId)
+                .query(Bookmarks::bookmark)
+                .list();
     }
 
     private static Bookmark bookmark(ResultSet row, int n) throws SQLException {
-        return new Bookmark(row.getLong("document_id"), row.getLong("repository_connection_id"), row.getString("path"), row.getString("title"),
-            row.getString("source_blob_sha"), row.getTimestamp("created_at").toInstant(), row.getBoolean("deleted"));
+        return new Bookmark(
+                row.getLong("document_id"),
+                row.getLong("repository_connection_id"),
+                row.getString("path"),
+                row.getString("title"),
+                row.getString("source_blob_sha"),
+                row.getTimestamp("created_at").toInstant(),
+                row.getBoolean("deleted"));
     }
 }

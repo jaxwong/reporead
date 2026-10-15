@@ -8,8 +8,8 @@ import java.util.Optional;
 
 /**
  * Which heading sections changed between two versions of a note: a minimal line diff of the Markdown source (Myers),
- * with each changed line assigned to the section it is in. A section runs from its heading's line to the next heading of
- * any level; lines before the first heading are the beginning of the note. Sections are identified by position, so
+ * with each changed line assigned to the section it is in. A section runs from its heading's line to the next heading
+ * of any level; lines before the first heading are the beginning of the note. Sections are identified by position, so
  * duplicate headings stay distinct. Pure computation; bounded by MAX_LINES and MAX_CHANGED_LINES.
  */
 public final class NoteChanges {
@@ -20,11 +20,15 @@ public final class NoteChanges {
 
     private NoteChanges() {}
 
-    public enum Change { ADDED, CHANGED, REMOVED }
+    public enum Change {
+        ADDED,
+        CHANGED,
+        REMOVED
+    }
 
     /**
-     * A changed section. {@code headingPath} is empty for the beginning of the note. {@code blockId} is the heading block in the newer
-     * version, null for a removed section and for the beginning of the note (the top).
+     * A changed section. {@code headingPath} is empty for the beginning of the note. {@code blockId} is the heading
+     * block in the newer version, null for a removed section and for the beginning of the note (the top).
      */
     public record Section(Change change, List<String> headingPath, String blockId, int addedLines, int removedLines) {}
 
@@ -34,14 +38,22 @@ public final class NoteChanges {
     record LineDiff(boolean[] deleted, boolean[] inserted) {}
 
     /** Empty when either version or the edit exceeds the limits: the comparison is too large to summarize. */
-    public static Optional<Comparison> compare(List<String> oldLines, List<MarkdownRenderer.Heading> oldHeadings,
-                                               List<String> newLines, List<MarkdownRenderer.Heading> newHeadings) {
+    public static Optional<Comparison> compare(
+            List<String> oldLines,
+            List<MarkdownRenderer.Heading> oldHeadings,
+            List<String> newLines,
+            List<MarkdownRenderer.Heading> newHeadings) {
         if (oldLines.size() > MAX_LINES || newLines.size() > MAX_LINES) return Optional.empty();
-        return lineDiff(oldLines, newLines, MAX_CHANGED_LINES).map(diff -> sections(diff, oldLines.size(), oldHeadings, newLines.size(), newHeadings));
+        return lineDiff(oldLines, newLines, MAX_CHANGED_LINES)
+                .map(diff -> sections(diff, oldLines.size(), oldHeadings, newLines.size(), newHeadings));
     }
 
-    private static Comparison sections(LineDiff diff, int oldCount, List<MarkdownRenderer.Heading> oldHeadings,
-                                       int newCount, List<MarkdownRenderer.Heading> newHeadings) {
+    private static Comparison sections(
+            LineDiff diff,
+            int oldCount,
+            List<MarkdownRenderer.Heading> oldHeadings,
+            int newCount,
+            List<MarkdownRenderer.Heading> newHeadings) {
         int[] oldSection = sectionOfLine(oldCount, oldHeadings);
         int[] newSection = sectionOfLine(newCount, newHeadings);
         // Index 0 is the beginning of the note; index j + 1 is heading j.
@@ -62,7 +74,9 @@ public final class NoteChanges {
         int newLine = 0;
         int lastKeptNew = -1;
         for (int line = 0; line < oldCount; line++) {
-            if (oldSection[line] > 0 && line == oldHeadings.get(oldSection[line] - 1).line()) removedAfter[oldSection[line]] = lastKeptNew;
+            if (oldSection[line] > 0
+                    && line == oldHeadings.get(oldSection[line] - 1).line())
+                removedAfter[oldSection[line]] = lastKeptNew;
             if (!diff.deleted()[line]) {
                 while (diff.inserted()[newLine]) newLine++;
                 lastKeptNew = newLine++;
@@ -70,7 +84,8 @@ public final class NoteChanges {
             }
             totalRemoved++;
             int section = oldSection[line];
-            boolean headingDeleted = section > 0 && diff.deleted()[oldHeadings.get(section - 1).line()];
+            boolean headingDeleted =
+                    section > 0 && diff.deleted()[oldHeadings.get(section - 1).line()];
             if (headingDeleted) removedSection[section]++;
             else removedHere[lastKeptNew < 0 ? 0 : newSection[lastKeptNew]]++;
         }
@@ -85,12 +100,21 @@ public final class NoteChanges {
             }
             var heading = newHeadings.get(section - 1);
             var change = diff.inserted()[heading.line()] ? Change.ADDED : Change.CHANGED;
-            placed.add(new Placed(heading.line(), new Section(change, heading.headingPath(), heading.blockId(), added[section], removedHere[section])));
+            placed.add(new Placed(
+                    heading.line(),
+                    new Section(
+                            change, heading.headingPath(), heading.blockId(), added[section], removedHere[section])));
         }
         for (int section = 1; section <= oldHeadings.size(); section++) {
             if (removedSection[section] == 0) continue;
-            placed.add(new Placed(removedAfter[section] + 0.5,
-                new Section(Change.REMOVED, oldHeadings.get(section - 1).headingPath(), null, 0, removedSection[section])));
+            placed.add(new Placed(
+                    removedAfter[section] + 0.5,
+                    new Section(
+                            Change.REMOVED,
+                            oldHeadings.get(section - 1).headingPath(),
+                            null,
+                            0,
+                            removedSection[section])));
         }
         placed.sort(Comparator.comparingDouble(Placed::position));
         return new Comparison(placed.stream().map(Placed::section).toList(), totalAdded, totalRemoved);
@@ -113,12 +137,18 @@ public final class NoteChanges {
      */
     static Optional<LineDiff> lineDiff(List<String> oldLines, List<String> newLines, int maxEdits) {
         var ids = new HashMap<String, Integer>();
-        int[] a = oldLines.stream().mapToInt(line -> ids.computeIfAbsent(line, key -> ids.size())).toArray();
-        int[] b = newLines.stream().mapToInt(line -> ids.computeIfAbsent(line, key -> ids.size())).toArray();
+        int[] a = oldLines.stream()
+                .mapToInt(line -> ids.computeIfAbsent(line, key -> ids.size()))
+                .toArray();
+        int[] b = newLines.stream()
+                .mapToInt(line -> ids.computeIfAbsent(line, key -> ids.size()))
+                .toArray();
         int prefix = 0;
         while (prefix < a.length && prefix < b.length && a[prefix] == b[prefix]) prefix++;
         int suffix = 0;
-        while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - 1 - suffix] == b[b.length - 1 - suffix]) suffix++;
+        while (suffix < a.length - prefix
+                && suffix < b.length - prefix
+                && a[a.length - 1 - suffix] == b[b.length - 1 - suffix]) suffix++;
         int n = a.length - prefix - suffix;
         int m = b.length - prefix - suffix;
         var diff = new LineDiff(new boolean[a.length], new boolean[b.length]);
@@ -132,7 +162,9 @@ public final class NoteChanges {
             System.arraycopy(furthest, offset - d, window, 0, 2 * d + 1);
             trace.add(window);
             for (int k = -d; k <= d; k += 2) {
-                int x = k == -d || (k != d && furthest[offset + k - 1] < furthest[offset + k + 1]) ? furthest[offset + k + 1] : furthest[offset + k - 1] + 1;
+                int x = k == -d || (k != d && furthest[offset + k - 1] < furthest[offset + k + 1])
+                        ? furthest[offset + k + 1]
+                        : furthest[offset + k - 1] + 1;
                 int y = x - k;
                 while (x < n && y < m && a[prefix + x] == b[prefix + y]) {
                     x++;

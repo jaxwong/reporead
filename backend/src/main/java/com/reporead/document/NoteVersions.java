@@ -4,15 +4,14 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
-import org.springframework.stereotype.Component;
-
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
+import org.springframework.stereotype.Component;
 
 /**
- * Renders one exact version of an owned note from GitHub: the single source of canonical block text for both the
- * reader and anchor validation. One GitHub request (the blob by SHA); the bytes must hash to that SHA.
+ * Renders one exact version of an owned note from GitHub: the single source of canonical block text for both the reader
+ * and anchor validation. One GitHub request (the blob by SHA); the bytes must hash to that SHA.
  */
 @Component
 public class NoteVersions {
@@ -28,16 +27,22 @@ public class NoteVersions {
         return render(user, document.owner(), document.repositoryName(), document.path(), blobSha);
     }
 
-    /** The same for a repository path that may not have a document yet, such as a path in a snapshot being reconciled. */
+    /**
+     * The same for a repository path that may not have a document yet, such as a path in a snapshot being reconciled.
+     */
     public Rendered render(AppUser user, String owner, String repositoryName, String path, String blobSha) {
         String token = github.userToken(user.githubUserId());
         byte[] bytes = github.blob(token, owner, repositoryName, blobSha);
         if (!MarkdownRenderer.blobSha(bytes).equals(blobSha)) {
-            throw new ApiFailure(Code.GITHUB_INVALID_RESPONSE, "GitHub returned bytes that do not match the note's blob SHA.");
+            throw new ApiFailure(
+                    Code.GITHUB_INVALID_RESPONSE, "GitHub returned bytes that do not match the note's blob SHA.");
         }
         String markdown;
         try {
-            markdown = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
+            markdown = StandardCharsets.UTF_8
+                    .newDecoder()
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
         } catch (CharacterCodingException error) {
             throw new ApiFailure(Code.UNSUPPORTED_CONTENT, "This note is not valid UTF-8 text.");
         }

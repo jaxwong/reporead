@@ -1,10 +1,5 @@
 package com.reporead;
 
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,11 +8,21 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.UUID;
 import javax.sql.DataSource;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
-/** Test-only configuration: a real PostgreSQL container shared by every Spring test, a fake OAuth client secret, and a GitHub token key. */
+/**
+ * Test-only configuration: a real PostgreSQL container shared by every Spring test, a fake OAuth client secret, and a
+ * GitHub token key.
+ */
 public final class TestEnvironment {
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17.11-alpine");
-    static { POSTGRES.start(); }
+
+    static {
+        POSTGRES.start();
+    }
 
     /** Test-only AES-256 key for stored GitHub tokens; never used outside tests. */
     public static final String TOKEN_KEY = "7e57".repeat(16);
@@ -58,17 +63,22 @@ public final class TestEnvironment {
     /** A new, empty test-only database in the shared container, for a test that runs the migrations itself. */
     public static DataSource emptyDatabase() {
         String name = "test_only_" + UUID.randomUUID().toString().replace("-", "");
-        try (var connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-             var statement = connection.createStatement()) {
+        try (var connection = DriverManager.getConnection(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                var statement = connection.createStatement()) {
             statement.execute("create database " + name);
         } catch (SQLException error) {
             throw new IllegalStateException("Cannot create the test-only database " + name, error);
         }
-        return new DriverManagerDataSource("jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/" + name,
-            POSTGRES.getUsername(), POSTGRES.getPassword());
+        return new DriverManagerDataSource(
+                "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/" + name,
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
     }
 
     public static void reset(JdbcClient db) {
-        db.sql("truncate github_tokens, review_log, repository_images, annotation_mutations, annotation_locations, annotation_anchors, annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users restart identity").update();
+        db.sql(
+                        "truncate github_tokens, review_log, repository_images, annotation_mutations, annotation_locations, annotation_anchors, annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users restart identity")
+                .update();
     }
 }

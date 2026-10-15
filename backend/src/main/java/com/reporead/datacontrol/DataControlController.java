@@ -32,8 +32,14 @@ public class DataControlController {
     private final TransactionTemplate transaction;
     private final GitHubApi github;
 
-    public DataControlController(RepositoryConnections connections, ConnectionData data, Annotations annotations, AppSessions sessions,
-                             OAuth2AuthorizedClientService clients, TransactionTemplate transaction, GitHubApi github) {
+    public DataControlController(
+            RepositoryConnections connections,
+            ConnectionData data,
+            Annotations annotations,
+            AppSessions sessions,
+            OAuth2AuthorizedClientService clients,
+            TransactionTemplate transaction,
+            GitHubApi github) {
         this.connections = connections;
         this.data = data;
         this.annotations = annotations;
@@ -60,8 +66,15 @@ public class DataControlController {
             connections.lockForSync(user.id(), id);
             return data.delete(id);
         });
-        LOG.info("Repository disconnected; userId={} connectionId={} documents={} readingStates={} bookmarks={} highlights={} cards={}",
-            user.id(), id, deleted.documentIds().size(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights(), deleted.cards());
+        LOG.info(
+                "Repository disconnected; userId={} connectionId={} documents={} readingStates={} bookmarks={} highlights={} cards={}",
+                user.id(),
+                id,
+                deleted.documentIds().size(),
+                deleted.readingStates(),
+                deleted.bookmarks(),
+                deleted.highlights(),
+                deleted.cards());
         return deleted;
     }
 
@@ -100,8 +113,14 @@ public class DataControlController {
             return new Deleted(repositories, reading, bookmarks, highlights, cards);
         });
         token.ifPresent(value -> github.revokeAuthorization(user.githubUserId(), value));
-        LOG.info("Account deleted; userId={} repositories={} readingStates={} bookmarks={} highlights={} cards={}",
-            user.id(), deleted.repositories(), deleted.readingStates(), deleted.bookmarks(), deleted.highlights(), deleted.cards());
+        LOG.info(
+                "Account deleted; userId={} repositories={} readingStates={} bookmarks={} highlights={} cards={}",
+                user.id(),
+                deleted.repositories(),
+                deleted.readingStates(),
+                deleted.bookmarks(),
+                deleted.highlights(),
+                deleted.cards());
         return deleted;
     }
 }

@@ -1,8 +1,7 @@
 package com.reporead;
 
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import java.nio.file.Path;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * The reporead.* settings in application.properties, bound once at startup. Every one is required and has no default;
@@ -19,7 +18,9 @@ public record RepoReadProperties(String publicUrl, String allowedGithubUserIds, 
     public record GitHub(String clientId, Path clientSecretFile, Path tokenKeyFile) {
         public GitHub {
             required("reporead.github.client-id", clientId);
-            required("reporead.github.client-secret-file", clientSecretFile == null ? null : clientSecretFile.toString());
+            required(
+                    "reporead.github.client-secret-file",
+                    clientSecretFile == null ? null : clientSecretFile.toString());
             required("reporead.github.token-key-file", tokenKeyFile == null ? null : tokenKeyFile.toString());
         }
     }
