@@ -35,7 +35,12 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
-      # PostgreSQL for the tests comes from Testcontainers on the runner's Docker.
+      # Fails on any backend file palantir-java-format would change; ./gradlew :backend:spotlessApply fixes it.
+      - name: Check backend formatting
+        run: ./gradlew :backend:spotlessCheck --no-daemon
+
+      # PostgreSQL for the tests comes from Testcontainers on the runner's Docker. The jar records the commit it was
+      # built from, served by /actuator/info on the VM's loopback management port.
       - name: Test and build the backend
         run: ./gradlew :backend:test :backend:bootJar --no-daemon
 
