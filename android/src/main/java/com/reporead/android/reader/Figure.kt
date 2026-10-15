@@ -1,5 +1,6 @@
 package com.reporead.android.reader
 
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.os.Handler
 import android.os.Looper
@@ -32,6 +33,7 @@ import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
+import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
 import org.json.JSONObject
@@ -44,7 +46,7 @@ import org.json.JSONTokener
  * Highlights are neither drawn nor made here.
  */
 @Composable
-fun FigureScreen(sync: com.reporead.android.sync.Sync, dao: LibraryDao, screen: Screen.Figure, onBack: () -> Unit) {
+fun FigureScreen(sync: Sync, dao: LibraryDao, screen: Screen.Figure, onBack: () -> Unit) {
     val activity = LocalActivity.current ?: error("FigureScreen requires an activity")
     DisposableEffect(activity) {
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
@@ -88,8 +90,8 @@ fun FigureScreen(sync: com.reporead.android.sync.Sync, dao: LibraryDao, screen: 
 }
 
 private fun figureView(
-    context: android.content.Context,
-    sync: com.reporead.android.sync.Sync,
+    context: Context,
+    sync: Sync,
     note: NoteRow,
     figure: String,
     onFailure: (String) -> Unit,

@@ -308,8 +308,7 @@ final class Anchoring {
             }
         }
         // Walk back from (m, s). Text inserted at a boundary stays outside the range: walking backwards, the start
-        // keeps
-        // the first (largest) column seen on its row and the end the last (smallest).
+        // keeps the first (largest) column seen on its row and the end the last (smallest).
         int[] mapped = {-1, -1};
         int i = m;
         int j = s;

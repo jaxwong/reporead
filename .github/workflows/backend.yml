@@ -1,7 +1,7 @@
-# Backend CI/CD. Markdown-only changes do not run it (a deploy restarts the server, which costs a phone sign-in).
-# Backend CI/CD. Pull requests: backend tests only, no secrets. Pushes to main: the same tests, then deploy the jar
-# to the hosted VM (backend/README.md, Hosted VM). The deploy key can only run /usr/local/sbin/reporead-deploy
-# (backend/deploy/reporead-deploy), which restores the previous jar if the new one is not healthy.
+# Backend CI/CD; Markdown-only changes do not run it. Pull requests: backend tests only, no secrets. Pushes to main:
+# the same tests, then deploy the jar to the hosted VM (backend/README.md, Hosted VM). The deploy key can only run
+# /usr/local/sbin/reporead-deploy (backend/deploy/reporead-deploy), which restores the previous jar if the new one is
+# not healthy.
 # This repository is public, so its logs are too: nothing here prints backend logs or secrets.
 name: Backend
 

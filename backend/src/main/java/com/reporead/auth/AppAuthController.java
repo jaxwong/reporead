@@ -94,10 +94,9 @@ public class AppAuthController {
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization, @AuthenticationPrincipal AppUser user) {
         int remaining = sessions.revoke(authorization.substring("Bearer ".length()), user.id());
         // The stored GitHub token belongs to the GitHub user and serves all their devices. It goes with the last
-        // session,
-        // revoked on GitHub and deleted here, so a signed-out user leaves no working credential without signing their
-        // other devices out of GitHub. A device signing in at the same moment can lose its new token; its next GitHub
-        // request then asks for sign-in.
+        // session, revoked on GitHub and deleted here, so a signed-out user leaves no working credential without
+        // signing their other devices out of GitHub. A device signing in at the same moment can lose its new token;
+        // its next GitHub request then asks for sign-in.
         if (remaining == 0) {
             github.tokenToRevoke(user.githubUserId())
                     .ifPresent(token -> github.revokeAuthorization(user.githubUserId(), token));

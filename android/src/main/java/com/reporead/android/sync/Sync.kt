@@ -404,8 +404,7 @@ class Sync(
 
     private suspend fun sendAndReplace(): LocalSync {
         // The one push step whose failure does not end the run: creations need GitHub, so when it fails they wait and
-        // the
-        // database-only work below still runs (ADR-03).
+        // the database-only work below still runs (ADR-03).
         val notSent =
             try {
                 sendAnnotations()
@@ -431,9 +430,8 @@ class Sync(
                     if (!error.refusesItem()) throw error
                     Log.w("RepoRead", "Reading state refused; documentId=${row.documentId} code=${error.code}")
                     // Not this user's note on the server any more: the position goes with it when the lists are
-                    // replaced below.
-                    // Any other refusal keeps the position on this phone, pending, and offers it again at the next
-                    // sync.
+                    // replaced below. Any other refusal keeps the position on this phone, pending, and offers it
+                    // again at the next sync.
                     if (error.status == 404) dao.acknowledgeReading(row.documentId, row.lastReadAt)
                     refused += "Your place in “${row.title}” (${error.describe()})"
                     continue

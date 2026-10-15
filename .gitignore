@@ -6,6 +6,7 @@ build/
 # Local IDE and Android SDK configuration
 .idea/
 .vscode/
+/backend/bin/
 local.properties
 *.iml
 

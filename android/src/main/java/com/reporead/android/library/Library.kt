@@ -50,6 +50,7 @@ import com.reporead.android.core.network.rememberLoad
 import com.reporead.android.data.ChangedNote
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
+import com.reporead.android.data.RepositoryRow
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
@@ -358,7 +359,7 @@ private fun BookmarksTab(dao: LibraryDao, push: (Screen) -> Unit) {
 
 @Composable
 private fun RepositoriesTab(
-    repositories: List<com.reporead.android.data.RepositoryRow>,
+    repositories: List<RepositoryRow>,
     signedIn: Boolean,
     push: (Screen) -> Unit,
 ) {

@@ -2,7 +2,7 @@
 
 How RepoRead is built today: the parts, who owns what, and how data moves between them. The *why* behind each decision is in the [ADRs](adrs.md); the exact HTTP contract, limits and error codes are in the [backend README](../backend/README.md); phone behaviour is in the [Android README](../android/README.md). The rules every change keeps are in [invariants](invariants.md). This document links to them instead of repeating them.
 
-As of 2026-10-14, including Practice sessions and Review in the Practice tab (branch `review-in-practice`).
+As built on `main`, 2026-10-15.
 
 ## 1. The system in one picture
 
@@ -86,7 +86,7 @@ flowchart TB
 
 ## 3. Backend
 
-One Spring Boot 4 / Java 25 service, a modular monolith with one package per concern (`backend/src/main/java/com/reporead/`). Data access is plain Spring JDBC; the schema is owned by Flyway migrations (`V1`–`V12`).
+One Spring Boot 4 / Java 25 service, a modular monolith with one package per concern (`backend/src/main/java/com/reporead/`). Data access is plain Spring JDBC; the schema is owned by Flyway migrations (`backend/src/main/resources/db/migration`).
 
 ### Packages and their dependencies
 
