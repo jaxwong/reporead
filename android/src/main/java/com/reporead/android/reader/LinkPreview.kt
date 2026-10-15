@@ -1,5 +1,6 @@
 package com.reporead.android.reader
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -109,7 +110,7 @@ internal fun LinkPreviewSheet(
 }
 
 private fun previewView(
-    context: android.content.Context,
+    context: Context,
     sync: Sync,
     note: NoteRow,
     heading: String?,

@@ -91,8 +91,7 @@ public class Reviews {
         }
         var result = transaction.execute(tx -> {
             // Same lock order as repository refresh/disconnect: connection first, then annotations. The shared lock,
-            // like
-            // every write to a document: a refresh or disconnect waits for the grade, other writes do not.
+            // like every write to a document: a refresh or disconnect waits for the grade, other writes do not.
             long documentId = db.sql(
                             "select document_id from annotations where id = :id and user_id = :userId and type = 'CARD'")
                     .param("id", id)

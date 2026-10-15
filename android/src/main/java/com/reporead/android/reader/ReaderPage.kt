@@ -1,6 +1,7 @@
 package com.reporead.android.reader
 
 import android.content.Context
+import android.graphics.Color
 import android.net.Uri
 import android.os.Handler
 import android.webkit.WebResourceResponse
@@ -38,7 +39,7 @@ private const val READY_POLL_LIMIT = 100
  */
 internal fun WebView.isolateReaderPage() {
     // Until the page paints its own background, the app's surface shows through instead of a white flash.
-    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+    setBackgroundColor(Color.TRANSPARENT)
     settings.javaScriptEnabled = true
     settings.allowFileAccess = false
     settings.allowContentAccess = false

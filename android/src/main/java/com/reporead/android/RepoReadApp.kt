@@ -147,8 +147,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     val scope = rememberCoroutineScope()
     // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a
-    // summary
-    // starts from) while covered, as they do across recreation; it is dropped once the entry leaves the stack.
+    // summary starts from) while covered, as they do across recreation; it is dropped once the entry leaves the stack.
     val screenStates = rememberSaveableStateHolder()
     var keptStates by remember { mutableStateOf(emptySet<String>()) }
     val savedRepositories by dao.repositories().collectAsState(null)

@@ -1,19 +1,26 @@
 package com.reporead.android.reader
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.MotionEvent
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.IconButton
@@ -23,12 +30,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +55,7 @@ import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.rememberLoad
 import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReadingRow
@@ -114,8 +124,7 @@ fun ReaderScreen(
     var changesReload by remember { mutableIntStateOf(0) }
     var changesExpanded by rememberSaveable(screen.documentId) { mutableStateOf(true) }
     // Null when there is nothing to compare: never read, or reading the same version again. The baseline is used up
-    // only
-    // once the server's answer is on screen; offline or failing, it is kept for the next opening.
+    // only once the server's answer is on screen; offline or failing, it is kept for the next opening.
     val changes by
         produceState<Load<Changes>?>(null, since, displayed, signedIn, changesReload) {
             val from = since
@@ -151,10 +160,10 @@ fun ReaderScreen(
      */
     var reattaching by remember { mutableStateOf<AnnotationRow?>(null) }
     /** A tapped link to one note and its heading, previewed before opening. */
-    var preview by remember { mutableStateOf<Pair<com.reporead.android.data.DocumentRow, String?>?>(null) }
+    var preview by remember { mutableStateOf<Pair<DocumentRow, String?>?>(null) }
     /** Notes sharing the linked name, for the reader to pick one. */
-    var linkChoices by remember { mutableStateOf<Pair<String?, List<com.reporead.android.data.DocumentRow>>?>(null) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var linkChoices by remember { mutableStateOf<Pair<String?, List<DocumentRow>>?>(null) }
+    val scope = rememberCoroutineScope()
     /** The displayed page's session, for scrolling to a heading linked from the same note. */
     var sessionRef by remember { mutableStateOf<ReaderSession?>(null) }
     /** The displayed page's headings (null until it has rendered) and the first block at the top of the screen. */
@@ -352,7 +361,7 @@ fun ReaderScreen(
                         },
                     )
                 }
-            androidx.compose.runtime.SideEffect { sessionRef = session }
+            SideEffect { sessionRef = session }
             DisposableEffect(lifecycle, session) {
                 // Process death can follow ON_STOP, so the position is captured whenever the reader leaves the screen.
                 val observer = LifecycleEventObserver { _, event ->
@@ -443,7 +452,7 @@ fun ReaderScreen(
         )
     }
     linkChoices?.let { (heading, choices) ->
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { linkChoices = null },
             title = { Text("Which note?") },
             text = {
@@ -499,15 +508,14 @@ fun ReaderScreen(
  */
 @Composable
 private fun ReadingBars(shown: Boolean) {
-    val activity = androidx.activity.compose.LocalActivity.current ?: error("ReaderScreen requires an activity")
+    val activity = LocalActivity.current ?: error("ReaderScreen requires an activity")
     val bars = activity.window.insetsController ?: error("ReaderScreen requires a window insets controller")
     DisposableEffect(bars) {
-        bars.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        onDispose { bars.show(android.view.WindowInsets.Type.systemBars()) }
+        bars.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        onDispose { bars.show(WindowInsets.Type.systemBars()) }
     }
     LaunchedEffect(shown) {
-        if (shown) bars.show(android.view.WindowInsets.Type.systemBars())
-        else bars.hide(android.view.WindowInsets.Type.systemBars())
+        if (shown) bars.show(WindowInsets.Type.systemBars()) else bars.hide(WindowInsets.Type.systemBars())
     }
 }
 
@@ -634,13 +642,13 @@ private class ReaderSession(
                 val barsThreshold = (BARS_SCROLL_DP * context.resources.displayMetrics.density).toInt()
                 setOnTouchListener { view, event ->
                     when (event.actionMasked) {
-                        android.view.MotionEvent.ACTION_DOWN -> {
+                        MotionEvent.ACTION_DOWN -> {
                             touched = true
                             fingerDown = true
                             swipeScroll = 0
                         }
-                        android.view.MotionEvent.ACTION_UP,
-                        android.view.MotionEvent.ACTION_CANCEL -> {
+                        MotionEvent.ACTION_UP,
+                        MotionEvent.ACTION_CANCEL -> {
                             fingerDown = false
                             when {
                                 view.scrollY <= barsThreshold || swipeScroll < -barsThreshold -> onBarsShown(true)
@@ -903,8 +911,8 @@ private class ReaderSession(
                         Log.w("RepoRead", "Copy link names no code block; documentId=${note.documentId} block=$blockId")
                         return@evaluateJavascript
                     }
-            val clipboard = webView.context.getSystemService(android.content.ClipboardManager::class.java)
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Code", text))
+            val clipboard = webView.context.getSystemService(ClipboardManager::class.java)
+            clipboard.setPrimaryClip(ClipData.newPlainText("Code", text))
             Log.i("RepoRead", "Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
         }
     }

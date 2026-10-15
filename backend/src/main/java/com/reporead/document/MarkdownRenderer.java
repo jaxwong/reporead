@@ -11,6 +11,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiPredicate;
+import java.util.regex.MatchResult;
+import java.util.regex.Pattern;
+import org.commonmark.Extension;
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.ext.task.list.items.TaskListItemsExtension;
@@ -21,6 +25,7 @@ import org.commonmark.renderer.html.HtmlRenderer;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.jsoup.nodes.Node;
 import org.jsoup.nodes.TextNode;
 import org.jsoup.safety.Cleaner;
 import org.jsoup.safety.Safelist;
@@ -65,13 +70,11 @@ public final class MarkdownRenderer {
      */
     public static final int FORMAT = 3;
 
-    private static final java.util.regex.Pattern WIKILINK =
-            java.util.regex.Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
+    private static final Pattern WIKILINK = Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
     /** A reference with a URL scheme ({@code https:}, {@code mailto:}, ...): not a path in the repository. */
-    private static final java.util.regex.Pattern SCHEME = java.util.regex.Pattern.compile("[A-Za-z][A-Za-z0-9+.-]*:.*");
+    private static final Pattern SCHEME = Pattern.compile("[A-Za-z][A-Za-z0-9+.-]*:.*");
     /** A footnote reference {@code [^label]}, or with {@code :} a definition marker. */
-    private static final java.util.regex.Pattern FOOTNOTE =
-            java.util.regex.Pattern.compile("\\[\\^([^\\[\\]\\s]+)\\](:?)");
+    private static final Pattern FOOTNOTE = Pattern.compile("\\[\\^([^\\[\\]\\s]+)\\](:?)");
 
     public static final int MAX_BLOCKS = 4_096;
     /**
@@ -81,7 +84,7 @@ public final class MarkdownRenderer {
 
     private static final String BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,pre,td,th,li";
     private static final String ORIGIN = "https://appassets.androidplatform.net";
-    private static final List<org.commonmark.Extension> EXTENSIONS =
+    private static final List<Extension> EXTENSIONS =
             List.of(TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create());
     private static final Parser PARSER = Parser.builder()
             .extensions(EXTENSIONS)
@@ -330,7 +333,7 @@ public final class MarkdownRenderer {
         for (var text : texts) {
             String whole = text.getWholeText();
             var matcher = WIKILINK.matcher(whole);
-            var replacement = new ArrayList<org.jsoup.nodes.Node>();
+            var replacement = new ArrayList<Node>();
             int last = 0;
             while (matcher.find()) {
                 if (matcher.start() > last) replacement.add(new TextNode(whole.substring(last, matcher.start())));
@@ -436,12 +439,10 @@ public final class MarkdownRenderer {
      * elements.
      */
     private static List<Element> splitFootnotes(
-            TextNode text,
-            boolean definitions,
-            java.util.function.BiPredicate<String, java.util.regex.MatchResult> accept) {
+            TextNode text, boolean definitions, BiPredicate<String, MatchResult> accept) {
         String whole = text.getWholeText();
         var matcher = FOOTNOTE.matcher(whole);
-        var replacement = new ArrayList<org.jsoup.nodes.Node>();
+        var replacement = new ArrayList<Node>();
         var marked = new ArrayList<Element>();
         int last = 0;
         while (matcher.find()) {
@@ -546,7 +547,7 @@ public final class MarkdownRenderer {
                 && IMAGE_TYPES.containsKey(path.substring(dot + 1).toLowerCase(Locale.ROOT));
     }
 
-    private static String nodeText(org.jsoup.nodes.Node node) {
+    private static String nodeText(Node node) {
         if (node instanceof TextNode text) return text.getWholeText();
         var result = new StringBuilder();
         for (var child : node.childNodes()) result.append(nodeText(child));
