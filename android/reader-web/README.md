@@ -13,7 +13,7 @@ npm ci --ignore-scripts
 Restoring depends on real layout, so it is checked in the debug app on the phone, not in a test runner. Debug builds enable WebView debugging; release builds do not. Open a note in the reader, then from the repository root:
 
 ```sh
-~/Library/Android/sdk/platform-tools/adb -s <device-serial> forward tcp:9333 localabstract:webview_devtools_remote_$(~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell pidof com.reporead.android | tr -d '\r')
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> forward tcp:9333 localabstract:webview_devtools_remote_$(~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell pidof com.reporead.android.dev | tr -d '\r')
 node android/reader-web/check-restore.mjs "$(curl -s http://127.0.0.1:9333/json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["webSocketDebuggerUrl"])')"
 ```
 

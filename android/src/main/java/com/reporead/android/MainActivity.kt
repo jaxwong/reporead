@@ -16,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
 
 class MainActivity : ComponentActivity() {
-    /** The code from a reporead://auth redirect, consumed once by the app. */
+    /** The code from this build's sign-in redirect (<SIGN_IN_SCHEME>://auth), consumed once by the app. */
     private val signInCode = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,6 +43,6 @@ class MainActivity : ComponentActivity() {
 
     private fun receive(intent: Intent) {
         val uri = intent.data ?: return
-        if (uri.scheme == "reporead" && uri.host == "auth") signInCode.value = uri.getQueryParameter("code")
+        if (uri.scheme == BuildConfig.SIGN_IN_SCHEME && uri.host == "auth") signInCode.value = uri.getQueryParameter("code")
     }
 }

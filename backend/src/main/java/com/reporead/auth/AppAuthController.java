@@ -22,15 +22,23 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.util.Set;
+
 /**
- * Android sign-in: the app opens /app/sign-in in a Custom Tab with a PKCE S256 challenge, GitHub OAuth runs in that
- * browser session, and the callback redirects to reporead://auth with a single-use code that only the app's verifier
- * can exchange for a bearer session. See GitHubSecurity for the callback side.
+ * Android sign-in: the app opens /app/sign-in in a Custom Tab with a PKCE S256 challenge and its own URL scheme, GitHub
+ * OAuth runs in that browser session, and the callback redirects to <scheme>://auth with a single-use code that only the
+ * app's verifier can exchange for a bearer session. See GitHubSecurity for the callback side.
  */
 @RestController
 public class AppAuthController {
     private static final Logger LOG = LoggerFactory.getLogger(AppAuthController.class);
     static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
+    static final String SCHEME_ATTRIBUTE = "reporead.appScheme";
+    /**
+     * The schemes the apps register for the sign-in redirect: the release app's, and the debug app's, installed beside it
+     * as a separate app. Only these, so a sign-in code is never handed to whatever else registered a scheme.
+     */
+    static final Set<String> APP_SCHEMES = Set.of("reporead", "reporead-dev");
     private final AppSessions sessions;
     private final OAuth2AuthorizedClientService clients;
     private final GitHubApi github;
@@ -42,12 +50,18 @@ public class AppAuthController {
     }
 
     @GetMapping("/app/sign-in")
-    RedirectView signIn(@RequestParam("code_challenge") String codeChallenge, HttpServletRequest request) {
+    RedirectView signIn(@RequestParam("code_challenge") String codeChallenge, @RequestParam("scheme") String scheme,
+                        HttpServletRequest request) {
         if (!AppSessions.TOKEN.matcher(codeChallenge).matches()) {
             throw new ApiFailure(Code.INVALID_CODE_CHALLENGE, "code_challenge must be a 43-character S256 PKCE challenge.");
         }
+        if (!APP_SCHEMES.contains(scheme)) {
+            throw new ApiFailure(Code.INVALID_REQUEST, "scheme must be one of the RepoRead apps' schemes: " + String.join(", ", APP_SCHEMES.stream().sorted().toList()) + ".");
+        }
         try {
-            request.getSession(true).setAttribute(CHALLENGE_ATTRIBUTE, codeChallenge);
+            var session = request.getSession(true);
+            session.setAttribute(CHALLENGE_ATTRIBUTE, codeChallenge);
+            session.setAttribute(SCHEME_ATTRIBUTE, scheme);
         } catch (TooManyActiveSessionsException full) {
             LOG.warn("Sign-in refused: too many sign-ins in progress; limit={}", full.getMaxActiveSessions());
             throw new ApiFailure(Code.SIGN_IN_BUSY, "Too many sign-ins are in progress; try again in a few minutes.");

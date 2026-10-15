@@ -3,6 +3,7 @@ package com.reporead.android.auth
 import android.content.Context
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
+import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.contract
@@ -16,16 +17,19 @@ private val RANDOM = SecureRandom()
 
 private fun base64Url(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
-/** Opens GitHub sign-in in a Custom Tab, bound to a fresh PKCE verifier that never leaves this device. */
+/**
+ * Opens GitHub sign-in in a Custom Tab, bound to a fresh PKCE verifier that never leaves this device. The server sends
+ * the code back on this build's own scheme, so the release and debug apps installed side by side each get their own.
+ */
 fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
     val verifier = base64Url(ByteArray(32).also(RANDOM::nextBytes))
     val challenge = base64Url(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
     store.pendingVerifier = verifier
-    CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse("$baseUrl/app/sign-in?code_challenge=$challenge"))
+    CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse("$baseUrl/app/sign-in?code_challenge=$challenge&scheme=${BuildConfig.SIGN_IN_SCHEME}"))
 }
 
 /**
- * Exchanges the code from reporead://auth for a bearer session. The verifier is single-use either way. Data saved on
+ * Exchanges the code from the sign-in redirect for a bearer session. The verifier is single-use either way. Data saved on
  * this phone belongs to the account that saved it: signing in as a different account runs [clearSavedData] first, so
  * one account never sees another's notes. The new session is stored last, so a process death part-way leaves the phone
  * signed out rather than signed in beside another account's data.
