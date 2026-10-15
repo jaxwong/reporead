@@ -89,8 +89,8 @@ public class GitHubSecurity {
     }
 
     /**
-     * The management server (loopback only, a port adb reverse does not forward) exposes only health and metrics, which
-     * hold counts, never repository content or credentials.
+     * The management server (loopback only, a port adb reverse does not forward) exposes only health, metrics and info,
+     * which hold counts and the build's commit, never repository content or credentials.
      */
     @Bean
     @Order(0)

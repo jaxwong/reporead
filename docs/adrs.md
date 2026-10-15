@@ -209,7 +209,7 @@ Amended 2026-10-09 (Room v8): moving to a newer version keeps the version left b
 
 ## ADR-21 — Metrics and logs are projections on a loopback port
 
-**Decision** (the user's, Stage 6). Micrometer and Spring Boot Actuator serve only `health` and `metrics`, on management port `127.0.0.1:8082`, which neither `adb reverse` nor Caddy forwards. Meters are in memory and reset on restart; they are never application state. Logs name ids, SHAs, counts, outcomes and repository paths; never tokens, authorization headers, note text, quotes or annotation notes, and metric tags never carry paths or content. The deploy script prints only outcomes and the jar's SHA-256, because CI logs are public.
+**Decision** (the user's, Stage 6). Micrometer and Spring Boot Actuator serve only `health`, `metrics` and `info`, on management port `127.0.0.1:8082`, which neither `adb reverse` nor Caddy forwards. Meters are in memory and reset on restart; they are never application state. Logs name ids, SHAs, counts, outcomes and repository paths; never tokens, authorization headers, note text, quotes or annotation notes, and metric tags never carry paths or content. The deploy script prints only outcomes and the jar's SHA-256, because CI logs are public. Amended 2026-10-15 (the user's): `info` names the Git commit the jar was built from, so which version is running can be checked on the host; before, only the jar's SHA-256 in the deploy log identified it.
 
 **Consequences.** Metrics and logs are read on the host itself (SSH to the VM, or the Mac for debug builds).
 

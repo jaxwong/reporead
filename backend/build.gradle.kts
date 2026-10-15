@@ -7,6 +7,17 @@ java {
     toolchain.languageVersion.set(JavaLanguageVersion.of(25))
 }
 
+// META-INF/build-info.properties, served by /actuator/info on the management port: which commit the running jar is.
+// No build time, so an unchanged commit builds the same jar. Fails the build outside a Git checkout rather than guess.
+springBoot {
+    buildInfo {
+        excludes.set(setOf("time"))
+        properties {
+            additional.put("commit", providers.exec { commandLine("git", "rev-parse", "HEAD") }.standardOutput.asText.map { it.trim() })
+        }
+    }
+}
+
 dependencies {
     implementation(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
