@@ -196,9 +196,7 @@ public class RepositorySync {
     /** Regular-file blobs the reader displays as images, for resolving Obsidian embeds by name. */
     static List<String> imageFiles(List<GitHubApi.TreeEntry> tree) {
         return tree.stream()
-                .filter(entry -> entry.type().equals("blob")
-                        && (entry.mode().equals("100644") || entry.mode().equals("100755"))
-                        && MarkdownRenderer.isImagePath(entry.path()))
+                .filter(entry -> regularFile(entry) && MarkdownRenderer.isImagePath(entry.path()))
                 .map(GitHubApi.TreeEntry::path)
                 .toList();
     }
@@ -208,9 +206,7 @@ public class RepositorySync {
         var result = new ArrayList<Documents.SourceFile>();
         var paths = new HashSet<String>();
         for (var entry : tree) {
-            boolean regularFile = entry.type().equals("blob")
-                    && (entry.mode().equals("100644") || entry.mode().equals("100755"));
-            if (!regularFile || !entry.path().toLowerCase(Locale.ROOT).endsWith(".md")) continue;
+            if (!regularFile(entry) || !entry.path().toLowerCase(Locale.ROOT).endsWith(".md")) continue;
             if (!paths.add(entry.path())) {
                 throw new ApiFailure(Code.GITHUB_INVALID_RESPONSE, "GitHub tree listed one path twice.");
             }
@@ -222,5 +218,11 @@ public class RepositorySync {
             result.add(new Documents.SourceFile(entry.path(), entry.sha()));
         }
         return List.copyOf(result);
+    }
+
+    /** A plain or executable file: symlinks (120000) and submodules (commits) are neither notes nor images. */
+    private static boolean regularFile(GitHubApi.TreeEntry entry) {
+        return entry.type().equals("blob")
+                && (entry.mode().equals("100644") || entry.mode().equals("100755"));
     }
 }

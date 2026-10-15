@@ -3,6 +3,7 @@ package com.reporead.reading;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.ClientClock;
+import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.document.MarkdownRenderer;
 import com.reporead.repository.RepositoryConnections;
@@ -60,8 +61,7 @@ public class ReadingController {
 
     private static void validate(SaveRequest body) {
         var anchor = body.anchor();
-        boolean valid = body.lastReadBlobSha() != null
-                && body.lastReadBlobSha().matches("[0-9a-f]{40}")
+        boolean valid = Hashes.isGitSha(body.lastReadBlobSha())
                 && body.progressPercent() != null
                 && body.progressPercent() >= 0
                 && body.progressPercent() <= 100

@@ -1,8 +1,8 @@
 package com.reporead.auth;
 
+import com.reporead.Hashes;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -90,7 +90,7 @@ public class AppSessions {
         byte[] expected = pending.get().challenge().getBytes(StandardCharsets.US_ASCII);
         byte[] actual = Base64.getUrlEncoder()
                 .withoutPadding()
-                .encodeToString(sha256(codeVerifier))
+                .encodeToString(hash(codeVerifier))
                 .getBytes(StandardCharsets.US_ASCII);
         if (!MessageDigest.isEqual(expected, actual)) return Optional.empty();
 
@@ -180,15 +180,8 @@ public class AppSessions {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    private static byte[] hash(String token) {
-        return sha256(token);
-    }
-
-    private static byte[] sha256(String value) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.US_ASCII));
-        } catch (NoSuchAlgorithmException error) {
-            throw new IllegalStateException("AppSessions requires the JDK SHA-256 implementation", error);
-        }
+    /** SHA-256 of a token, code or PKCE verifier, all of which are ASCII. */
+    private static byte[] hash(String value) {
+        return Hashes.sha256(value.getBytes(StandardCharsets.US_ASCII));
     }
 }

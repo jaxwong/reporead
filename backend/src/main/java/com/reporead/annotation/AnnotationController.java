@@ -2,13 +2,12 @@ package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
+import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.document.Documents;
 import com.reporead.document.MarkdownRenderer;
 import com.reporead.document.NoteVersions;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -114,7 +113,7 @@ public class AnnotationController {
 
     /** SHA-256 of the request content a mutation id is bound to; highlights keep their pre-P4 fingerprint shape. */
     static byte[] fingerprint(long documentId, Selection anchor, String note, String type, String question) {
-        return sha256(FINGERPRINT_JSON.writeValueAsBytes(
+        return Hashes.sha256(FINGERPRINT_JSON.writeValueAsBytes(
                 type.equals("CARD")
                         ? new CardFingerprint(documentId, anchor, note, type, question)
                         : new Fingerprint(documentId, anchor, note)));
@@ -201,10 +200,7 @@ public class AnnotationController {
     @PostMapping("/api/annotations/{id}/check")
     Annotations.Annotation checkCard(
             @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CheckRequest body) {
-        if (body.expectedVersion() == null
-                || body.expectedVersion() < 1
-                || body.blobSha() == null
-                || !body.blobSha().matches("[0-9a-f]{40}")) {
+        if (body.expectedVersion() == null || body.expectedVersion() < 1 || !Hashes.isGitSha(body.blobSha())) {
             throw new ApiFailure(Code.INVALID_ANNOTATION, "Card confirmation needs expectedVersion and a blob SHA.");
         }
         var checked = annotations.checkCard(user.id(), id, body.expectedVersion(), body.blobSha());
@@ -258,8 +254,7 @@ public class AnnotationController {
 
     private static boolean validSelection(Selection selection) {
         return selection != null
-                && selection.sourceBlobSha() != null
-                && selection.sourceBlobSha().matches("[0-9a-f]{40}")
+                && Hashes.isGitSha(selection.sourceBlobSha())
                 && selection.blockId() != null
                 && selection.blockId().matches("b[0-9]{1,4}")
                 && selection.startOffset() != null
@@ -277,13 +272,5 @@ public class AnnotationController {
 
     private static ApiFailure invalidAnchor(String message) {
         return new ApiFailure(Code.INVALID_ANCHOR, message);
-    }
-
-    private static byte[] sha256(byte[] value) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(value);
-        } catch (NoSuchAlgorithmException error) {
-            throw new IllegalStateException("AnnotationController requires the JDK SHA-256 implementation", error);
-        }
     }
 }

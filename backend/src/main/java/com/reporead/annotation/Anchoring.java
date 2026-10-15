@@ -1,9 +1,8 @@
 package com.reporead.annotation;
 
+import com.reporead.Hashes;
 import com.reporead.document.MarkdownRenderer;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -351,12 +350,7 @@ final class Anchoring {
     }
 
     private static String sha256(String text) {
-        try {
-            return HexFormat.of()
-                    .formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException error) {
-            throw new IllegalStateException("Anchoring requires the JDK SHA-256 implementation", error);
-        }
+        return HexFormat.of().formatHex(Hashes.sha256(text.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static Set<String> words(String text) {

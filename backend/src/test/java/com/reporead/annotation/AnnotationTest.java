@@ -10,11 +10,11 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.reporead.Hashes;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.datacontrol.ConnectionData;
-import com.reporead.document.MarkdownRenderer;
 import com.reporead.repository.RepositoryConnections;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -53,19 +53,19 @@ class AnnotationTest {
     private static final byte[] OLD =
             "# Spring\n\n## Proxies\n\nBy default, Spring implements declarative transactions using a proxy around the target bean.\n"
                     .getBytes(StandardCharsets.UTF_8);
-    private static final String OLD_SHA = MarkdownRenderer.blobSha(OLD);
+    private static final String OLD_SHA = Hashes.gitBlobSha(OLD);
     /** The note has since moved on: a paragraph was inserted above the highlighted one, which is unchanged. */
     private static final byte[] CURRENT = ("# Spring\n\nTransactions are a core Spring feature.\n\n## Proxies\n\n"
                     + "By default, Spring implements declarative transactions using a proxy around the target bean.\n")
             .getBytes(StandardCharsets.UTF_8);
 
-    private static final String CURRENT_SHA = MarkdownRenderer.blobSha(CURRENT);
+    private static final String CURRENT_SHA = Hashes.gitBlobSha(CURRENT);
     /** A later rewrite that no longer contains the highlighted passage. */
     private static final byte[] REWRITTEN =
             "# Spring\n\n## Weaving\n\nAspectJ weaves advice into the bytecode at build time.\n"
                     .getBytes(StandardCharsets.UTF_8);
 
-    private static final String REWRITTEN_SHA = MarkdownRenderer.blobSha(REWRITTEN);
+    private static final String REWRITTEN_SHA = Hashes.gitBlobSha(REWRITTEN);
     private static final String EXACT = "Spring implements declarative transactions";
     private static final int START = "By default, ".length();
 

@@ -1,13 +1,11 @@
 package com.reporead.document;
 
+import com.reporead.Hashes;
 import com.reporead.github.GitHubHttp;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -69,6 +67,8 @@ public final class MarkdownRenderer {
 
     private static final java.util.regex.Pattern WIKILINK =
             java.util.regex.Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
+    /** A reference with a URL scheme ({@code https:}, {@code mailto:}, ...): not a path in the repository. */
+    private static final java.util.regex.Pattern SCHEME = java.util.regex.Pattern.compile("[A-Za-z][A-Za-z0-9+.-]*:.*");
     /** A footnote reference {@code [^label]}, or with {@code :} a definition marker. */
     private static final java.util.regex.Pattern FOOTNOTE =
             java.util.regex.Pattern.compile("\\[\\^([^\\[\\]\\s]+)\\](:?)");
@@ -148,16 +148,6 @@ public final class MarkdownRenderer {
         }
     }
 
-    public static String blobSha(byte[] bytes) {
-        try {
-            var digest = MessageDigest.getInstance("SHA-1");
-            digest.update(("blob " + bytes.length + "\0").getBytes(StandardCharsets.US_ASCII));
-            return HexFormat.of().formatHex(digest.digest(bytes));
-        } catch (NoSuchAlgorithmException error) {
-            throw new IllegalStateException("MarkdownRenderer requires the JDK SHA-1 implementation", error);
-        }
-    }
-
     /**
      * {@code documentPath} is the note's repository path: shown as its source label and used to resolve relative
      * images.
@@ -165,13 +155,13 @@ public final class MarkdownRenderer {
     public static RenderedNote render(String markdown, String sourceBlobSha, String documentPath) {
         Objects.requireNonNull(markdown, "MarkdownRenderer markdown");
         Objects.requireNonNull(documentPath, "MarkdownRenderer document path");
-        if (sourceBlobSha == null || !sourceBlobSha.matches("[0-9a-f]{40}")) {
+        if (!Hashes.isGitSha(sourceBlobSha)) {
             throw new IllegalArgumentException("MarkdownRenderer sourceBlobSha must be a lowercase Git SHA-1");
         }
         byte[] bytes = markdown.getBytes(StandardCharsets.UTF_8);
         if (bytes.length > MAX_NOTE_BYTES)
             throw new ContentRejected("Markdown exceeds the " + MAX_NOTE_MIB + " MiB reader limit");
-        if (!blobSha(bytes).equals(sourceBlobSha))
+        if (!Hashes.gitBlobSha(bytes).equals(sourceBlobSha))
             throw new ContentRejected("Markdown bytes do not match sourceBlobSha");
 
         var parsed = PARSER.parse(markdown);
@@ -190,7 +180,7 @@ public final class MarkdownRenderer {
         for (var image : clean.select("img")) {
             String alt = image.attr("alt");
             String src = image.attr("src");
-            if (src.startsWith("//") || src.matches("^[A-Za-z][A-Za-z0-9+.-]*:.*")) {
+            if (src.startsWith("//") || SCHEME.matcher(src).matches()) {
                 image.replaceWith(blockedImage("Remote image blocked", alt));
                 continue;
             }
@@ -314,7 +304,9 @@ public final class MarkdownRenderer {
     private static int linkNotes(Document clean, String documentPath, int images) {
         for (var link : clean.select("a[href]")) {
             String href = link.attr("href");
-            if (href.startsWith("//") || href.startsWith("#") || href.matches("^[A-Za-z][A-Za-z0-9+.-]*:.*")) continue;
+            if (href.startsWith("//")
+                    || href.startsWith("#")
+                    || SCHEME.matcher(href).matches()) continue;
             String[] parts = href.split("#", 2);
             if (!parts[0].toLowerCase(Locale.ROOT).endsWith(".md")) continue;
             var path = repositoryPath(documentPath, parts[0]);

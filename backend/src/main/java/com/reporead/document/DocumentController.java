@@ -2,6 +2,7 @@ package com.reporead.document;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
+import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
 import com.reporead.repository.RepositoryConnections;
@@ -60,8 +61,6 @@ public class DocumentController {
             String path,
             String title,
             String sourceBlobSha,
-            int blockCount,
-            int diagramCount,
             String html,
             String text,
             int renderFormat) {}
@@ -84,8 +83,6 @@ public class DocumentController {
                 document.path(),
                 document.title(),
                 document.blobSha(),
-                rendered.blocks().size(),
-                rendered.diagramCount(),
                 rendered.html(),
                 String.join(
                         "\n",
@@ -161,7 +158,7 @@ public class DocumentController {
             @PathVariable long id,
             @RequestParam(required = false) String since,
             @RequestParam(required = false) String to) {
-        if (since == null || to == null || !since.matches("[0-9a-f]{40}") || !to.matches("[0-9a-f]{40}")) {
+        if (!Hashes.isGitSha(since) || !Hashes.isGitSha(to)) {
             throw new ApiFailure(Code.INVALID_VERSIONS, "since and to must be lowercase 40-character blob SHAs.");
         }
         var document = present(user, id);

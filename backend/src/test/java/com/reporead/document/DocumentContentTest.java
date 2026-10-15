@@ -7,6 +7,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.reporead.Hashes;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
@@ -131,7 +132,7 @@ class DocumentContentTest {
 
     @Test
     void ownedNoteIsFetchedAtItsBlobShaAndRenderedSafelyOnEveryRead() throws Exception {
-        String sha = MarkdownRenderer.blobSha(NOTE);
+        String sha = Hashes.gitBlobSha(NOTE);
         long id = document("backend/spring.md", sha, false);
         expectBlob(sha, withSuccess(NOTE, MediaType.APPLICATION_OCTET_STREAM));
         expectBlob(sha, withSuccess(NOTE, MediaType.APPLICATION_OCTET_STREAM));
@@ -141,7 +142,6 @@ class DocumentContentTest {
                     .andExpect(jsonPath("$.path").value("backend/spring.md"))
                     .andExpect(jsonPath("$.sourceBlobSha").value(sha))
                     .andExpect(jsonPath("$.commitSha").doesNotExist())
-                    .andExpect(jsonPath("$.blockCount").value(3))
                     .andExpect(
                             jsonPath("$.text").value("Spring\nA transaction groups work.\n<script>alert(1)</script>"))
                     .andExpect(jsonPath("$.renderFormat").value(MarkdownRenderer.FORMAT))
@@ -161,7 +161,7 @@ class DocumentContentTest {
 
     @Test
     void anotherUsersNoteIsNotFoundWithoutAGitHubCall() throws Exception {
-        long id = document("a.md", MarkdownRenderer.blobSha(NOTE), false);
+        long id = document("a.md", Hashes.gitBlobSha(NOTE), false);
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
         read(bob, id)
                 .andExpect(status().isNotFound())
@@ -172,7 +172,7 @@ class DocumentContentTest {
 
     @Test
     void deletedNoteIsGoneWithoutAGitHubCall() throws Exception {
-        long id = document("a.md", MarkdownRenderer.blobSha(NOTE), true);
+        long id = document("a.md", Hashes.gitBlobSha(NOTE), true);
         read(alice, id)
                 .andExpect(status().isGone())
                 .andExpect(jsonPath("$.code").value("DOCUMENT_DELETED"));
@@ -180,7 +180,7 @@ class DocumentContentTest {
 
     @Test
     void bytesThatDoNotMatchTheBlobShaAreRejected() throws Exception {
-        String sha = MarkdownRenderer.blobSha(NOTE);
+        String sha = Hashes.gitBlobSha(NOTE);
         long id = document("a.md", sha, false);
         expectBlob(
                 sha, withSuccess("# Different".getBytes(StandardCharsets.UTF_8), MediaType.APPLICATION_OCTET_STREAM));
@@ -193,13 +193,12 @@ class DocumentContentTest {
     void anEmptyNoteIsShownAsEmpty() throws Exception {
         // GitHub answers an empty file with a 200 and no body; its blob SHA is Git's empty-blob hash.
         byte[] empty = new byte[0];
-        String sha = MarkdownRenderer.blobSha(empty);
+        String sha = Hashes.gitBlobSha(empty);
         assertEquals("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", sha);
         long id = document("k8s/helm.md", sha, false);
         expectBlob(sha, withSuccess(empty, MediaType.APPLICATION_OCTET_STREAM));
         read(alice, id)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.blockCount").value(0))
                 .andExpect(jsonPath("$.text").value(""))
                 .andExpect(jsonPath("$.html").value(org.hamcrest.Matchers.containsString("This note is empty.")));
     }
@@ -208,14 +207,14 @@ class DocumentContentTest {
     void oversizedAndNonUtf8NotesAreVisiblyUnsupported() throws Exception {
         byte[] large = new byte[GitHubHttp.MAX_RESPONSE_BYTES + 1];
         java.util.Arrays.fill(large, (byte) 'x');
-        String largeSha = MarkdownRenderer.blobSha(large);
+        String largeSha = Hashes.gitBlobSha(large);
         expectBlob(largeSha, withSuccess(large, MediaType.APPLICATION_OCTET_STREAM));
         read(alice, document("large.md", largeSha, false))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
 
         byte[] latin1 = {(byte) 0xE9, 't', 'e'};
-        String latin1Sha = MarkdownRenderer.blobSha(latin1);
+        String latin1Sha = Hashes.gitBlobSha(latin1);
         next();
         expectBlob(latin1Sha, withSuccess(latin1, MediaType.APPLICATION_OCTET_STREAM));
         read(alice, document("latin1.md", latin1Sha, false))
@@ -228,7 +227,7 @@ class DocumentContentTest {
         byte[] diagrams = "```mermaid\nA-->B\n```\n\n"
                 .repeat(MarkdownRenderer.MAX_DIAGRAMS + 1)
                 .getBytes(StandardCharsets.UTF_8);
-        String sha = MarkdownRenderer.blobSha(diagrams);
+        String sha = Hashes.gitBlobSha(diagrams);
         expectBlob(sha, withSuccess(diagrams, MediaType.APPLICATION_OCTET_STREAM));
         read(alice, document("diagrams.md", sha, false))
                 .andExpect(status().isUnprocessableContent())
@@ -237,7 +236,7 @@ class DocumentContentTest {
 
     @Test
     void vanishedBlobAndGitHubOutageAreDistinct() throws Exception {
-        String sha = MarkdownRenderer.blobSha(NOTE);
+        String sha = Hashes.gitBlobSha(NOTE);
         long id = document("a.md", sha, false);
         expectBlob(sha, withResourceNotFound());
         read(alice, id)
@@ -253,7 +252,7 @@ class DocumentContentTest {
 
     @Test
     void missingGitHubTokenRequiresSignInWithoutACall() throws Exception {
-        long id = document("a.md", MarkdownRenderer.blobSha(NOTE), false);
+        long id = document("a.md", Hashes.gitBlobSha(NOTE), false);
         clients.removeAuthorizedClient("github", "42");
         read(alice, id)
                 .andExpect(status().isUnauthorized())
@@ -278,8 +277,8 @@ class DocumentContentTest {
 
     @Test
     void changesSinceTheReadVersionAreSummarizedBySectionsOfTheDisplayedVersion() throws Exception {
-        String read = MarkdownRenderer.blobSha(READ);
-        String current = MarkdownRenderer.blobSha(CURRENT);
+        String read = Hashes.gitBlobSha(READ);
+        String current = Hashes.gitBlobSha(CURRENT);
         long id = document("backend/spring.md", current, false);
         expectBlob(read, withSuccess(READ, MediaType.APPLICATION_OCTET_STREAM));
         expectBlob(current, withSuccess(CURRENT, MediaType.APPLICATION_OCTET_STREAM));
@@ -314,7 +313,7 @@ class DocumentContentTest {
 
     @Test
     void theSameVersionIsUnchangedWithoutAGitHubCall() throws Exception {
-        String sha = MarkdownRenderer.blobSha(READ);
+        String sha = Hashes.gitBlobSha(READ);
         long id = document("a.md", sha, false);
         changes(alice, id, sha, sha)
                 .andExpect(status().isOk())
@@ -324,7 +323,7 @@ class DocumentContentTest {
 
     @Test
     void anOldVersionGitHubNoLongerHasIsUnavailableNotAnEmptySummary() throws Exception {
-        String current = MarkdownRenderer.blobSha(CURRENT);
+        String current = Hashes.gitBlobSha(CURRENT);
         long id = document("a.md", current, false);
         expectBlob("e".repeat(40), withResourceNotFound());
         changes(alice, id, "e".repeat(40), current)
@@ -345,10 +344,10 @@ class DocumentContentTest {
         }
         byte[] old = before.toString().getBytes(StandardCharsets.UTF_8);
         byte[] current = after.toString().getBytes(StandardCharsets.UTF_8);
-        long id = document("a.md", MarkdownRenderer.blobSha(current), false);
-        expectBlob(MarkdownRenderer.blobSha(old), withSuccess(old, MediaType.APPLICATION_OCTET_STREAM));
-        expectBlob(MarkdownRenderer.blobSha(current), withSuccess(current, MediaType.APPLICATION_OCTET_STREAM));
-        changes(alice, id, MarkdownRenderer.blobSha(old), MarkdownRenderer.blobSha(current))
+        long id = document("a.md", Hashes.gitBlobSha(current), false);
+        expectBlob(Hashes.gitBlobSha(old), withSuccess(old, MediaType.APPLICATION_OCTET_STREAM));
+        expectBlob(Hashes.gitBlobSha(current), withSuccess(current, MediaType.APPLICATION_OCTET_STREAM));
+        changes(alice, id, Hashes.gitBlobSha(old), Hashes.gitBlobSha(current))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("TOO_LARGE"))
                 .andExpect(jsonPath("$.sections.length()").value(0));
@@ -356,8 +355,8 @@ class DocumentContentTest {
 
     @Test
     void aGitHubOutageFailsTheComparisonInsteadOfReportingAState() throws Exception {
-        String read = MarkdownRenderer.blobSha(READ);
-        String current = MarkdownRenderer.blobSha(CURRENT);
+        String read = Hashes.gitBlobSha(READ);
+        String current = Hashes.gitBlobSha(CURRENT);
         long id = document("a.md", current, false);
         expectBlob(read, withServiceUnavailable());
         changes(alice, id, read, current)
@@ -373,8 +372,8 @@ class DocumentContentTest {
 
     @Test
     void changesAreCheckedForOwnershipDeletionAndVersionsBeforeGitHub() throws Exception {
-        String read = MarkdownRenderer.blobSha(READ);
-        String current = MarkdownRenderer.blobSha(CURRENT);
+        String read = Hashes.gitBlobSha(READ);
+        String current = Hashes.gitBlobSha(CURRENT);
         long id = document("a.md", current, false);
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
         changes(bob, id, read, current).andExpect(status().isNotFound());
@@ -397,7 +396,7 @@ class DocumentContentTest {
 
     @Test
     void repositoryImageIsServedAtTheNotesCommitWithItsType() throws Exception {
-        long id = document("notes/a.md", MarkdownRenderer.blobSha(NOTE), false);
+        long id = document("notes/a.md", Hashes.gitBlobSha(NOTE), false);
         byte[] png = {(byte) 0x89, 'P', 'N', 'G'};
         images.expect(requestTo(
                         "https://api.github.com/repos/test-only/notes/contents/notes/images/flow%20chart.png?ref="
@@ -431,7 +430,7 @@ class DocumentContentTest {
 
     @Test
     void anObsidianEmbedIsFoundByNamePreferringTheNotesFolder() throws Exception {
-        long id = document("notes/a.md", MarkdownRenderer.blobSha(NOTE), false);
+        long id = document("notes/a.md", Hashes.gitBlobSha(NOTE), false);
         images(
                 "attachments/Pasted image.png",
                 "notes/chart.png",
@@ -467,7 +466,7 @@ class DocumentContentTest {
 
     @Test
     void imagePathOwnershipAndDeletionAreCheckedBeforeGitHub() throws Exception {
-        long id = document("a.md", MarkdownRenderer.blobSha(NOTE), false);
+        long id = document("a.md", Hashes.gitBlobSha(NOTE), false);
         for (String path : new String[] {"../a.png", "/a.png", "a.md", "a//b.png", ""}) {
             image(alice, id, path)
                     .andExpect(status().isBadRequest())
@@ -475,13 +474,13 @@ class DocumentContentTest {
         }
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
         image(bob, id, "a.png").andExpect(status().isNotFound());
-        image(alice, document("gone.md", MarkdownRenderer.blobSha(NOTE), true), "a.png")
+        image(alice, document("gone.md", Hashes.gitBlobSha(NOTE), true), "a.png")
                 .andExpect(status().isGone());
     }
 
     @Test
     void missingAndOversizedImagesAreDistinctFailures() throws Exception {
-        long id = document("a.md", MarkdownRenderer.blobSha(NOTE), false);
+        long id = document("a.md", Hashes.gitBlobSha(NOTE), false);
         images.expect(requestTo(
                         "https://api.github.com/repos/test-only/notes/contents/missing.png?ref=" + "c".repeat(40)))
                 .andRespond(withResourceNotFound());

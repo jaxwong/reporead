@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.reporead.Hashes;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
@@ -197,7 +198,7 @@ class ReadingStateTest {
         // back.
         String markdown = "word ".repeat(150).strip() + "\n---\n\nThe section's first paragraph.\n";
         var rendered = MarkdownRenderer.render(
-                markdown, MarkdownRenderer.blobSha(markdown.getBytes(StandardCharsets.UTF_8)), "notes/long.md");
+                markdown, Hashes.gitBlobSha(markdown.getBytes(StandardCharsets.UTF_8)), "notes/long.md");
         String heading =
                 Jsoup.parse(rendered.html()).selectFirst("[data-block-id=b1]").attr("data-heading-2");
         String anchor = "{\"headingPath\":[\"" + heading + "\"],\"textPrefix\":\"The section\",\"blockIndex\":1}";

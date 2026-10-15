@@ -2,6 +2,7 @@ package com.reporead.document;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
+import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
 import java.nio.ByteBuffer;
@@ -33,7 +34,7 @@ public class NoteVersions {
     public Rendered render(AppUser user, String owner, String repositoryName, String path, String blobSha) {
         String token = github.userToken(user.githubUserId());
         byte[] bytes = github.blob(token, owner, repositoryName, blobSha);
-        if (!MarkdownRenderer.blobSha(bytes).equals(blobSha)) {
+        if (!Hashes.gitBlobSha(bytes).equals(blobSha)) {
             throw new ApiFailure(
                     Code.GITHUB_INVALID_RESPONSE, "GitHub returned bytes that do not match the note's blob SHA.");
         }

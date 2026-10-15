@@ -89,10 +89,13 @@ internal fun readBanks(pages: List<PracticePage>): Banks {
     return Banks(banks, questions, unrecognized)
 }
 
-/** Shuffled note groups, then one question per note per round; remaining questions never disappear. */
-internal fun interleaveQuestions(questions: List<PracticeQuestion>, seed: Int): List<PracticeQuestion> {
+/**
+ * Practice and Review sessions alternate notes: shuffled note groups, then one item per note per round, so remaining
+ * items never disappear. [note] is each item's document.
+ */
+internal fun <T> interleaveByNote(items: List<T>, seed: Int, note: (T) -> Long): List<T> {
     val random = Random(seed)
-    val groups = questions.groupBy { it.documentId }.values.shuffled(random).map { it.shuffled(random) }
+    val groups = items.groupBy(note).values.shuffled(random).map { it.shuffled(random) }
     return (0 until (groups.maxOfOrNull { it.size } ?: 0)).flatMap { round ->
         groups.mapNotNull { it.getOrNull(round) }
     }
@@ -270,7 +273,10 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
     LaunchedEffect(questions, scheduled) {
         if (queue != null || questions == null || scheduled == null) return@LaunchedEffect
         started =
-            ArrayList(interleaveQuestions(questions.filter { it.key !in scheduled }, Random.nextInt()).map { it.key })
+            ArrayList(
+                interleaveByNote(questions.filter { it.key !in scheduled }, Random.nextInt()) { it.documentId }
+                    .map { it.key }
+            )
         queue = ArrayList(started)
     }
     val next = { remaining: List<String> ->

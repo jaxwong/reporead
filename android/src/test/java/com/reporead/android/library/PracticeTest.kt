@@ -52,17 +52,23 @@ class PracticeTest {
     @Test
     fun shuffleInterleavesNotesAndKeepsEveryQuestionExactlyOnceOnRepeatRuns() {
         val questions = (1L..3L).flatMap { id -> (0..3).map { i -> question(id, "b$i", "Question $id:$i") } }
-        repeat(20) {
-            val mixed = interleaveQuestions(questions, it)
+        repeat(20) { seed ->
+            val mixed = interleaveByNote(questions, seed) { it.documentId }
             assertEquals(questions.toSet(), mixed.toSet())
             assertEquals(questions.size, mixed.size)
             assertTrue(mixed.zipWithNext().all { (a, b) -> a.documentId != b.documentId })
         }
-        assertEquals(emptyList<PracticeQuestion>(), interleaveQuestions(emptyList(), 0))
-        assertEquals(questions.take(1), interleaveQuestions(questions.take(1), 0))
+        assertEquals(
+            emptyList<PracticeQuestion>(),
+            interleaveByNote(emptyList<PracticeQuestion>(), 0) { it.documentId },
+        )
+        assertEquals(questions.take(1), interleaveByNote(questions.take(1), 0) { it.documentId })
         val uneven = questions.take(5)
-        assertEquals(uneven.toSet(), interleaveQuestions(uneven, 0).toSet())
-        assertEquals(interleaveQuestions(questions, 42), interleaveQuestions(questions, 42))
+        assertEquals(uneven.toSet(), interleaveByNote(uneven, 0) { it.documentId }.toSet())
+        assertEquals(
+            interleaveByNote(questions, 42) { it.documentId },
+            interleaveByNote(questions, 42) { it.documentId },
+        )
     }
 
     @Test

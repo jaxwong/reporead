@@ -619,7 +619,7 @@ class RepositorySyncTest {
     }
 
     private static String sha(byte[] bytes) {
-        return com.reporead.document.MarkdownRenderer.blobSha(bytes);
+        return com.reporead.Hashes.gitBlobSha(bytes);
     }
 
     private void expectBlob(byte[] bytes) {

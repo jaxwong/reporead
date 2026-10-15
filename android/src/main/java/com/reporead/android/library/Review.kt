@@ -10,7 +10,6 @@ import com.reporead.android.reader.interviewBank
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlin.random.Random
 import org.jsoup.Jsoup
 
 /** A card's next due time and the [step] of [STEPS] its last saved grade put it on; null before its first grade. */
@@ -87,11 +86,7 @@ internal fun dueSession(
 ): List<NotebookItem> {
     require(limit > 0) { "Expected positive server sessionLimit, got $limit" }
     val due = dueTimes(items, reviews, zone).filter { it.second <= now }.map { it.first }
-    val random = Random(seed)
-    val groups = due.groupBy { it.annotation.documentId }.values.shuffled(random).map { it.shuffled(random) }
-    return (0 until (groups.maxOfOrNull { it.size } ?: 0))
-        .flatMap { round -> groups.mapNotNull { it.getOrNull(round) } }
-        .take(limit)
+    return interleaveByNote(due, seed) { it.annotation.documentId }.take(limit)
 }
 
 /**

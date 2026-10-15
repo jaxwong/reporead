@@ -2,6 +2,7 @@ package com.reporead.github;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
+import com.reporead.Hashes;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -49,7 +50,6 @@ public class GitHubApi {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubApi.class);
     static final int MAX_INSTALLATIONS = 10;
     static final int MAX_REPOSITORIES = 100;
-    private static final Pattern SHA = Pattern.compile("[0-9a-f]{40}");
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9._-]+");
     private static final MediaType JSON = MediaType.parseMediaType("application/vnd.github+json");
     private static final MediaType RAW = MediaType.parseMediaType("application/vnd.github.raw+json");
@@ -271,7 +271,7 @@ public class GitHubApi {
         String commitSha = string(commit, "sha", "branch commit");
         var tree = commit.get("commit") == null ? null : commit.get("commit").get("tree");
         String treeSha = string(tree, "sha", "branch tree");
-        if (!SHA.matcher(commitSha).matches() || !SHA.matcher(treeSha).matches())
+        if (!Hashes.isGitSha(commitSha) || !Hashes.isGitSha(treeSha))
             throw invalid("GitHub returned an invalid commit or tree SHA.");
         return new Branch(commitSha, treeSha);
     }
@@ -299,7 +299,7 @@ public class GitHubApi {
         var result = new ArrayList<TreeEntry>(entries.size());
         for (var entry : entries) {
             String sha = string(entry, "sha", "tree entry");
-            if (!SHA.matcher(sha).matches()) throw invalid("GitHub tree entry has an invalid SHA.");
+            if (!Hashes.isGitSha(sha)) throw invalid("GitHub tree entry has an invalid SHA.");
             result.add(new TreeEntry(
                     string(entry, "path", "tree entry"),
                     string(entry, "mode", "tree entry"),
