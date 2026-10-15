@@ -43,7 +43,7 @@ public class Reviews {
     record GradeRequest(String mutationId, Integer grade, Instant reviewedAt, String blobSha) {}
 
     private static final String SELECT = """
-        select r.mutation_id, a.mutation_id, r.grade, r.reviewed_at, r.blob_sha
+        select r.mutation_id, a.mutation_id as card_mutation_id, r.grade, r.reviewed_at, r.blob_sha
         from review_log r join annotations a on a.id = r.annotation_id
         where r.user_id = :userId""";
 
@@ -74,11 +74,12 @@ public class Reviews {
                 .param("id", id).param("userId", user.id()).query(Long.class).optional().orElseThrow(ApiFailure::notFound);
             connections.lockForDocumentWrite(user.id(), documentId);
             var current = db.sql("""
-                    select a.checked_blob_sha, d.current_blob_sha, d.deleted_at is not null, a.status
+                    select a.checked_blob_sha, d.current_blob_sha, d.deleted_at is not null as deleted, a.status
                     from annotations a join documents d on d.id = a.document_id
                     where a.id = :id and a.user_id = :userId and a.type = 'CARD' for update of a""")
                 .param("id", id).param("userId", user.id())
-                .query((row, n) -> new Current(row.getString(1), row.getString(2), row.getBoolean(3), row.getString(4))).optional()
+                .query((row, n) -> new Current(row.getString("checked_blob_sha"), row.getString("current_blob_sha"), row.getBoolean("deleted"),
+                    row.getString("status"))).optional()
                 .orElseThrow(ApiFailure::notFound);
             int inserted = db.sql("""
                     insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha)
@@ -87,7 +88,8 @@ public class Reviews {
                 .param("at", Timestamp.from(body.reviewedAt())).param("sha", body.blobSha()).update();
             var stored = db.sql("select annotation_id, grade, reviewed_at, blob_sha from review_log where user_id = :userId and mutation_id = :mutation")
                 .param("userId", user.id()).param("mutation", mutation)
-                .query((row, n) -> new Stored(row.getLong(1), row.getInt(2), row.getTimestamp(3).toInstant(), row.getString(4))).single();
+                .query((row, n) -> new Stored(row.getLong("annotation_id"), row.getInt("grade"), row.getTimestamp("reviewed_at").toInstant(),
+                    row.getString("blob_sha"))).single();
             if (stored.id() != id || stored.grade() != body.grade() || !stored.at().equals(body.reviewedAt()) || !stored.sha().equals(body.blobSha())) {
                 throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
             }
@@ -107,7 +109,8 @@ public class Reviews {
     private record Stored(long id, int grade, Instant at, String sha) {}
 
     private static Review review(java.sql.ResultSet row, int n) throws java.sql.SQLException {
-        return new Review(row.getString(1), row.getString(2), row.getInt(3), row.getTimestamp(4).toInstant(), row.getString(5));
+        return new Review(row.getString("mutation_id"), row.getString("card_mutation_id"), row.getInt("grade"),
+            row.getTimestamp("reviewed_at").toInstant(), row.getString("blob_sha"));
     }
 
     private static ApiFailure invalid(String message) { return new ApiFailure(Code.INVALID_REVIEW, message); }

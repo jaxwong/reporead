@@ -28,8 +28,8 @@ public class ReadingStates {
                         String lastReadBlobSha, int progressPercent, Anchor anchor, Instant lastReadAt) {}
 
     private static final String SELECT = """
-        select r.document_id, d.repository_connection_id, d.path, d.title, d.current_blob_sha, d.deleted_at is not null,
-               r.last_read_blob_sha, r.progress_percent, r.anchor_json::text, r.last_read_at
+        select r.document_id, d.repository_connection_id, d.path, d.title, d.current_blob_sha, d.deleted_at is not null as deleted,
+               r.last_read_blob_sha, r.progress_percent, r.anchor_json::text as anchor_json, r.last_read_at
         from reading_states r join documents d on d.id = r.document_id""";
 
     /** Applies the write only if it is newer than the stored one; returns the state that is now current. */
@@ -61,7 +61,8 @@ public class ReadingStates {
     }
 
     private State state(ResultSet row, int n) throws SQLException {
-        return new State(row.getLong(1), row.getLong(2), row.getString(3), row.getString(4), row.getString(5), row.getBoolean(6),
-            row.getString(7), row.getInt(8), json.readValue(row.getString(9), Anchor.class), row.getTimestamp(10).toInstant());
+        return new State(row.getLong("document_id"), row.getLong("repository_connection_id"), row.getString("path"), row.getString("title"),
+            row.getString("current_blob_sha"), row.getBoolean("deleted"), row.getString("last_read_blob_sha"), row.getInt("progress_percent"),
+            json.readValue(row.getString("anchor_json"), Anchor.class), row.getTimestamp("last_read_at").toInstant());
     }
 }

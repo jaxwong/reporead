@@ -68,8 +68,8 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
                 select access_token, access_token_issued_at, access_token_expires_at, refresh_token, refresh_token_issued_at
                 from github_tokens where github_user_id = :githubUserId""")
             .param("githubUserId", githubUserId)
-            .query((rs, n) -> new Row(rs.getBytes(1), instant(rs.getTimestamp(2)), instant(rs.getTimestamp(3)),
-                rs.getBytes(4), instant(rs.getTimestamp(5))))
+            .query((rs, n) -> new Row(rs.getBytes("access_token"), instant(rs.getTimestamp("access_token_issued_at")),
+                instant(rs.getTimestamp("access_token_expires_at")), rs.getBytes("refresh_token"), instant(rs.getTimestamp("refresh_token_issued_at"))))
             .optional();
         if (row.isEmpty()) return null;
         OAuth2AccessToken access;

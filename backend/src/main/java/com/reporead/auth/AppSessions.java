@@ -67,7 +67,7 @@ public class AppSessions {
         record Pending(long userId, String challenge, Instant expiresAt) {}
         var pending = db.sql("delete from app_sign_in_codes where code_hash = :hash returning user_id, code_challenge, expires_at")
             .param("hash", hash(code))
-            .query((row, n) -> new Pending(row.getLong(1), row.getString(2), row.getTimestamp(3).toInstant())).optional();
+            .query((row, n) -> new Pending(row.getLong("user_id"), row.getString("code_challenge"), row.getTimestamp("expires_at").toInstant())).optional();
         if (pending.isEmpty() || !pending.get().expiresAt().isAfter(Instant.now())) return Optional.empty();
         byte[] expected = pending.get().challenge().getBytes(StandardCharsets.US_ASCII);
         byte[] actual = Base64.getUrlEncoder().withoutPadding().encodeToString(sha256(codeVerifier)).getBytes(StandardCharsets.US_ASCII);
@@ -81,7 +81,7 @@ public class AppSessions {
             .param("hash", hash(token)).param("userId", pending.get().userId())
             .param("createdAt", Timestamp.from(now)).param("expiresAt", Timestamp.from(expiresAt)).update();
         var user = db.sql("select id, github_user_id, login from users where id = :id").param("id", pending.get().userId())
-            .query((row, n) -> new AppUser(row.getLong(1), row.getLong(2), row.getString(3))).single();
+            .query((row, n) -> new AppUser(row.getLong("id"), row.getLong("github_user_id"), row.getString("login"))).single();
         return Optional.of(new IssuedSession(token, expiresAt, user));
     }
 
@@ -92,7 +92,7 @@ public class AppSessions {
                 select u.id, u.github_user_id, u.login from app_sessions s join users u on u.id = s.user_id
                 where s.token_hash = :hash and s.expires_at > :now""")
             .param("hash", hash(token)).param("now", Timestamp.from(Instant.now()))
-            .query((row, n) -> new AppUser(row.getLong(1), row.getLong(2), row.getString(3))).optional()
+            .query((row, n) -> new AppUser(row.getLong("id"), row.getLong("github_user_id"), row.getString("login"))).optional()
             .filter(user -> allowed.allows(user.githubUserId()));
     }
 

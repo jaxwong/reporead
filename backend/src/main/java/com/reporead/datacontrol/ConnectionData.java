@@ -39,12 +39,18 @@ public class ConnectionData {
     /** What disconnecting would delete; a read-only projection of the owners' tables. */
     public Counts count(long connectionId) {
         return db.sql("""
-                select (select count(*) from documents d where d.repository_connection_id = :id),
-                       (select count(*) from reading_states r join documents d on d.id = r.document_id where d.repository_connection_id = :id),
-                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'BOOKMARK'),
-                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'HIGHLIGHT'),
-                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'CARD')""")
-            .param("id", connectionId).query((row, n) -> new Counts(row.getInt(1), row.getInt(2), row.getInt(3), row.getInt(4), row.getInt(5))).single();
+                select (select count(*) from documents d where d.repository_connection_id = :id) as documents,
+                       (select count(*) from reading_states r join documents d on d.id = r.document_id where d.repository_connection_id = :id)
+                           as reading_states,
+                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'BOOKMARK')
+                           as bookmarks,
+                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'HIGHLIGHT')
+                           as highlights,
+                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'CARD')
+                           as cards""")
+            .param("id", connectionId)
+            .query((row, n) -> new Counts(row.getInt("documents"), row.getInt("reading_states"), row.getInt("bookmarks"), row.getInt("highlights"),
+                row.getInt("cards"))).single();
     }
 
     /** Deletes the connection and everything stored for it. Must run in a transaction holding the connection's sync lock. */
