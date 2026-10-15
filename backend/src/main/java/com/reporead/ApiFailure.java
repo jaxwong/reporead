@@ -9,7 +9,6 @@ public final class ApiFailure extends RuntimeException {
     public enum Code {
         INVALID_REQUEST(400),
         INVALID_ANNOTATION(400),
-        INVALID_BOOKMARK(400),
         INVALID_CODE_CHALLENGE(400),
         INVALID_IMAGE_PATH(400),
         INVALID_READING_STATE(400),

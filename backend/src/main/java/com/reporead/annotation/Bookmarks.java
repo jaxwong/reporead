@@ -19,28 +19,21 @@ public class Bookmarks {
 
     /** {@code deleted}: the note was not in the latest complete repository refresh; the bookmark is kept. */
     public record Bookmark(
-            long documentId,
-            long repositoryId,
-            String path,
-            String title,
-            String sourceBlobSha,
-            Instant createdAt,
-            boolean deleted) {}
+            long documentId, long repositoryId, String path, String title, Instant createdAt, boolean deleted) {}
 
     private static final String SELECT = """
-        select a.document_id, d.repository_connection_id, d.path, d.title, a.source_blob_sha, a.created_at, d.deleted_at is not null as deleted
+        select a.document_id, d.repository_connection_id, d.path, d.title, a.created_at, d.deleted_at is not null as deleted
         from annotations a join documents d on d.id = a.document_id
         where a.type = 'BOOKMARK' and a.user_id = :userId""";
 
     /** Bookmarking an already bookmarked document keeps the original bookmark. */
-    Bookmark set(long userId, long documentId, String sourceBlobSha) {
+    Bookmark set(long userId, long documentId) {
         db.sql("""
-                insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at)
-                values (:userId, :documentId, :sha, 'BOOKMARK', :now, :now)
+                insert into annotations (user_id, document_id, type, created_at, updated_at)
+                values (:userId, :documentId, 'BOOKMARK', :now, :now)
                 on conflict (user_id, document_id) where type = 'BOOKMARK' do nothing""")
                 .param("userId", userId)
                 .param("documentId", documentId)
-                .param("sha", sourceBlobSha)
                 .param("now", Timestamp.from(Instant.now()))
                 .update();
         return db.sql(SELECT + " and a.document_id = :documentId")
@@ -70,7 +63,6 @@ public class Bookmarks {
                 row.getLong("repository_connection_id"),
                 row.getString("path"),
                 row.getString("title"),
-                row.getString("source_blob_sha"),
                 row.getTimestamp("created_at").toInstant(),
                 row.getBoolean("deleted"));
     }

@@ -106,6 +106,10 @@ class MigrationTest {
 
         assertFalse(hasColumn(db, "repository_connections", "last_synced_at"));
         assertFalse(hasColumn(db, "repository_connections", "installation_id"));
+        assertFalse(hasColumn(db, "annotations", "source_blob_sha"));
+        assertEquals(
+                "BOOKMARK",
+                db.sql("select type from annotations").query(String.class).single());
         assertEquals(
                 SHA,
                 db.sql("select last_synced_commit_sha from repository_connections")

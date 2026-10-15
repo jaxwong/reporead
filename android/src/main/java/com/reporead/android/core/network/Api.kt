@@ -32,7 +32,8 @@ class Api(
     suspend fun post(path: String, body: JSONObject? = null): JSONObject =
         json("POST", path, body) ?: throw unexpected(200)
 
-    suspend fun put(path: String, body: JSONObject): JSONObject = json("PUT", path, body) ?: throw unexpected(200)
+    suspend fun put(path: String, body: JSONObject? = null): JSONObject =
+        json("PUT", path, body) ?: throw unexpected(200)
 
     suspend fun patch(path: String, body: JSONObject): JSONObject = json("PATCH", path, body) ?: throw unexpected(200)
 

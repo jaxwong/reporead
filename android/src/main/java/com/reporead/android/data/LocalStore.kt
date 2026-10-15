@@ -147,7 +147,6 @@ data class BookmarkRow(
     @PrimaryKey val documentId: Long,
     val title: String,
     val path: String,
-    val sourceBlobSha: String,
     val bookmarked: Boolean,
     val pending: Boolean,
     val changedAt: Long,
@@ -722,6 +721,9 @@ interface LibraryDao {
 /** v9: a saved note no longer records the commit it was fetched at, which nothing read. */
 @DeleteColumn(tableName = "notes", columnName = "commitSha") class DropNoteCommit : AutoMigrationSpec
 
+/** v12: a bookmark no longer records the version bookmarked, which nothing read; a bookmark is of the note. */
+@DeleteColumn(tableName = "bookmarks", columnName = "sourceBlobSha") class DropBookmarkVersion : AutoMigrationSpec
+
 /**
  * v10: the note links of each saved page get their own table, filled here once from the pages already saved; reading
  * every page for Linked from took 3.2–3.7 s on the Pixel. A cursor holds a few pages at a time; only links are kept.
@@ -776,7 +778,7 @@ val ANNOTATION_STATE_10_11 =
             ReviewLimitRow::class,
             ChangeBaselineRow::class,
         ],
-    version = 11,
+    version = 12,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -788,6 +790,7 @@ val ANNOTATION_STATE_10_11 =
             AutoMigration(from = 7, to = 8),
             AutoMigration(from = 8, to = 9, spec = DropNoteCommit::class),
             AutoMigration(from = 9, to = 10, spec = KeepNoteLinks::class),
+            AutoMigration(from = 11, to = 12, spec = DropBookmarkVersion::class),
         ],
 )
 abstract class LocalStore : RoomDatabase() {

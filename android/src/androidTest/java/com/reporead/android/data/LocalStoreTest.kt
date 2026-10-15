@@ -45,7 +45,7 @@ class LocalStoreTest {
         )
 
     private fun bookmark(id: Long, bookmarked: Boolean, pending: Boolean, at: Long) =
-        BookmarkRow(id, "title", "a.md", "a".repeat(40), bookmarked, pending, at)
+        BookmarkRow(id, "title", "a.md", bookmarked, pending, at)
 
     @Test
     fun pendingLocalProgressSurvivesAnOlderServerStateButYieldsToANewerOne() = runBlocking {
