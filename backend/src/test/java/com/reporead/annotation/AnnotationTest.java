@@ -685,7 +685,7 @@ class AnnotationTest {
         var locked = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // Holds the connection's lock as RepositoryController.disconnect does while the creation arrives.
+            // Holds the connection's lock as DataControlController.disconnect does while the creation arrives.
             var disconnect = executor.submit(() -> transaction.execute(status -> {
                 connections.lockForSync(1, 1);
                 locked.countDown();
@@ -702,7 +702,7 @@ class AnnotationTest {
                             .andReturn()
                             .getResponse()
                             .getStatus());
-            Thread.sleep(300);
+            TestEnvironment.awaitLockWait(db);
             assertFalse(creating.isDone(), "the creation must wait for the disconnect");
             release.countDown();
             disconnect.get(10, TimeUnit.SECONDS);
@@ -719,7 +719,7 @@ class AnnotationTest {
         var locked = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // Holds the connection's lock as RepositoryController.disconnect does while the grade arrives.
+            // Holds the connection's lock as DataControlController.disconnect does while the grade arrives.
             var disconnect = executor.submit(() -> transaction.execute(status -> {
                 connections.lockForSync(1, 1);
                 locked.countDown();
@@ -736,7 +736,7 @@ class AnnotationTest {
                             .andReturn()
                             .getResponse()
                             .getStatus());
-            Thread.sleep(300);
+            TestEnvironment.awaitLockWait(db);
             assertFalse(grading.isDone(), "the grade must wait for the disconnect");
             release.countDown();
             disconnect.get(10, TimeUnit.SECONDS);

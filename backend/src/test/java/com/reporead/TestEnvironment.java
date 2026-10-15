@@ -7,6 +7,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -74,6 +75,22 @@ public final class TestEnvironment {
                 "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/" + name,
                 POSTGRES.getUsername(),
                 POSTGRES.getPassword());
+    }
+
+    /**
+     * Waits until a session of the test database is blocked on a lock, so a concurrency test knows its request reached
+     * the lock rather than assuming it did after a pause. Fails after 10 s.
+     */
+    public static void awaitLockWait(JdbcClient db) throws InterruptedException {
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (db.sql(
+                                "select count(*) from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()")
+                        .query(Integer.class)
+                        .single()
+                == 0) {
+            if (System.nanoTime() > until) throw new AssertionError("No request waited for a lock within 10 s");
+            Thread.sleep(20);
+        }
     }
 
     public static void reset(JdbcClient db) {
