@@ -2,6 +2,7 @@ package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
+import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.document.Documents;
 import com.reporead.repository.RepositoryConnections;
@@ -47,7 +48,7 @@ public class BookmarkController {
 
     @PutMapping("/api/documents/{id}/bookmark")
     Bookmarks.Bookmark set(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SetRequest body) {
-        if (body.sourceBlobSha() == null || !body.sourceBlobSha().matches("[0-9a-f]{40}")) {
+        if (!Hashes.isGitSha(body.sourceBlobSha())) {
             throw new ApiFailure(
                     Code.INVALID_BOOKMARK, "sourceBlobSha must be the Git blob SHA of the version bookmarked.");
         }

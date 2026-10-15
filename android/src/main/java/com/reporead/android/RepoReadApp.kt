@@ -154,6 +154,14 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val savedRepositories by dao.repositories().collectAsState(null)
 
     val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
+    /** Back to the first screen signed out, once this phone's copy is gone; [message] says why. */
+    val endSession = { message: String? ->
+        store.clear()
+        store.dataOwner = null
+        screenStates.removeState(ROOT_STATE)
+        signInMessage = message
+        stack = listOf(Screen.Repositories)
+    }
 
     // Keyed on the code, so the code is cleared only after the exchange ends: clearing it first would
     // restart this effect and cancel the exchange after the server had already issued the session.
@@ -222,21 +230,14 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                                 // Explicit sign-out removes this phone's copy of private notes, including unsynced
                                 // changes.
                                 sync.clearAll()
-                                screenStates.removeState(ROOT_STATE)
-                                store.clear()
-                                store.dataOwner = null
-                                signInMessage = message
-                                stack = listOf(Screen.Repositories)
+                                endSession(message)
                             }
                         },
                         onAccountDeleted = {
                             // The server deleted the account and its sessions, and Sync cleared this phone's copy.
-                            store.clear()
-                            store.dataOwner = null
-                            screenStates.removeState(ROOT_STATE)
-                            signInMessage =
+                            endSession(
                                 "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
-                            stack = listOf(Screen.Repositories)
+                            )
                         },
                     )
                 Screen.Available ->

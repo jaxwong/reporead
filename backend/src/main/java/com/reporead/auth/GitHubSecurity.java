@@ -15,7 +15,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
-import java.util.List;
 import java.util.Set;
 import org.apache.catalina.session.StandardManager;
 import org.slf4j.Logger;
@@ -57,7 +56,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestTemplate;
 
 @Configuration
 public class GitHubSecurity {
@@ -142,8 +140,7 @@ public class GitHubSecurity {
 
         var tokenClient = new RestClientAuthorizationCodeTokenResponseClient();
         tokenClient.setRestClient(tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
-        var userHttp = new RestTemplate(githubRequestFactory);
-        userHttp.setInterceptors(List.of(GitHubHttp.boundedResponse(GitHubHttp.MAX_RESPONSE_BYTES, meters)));
+        var userHttp = GitHubHttp.bounded(githubRequestFactory, GitHubHttp.MAX_RESPONSE_BYTES, meters);
         userHttp.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
         var userService = new DefaultOAuth2UserService();
         userService.setRestOperations(userHttp);

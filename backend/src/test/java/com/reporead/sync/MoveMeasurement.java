@@ -1,5 +1,6 @@
 package com.reporead.sync;
 
+import com.reporead.Hashes;
 import com.reporead.document.MarkdownRenderer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -162,7 +163,7 @@ class MoveMeasurement {
     }
 
     private Optional<Note> render(String path, String markdown) {
-        String sha = MarkdownRenderer.blobSha(markdown.getBytes(StandardCharsets.UTF_8));
+        String sha = Hashes.gitBlobSha(markdown.getBytes(StandardCharsets.UTF_8));
         try {
             return Optional.of(
                     new Note(path, MarkdownRenderer.render(markdown, sha, path).blocks()));

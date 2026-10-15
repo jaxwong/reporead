@@ -60,30 +60,22 @@ internal fun readerResource(
     note: NoteRow,
     url: Uri,
 ): WebResourceResponse {
-    if (url.host == ASSET_HOST && url.path?.startsWith("/assets/") == true) {
-        assets.shouldInterceptRequest(url)?.let {
-            return it
-        }
-    }
-    if (url.host == ASSET_HOST && url.path?.startsWith(IMAGE_PREFIX) == true) {
-        val path = url.path!!.removePrefix(IMAGE_PREFIX)
+    val path = url.path.orEmpty()
+    if (url.host == ASSET_HOST) {
+        if (path.startsWith("/assets/"))
+            assets.shouldInterceptRequest(url)?.let {
+                return it
+            }
         val type = IMAGE_TYPES[path.substringAfterLast('.', "").lowercase()]
-        val bytes = type?.let { images.image(note.documentId, note.blobSha, path) }
-        if (type != null && bytes != null) {
-            return WebResourceResponse(
-                type,
-                null,
-                200,
-                "OK",
-                mapOf("X-Content-Type-Options" to "nosniff"),
-                ByteArrayInputStream(bytes),
-            )
-        }
-    }
-    if (url.host == ASSET_HOST && url.path?.startsWith(EMBED_PREFIX) == true) {
-        val name = url.path!!.removePrefix(EMBED_PREFIX)
-        val type = IMAGE_TYPES[name.substringAfterLast('.', "").lowercase()]
-        val bytes = type?.let { images.embedImage(note.documentId, note.blobSha, name) }
+        val bytes =
+            when {
+                type == null -> null
+                path.startsWith(IMAGE_PREFIX) ->
+                    images.image(note.documentId, note.blobSha, path.removePrefix(IMAGE_PREFIX))
+                path.startsWith(EMBED_PREFIX) ->
+                    images.embedImage(note.documentId, note.blobSha, path.removePrefix(EMBED_PREFIX))
+                else -> null
+            }
         if (type != null && bytes != null) {
             return WebResourceResponse(
                 type,

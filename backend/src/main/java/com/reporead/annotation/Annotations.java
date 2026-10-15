@@ -374,20 +374,6 @@ public class Annotations {
     }
 
     private Annotation annotation(ResultSet row, int n) throws SQLException {
-        var location = anchor(row, "location_");
-        location = new Anchor(
-                location.sourceBlobSha(),
-                location.blockId(),
-                location.exactText(),
-                location.prefixText(),
-                location.suffixText(),
-                location.startOffset(),
-                location.endOffset(),
-                location.headingPath(),
-                row.getString("block_sha"),
-                (Integer) row.getObject("quote_occurrences"),
-                (Double) row.getObject("rival_context"),
-                (Double) row.getObject("rival_quote"));
         return new Annotation(
                 row.getLong("id"),
                 row.getString("mutation_id"),
@@ -398,8 +384,8 @@ public class Annotations {
                 row.getInt("version"),
                 row.getTimestamp("created_at").toInstant(),
                 row.getTimestamp("updated_at").toInstant(),
-                anchor(row, "anchor_"),
-                location,
+                anchor(row, "anchor_", false),
+                anchor(row, "location_", true),
                 row.getString("resolved_blob_sha"),
                 row.getString("question"),
                 row.getString("checked_blob_sha"),
@@ -409,8 +395,11 @@ public class Annotations {
                 row.getBoolean("deleted"));
     }
 
-    /** The eight anchor columns named with {@code prefix}; distinguishability is not part of an original anchor. */
-    private Anchor anchor(ResultSet row, String prefix) throws SQLException {
+    /**
+     * The eight anchor columns named with {@code prefix}, and with {@code evidence} how distinguishable the passage is,
+     * which only a location records: an original anchor is never resolved from.
+     */
+    private Anchor anchor(ResultSet row, String prefix, boolean evidence) throws SQLException {
         return new Anchor(
                 row.getString(prefix + "source_blob_sha"),
                 row.getString(prefix + "block_id"),
@@ -420,9 +409,9 @@ public class Annotations {
                 row.getInt(prefix + "start_offset"),
                 row.getInt(prefix + "end_offset"),
                 json.readValue(row.getString(prefix + "heading_path"), new TypeReference<List<String>>() {}),
-                null,
-                null,
-                null,
-                null);
+                evidence ? row.getString("block_sha") : null,
+                evidence ? (Integer) row.getObject("quote_occurrences") : null,
+                evidence ? (Double) row.getObject("rival_context") : null,
+                evidence ? (Double) row.getObject("rival_quote") : null);
     }
 }

@@ -3,6 +3,7 @@ package com.reporead.annotation;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.ClientClock;
+import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.repository.RepositoryConnections;
 import java.sql.ResultSet;
@@ -84,8 +85,7 @@ public class Reviews {
                 || (body.reviewedAt().isBefore(Instant.EPOCH)
                         || body.reviewedAt().getNano() % 1_000_000 != 0
                         || body.reviewedAt().isAfter(Instant.now().plus(ClientClock.MAX_AHEAD)))
-                || body.blobSha() == null
-                || !body.blobSha().matches("[0-9a-f]{40}")) {
+                || !Hashes.isGitSha(body.blobSha())) {
             throw invalid("A review needs grade 0–5, a millisecond reviewedAt from 1970 through "
                     + ClientClock.MAX_AHEAD.toMinutes() + " minutes ahead, and the verified answer's blob SHA.");
         }

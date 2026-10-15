@@ -1,5 +1,6 @@
 package com.reporead.document;
 
+import com.reporead.Hashes;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -36,7 +37,7 @@ class RenderedCorpus {
             var text = new StringBuilder();
             try {
                 var note = MarkdownRenderer.render(
-                        markdown, MarkdownRenderer.blobSha(markdown.getBytes(StandardCharsets.UTF_8)), path);
+                        markdown, Hashes.gitBlobSha(markdown.getBytes(StandardCharsets.UTF_8)), path);
                 for (var block : note.blocks()) {
                     text.append(block.id())
                             .append(' ')

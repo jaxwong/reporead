@@ -54,22 +54,24 @@ public class GitHubHttp {
 
     @Bean
     RestTemplate githubUserApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
-        var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(List.of(boundedResponse(MAX_RESPONSE_BYTES, meters)));
-        return rest;
+        return bounded(githubRequestFactory, MAX_RESPONSE_BYTES, meters);
     }
 
     @Bean
     RestTemplate githubTreeApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
-        var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(List.of(boundedResponse(MAX_TREE_RESPONSE_BYTES, meters)));
-        return rest;
+        return bounded(githubRequestFactory, MAX_TREE_RESPONSE_BYTES, meters);
     }
 
     @Bean
     RestTemplate githubImageApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
+        return bounded(githubRequestFactory, MAX_IMAGE_RESPONSE_BYTES, meters);
+    }
+
+    /** A client for GitHub whose responses are cut off at {@code maxBytes} and counted. */
+    public static RestTemplate bounded(
+            JdkClientHttpRequestFactory githubRequestFactory, int maxBytes, MeterRegistry meters) {
         var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(List.of(boundedResponse(MAX_IMAGE_RESPONSE_BYTES, meters)));
+        rest.setInterceptors(List.of(boundedResponse(maxBytes, meters)));
         return rest;
     }
 

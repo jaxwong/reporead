@@ -1,5 +1,6 @@
 package com.reporead.annotation;
 
+import com.reporead.Hashes;
 import com.reporead.document.MarkdownRenderer;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -132,7 +133,7 @@ class AnchorMeasurement {
     record Note(String path, String sha, List<MarkdownRenderer.Block> blocks) {}
 
     private Optional<Note> render(String path, String markdown) {
-        String sha = MarkdownRenderer.blobSha(markdown.getBytes(StandardCharsets.UTF_8));
+        String sha = Hashes.gitBlobSha(markdown.getBytes(StandardCharsets.UTF_8));
         try {
             return Optional.of(new Note(
                     path, sha, MarkdownRenderer.render(markdown, sha, path).blocks()));
