@@ -30,7 +30,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -113,8 +112,8 @@ fun ReaderScreen(
             val opened = sync.openNote(screen.documentId)
             StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html) })
         }
-    val displayed = (load as? Load.Ready)?.value?.opened?.note?.blobSha
-    val study = (load as? Load.Ready)?.value?.study
+    val page = (load as? Load.Ready)?.value
+    val displayed = page?.opened?.note?.blobSha
     var studying by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     /*
      * The screen's one-shot target — a linked heading or a notebook passage — has been shown. Saved,
@@ -149,12 +148,10 @@ fun ReaderScreen(
         }
     val bookmark by dao.bookmark(screen.documentId).collectAsState(null)
     val annotations by dao.annotations(screen.documentId).collectAsState(emptyList())
-    var restoreNotice by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var notesOpen by remember { mutableStateOf(false) }
     var newCardSelection by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var newSelection by remember { mutableStateOf<JSONObject?>(null) }
-    var notShown by remember { mutableStateOf(emptySet<String>()) }
     /**
      * The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here.
      */
@@ -164,15 +161,7 @@ fun ReaderScreen(
     /** Notes sharing the linked name, for the reader to pick one. */
     var linkChoices by remember { mutableStateOf<Pair<String?, List<DocumentRow>>?>(null) }
     val scope = rememberCoroutineScope()
-    /** The displayed page's session, for scrolling to a heading linked from the same note. */
-    var sessionRef by remember { mutableStateOf<ReaderSession?>(null) }
-    /** The displayed page's headings (null until it has rendered) and the first block at the top of the screen. */
-    var outline by remember(displayed) { mutableStateOf<List<OutlineEntry>?>(null) }
-    var topBlock by remember(displayed) { mutableIntStateOf(0) }
     var outlineOpen by remember { mutableStateOf(false) }
-    var barsShown by remember { mutableStateOf(true) }
-    ReadingBars(barsShown)
-    val section = outline?.sectionAt(topBlock)
 
     if (signedIn) {
         LaunchedEffect(screen.documentId) {
@@ -220,6 +209,74 @@ fun ReaderScreen(
         }
     }
 
+    /** One session per displayed copy: it owns that page's view and everything the page reports. */
+    val session =
+        remember(page?.opened?.note) {
+            page?.let { ready ->
+                val opened = ready.opened
+                ReaderSession(
+                    opened.note,
+                    sync,
+                    dao,
+                    appScope,
+                    openAtHeading = screen.heading.takeUnless { targetShown },
+                    onHeadingOpened = { targetShown = true },
+                    study = ready.study,
+                    studying = { studying },
+                    openAtAnnotation = screen.annotation.takeUnless { targetShown },
+                    onAnnotationOpened = {
+                        targetShown = true
+                        notesOpen = true
+                    },
+                    onNoteLink = { target, path, heading ->
+                        scope.launch {
+                            // Resolved against the saved note list of this note's repository, so links work offline
+                            // too.
+                            val from = dao.document(opened.note.documentId)
+                            if (from == null) {
+                                message =
+                                    "This note isn't in a saved note list, so its links can't be followed. Refresh the repository."
+                                return@launch
+                            }
+                            val matches = resolveNoteLink(target, path, from.path, dao.documentsOnce(from.repositoryId))
+                            when (matches.size) {
+                                0 ->
+                                    message =
+                                        "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
+                                1 -> preview = matches.first() to heading
+                                else -> linkChoices = heading to matches
+                            }
+                        }
+                    },
+                    onFigure = { figure ->
+                        push(Screen.Figure(opened.note.documentId, opened.note.blobSha, figure, opened.note.title))
+                    },
+                    reattaching = { reattaching != null },
+                    onMessage = { message = it },
+                    onSelection = { selection, action ->
+                        // The menu was built for the state at the time; Cancel may have ended that mode since.
+                        val placing = reattaching
+                        when {
+                            selection == null -> message = "Select some text first."
+                            selection.has("error") -> message = selection.getString("error")
+                            else ->
+                                when (action) {
+                                    SelectionAction.REATTACH ->
+                                        if (placing != null) reattach(placing, selection)
+                                        else message = "Reattaching was cancelled; choose Reattach again in Notes."
+                                    SelectionAction.MAKE_QUESTION -> newCardSelection = selection.toString()
+                                    SelectionAction.ADD_NOTE -> newSelection = selection
+                                    SelectionAction.HIGHLIGHT -> save(selection, null, null)
+                                }
+                        }
+                    },
+                )
+            }
+        }
+    val barsShown = session?.barsShown ?: true
+    ReadingBars(barsShown)
+    val section = session?.let { it.outline?.sectionAt(it.topBlock) }
+
     Column(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedVisibility(barsShown) {
             AppBar(
@@ -227,16 +284,16 @@ fun ReaderScreen(
                 subtitle = section?.text?.ifBlank { null },
                 onBack = onBack,
                 actions = {
-                    val opened = (load as? Load.Ready)?.value?.opened
-                    if (!outline.isNullOrEmpty()) {
+                    val opened = page?.opened
+                    if (!session?.outline.isNullOrEmpty()) {
                         IconButton(onClick = { outlineOpen = true }) { AppIcon(R.drawable.ic_toc, "Outline") }
                     }
                     if (opened != null) {
-                        if (study?.recognized == true) {
+                        if (page?.study?.recognized == true) {
                             TextButton(
                                 onClick = {
                                     studying = !studying
-                                    sessionRef?.setStudy(studying)
+                                    session?.setStudy(studying)
                                 }
                             ) {
                                 Text(if (studying) "Read" else "Study")
@@ -261,10 +318,12 @@ fun ReaderScreen(
                 },
             )
         }
-        LoadContent(load, onRetry = { reload++ }) { page ->
-            val opened = page.opened
+        LoadContent(load, onRetry = { reload++ }) { ready ->
+            val opened = ready.opened
+            // The session was created from this same ready load.
+            checkNotNull(session) { "No reader session for documentId=${screen.documentId}" }
             opened.staleReason?.let { Notice("Showing your saved copy. $it") }
-            restoreNotice?.let { Notice(it) }
+            session.restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
             if (since != null && since != opened.note.blobSha && !signedIn)
                 Notice("This note changed since you last read it. Sign in to see what changed.")
@@ -282,86 +341,6 @@ fun ReaderScreen(
                 }
             }
             val lifecycle = LocalLifecycleOwner.current.lifecycle
-            val session =
-                remember(opened.note) {
-                    ReaderSession(
-                        opened.note,
-                        sync,
-                        dao,
-                        appScope,
-                        openAtHeading = screen.heading.takeUnless { targetShown },
-                        onHeadingOpened = { targetShown = true },
-                        study = page.study,
-                        studying = { studying },
-                        openAtAnnotation = screen.annotation.takeUnless { targetShown },
-                        onAnnotationOpened = {
-                            targetShown = true
-                            notesOpen = true
-                        },
-                        onRestoreNotice = { restoreNotice = it },
-                        onNoteLink = { target, path, heading ->
-                            scope.launch {
-                                // Resolved against the saved note list of this note's repository, so links work offline
-                                // too.
-                                val from = dao.document(opened.note.documentId)
-                                when {
-                                    target == null && path == null ->
-                                        heading?.let { text ->
-                                            sessionRef?.showHeading(text) { shown ->
-                                                if (!shown) message = "No heading “$text” in this note."
-                                            }
-                                        }
-                                    from == null ->
-                                        message =
-                                            "This note isn't in a saved note list, so its links can't be followed. Refresh the repository."
-                                    else -> {
-                                        val matches =
-                                            resolveNoteLink(
-                                                target,
-                                                path,
-                                                from.path,
-                                                dao.documentsOnce(from.repositoryId),
-                                            )
-                                        when (matches.size) {
-                                            0 ->
-                                                message =
-                                                    "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
-                                            1 -> preview = matches.first() to heading
-                                            else -> linkChoices = heading to matches
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        onNotShown = { notShown = it },
-                        onOutline = { outline = it },
-                        onFigure = { figure ->
-                            push(Screen.Figure(opened.note.documentId, opened.note.blobSha, figure, opened.note.title))
-                        },
-                        onTopBlock = { topBlock = it },
-                        onBarsShown = { barsShown = it },
-                        reattaching = { reattaching != null },
-                        onMessage = { message = it },
-                        onSelection = { selection, action ->
-                            // The menu was built for the state at the time; Cancel may have ended that mode since.
-                            val placing = reattaching
-                            when {
-                                selection == null -> message = "Select some text first."
-                                selection.has("error") -> message = selection.getString("error")
-                                else ->
-                                    when (action) {
-                                        SelectionAction.REATTACH ->
-                                            if (placing != null) reattach(placing, selection)
-                                            else message = "Reattaching was cancelled; choose Reattach again in Notes."
-                                        SelectionAction.MAKE_QUESTION -> newCardSelection = selection.toString()
-                                        SelectionAction.ADD_NOTE -> newSelection = selection
-                                        SelectionAction.HIGHLIGHT -> save(selection, null, null)
-                                    }
-                            }
-                        },
-                    )
-                }
-            SideEffect { sessionRef = session }
             DisposableEffect(lifecycle, session) {
                 // Process death can follow ON_STOP, so the position is captured whenever the reader leaves the screen.
                 val observer = LifecycleEventObserver { _, event ->
@@ -395,7 +374,7 @@ fun ReaderScreen(
                     opened.note.documentId,
                     annotations,
                     opened.note.blobSha,
-                    notShown,
+                    session.notShown,
                     sync,
                     dao,
                     appScope,
@@ -423,21 +402,20 @@ fun ReaderScreen(
             }
         }
     }
-    outline
-        ?.takeIf { outlineOpen && it.isNotEmpty() }
-        ?.let { headings ->
-            OutlineSheet(
-                headings,
-                section,
-                onDismiss = { outlineOpen = false },
-                onJump = { entry ->
-                    outlineOpen = false
-                    sessionRef?.showBlock(entry.blockId) { shown ->
-                        if (!shown) message = "Couldn't scroll to “${entry.text}”; reopen the note."
-                    }
-                },
-            )
-        }
+    val headings = session?.outline
+    if (outlineOpen && session != null && !headings.isNullOrEmpty()) {
+        OutlineSheet(
+            headings,
+            section,
+            onDismiss = { outlineOpen = false },
+            onJump = { entry ->
+                outlineOpen = false
+                session.showBlock(entry.blockId) { shown ->
+                    if (!shown) message = "Couldn't scroll to “${entry.text}”; reopen the note."
+                }
+            },
+        )
+    }
     preview?.let { (target, heading) ->
         LinkPreviewSheet(
             target,
@@ -544,20 +522,13 @@ private class ReaderSession(
     private val studying: () -> Boolean,
     private var openAtAnnotation: String?,
     private val onAnnotationOpened: () -> Unit,
-    private val onRestoreNotice: (String?) -> Unit,
-    /** A tapped note link: an Obsidian [target] name or a repository [path], and an optional heading. */
+    /**
+     * A tapped link to another note: an Obsidian [target] name or a repository [path], and an optional heading. A link
+     * to a heading of this note is followed here.
+     */
     private val onNoteLink: (target: String?, path: String?, heading: String?) -> Unit,
-    private val onNotShown: (Set<String>) -> Unit,
     /** A tapped Full screen link: the page's id for that table or diagram. */
     private val onFigure: (String) -> Unit,
-    /** The page's headings, once rendering has finished. */
-    private val onOutline: (List<OutlineEntry>) -> Unit,
-    /** The index of the first block visible at the top, after scrolling settles and whenever the position is saved. */
-    private val onTopBlock: (Int) -> Unit,
-    /**
-     * Whether the bars should show: false after the reader scrolls down, true after scrolling up or reaching the top.
-     */
-    private val onBarsShown: (Boolean) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
     /** A short message about something the page could not do (a link, the browser, rendering). */
@@ -565,6 +536,28 @@ private class ReaderSession(
     /** The captured selection (null when empty, {error} when it spans blocks) and the chosen action. */
     private val onSelection: (JSONObject?, SelectionAction) -> Unit,
 ) {
+    /** The page's headings, once rendering has finished; null until then. */
+    var outline by mutableStateOf<List<OutlineEntry>?>(null)
+        private set
+
+    /** The index of the first block visible at the top, after scrolling settles and whenever the position is saved. */
+    var topBlock by mutableIntStateOf(0)
+        private set
+
+    /** The highlights of this version that the page could not draw, by key. */
+    var notShown by mutableStateOf(emptySet<String>())
+        private set
+
+    /** How the saved position was restored, when not exactly; null when it was, or before restoring. */
+    var restoreNotice by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * Whether the bars should show: false after the reader scrolls down, true after scrolling up or reaching the top.
+     */
+    var barsShown by mutableStateOf(true)
+        private set
+
     private val main = Handler(Looper.getMainLooper())
     private var view: WebView? = null
     /** Rendering finished, so highlights and the scripts' functions can be used. */
@@ -604,7 +597,14 @@ private class ReaderSession(
                             val url = request.url
                             if (request.hasGesture() && url.host == ASSET_HOST && url.path == NOTE_LINK) {
                                 val link = noteLinkParameters(url.encodedQuery.orEmpty())
-                                onNoteLink(link["target"], link["path"], link["heading"])
+                                val target = link["target"]
+                                val path = link["path"]
+                                val heading = link["heading"]
+                                if (target != null || path != null) onNoteLink(target, path, heading)
+                                else if (heading != null)
+                                    showHeading(heading) { shown ->
+                                        if (!shown) onMessage("No heading “$heading” in this note.")
+                                    }
                                 return true
                             }
                             if (request.hasGesture() && url.host == ASSET_HOST && url.path == COPY_CODE) {
@@ -651,8 +651,8 @@ private class ReaderSession(
                         MotionEvent.ACTION_CANCEL -> {
                             fingerDown = false
                             when {
-                                view.scrollY <= barsThreshold || swipeScroll < -barsThreshold -> onBarsShown(true)
-                                swipeScroll > barsThreshold -> onBarsShown(false)
+                                view.scrollY <= barsThreshold || swipeScroll < -barsThreshold -> barsShown = true
+                                swipeScroll > barsThreshold -> barsShown = false
                             }
                         }
                     }
@@ -666,7 +666,7 @@ private class ReaderSession(
                     if (fingerDown) swipeScroll += scrollY - oldScrollY
                     // A fling that reaches the top brings the bars back; nothing else changes them without a finger
                     // lifting.
-                    else if (touched && scrollY <= barsThreshold) onBarsShown(true)
+                    else if (touched && scrollY <= barsThreshold) barsShown = true
                 }
                 view = this
                 loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
@@ -690,7 +690,7 @@ private class ReaderSession(
                         ready = true
                         applyHighlights()
                         view.evaluateJavascript("JSON.stringify(window.reporead.outline())") { outline ->
-                            onOutline(parseOutline(JSONTokener(outline).nextValue() as String))
+                            this.outline = parseOutline(JSONTokener(outline).nextValue() as String)
                         }
                         restore(view)
                     }
@@ -714,7 +714,7 @@ private class ReaderSession(
                 val shown = JSONTokener(encoded).nextValue() == true
                 onHeadingOpened()
                 Log.i("RepoRead", "Reader opened at a linked heading; documentId=${note.documentId} found=$shown")
-                onRestoreNotice(if (shown) null else "No heading “$heading” in this note; showing the top.")
+                restoreNotice = if (shown) null else "No heading “$heading” in this note; showing the top."
                 restored = true
                 capture()
             }
@@ -735,7 +735,7 @@ private class ReaderSession(
                     "Reader restored; documentId=${note.documentId} mode=$mode savedPercent=${saved.progressPercent} " +
                         "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}",
                 )
-                onRestoreNotice(
+                restoreNotice =
                     when {
                         mode == "collapsed" ->
                             "Resumed at a collapsed study section; tap Show / hide section to reveal it."
@@ -747,7 +747,6 @@ private class ReaderSession(
                             "This note changed since you last read it; resumed at the same passage."
                         else -> null
                     }
-                )
                 restored = true
                 capture()
             }
@@ -790,7 +789,7 @@ private class ReaderSession(
                     then()
                 }
             }
-            onTopBlock(position.getJSONObject("anchor").getInt("blockIndex"))
+            topBlock = position.getJSONObject("anchor").getInt("blockIndex")
         }
     }
 
@@ -798,7 +797,7 @@ private class ReaderSession(
         val webView = view ?: return
         if (!ready) return
         webView.evaluateJavascript("window.reporead.position().anchor.blockIndex") { encoded ->
-            onTopBlock(JSONTokener(encoded).nextValue() as Int)
+            topBlock = JSONTokener(encoded).nextValue() as Int
         }
     }
 
@@ -836,7 +835,7 @@ private class ReaderSession(
             )
         webView.evaluateJavascript("JSON.stringify(window.reporead.highlight($payload))") { encoded ->
             val missing = JSONArray(JSONTokener(encoded).nextValue() as String)
-            onNotShown(List(missing.length()) { missing.getString(it) }.toSet())
+            notShown = List(missing.length()) { missing.getString(it) }.toSet()
             jumpToAnnotation()
         }
     }
