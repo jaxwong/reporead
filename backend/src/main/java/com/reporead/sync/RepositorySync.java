@@ -117,7 +117,7 @@ public class RepositorySync {
             }
             var applied = documents.publishSnapshot(connectionId, markdown, syncedAt, contentMoves, checkpoint != null);
             attachments.replace(connectionId, images);
-            connections.markSynced(connectionId, branch.commitSha(), syncedAt);
+            connections.markSynced(connectionId, branch.commitSha());
             return applied;
         });
         for (var move : moves) {

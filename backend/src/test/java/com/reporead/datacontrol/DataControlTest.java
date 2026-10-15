@@ -121,8 +121,8 @@ class DataControlTest {
 
     private long connection(long userId, long githubRepositoryId, String name) {
         return db.sql("""
-                insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch, last_synced_commit_sha)
-                values (:userId, :repo, 7, 'test-only', :name, 'main', :sha) returning id""")
+                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
+                values (:userId, :repo, 'test-only', :name, 'main', :sha) returning id""")
                 .param("userId", userId)
                 .param("repo", githubRepositoryId)
                 .param("name", name)

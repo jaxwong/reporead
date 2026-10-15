@@ -55,7 +55,7 @@ class BookmarkTest {
         TestEnvironment.reset(db);
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
         db.sql(
-                        "insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch) values (1, 11, 7, 'test-only', 'notes', 'main')")
+                        "insert into repository_connections (user_id, github_repository_id, owner, name, default_branch) values (1, 11, 'test-only', 'notes', 'main')")
                 .update();
         note = db.sql("""
                 insert into documents (repository_connection_id, path, title, current_blob_sha)

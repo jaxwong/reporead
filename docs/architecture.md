@@ -193,7 +193,6 @@ erDiagram
         bigint id PK
         bigint user_id FK
         bigint github_repository_id
-        bigint installation_id
         text default_branch
         text last_synced_commit_sha
     }

@@ -8,10 +8,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.jayway.jsonpath.JsonPath;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.github.GitHubHttp;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -114,8 +117,8 @@ class RepositorySyncTest {
 
     private long connect(long userId, String branch) {
         return db.sql("""
-                insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch)
-                values (:userId, 11, 7, 'test-only', 'notes', :branch) returning id""")
+                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch)
+                values (:userId, 11, 'test-only', 'notes', :branch) returning id""")
                 .param("userId", userId)
                 .param("branch", branch)
                 .query(Long.class)
@@ -321,7 +324,7 @@ class RepositorySyncTest {
                 .single();
     }
 
-    private java.time.Instant changedAt(String path) {
+    private Instant changedAt(String path) {
         var at = db.sql("select content_changed_at from documents where path = :path")
                 .param("path", path)
                 .query((row, n) -> java.util.Optional.ofNullable(row.getTimestamp(1)))
@@ -343,11 +346,11 @@ class RepositorySyncTest {
                 .list();
     }
 
-    private java.time.Instant lastSyncedAt() {
-        return db.sql("select last_synced_at from repository_connections where id = :id")
-                .param("id", connection)
-                .query((row, n) -> row.getTimestamp(1).toInstant())
-                .single();
+    /** The time a refresh published its snapshot at, from its own answer; PostgreSQL keeps microseconds. */
+    private static Instant syncedAt(ResultActions refresh) throws Exception {
+        String body =
+                refresh.andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return Instant.parse(JsonPath.read(body, "$.syncedAt")).truncatedTo(ChronoUnit.MICROS);
     }
 
     @Test
@@ -379,8 +382,7 @@ class RepositorySyncTest {
                                 entry("new.md", "100644", "blob", "7".repeat(40)),
                                 entry("new/moved.md", "100644", "blob", "6".repeat(40))),
                         MediaType.APPLICATION_JSON));
-        sync(alice, connection).andExpect(status().isOk());
-        var second = lastSyncedAt();
+        var second = syncedAt(sync(alice, connection));
         assertNull(changedAt("same.md"));
         assertEquals(
                 sameVersion,
@@ -410,8 +412,7 @@ class RepositorySyncTest {
                                 entry("new/moved.md", "100644", "blob", "6".repeat(40)),
                                 entry("gone.md", "100644", "blob", "5".repeat(40))),
                         MediaType.APPLICATION_JSON));
-        sync(alice, connection).andExpect(status().isOk());
-        var third = lastSyncedAt();
+        var third = syncedAt(sync(alice, connection));
         assertEquals(second, changedAt("edited.md"));
         assertEquals(third, changedAt("gone.md"));
     }
@@ -544,7 +545,7 @@ class RepositorySyncTest {
      */
     @Test
     void aContentMoveChosenBeforeTheLockAppliesOnlyIfBothSidesAreStillUnmatched() {
-        var first = java.time.Instant.parse("2026-10-01T00:00:00Z");
+        var first = Instant.parse("2026-10-01T00:00:00Z");
         transaction.executeWithoutResult(status -> documentRows.publishSnapshot(
                 connection,
                 List.of(

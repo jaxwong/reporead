@@ -5,8 +5,6 @@ import com.reporead.ApiFailure;
 import com.reporead.github.GitHubApi;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,12 +24,10 @@ public class RepositoryConnections {
     public record Connection(
             long id,
             long githubRepositoryId,
-            long installationId,
             String owner,
             String name,
             String defaultBranch,
             String lastSyncedCommitSha,
-            Instant lastSyncedAt,
             int documentCount) {
         @JsonProperty("fullName")
         public String fullName() {
@@ -40,8 +36,7 @@ public class RepositoryConnections {
     }
 
     private static final String SELECT = """
-        select c.id, c.github_repository_id, c.installation_id, c.owner, c.name, c.default_branch,
-               c.last_synced_commit_sha, c.last_synced_at,
+        select c.id, c.github_repository_id, c.owner, c.name, c.default_branch, c.last_synced_commit_sha,
                (select count(*) from documents d where d.repository_connection_id = c.id and d.deleted_at is null) as document_count
         from repository_connections c""";
 
@@ -74,15 +69,13 @@ public class RepositoryConnections {
     /** Connecting twice returns the same connection, refreshed with GitHub's current metadata. */
     long connect(long userId, GitHubApi.Repository repository) {
         return db.sql("""
-                insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch)
-                values (:userId, :githubRepositoryId, :installationId, :owner, :name, :defaultBranch)
+                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch)
+                values (:userId, :githubRepositoryId, :owner, :name, :defaultBranch)
                 on conflict (user_id, github_repository_id) do update
-                set installation_id = excluded.installation_id, owner = excluded.owner,
-                    name = excluded.name, default_branch = excluded.default_branch
+                set owner = excluded.owner, name = excluded.name, default_branch = excluded.default_branch
                 returning id""")
                 .param("userId", userId)
                 .param("githubRepositoryId", repository.id())
-                .param("installationId", repository.installationId())
                 .param("owner", repository.owner())
                 .param("name", repository.name())
                 .param("defaultBranch", repository.defaultBranch())
@@ -131,26 +124,21 @@ public class RepositoryConnections {
                 .update();
     }
 
-    public void markSynced(long connectionId, String commitSha, Instant syncedAt) {
-        db.sql(
-                        "update repository_connections set last_synced_commit_sha = :commitSha, last_synced_at = :syncedAt where id = :id")
+    public void markSynced(long connectionId, String commitSha) {
+        db.sql("update repository_connections set last_synced_commit_sha = :commitSha where id = :id")
                 .param("commitSha", commitSha)
-                .param("syncedAt", Timestamp.from(syncedAt))
                 .param("id", connectionId)
                 .update();
     }
 
     private static Connection connection(ResultSet row, int n) throws SQLException {
-        var synced = row.getTimestamp("last_synced_at");
         return new Connection(
                 row.getLong("id"),
                 row.getLong("github_repository_id"),
-                row.getLong("installation_id"),
                 row.getString("owner"),
                 row.getString("name"),
                 row.getString("default_branch"),
                 row.getString("last_synced_commit_sha"),
-                synced == null ? null : synced.toInstant(),
                 row.getInt("document_count"));
     }
 }
