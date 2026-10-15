@@ -1,7 +1,6 @@
 package com.reporead;
 
-import org.junit.jupiter.api.Test;
-import org.springframework.boot.builder.SpringApplicationBuilder;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -12,8 +11,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.builder.SpringApplicationBuilder;
 
 /**
  * A database that accepts the TCP connection but never answers must fail startup, not hang it. Seen on the hosted VM
@@ -21,7 +20,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * "HikariPool-1 - Starting..." indefinitely. Not a Spring test context: the application is expected not to start.
  */
 class DatabaseTimeoutTest {
-    @Test void startupFailsWhenTheDatabaseAcceptsButNeverAnswers() throws Exception {
+    @Test
+    void startupFailsWhenTheDatabaseAcceptsButNeverAnswers() throws Exception {
         var held = new CopyOnWriteArrayList<Socket>();
         try (var silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
             Thread.ofVirtual().start(() -> acceptAndNeverAnswer(silent, held));
@@ -43,11 +43,14 @@ class DatabaseTimeoutTest {
             var app = new SpringApplicationBuilder(RepoReadApplication.class);
 
             long started = System.nanoTime();
-            var error = assertTimeoutPreemptively(Duration.ofSeconds(40), () -> assertThrows(Exception.class, () -> app.run(args)),
-                "startup still waiting on a database that never answers");
+            var error = assertTimeoutPreemptively(
+                    Duration.ofSeconds(40),
+                    () -> assertThrows(Exception.class, () -> app.run(args)),
+                    "startup still waiting on a database that never answers");
             Duration took = Duration.ofNanos(System.nanoTime() - started);
-            assertTrue(causes(error).stream().anyMatch(cause -> cause instanceof java.sql.SQLException),
-                () -> "expected an SQLException in the cause chain, got: " + causes(error));
+            assertTrue(
+                    causes(error).stream().anyMatch(cause -> cause instanceof java.sql.SQLException),
+                    () -> "expected an SQLException in the cause chain, got: " + causes(error));
             assertTrue(took.compareTo(Duration.ofSeconds(30)) < 0, () -> "startup took " + took + " to fail");
         } finally {
             for (var socket : held) socket.close();
@@ -65,7 +68,8 @@ class DatabaseTimeoutTest {
 
     private static List<Throwable> causes(Throwable error) {
         var chain = new ArrayList<Throwable>();
-        for (Throwable cause = error; cause != null && !chain.contains(cause); cause = cause.getCause()) chain.add(cause);
+        for (Throwable cause = error; cause != null && !chain.contains(cause); cause = cause.getCause())
+            chain.add(cause);
         return chain;
     }
 }

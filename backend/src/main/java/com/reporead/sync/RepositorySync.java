@@ -10,11 +10,6 @@ import com.reporead.document.NoteVersions;
 import com.reporead.github.GitHubApi;
 import com.reporead.repository.RepositoryConnections;
 import io.micrometer.core.instrument.MeterRegistry;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionTemplate;
-
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,12 +19,15 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Reconciles a connection's Markdown documents with its default branch.
- * Ceiling: 2 GitHub requests (branch, recursive tree) plus at most 8 blob reads to recognize notes moved and edited.
- * All validation happens before the single publishing transaction; any failure leaves the previous snapshot and
- * checkpoint untouched.
+ * Reconciles a connection's Markdown documents with its default branch. Ceiling: 2 GitHub requests (branch, recursive
+ * tree) plus at most 8 blob reads to recognize notes moved and edited. All validation happens before the single
+ * publishing transaction; any failure leaves the previous snapshot and checkpoint untouched.
  */
 @Service
 public class RepositorySync {
@@ -37,8 +35,11 @@ public class RepositorySync {
     static final int MAX_DOCUMENTS = 5_000;
     static final String SYNCS = "reporead.github.syncs";
     static final String DOCUMENTS_SYNCED = "reporead.documents.synced";
-    /** Vanished documents plus new paths compared by content in one sync; more is skipped (each blob is one request). */
+    /**
+     * Vanished documents plus new paths compared by content in one sync; more is skipped (each blob is one request).
+     */
     static final int MAX_CONTENT_MOVE_CANDIDATES = 8;
+
     private final GitHubApi github;
     private final RepositoryConnections connections;
     private final Documents documents;
@@ -47,8 +48,14 @@ public class RepositorySync {
     private final MeterRegistry meters;
     private final Attachments attachments;
 
-    public RepositorySync(GitHubApi github, RepositoryConnections connections, Documents documents, TransactionTemplate transaction,
-                          NoteVersions noteVersions, MeterRegistry meters, Attachments attachments) {
+    public RepositorySync(
+            GitHubApi github,
+            RepositoryConnections connections,
+            Documents documents,
+            TransactionTemplate transaction,
+            NoteVersions noteVersions,
+            MeterRegistry meters,
+            Attachments attachments) {
         this.attachments = attachments;
         this.meters = meters;
         this.github = github;
@@ -61,15 +68,21 @@ public class RepositorySync {
     public record Result(long repositoryId, String commitSha, int documentCount, Instant syncedAt) {}
 
     /**
-     * Counts every sync in reporead.github.syncs by outcome and failure code, and the documents of each successful one in
-     * reporead.documents.synced.
+     * Counts every sync in reporead.github.syncs by outcome and failure code, and the documents of each successful one
+     * in reporead.documents.synced.
      */
     public Result sync(AppUser user, long connectionId) {
         Result result;
         try {
             result = publish(user, connectionId);
         } catch (RuntimeException failure) {
-            meters.counter(SYNCS, "outcome", "failure", "code", failure instanceof ApiFailure api ? api.code.name() : "UNEXPECTED").increment();
+            meters.counter(
+                            SYNCS,
+                            "outcome",
+                            "failure",
+                            "code",
+                            failure instanceof ApiFailure api ? api.code.name() : "UNEXPECTED")
+                    .increment();
             throw failure;
         }
         meters.counter(SYNCS, "outcome", "success", "code", "NONE").increment();
@@ -88,11 +101,19 @@ public class RepositorySync {
         Instant syncedAt = Instant.now();
         var moves = transaction.execute(status -> {
             String checkpoint = connections.lockForSync(user.id(), connectionId).commitSha();
-            // Another sync published while this one fetched; its snapshot may be newer, so this one must not replace it.
-            if (!Objects.equals(checkpoint, connection.lastSyncedCommitSha()) && !branch.commitSha().equals(checkpoint)) {
-                LOG.info("Sync superseded; connectionId={} fetched={} startedFrom={} published={}", connectionId, branch.commitSha(),
-                    connection.lastSyncedCommitSha(), checkpoint);
-                throw new ApiFailure(Code.SYNC_SUPERSEDED, "Another refresh of this repository finished first; refresh again to get the latest notes.");
+            // Another sync published while this one fetched; its snapshot may be newer, so this one must not replace
+            // it.
+            if (!Objects.equals(checkpoint, connection.lastSyncedCommitSha())
+                    && !branch.commitSha().equals(checkpoint)) {
+                LOG.info(
+                        "Sync superseded; connectionId={} fetched={} startedFrom={} published={}",
+                        connectionId,
+                        branch.commitSha(),
+                        connection.lastSyncedCommitSha(),
+                        checkpoint);
+                throw new ApiFailure(
+                        Code.SYNC_SUPERSEDED,
+                        "Another refresh of this repository finished first; refresh again to get the latest notes.");
             }
             var applied = documents.publishSnapshot(connectionId, markdown, syncedAt, contentMoves, checkpoint != null);
             attachments.replace(connectionId, images);
@@ -100,10 +121,20 @@ public class RepositorySync {
             return applied;
         });
         for (var move : moves) {
-            LOG.info("Document moved; connectionId={} documentId={} from={} to={}", connectionId, move.documentId(), move.fromPath(), move.toPath());
+            LOG.info(
+                    "Document moved; connectionId={} documentId={} from={} to={}",
+                    connectionId,
+                    move.documentId(),
+                    move.fromPath(),
+                    move.toPath());
         }
-        LOG.info("Repository synced; userId={} connectionId={} commitSha={} documents={} moves={}",
-            user.id(), connectionId, branch.commitSha(), markdown.size(), moves.size());
+        LOG.info(
+                "Repository synced; userId={} connectionId={} commitSha={} documents={} moves={}",
+                user.id(),
+                connectionId,
+                branch.commitSha(),
+                markdown.size(),
+                moves.size());
         return new Result(connectionId, branch.commitSha(), markdown.size(), syncedAt);
     }
 
@@ -112,41 +143,64 @@ public class RepositorySync {
      * there are more than MAX_CONTENT_MOVE_CANDIDATES. A version GitHub no longer has (rewritten history) or cannot be
      * read as a note excludes only that candidate; any other failure fails the sync.
      */
-    private List<Documents.Move> contentMoves(AppUser user, RepositoryConnections.Connection connection, List<Documents.SourceFile> files) {
+    private List<Documents.Move> contentMoves(
+            AppUser user, RepositoryConnections.Connection connection, List<Documents.SourceFile> files) {
         var unmatched = Documents.unmatched(documents.existing(connection.id()), files);
         var withState = documents.withUserState(connection.id());
-        var vanished = unmatched.vanished().stream().filter(row -> withState.contains(row.id())).toList();
+        var vanished = unmatched.vanished().stream()
+                .filter(row -> withState.contains(row.id()))
+                .toList();
         var fresh = unmatched.fresh();
         if (vanished.isEmpty() || fresh.isEmpty()) return List.of();
         if (vanished.size() + fresh.size() > MAX_CONTENT_MOVE_CANDIDATES) {
-            LOG.info("Content moves not checked; connectionId={} vanishedWithUserData={} newPaths={} limit={}",
-                connection.id(), vanished.size(), fresh.size(), MAX_CONTENT_MOVE_CANDIDATES);
+            LOG.info(
+                    "Content moves not checked; connectionId={} vanishedWithUserData={} newPaths={} limit={}",
+                    connection.id(),
+                    vanished.size(),
+                    fresh.size(),
+                    MAX_CONTENT_MOVE_CANDIDATES);
             return List.of();
         }
         var oldVersions = new HashMap<Long, Set<String>>();
-        for (var row : vanished) shingles(user, connection, row.path(), row.blobSha()).ifPresent(set -> oldVersions.put(row.id(), set));
+        for (var row : vanished)
+            shingles(user, connection, row.path(), row.blobSha()).ifPresent(set -> oldVersions.put(row.id(), set));
         var newVersions = new HashMap<String, Set<String>>();
-        for (var file : fresh) shingles(user, connection, file.path(), file.blobSha()).ifPresent(set -> newVersions.put(file.path(), set));
+        for (var file : fresh)
+            shingles(user, connection, file.path(), file.blobSha()).ifPresent(set -> newVersions.put(file.path(), set));
         var paths = new HashMap<Long, String>();
         for (var row : vanished) paths.put(row.id(), row.path());
         return ContentMoves.pairs(oldVersions, newVersions).entrySet().stream()
-            .map(pair -> new Documents.Move(pair.getKey(), paths.get(pair.getKey()), pair.getValue())).toList();
+                .map(pair -> new Documents.Move(pair.getKey(), paths.get(pair.getKey()), pair.getValue()))
+                .toList();
     }
 
-    private Optional<Set<String>> shingles(AppUser user, RepositoryConnections.Connection connection, String path, String blobSha) {
+    private Optional<Set<String>> shingles(
+            AppUser user, RepositoryConnections.Connection connection, String path, String blobSha) {
         try {
-            return Optional.of(ContentMoves.shingles(noteVersions.render(user, connection.owner(), connection.name(), path, blobSha).note().blocks()));
+            return Optional.of(ContentMoves.shingles(noteVersions
+                    .render(user, connection.owner(), connection.name(), path, blobSha)
+                    .note()
+                    .blocks()));
         } catch (ApiFailure failure) {
             if (failure.code != Code.SOURCE_NOT_FOUND && failure.code != Code.UNSUPPORTED_CONTENT) throw failure;
-            LOG.info("Content move candidate skipped; connectionId={} path={} blobSha={} code={}", connection.id(), path, blobSha, failure.code);
+            LOG.info(
+                    "Content move candidate skipped; connectionId={} path={} blobSha={} code={}",
+                    connection.id(),
+                    path,
+                    blobSha,
+                    failure.code);
             return Optional.empty();
         }
     }
 
     /** Regular-file blobs the reader displays as images, for resolving Obsidian embeds by name. */
     static List<String> imageFiles(List<GitHubApi.TreeEntry> tree) {
-        return tree.stream().filter(entry -> entry.type().equals("blob") && (entry.mode().equals("100644") || entry.mode().equals("100755"))
-            && MarkdownRenderer.isImagePath(entry.path())).map(GitHubApi.TreeEntry::path).toList();
+        return tree.stream()
+                .filter(entry -> entry.type().equals("blob")
+                        && (entry.mode().equals("100644") || entry.mode().equals("100755"))
+                        && MarkdownRenderer.isImagePath(entry.path()))
+                .map(GitHubApi.TreeEntry::path)
+                .toList();
     }
 
     /** Regular-file blobs ending in .md (any case). Symlinks, submodules, and other files are not documents. */
@@ -154,13 +208,16 @@ public class RepositorySync {
         var result = new ArrayList<Documents.SourceFile>();
         var paths = new HashSet<String>();
         for (var entry : tree) {
-            boolean regularFile = entry.type().equals("blob") && (entry.mode().equals("100644") || entry.mode().equals("100755"));
+            boolean regularFile = entry.type().equals("blob")
+                    && (entry.mode().equals("100644") || entry.mode().equals("100755"));
             if (!regularFile || !entry.path().toLowerCase(Locale.ROOT).endsWith(".md")) continue;
             if (!paths.add(entry.path())) {
                 throw new ApiFailure(Code.GITHUB_INVALID_RESPONSE, "GitHub tree listed one path twice.");
             }
             if (result.size() == MAX_DOCUMENTS) {
-                throw new ApiFailure(Code.DOCUMENT_LIMIT, "This repository has more than 5000 Markdown files; no documents were changed.");
+                throw new ApiFailure(
+                        Code.DOCUMENT_LIMIT,
+                        "This repository has more than 5000 Markdown files; no documents were changed.");
             }
             result.add(new Documents.SourceFile(entry.path(), entry.sha()));
         }

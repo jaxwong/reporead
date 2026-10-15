@@ -5,6 +5,8 @@ import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
 import com.reporead.repository.RepositoryConnections;
+import java.util.List;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -15,12 +17,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.Locale;
-
 /**
- * External-call ceilings: listing 0 GitHub requests; content 1 (the note's blob); image 1 (the file at the note's commit);
- * changes 2 (the two versions' blobs), 0 when they are the same version.
+ * External-call ceilings: listing 0 GitHub requests; content 1 (the note's blob); image 1 (the file at the note's
+ * commit); changes 2 (the two versions' blobs), 0 when they are the same version.
  */
 @RestController
 public class DocumentController {
@@ -31,8 +30,12 @@ public class DocumentController {
     private final NoteVersions noteVersions;
     private final Attachments attachments;
 
-    public DocumentController(RepositoryConnections connections, Documents documents, GitHubApi github, NoteVersions noteVersions,
-                              Attachments attachments) {
+    public DocumentController(
+            RepositoryConnections connections,
+            Documents documents,
+            GitHubApi github,
+            NoteVersions noteVersions,
+            Attachments attachments) {
         this.attachments = attachments;
         this.connections = connections;
         this.documents = documents;
@@ -49,40 +52,88 @@ public class DocumentController {
     }
 
     /**
-     * {@code text}: the canonical text of the note's blocks, one per line, for search on the phone. {@code renderFormat}:
-     * MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format.
+     * {@code text}: the canonical text of the note's blocks, one per line, for search on the phone.
+     * {@code renderFormat}: MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format.
      */
-    record Content(long documentId, String path, String title, String sourceBlobSha, int blockCount, int diagramCount, String html,
-                   String text, int renderFormat) {}
+    record Content(
+            long documentId,
+            String path,
+            String title,
+            String sourceBlobSha,
+            int blockCount,
+            int diagramCount,
+            String html,
+            String text,
+            int renderFormat) {}
 
     @GetMapping("/api/documents/{id}/content")
     Content content(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
         var document = present(user, id);
         var version = noteVersions.render(user, document, document.blobSha());
         var rendered = version.note();
-        LOG.info("Document rendered; userId={} documentId={} blobSha={} bytes={} blocks={} diagrams={}",
-            user.id(), id, document.blobSha(), version.bytes(), rendered.blocks().size(), rendered.diagramCount());
-        return new Content(id, document.path(), document.title(), document.blobSha(), rendered.blocks().size(), rendered.diagramCount(),
-            rendered.html(), String.join("\n", rendered.blocks().stream().map(MarkdownRenderer.Block::text).toList()), MarkdownRenderer.FORMAT);
+        LOG.info(
+                "Document rendered; userId={} documentId={} blobSha={} bytes={} blocks={} diagrams={}",
+                user.id(),
+                id,
+                document.blobSha(),
+                version.bytes(),
+                rendered.blocks().size(),
+                rendered.diagramCount());
+        return new Content(
+                id,
+                document.path(),
+                document.title(),
+                document.blobSha(),
+                rendered.blocks().size(),
+                rendered.diagramCount(),
+                rendered.html(),
+                String.join(
+                        "\n",
+                        rendered.blocks().stream()
+                                .map(MarkdownRenderer.Block::text)
+                                .toList()),
+                MarkdownRenderer.FORMAT);
     }
 
     /** An owned note that was in the latest complete repository refresh. */
     private Documents.Located present(AppUser user, long id) {
         var document = documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
         if (document.deleted()) {
-            throw new ApiFailure(Code.DOCUMENT_DELETED, "This note was not present in the latest complete repository refresh.");
+            throw new ApiFailure(
+                    Code.DOCUMENT_DELETED, "This note was not present in the latest complete repository refresh.");
         }
         return document;
     }
 
-    enum ChangeStatus { CHANGED, UNCHANGED, SINCE_UNAVAILABLE, TOO_LARGE }
+    enum ChangeStatus {
+        CHANGED,
+        UNCHANGED,
+        SINCE_UNAVAILABLE,
+        TOO_LARGE
+    }
 
-    /** {@code reason} says why the older version is unavailable; {@code sections} is empty unless the status is CHANGED. */
-    record Changes(long documentId, String sinceBlobSha, String toBlobSha, ChangeStatus status, String reason,
-                   int addedLines, int removedLines, List<NoteChanges.Section> sections) {
+    /**
+     * {@code reason} says why the older version is unavailable; {@code sections} is empty unless the status is CHANGED.
+     */
+    record Changes(
+            long documentId,
+            String sinceBlobSha,
+            String toBlobSha,
+            ChangeStatus status,
+            String reason,
+            int addedLines,
+            int removedLines,
+            List<NoteChanges.Section> sections) {
         static Changes changed(long documentId, String since, String to, NoteChanges.Comparison comparison) {
-            return new Changes(documentId, since, to, ChangeStatus.CHANGED, null, comparison.addedLines(), comparison.removedLines(),
-                comparison.sections());
+            return new Changes(
+                    documentId,
+                    since,
+                    to,
+                    ChangeStatus.CHANGED,
+                    null,
+                    comparison.addedLines(),
+                    comparison.removedLines(),
+                    comparison.sections());
         }
 
         static Changes unchanged(long documentId, String since, String to) {
@@ -99,14 +150,17 @@ public class DocumentController {
     }
 
     /**
-     * Which sections changed between {@code since}, the version the user last read, and {@code to}, the version on their screen,
-     * whose heading blocks the sections name. The phone supplies both: its last-read version can be newer than the
-     * server's until its pending reading saves are sent. A version GitHub no longer has, or can no longer be read as a
-     * note, makes the comparison unavailable; any other failure fails the request.
+     * Which sections changed between {@code since}, the version the user last read, and {@code to}, the version on
+     * their screen, whose heading blocks the sections name. The phone supplies both: its last-read version can be newer
+     * than the server's until its pending reading saves are sent. A version GitHub no longer has, or can no longer be
+     * read as a note, makes the comparison unavailable; any other failure fails the request.
      */
     @GetMapping("/api/documents/{id}/changes")
-    Changes changes(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestParam(required = false) String since,
-                    @RequestParam(required = false) String to) {
+    Changes changes(
+            @AuthenticationPrincipal AppUser user,
+            @PathVariable long id,
+            @RequestParam(required = false) String since,
+            @RequestParam(required = false) String to) {
         if (since == null || to == null || !since.matches("[0-9a-f]{40}") || !to.matches("[0-9a-f]{40}")) {
             throw new ApiFailure(Code.INVALID_VERSIONS, "since and to must be lowercase 40-character blob SHAs.");
         }
@@ -117,8 +171,16 @@ public class DocumentController {
         } else {
             result = compare(user, document, since, to);
         }
-        LOG.info("Changes compared; userId={} documentId={} since={} to={} status={} sections={} added={} removed={}",
-            user.id(), id, since, to, result.status(), result.sections().size(), result.addedLines(), result.removedLines());
+        LOG.info(
+                "Changes compared; userId={} documentId={} since={} to={} status={} sections={} added={} removed={}",
+                user.id(),
+                id,
+                since,
+                to,
+                result.status(),
+                result.sections().size(),
+                result.addedLines(),
+                result.removedLines());
         return result;
     }
 
@@ -131,25 +193,34 @@ public class DocumentController {
             return Changes.sinceUnavailable(document.id(), since, to, failure.getMessage());
         }
         var current = noteVersions.render(user, document, to);
-        return NoteChanges.compare(MarkdownRenderer.sourceLines(old.markdown()), old.note().headings(),
-                MarkdownRenderer.sourceLines(current.markdown()), current.note().headings())
-            .map(comparison -> Changes.changed(document.id(), since, to, comparison))
-            .orElseGet(() -> Changes.tooLarge(document.id(), since, to));
+        return NoteChanges.compare(
+                        MarkdownRenderer.sourceLines(old.markdown()),
+                        old.note().headings(),
+                        MarkdownRenderer.sourceLines(current.markdown()),
+                        current.note().headings())
+                .map(comparison -> Changes.changed(document.id(), since, to, comparison))
+                .orElseGet(() -> Changes.tooLarge(document.id(), since, to));
     }
 
     /**
-     * A repository image referenced by an owned note, fetched at the note's current commit: by {@code path}, or by an Obsidian
-     * {@code embed} name resolved against the latest snapshot's image files (no GitHub call when it is missing or ambiguous).
-     * Not cached on the server.
+     * A repository image referenced by an owned note, fetched at the note's current commit: by {@code path}, or by an
+     * Obsidian {@code embed} name resolved against the latest snapshot's image files (no GitHub call when it is missing
+     * or ambiguous). Not cached on the server.
      */
     @GetMapping("/api/documents/{id}/image")
-    ResponseEntity<byte[]> image(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestParam(required = false) String path,
-                                 @RequestParam(required = false) String embed) {
+    ResponseEntity<byte[]> image(
+            @AuthenticationPrincipal AppUser user,
+            @PathVariable long id,
+            @RequestParam(required = false) String path,
+            @RequestParam(required = false) String embed) {
         if ((path == null) == (embed == null)) {
             throw new ApiFailure(Code.INVALID_IMAGE_PATH, "Give exactly one of path or embed.");
         }
-        if (path != null ? !MarkdownRenderer.isImagePath(path) : embed.length() > 1024 || !MarkdownRenderer.isImagePath(embed)) {
-            throw new ApiFailure(Code.INVALID_IMAGE_PATH, "path or embed must name a png, jpg, gif, webp, or svg image.");
+        if (path != null
+                ? !MarkdownRenderer.isImagePath(path)
+                : embed.length() > 1024 || !MarkdownRenderer.isImagePath(embed)) {
+            throw new ApiFailure(
+                    Code.INVALID_IMAGE_PATH, "path or embed must name a png, jpg, gif, webp, or svg image.");
         }
         var document = present(user, id);
         if (embed != null) path = attachments.resolve(document.connectionId(), document.path(), embed);
@@ -157,7 +228,9 @@ public class DocumentController {
         byte[] bytes = github.imageFile(token, document.owner(), document.repositoryName(), path, document.commitSha());
         String extension = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         LOG.info("Document image served; userId={} documentId={} bytes={}", user.id(), id, bytes.length);
-        return ResponseEntity.ok().contentType(MediaType.parseMediaType(MarkdownRenderer.IMAGE_TYPES.get(extension)))
-            .header("X-Content-Type-Options", "nosniff").body(bytes);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(MarkdownRenderer.IMAGE_TYPES.get(extension)))
+                .header("X-Content-Type-Options", "nosniff")
+                .body(bytes);
     }
 }

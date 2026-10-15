@@ -1,7 +1,6 @@
 package com.reporead.sync;
 
 import com.reporead.document.MarkdownRenderer;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -12,8 +11,8 @@ import java.util.Set;
 
 /**
  * Recognizes a note that was moved and edited between two syncs. Pure: the caller supplies rendered versions. Constants
- * come from MoveMeasurement on a real notes repository (see docs/adrs.md, ADR-07): real moves with
- * edits scored at least 0.54 and had at least 229 shingles; unrelated notes with at least 10 shingles scored at most 0.198.
+ * come from MoveMeasurement on a real notes repository (see docs/adrs.md, ADR-07): real moves with edits scored at
+ * least 0.54 and had at least 229 shingles; unrelated notes with at least 10 shingles scored at most 0.198.
  */
 final class ContentMoves {
     static final double MIN_SIMILARITY = 0.5;
@@ -24,7 +23,8 @@ final class ContentMoves {
 
     /**
      * Pairs vanished documents with new paths: each pair must be the only one above MIN_SIMILARITY for both its
-     * document and its path, and both sides must have at least MIN_SHINGLES shingles. Anything ambiguous stays unpaired.
+     * document and its path, and both sides must have at least MIN_SHINGLES shingles. Anything ambiguous stays
+     * unpaired.
      */
     static Map<Long, String> pairs(Map<Long, Set<String>> vanished, Map<String, Set<String>> fresh) {
         var candidates = new HashMap<Long, List<String>>();
@@ -32,8 +32,11 @@ final class ContentMoves {
         for (var document : vanished.entrySet()) {
             if (document.getValue().size() < MIN_SHINGLES) continue;
             for (var path : fresh.entrySet()) {
-                if (path.getValue().size() < MIN_SHINGLES || similarity(document.getValue(), path.getValue()) < MIN_SIMILARITY) continue;
-                candidates.computeIfAbsent(document.getKey(), id -> new ArrayList<>()).add(path.getKey());
+                if (path.getValue().size() < MIN_SHINGLES
+                        || similarity(document.getValue(), path.getValue()) < MIN_SIMILARITY) continue;
+                candidates
+                        .computeIfAbsent(document.getKey(), id -> new ArrayList<>())
+                        .add(path.getKey());
                 reverse.computeIfAbsent(path.getKey(), key -> new ArrayList<>()).add(document.getKey());
             }
         }
@@ -56,7 +59,8 @@ final class ContentMoves {
     static Set<String> shingles(List<MarkdownRenderer.Block> blocks) {
         var words = new ArrayList<String>();
         for (var block : blocks) {
-            for (String word : block.text().toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+")) if (!word.isEmpty()) words.add(word);
+            for (String word : block.text().toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+"))
+                if (!word.isEmpty()) words.add(word);
         }
         var shingles = new HashSet<String>();
         for (int i = 0; i + 5 <= words.size(); i++) shingles.add(String.join(" ", words.subList(i, i + 5)));

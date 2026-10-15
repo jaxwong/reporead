@@ -1,6 +1,18 @@
 package com.reporead.document;
 
 import com.reporead.github.GitHubHttp;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.ext.task.list.items.TaskListItemsExtension;
@@ -16,31 +28,30 @@ import org.jsoup.safety.Cleaner;
 import org.jsoup.safety.Safelist;
 import org.springframework.web.util.UriUtils;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HexFormat;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-
 public final class MarkdownRenderer {
     /** The largest note RepoRead reads from GitHub. */
     public static final int MAX_NOTE_BYTES = GitHubHttp.MAX_RESPONSE_BYTES;
     /** {@code MAX_NOTE_BYTES} in MiB, for messages. */
     public static final int MAX_NOTE_MIB = MAX_NOTE_BYTES / 1_048_576;
+
     public static final int MAX_DIAGRAM_CHARS = 20_000;
     public static final int MAX_DIAGRAMS = 16;
     public static final int MAX_EDGES = 200;
     public static final int MAX_IMAGES = 64;
     /** Image types the reader displays; also the only paths the image endpoint serves. */
-    public static final Map<String, String> IMAGE_TYPES = Map.of("png", "image/png", "jpg", "image/jpeg", "jpeg", "image/jpeg",
-            "gif", "image/gif", "webp", "image/webp", "svg", "image/svg+xml");
+    public static final Map<String, String> IMAGE_TYPES = Map.of(
+            "png",
+            "image/png",
+            "jpg",
+            "image/jpeg",
+            "jpeg",
+            "image/jpeg",
+            "gif",
+            "image/gif",
+            "webp",
+            "image/webp",
+            "svg",
+            "image/svg+xml");
     /** Same-origin path that the Android reader serves from its cache or the authenticated image endpoint. */
     public static final String IMAGE_PREFIX = "/repo-image/";
     /** Same-origin path for an Obsidian image embed by attachment name, resolved by the server's image endpoint. */
@@ -55,22 +66,62 @@ public final class MarkdownRenderer {
      * links and Obsidian embeds. 3: footnotes.
      */
     public static final int FORMAT = 3;
-    private static final java.util.regex.Pattern WIKILINK = java.util.regex.Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
+
+    private static final java.util.regex.Pattern WIKILINK =
+            java.util.regex.Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
     /** A footnote reference {@code [^label]}, or with {@code :} a definition marker. */
-    private static final java.util.regex.Pattern FOOTNOTE = java.util.regex.Pattern.compile("\\[\\^([^\\[\\]\\s]+)\\](:?)");
+    private static final java.util.regex.Pattern FOOTNOTE =
+            java.util.regex.Pattern.compile("\\[\\^([^\\[\\]\\s]+)\\](:?)");
+
     public static final int MAX_BLOCKS = 4_096;
-    /** Heading path entries are cut to this many UTF-16 units; the reading endpoint accepts exactly what pages carry. */
+    /**
+     * Heading path entries are cut to this many UTF-16 units; the reading endpoint accepts exactly what pages carry.
+     */
     public static final int MAX_HEADING_CHARS = 500;
+
     private static final String BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,pre,td,th,li";
     private static final String ORIGIN = "https://appassets.androidplatform.net";
-    private static final List<org.commonmark.Extension> EXTENSIONS = List.of(
-            TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create());
-    private static final Parser PARSER = Parser.builder().extensions(EXTENSIONS).includeSourceSpans(IncludeSourceSpans.BLOCKS).build();
-    private static final HtmlRenderer HTML = HtmlRenderer.builder().extensions(EXTENSIONS)
-            .escapeHtml(true).sanitizeUrls(true).softbreak(" ").build();
+    private static final List<org.commonmark.Extension> EXTENSIONS =
+            List.of(TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create());
+    private static final Parser PARSER = Parser.builder()
+            .extensions(EXTENSIONS)
+            .includeSourceSpans(IncludeSourceSpans.BLOCKS)
+            .build();
+    private static final HtmlRenderer HTML = HtmlRenderer.builder()
+            .extensions(EXTENSIONS)
+            .escapeHtml(true)
+            .sanitizeUrls(true)
+            .softbreak(" ")
+            .build();
     private static final Cleaner CLEANER = new Cleaner(new Safelist()
-            .addTags("p", "h1", "h2", "h3", "h4", "h5", "h6", "a", "img", "em", "strong", "del",
-                    "blockquote", "pre", "code", "br", "hr", "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td", "input")
+            .addTags(
+                    "p",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "h4",
+                    "h5",
+                    "h6",
+                    "a",
+                    "img",
+                    "em",
+                    "strong",
+                    "del",
+                    "blockquote",
+                    "pre",
+                    "code",
+                    "br",
+                    "hr",
+                    "ul",
+                    "ol",
+                    "li",
+                    "table",
+                    "thead",
+                    "tbody",
+                    "tr",
+                    "th",
+                    "td",
+                    "input")
             .addAttributes("a", "href", "title")
             .addAttributes("img", "src", "alt", "title")
             .addAttributes("code", "class")
@@ -83,12 +134,18 @@ public final class MarkdownRenderer {
     private MarkdownRenderer() {}
 
     public record Block(String id, String text, List<String> headingPath) {}
-    /** A heading block and the 0-based line of {@link #sourceLines} where it starts: its section runs to the next heading. */
+    /**
+     * A heading block and the 0-based line of {@link #sourceLines} where it starts: its section runs to the next
+     * heading.
+     */
     public record Heading(String blockId, int line, List<String> headingPath) {}
+
     public record RenderedNote(String html, List<Block> blocks, int diagramCount, List<Heading> headings) {}
 
     public static final class ContentRejected extends IllegalArgumentException {
-        public ContentRejected(String message) { super(message); }
+        public ContentRejected(String message) {
+            super(message);
+        }
     }
 
     public static String blobSha(byte[] bytes) {
@@ -101,7 +158,10 @@ public final class MarkdownRenderer {
         }
     }
 
-    /** {@code documentPath} is the note's repository path: shown as its source label and used to resolve relative images. */
+    /**
+     * {@code documentPath} is the note's repository path: shown as its source label and used to resolve relative
+     * images.
+     */
     public static RenderedNote render(String markdown, String sourceBlobSha, String documentPath) {
         Objects.requireNonNull(markdown, "MarkdownRenderer markdown");
         Objects.requireNonNull(documentPath, "MarkdownRenderer document path");
@@ -109,13 +169,16 @@ public final class MarkdownRenderer {
             throw new IllegalArgumentException("MarkdownRenderer sourceBlobSha must be a lowercase Git SHA-1");
         }
         byte[] bytes = markdown.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length > MAX_NOTE_BYTES) throw new ContentRejected("Markdown exceeds the " + MAX_NOTE_MIB + " MiB reader limit");
-        if (!blobSha(bytes).equals(sourceBlobSha)) throw new ContentRejected("Markdown bytes do not match sourceBlobSha");
+        if (bytes.length > MAX_NOTE_BYTES)
+            throw new ContentRejected("Markdown exceeds the " + MAX_NOTE_MIB + " MiB reader limit");
+        if (!blobSha(bytes).equals(sourceBlobSha))
+            throw new ContentRejected("Markdown bytes do not match sourceBlobSha");
 
         var parsed = PARSER.parse(markdown);
         var headingLines = new ArrayList<Integer>();
         parsed.accept(new AbstractVisitor() {
-            @Override public void visit(org.commonmark.node.Heading heading) {
+            @Override
+            public void visit(org.commonmark.node.Heading heading) {
                 headingLines.add(heading.getSourceSpans().getFirst().getLineIndex());
                 visitChildren(heading);
             }
@@ -138,13 +201,15 @@ public final class MarkdownRenderer {
                 image.replaceWith(blockedImage("Image limit reached", alt));
             } else {
                 image.attributes().remove("title");
-                image.attr("src", IMAGE_PREFIX + UriUtils.encodePath(path.get(), StandardCharsets.UTF_8)).attr("loading", "eager");
+                image.attr("src", IMAGE_PREFIX + UriUtils.encodePath(path.get(), StandardCharsets.UTF_8))
+                        .attr("loading", "eager");
             }
         }
         images = linkNotes(clean, documentPath, images);
         markFootnotes(clean);
         for (var input : clean.select("input")) {
-            if (!input.attr("type").equals("checkbox")) throw new IllegalStateException("Parser emitted a non-checkbox input");
+            if (!input.attr("type").equals("checkbox"))
+                throw new IllegalStateException("Parser emitted a non-checkbox input");
             input.attr("disabled", "");
         }
         // CommonMark already emits a newline after each br; keep that text, not a second visual break.
@@ -163,7 +228,8 @@ public final class MarkdownRenderer {
             }
             if (!element.is(BLOCK_SELECTOR) || element.select(BLOCK_SELECTOR).size() != 1) continue;
             String text = nodeText(element);
-            if (blocks.size() == MAX_BLOCKS) throw new ContentRejected("Markdown exceeds the " + MAX_BLOCKS + "-block reader limit");
+            if (blocks.size() == MAX_BLOCKS)
+                throw new ContentRejected("Markdown exceeds the " + MAX_BLOCKS + "-block reader limit");
             String id = "b" + blocks.size();
             element.attr("data-block-id", id).attr("data-anchor-text", text);
             var headingPath = new ArrayList<String>();
@@ -174,39 +240,58 @@ public final class MarkdownRenderer {
                 }
             }
             if (tag.equals("pre") && element.selectFirst("code.language-mermaid") != null) {
-                if (text.length() > MAX_DIAGRAM_CHARS) throw new ContentRejected("Mermaid exceeds the " + MAX_DIAGRAM_CHARS + " UTF-16-unit limit");
-                if (++diagrams > MAX_DIAGRAMS) throw new ContentRejected("Markdown exceeds the " + MAX_DIAGRAMS + "-diagram reader limit");
+                if (text.length() > MAX_DIAGRAM_CHARS)
+                    throw new ContentRejected("Mermaid exceeds the " + MAX_DIAGRAM_CHARS + " UTF-16-unit limit");
+                if (++diagrams > MAX_DIAGRAMS)
+                    throw new ContentRejected("Markdown exceeds the " + MAX_DIAGRAMS + "-diagram reader limit");
                 element.attr("data-mermaid", "");
             }
             blocks.add(new Block(id, text, List.copyOf(headingPath)));
             if (tag.matches("h[1-6]")) {
-                if (headingBlocks.size() == headingLines.size()) throw new IllegalStateException("Rendered more headings than the parser found");
+                if (headingBlocks.size() == headingLines.size())
+                    throw new IllegalStateException("Rendered more headings than the parser found");
                 headingBlocks.add(new Heading(id, headingLines.get(headingBlocks.size()), List.copyOf(headingPath)));
             }
         }
         if (headingBlocks.size() != headingLines.size()) {
-            throw new IllegalStateException("Rendered " + headingBlocks.size() + " heading blocks for " + headingLines.size() + " parsed headings");
+            throw new IllegalStateException("Rendered " + headingBlocks.size() + " heading blocks for "
+                    + headingLines.size() + " parsed headings");
         }
 
         var document = Document.createShell(ORIGIN);
         document.outputSettings().prettyPrint(false).charset(StandardCharsets.UTF_8);
         document.head().appendElement("meta").attr("charset", "utf-8");
-        document.head().appendElement("meta").attr("name", "viewport").attr("content", "width=device-width, initial-scale=1");
-        document.head().appendElement("meta").attr("http-equiv", "Content-Security-Policy").attr("content",
-                "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; font-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'");
+        document.head()
+                .appendElement("meta")
+                .attr("name", "viewport")
+                .attr("content", "width=device-width, initial-scale=1");
+        document.head()
+                .appendElement("meta")
+                .attr("http-equiv", "Content-Security-Policy")
+                .attr(
+                        "content",
+                        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; font-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'");
         document.head().appendElement("link").attr("rel", "stylesheet").attr("href", "/assets/reader.css");
         document.head().appendElement("script").attr("src", "/assets/reader.js").attr("defer", "");
-        document.body().attr("data-source-blob-sha", sourceBlobSha)
+        document.body()
+                .attr("data-source-blob-sha", sourceBlobSha)
                 .attr("data-max-diagram-chars", Integer.toString(MAX_DIAGRAM_CHARS))
                 .attr("data-max-edges", Integer.toString(MAX_EDGES));
         document.body().appendElement("p").addClass("source-label").text(documentPath);
         document.body().appendElement("p").id("render-status").text("Rendering diagrams…");
-        var note = document.body().appendElement("main").id("note").html(clean.body().html());
+        var note = document.body()
+                .appendElement("main")
+                .id("note")
+                .html(clean.body().html());
         if (blocks.isEmpty()) note.appendElement("p").text("This note is empty.");
-        return new RenderedNote("<!doctype html>\n" + document.outerHtml(), List.copyOf(blocks), diagrams, List.copyOf(headingBlocks));
+        return new RenderedNote(
+                "<!doctype html>\n" + document.outerHtml(), List.copyOf(blocks), diagrams, List.copyOf(headingBlocks));
     }
 
-    /** The source split into lines as the parser numbers them: a line ends at \n, \r\n, or \r; a final line break adds no line. */
+    /**
+     * The source split into lines as the parser numbers them: a line ends at \n, \r\n, or \r; a final line break adds
+     * no line.
+     */
     public static List<String> sourceLines(String markdown) {
         var lines = new ArrayList<String>();
         int start = 0;
@@ -264,16 +349,24 @@ public final class MarkdownRenderer {
                 String alias = bar < 0 ? null : inner.substring(bar + 1);
                 int hash = target.indexOf('#');
                 String name = (hash < 0 ? target : target.substring(0, hash)).trim();
-                String heading = hash < 0 ? null : target.substring(target.lastIndexOf('#') + 1).trim();
+                String heading = hash < 0
+                        ? null
+                        : target.substring(target.lastIndexOf('#') + 1).trim();
                 if (heading != null && (heading.isEmpty() || heading.startsWith("^"))) heading = null;
-                String extension = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT) : "";
+                String extension = name.contains(".")
+                        ? name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT)
+                        : "";
                 if (embed && IMAGE_TYPES.containsKey(extension)) {
                     var span = new Element("span").addClass("embed").appendChild(hidden(matcher.group()));
                     if (++images > MAX_IMAGES) {
-                        span.appendChild(new Element("span").addClass("image-blocked").attr("data-label", "[Image limit reached: " + name + "]"));
+                        span.appendChild(new Element("span")
+                                .addClass("image-blocked")
+                                .attr("data-label", "[Image limit reached: " + name + "]"));
                     } else {
-                        var image = new Element("img").attr("src", EMBED_PREFIX + UriUtils.encodePath(name, StandardCharsets.UTF_8))
-                            .attr("alt", name).attr("loading", "eager");
+                        var image = new Element("img")
+                                .attr("src", EMBED_PREFIX + UriUtils.encodePath(name, StandardCharsets.UTF_8))
+                                .attr("alt", name)
+                                .attr("loading", "eager");
                         if (alias != null && alias.trim().matches("\\d{1,4}(x\\d{1,4})?")) {
                             String[] size = alias.trim().split("x");
                             image.attr("width", size[0]);
@@ -285,8 +378,11 @@ public final class MarkdownRenderer {
                 } else if (name.isEmpty() && heading == null) {
                     replacement.add(new TextNode(matcher.group()));
                 } else {
-                    var link = new Element("a").addClass("wikilink")
-                        .attr("href", name.isEmpty() ? noteLink(null, null, heading) : noteLink("target", name, heading));
+                    var link = new Element("a")
+                            .addClass("wikilink")
+                            .attr(
+                                    "href",
+                                    name.isEmpty() ? noteLink(null, null, heading) : noteLink("target", name, heading));
                     link.appendChild(hidden(matcher.group(1) + "[["));
                     if (alias != null) link.appendChild(hidden(target + "|")).appendChild(new TextNode(alias));
                     else link.appendChild(new TextNode(target));
@@ -319,12 +415,18 @@ public final class MarkdownRenderer {
             for (var text : List.copyOf(paragraph.textNodes())) {
                 var previous = text.previousSibling();
                 boolean afterSpace = previous == null || nodeText(previous).matches("(?s).*\\s");
-                definitions.addAll(splitFootnotes(text, true, (whole, match) -> !match.group(2).isEmpty()
-                    && (match.start() == 0 ? afterSpace : Character.isWhitespace(whole.charAt(match.start() - 1)))));
+                definitions.addAll(splitFootnotes(
+                        text,
+                        true,
+                        (whole, match) -> !match.group(2).isEmpty()
+                                && (match.start() == 0
+                                        ? afterSpace
+                                        : Character.isWhitespace(whole.charAt(match.start() - 1)))));
             }
         }
         var numbers = new HashMap<String, String>();
-        for (var marked : definitions) numbers.putIfAbsent(marked.attr("data-footnote"), Integer.toString(numbers.size() + 1));
+        for (var marked : definitions)
+            numbers.putIfAbsent(marked.attr("data-footnote"), Integer.toString(numbers.size() + 1));
         var references = new ArrayList<Element>();
         for (var element : clean.body().getAllElements()) {
             if (element.closest("a, code, pre, .wl-hidden") != null) continue;
@@ -338,10 +440,13 @@ public final class MarkdownRenderer {
 
     /**
      * Wraps each footnote match in {@code text} that {@code accept} takes — a definition marker {@code [^label]:} when
-     * {@code definitions}, otherwise a reference {@code [^label]} (a following colon stays text) — and returns the new elements.
+     * {@code definitions}, otherwise a reference {@code [^label]} (a following colon stays text) — and returns the new
+     * elements.
      */
-    private static List<Element> splitFootnotes(TextNode text, boolean definitions,
-                                                java.util.function.BiPredicate<String, java.util.regex.MatchResult> accept) {
+    private static List<Element> splitFootnotes(
+            TextNode text,
+            boolean definitions,
+            java.util.function.BiPredicate<String, java.util.regex.MatchResult> accept) {
         String whole = text.getWholeText();
         var matcher = FOOTNOTE.matcher(whole);
         var replacement = new ArrayList<org.jsoup.nodes.Node>();
@@ -351,8 +456,10 @@ public final class MarkdownRenderer {
             if (!accept.test(whole, matcher)) continue;
             int end = definitions ? matcher.end() : matcher.end(1) + 1;
             if (matcher.start() > last) replacement.add(new TextNode(whole.substring(last, matcher.start())));
-            var element = new Element(definitions ? "span" : "sup").addClass(definitions ? "fn-def" : "fn-ref")
-                .attr("data-footnote", matcher.group(1)).appendChild(hidden(whole.substring(matcher.start(), end)));
+            var element = new Element(definitions ? "span" : "sup")
+                    .addClass(definitions ? "fn-def" : "fn-ref")
+                    .attr("data-footnote", matcher.group(1))
+                    .appendChild(hidden(whole.substring(matcher.start(), end)));
             replacement.add(element);
             marked.add(element);
             last = end;
@@ -366,7 +473,8 @@ public final class MarkdownRenderer {
 
     /**
      * A heading as heading paths (and the page's data-heading attributes) carry it: whole when short enough, otherwise
-     * cut so that, with a closing ellipsis, it is {@code MAX_HEADING_CHARS} long. The heading block's own text is not cut.
+     * cut so that, with a closing ellipsis, it is {@code MAX_HEADING_CHARS} long. The heading block's own text is not
+     * cut.
      */
     private static String headingPathEntry(String heading) {
         if (heading.length() <= MAX_HEADING_CHARS) return heading;
@@ -376,8 +484,10 @@ public final class MarkdownRenderer {
 
     /** Whether a UTF-16 index falls between the two halves of a surrogate pair: half a character is stored as '?'. */
     public static boolean splitsCharacter(String text, int index) {
-        return index > 0 && index < text.length() && Character.isHighSurrogate(text.charAt(index - 1))
-            && Character.isLowSurrogate(text.charAt(index));
+        return index > 0
+                && index < text.length()
+                && Character.isHighSurrogate(text.charAt(index - 1))
+                && Character.isLowSurrogate(text.charAt(index));
     }
 
     private static Element hidden(String text) {
@@ -396,8 +506,8 @@ public final class MarkdownRenderer {
     }
 
     /**
-     * Resolves a relative or root-relative Markdown image against the note's directory, as GitHub does.
-     * Empty when the reference escapes the repository, is malformed, or is not a supported image type.
+     * Resolves a relative or root-relative Markdown image against the note's directory, as GitHub does. Empty when the
+     * reference escapes the repository, is malformed, or is not a supported image type.
      */
     static Optional<String> repositoryImagePath(String documentPath, String src) {
         return repositoryPath(documentPath, src).filter(MarkdownRenderer::isImagePath);
@@ -440,7 +550,8 @@ public final class MarkdownRenderer {
             if (segment.isEmpty() || segment.equals(".") || segment.equals("..")) return false;
         }
         int dot = path.lastIndexOf('.');
-        return dot > path.lastIndexOf('/') && IMAGE_TYPES.containsKey(path.substring(dot + 1).toLowerCase(Locale.ROOT));
+        return dot > path.lastIndexOf('/')
+                && IMAGE_TYPES.containsKey(path.substring(dot + 1).toLowerCase(Locale.ROOT));
     }
 
     private static String nodeText(org.jsoup.nodes.Node node) {

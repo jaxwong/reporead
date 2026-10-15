@@ -1,10 +1,18 @@
 plugins {
     java
     id("org.springframework.boot")
+    id("com.diffplug.spotless")
 }
 
 java {
     toolchain.languageVersion.set(JavaLanguageVersion.of(25))
+}
+
+// One formatter owns layout, so reviews and diffs are about content. CI runs spotlessCheck; spotlessApply fixes it.
+spotless {
+    java {
+        palantirJavaFormat("2.100.0").formatJavadoc(true)
+    }
 }
 
 // META-INF/build-info.properties, served by /actuator/info on the management port: which commit the running jar is.
