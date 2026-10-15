@@ -360,7 +360,7 @@ sequenceDiagram
     API->>API: store tokens encrypted (github_tokens), upsert user,<br/>issue single-use 60 s code bound to challenge,<br/>end the browser session
     API-->>Tab: redirect reporead://auth?code=… (reporead-dev:// for the debug app)
     Tab-->>App: deep link to MainActivity
-    App->>API: POST /api/app-auth/token {code, codeVerifier}
+    App->>API: POST /api/app-auth/token {code, codeVerifier, expectedUserId?}
     API-->>App: {accessToken, expiresAt, user} (30 days)
     App->>App: encrypt token with Keystore key
     Note over App,API: every /api/** call: Authorization: Bearer token.<br/>Any 401 means sign in again, and saved data stays readable.

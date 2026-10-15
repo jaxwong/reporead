@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -168,10 +169,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         val code = signInCode ?: return@LaunchedEffect
         signInMessage = "Finishing sign-in…"
         try {
-            completeSignIn(code, api, store) {
-                sync.clearAll()
-                screenStates.removeState(ROOT_STATE)
-            }
+            completeSignIn(code, api, store)
             signInMessage = null
         } catch (error: ApiException) {
             signInMessage = error.describe()
@@ -190,6 +188,9 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
             Text("Read your GitHub notes. RepoRead only reads repositories you grant to its GitHub App.")
             Button(onClick = signIn) { Text("Sign in with GitHub") }
             signInMessage?.let { Text(it) }
+            // A refused sign-in changes nothing saved here, and saved notes stay readable signed out.
+            if (saved.isNotEmpty() && signInMessage != null)
+                TextButton(onClick = { signInMessage = null }) { Text("Back to saved notes") }
         }
         return
     }
