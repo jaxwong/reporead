@@ -369,7 +369,6 @@ class Sync(
                 note.documentId,
                 note.title,
                 note.path,
-                note.blobSha,
                 bookmarked,
                 pending = true,
                 System.currentTimeMillis(),
@@ -442,10 +441,7 @@ class Sync(
         for (row in dao.pendingBookmarks()) {
             try {
                 if (row.bookmarked) {
-                    api.put(
-                        "/api/documents/${row.documentId}/bookmark",
-                        JSONObject().put("sourceBlobSha", row.sourceBlobSha),
-                    )
+                    api.put("/api/documents/${row.documentId}/bookmark")
                     dao.acknowledgeBookmarkSet(row.documentId, row.changedAt)
                 } else {
                     api.delete("/api/documents/${row.documentId}/bookmark")
@@ -475,7 +471,6 @@ class Sync(
                             item.getLong("documentId"),
                             item.getString("title"),
                             item.getString("path"),
-                            item.getString("sourceBlobSha"),
                             bookmarked = true,
                             pending = false,
                             Instant.parse(item.getString("createdAt")).toEpochMilli(),

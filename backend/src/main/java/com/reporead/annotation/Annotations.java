@@ -215,9 +215,9 @@ public class Annotations {
             if (claimed == 0)
                 return new Created(replay(userId, mutationId, requestHash).orElseThrow(), true);
             long id = db.sql("""
-                    insert into annotations (user_id, document_id, source_blob_sha, type, note, created_at, updated_at, resolved_blob_sha, question,
+                    insert into annotations (user_id, document_id, type, note, created_at, updated_at, resolved_blob_sha, question,
                                              checked_blob_sha, mutation_id)
-                    values (:userId, :documentId, :sha, :type, :note, :now, :now, :sha, :question, case when :type = 'CARD' then :sha end,
+                    values (:userId, :documentId, :type, :note, :now, :now, :sha, :question, case when :type = 'CARD' then :sha end,
                             :mutationId) returning id""")
                     .param("userId", userId)
                     .param("documentId", documentId)

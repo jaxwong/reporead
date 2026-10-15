@@ -1,8 +1,6 @@
 package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
-import com.reporead.ApiFailure.Code;
-import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.document.Documents;
 import com.reporead.repository.RepositoryConnections;
@@ -14,7 +12,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -44,17 +41,12 @@ public class BookmarkController {
         return new BookmarkList(bookmarks.list(user.id()));
     }
 
-    record SetRequest(String sourceBlobSha) {}
-
+    /** A bookmark is of the note, whatever its version, so the request has no body. */
     @PutMapping("/api/documents/{id}/bookmark")
-    Bookmarks.Bookmark set(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SetRequest body) {
-        if (!Hashes.isGitSha(body.sourceBlobSha())) {
-            throw new ApiFailure(
-                    Code.INVALID_BOOKMARK, "sourceBlobSha must be the Git blob SHA of the version bookmarked.");
-        }
+    Bookmarks.Bookmark set(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
         return transaction.execute(status -> {
             connections.lockForDocumentWrite(user.id(), id);
-            return bookmarks.set(user.id(), id, body.sourceBlobSha());
+            return bookmarks.set(user.id(), id);
         });
     }
 

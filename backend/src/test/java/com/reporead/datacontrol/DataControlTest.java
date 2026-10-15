@@ -155,17 +155,16 @@ class DataControlTest {
 
     private void bookmark(long userId, long documentId) {
         db.sql(
-                        "insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at) values (:userId, :documentId, :sha, 'BOOKMARK', now(), now())")
+                        "insert into annotations (user_id, document_id, type, created_at, updated_at) values (:userId, :documentId, 'BOOKMARK', now(), now())")
                 .param("userId", userId)
                 .param("documentId", documentId)
-                .param("sha", SHA)
                 .update();
     }
 
     private void highlight(long userId, long documentId, String mutationId) {
         long id = db.sql("""
-                insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at, note, resolved_blob_sha, mutation_id)
-                values (:userId, :documentId, :sha, 'HIGHLIGHT', now(), now(), 'private note text', :sha, cast(:mutationId as uuid)) returning id""")
+                insert into annotations (user_id, document_id, type, created_at, updated_at, note, resolved_blob_sha, mutation_id)
+                values (:userId, :documentId, 'HIGHLIGHT', now(), now(), 'private note text', :sha, cast(:mutationId as uuid)) returning id""")
                 .param("userId", userId)
                 .param("documentId", documentId)
                 .param("sha", SHA)
@@ -345,9 +344,7 @@ class DataControlTest {
         assertEquals(
                 404,
                 writeDuringDisconnect(() -> mvc.perform(put("/api/documents/" + active + "/bookmark")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"sourceBlobSha\":\"" + SHA + "\"}"))));
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))));
         assertEquals(0, count("select count(*) from documents where repository_connection_id = " + notes));
     }
 

@@ -13,7 +13,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
@@ -62,11 +61,9 @@ class BookmarkTest {
                 values (1, 'a.md', 'a', :sha) returning id""").param("sha", SHA).query(Long.class).single();
     }
 
-    private ResultActions set(String bearer, long id, String sha) throws Exception {
-        return mvc.perform(put("/api/documents/" + id + "/bookmark")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"sourceBlobSha\":\"" + sha + "\"}"));
+    private ResultActions set(String bearer, long id) throws Exception {
+        return mvc.perform(
+                put("/api/documents/" + id + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
     }
 
     private ResultActions clear(String bearer, long id) throws Exception {
@@ -80,7 +77,7 @@ class BookmarkTest {
 
     @Test
     void settingAndClearingAreIdempotentAndUseTheAnnotationDomain() throws Exception {
-        String first = set(alice, note, SHA)
+        String first = set(alice, note)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.documentId").value(note))
                 .andReturn()
@@ -88,7 +85,7 @@ class BookmarkTest {
                 .getContentAsString();
         assertEquals(
                 first,
-                set(alice, note, "b".repeat(40))
+                set(alice, note)
                         .andExpect(status().isOk())
                         .andReturn()
                         .getResponse()
@@ -98,23 +95,20 @@ class BookmarkTest {
                 db.sql("select type from annotations").query(String.class).single());
         list(alice)
                 .andExpect(jsonPath("$.bookmarks.length()").value(1))
-                .andExpect(jsonPath("$.bookmarks[0].sourceBlobSha").value(SHA));
+                .andExpect(jsonPath("$.bookmarks[0].documentId").value(note));
         clear(alice, note).andExpect(status().isNoContent());
         clear(alice, note).andExpect(status().isNoContent());
         list(alice).andExpect(jsonPath("$.bookmarks").isEmpty());
     }
 
     @Test
-    void bookmarksArePrivateAndValidated() throws Exception {
-        set(alice, note, SHA).andExpect(status().isOk());
+    void bookmarksArePrivate() throws Exception {
+        set(alice, note).andExpect(status().isOk());
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB");
-        set(bob, note, SHA).andExpect(status().isNotFound());
+        set(bob, note).andExpect(status().isNotFound());
         clear(bob, note).andExpect(status().isNotFound());
         list(bob).andExpect(jsonPath("$.bookmarks").isEmpty());
-        set(alice, note, "nope")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_BOOKMARK"));
-        set(alice, 999, SHA).andExpect(status().isNotFound());
+        set(alice, 999).andExpect(status().isNotFound());
         mvc.perform(get("/api/bookmarks")).andExpect(status().isUnauthorized());
         assertEquals(
                 1,

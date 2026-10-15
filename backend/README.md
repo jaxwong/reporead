@@ -91,7 +91,7 @@ Only SHA-256 hashes of codes and session tokens are stored, and expired ones are
 | `GET /api/reading-states` | 0 | Most recently read first, with the version last read and the current version |
 | `PUT /api/documents/{id}/reading-state` | 0 | `{lastReadBlobSha, progressPercent, anchor:{headingPath, textPrefix, blockIndex}, lastReadAt}`; last write wins by `lastReadAt` |
 | `GET /api/bookmarks` | 0 | Document bookmarks, each with `deleted` when the note left the repository (the bookmark is kept) |
-| `PUT` / `DELETE /api/documents/{id}/bookmark` | 0 | `PUT {sourceBlobSha}`; both idempotent |
+| `PUT` / `DELETE /api/documents/{id}/bookmark` | 0 | No body: a bookmark is of the note, whatever its version; both idempotent |
 | `GET /api/documents/{id}/annotations` | 0 when every highlight is resolved against the current version; else 1 (that version) | This user's highlights and cards: original `anchor`, current `location`, `status` (`ANCHORED`, `REANCHORED`, `ORPHANED`) for `resolvedBlobSha`, and the creating `mutationId` |
 | `POST /api/documents/{id}/annotations` | 1 (the selected version's blob); 0 on replay | `{mutationId, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}, note?, type?, question?}`; 201 created, 200 replay |
 | `GET /api/notebook` | 0 | Complete highlight/card projection and durable review log; `sessionLimit` is server-owned (40) |

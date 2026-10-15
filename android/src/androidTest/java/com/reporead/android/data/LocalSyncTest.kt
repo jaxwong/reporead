@@ -97,7 +97,7 @@ class LocalSyncTest {
     @Test
     fun aRefusedReadingPositionStaysOnThePhoneWithoutStoppingTheRestOfTheSync() = runBlocking {
         dao.saveReading(reading(1, "Long heading note"))
-        dao.saveBookmark(BookmarkRow(2, "Kept", "k.md", sha, bookmarked = true, pending = true, changedAt = 5))
+        dao.saveBookmark(BookmarkRow(2, "Kept", "k.md", bookmarked = true, pending = true, changedAt = 5))
         LoopbackServer(
                 emptyLists +
                     mapOf(
