@@ -21,6 +21,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -322,7 +323,7 @@ public final class MarkdownRenderer {
                     && (match.start() == 0 ? afterSpace : Character.isWhitespace(whole.charAt(match.start() - 1)))));
             }
         }
-        var numbers = new java.util.HashMap<String, String>();
+        var numbers = new HashMap<String, String>();
         for (var marked : definitions) numbers.putIfAbsent(marked.attr("data-footnote"), Integer.toString(numbers.size() + 1));
         var references = new ArrayList<Element>();
         for (var element : clean.body().getAllElements()) {

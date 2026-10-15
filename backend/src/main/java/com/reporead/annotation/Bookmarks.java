@@ -3,6 +3,8 @@ package com.reporead.annotation;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -45,7 +47,7 @@ public class Bookmarks {
         return db.sql(SELECT + " order by a.created_at desc").param("userId", userId).query(Bookmarks::bookmark).list();
     }
 
-    private static Bookmark bookmark(java.sql.ResultSet row, int n) throws java.sql.SQLException {
+    private static Bookmark bookmark(ResultSet row, int n) throws SQLException {
         return new Bookmark(row.getLong("document_id"), row.getLong("repository_connection_id"), row.getString("path"), row.getString("title"),
             row.getString("source_blob_sha"), row.getTimestamp("created_at").toInstant(), row.getBoolean("deleted"));
     }

@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * How RepoRead talks HTTP to GitHub: 15-second timeouts, no redirects, and a size ceiling on every response, which is
@@ -46,21 +47,21 @@ public class GitHubHttp {
     @Bean
     RestTemplate githubUserApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_RESPONSE_BYTES, meters)));
+        rest.setInterceptors(List.of(boundedResponse(MAX_RESPONSE_BYTES, meters)));
         return rest;
     }
 
     @Bean
     RestTemplate githubTreeApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_TREE_RESPONSE_BYTES, meters)));
+        rest.setInterceptors(List.of(boundedResponse(MAX_TREE_RESPONSE_BYTES, meters)));
         return rest;
     }
 
     @Bean
     RestTemplate githubImageApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         var rest = new RestTemplate(githubRequestFactory);
-        rest.setInterceptors(java.util.List.of(boundedResponse(MAX_IMAGE_RESPONSE_BYTES, meters)));
+        rest.setInterceptors(List.of(boundedResponse(MAX_IMAGE_RESPONSE_BYTES, meters)));
         return rest;
     }
 

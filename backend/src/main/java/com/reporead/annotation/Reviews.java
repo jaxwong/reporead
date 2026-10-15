@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -108,7 +110,7 @@ public class Reviews {
     private record Current(String checked, String sha, boolean deleted, String status) {}
     private record Stored(long id, int grade, Instant at, String sha) {}
 
-    private static Review review(java.sql.ResultSet row, int n) throws java.sql.SQLException {
+    private static Review review(ResultSet row, int n) throws SQLException {
         return new Review(row.getString("mutation_id"), row.getString("card_mutation_id"), row.getInt("grade"),
             row.getTimestamp("reviewed_at").toInstant(), row.getString("blob_sha"));
     }

@@ -55,6 +55,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.List;
 import java.util.Set;
 
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
@@ -131,7 +132,7 @@ public class GitHubSecurity {
         var tokenClient = new RestClientAuthorizationCodeTokenResponseClient();
         tokenClient.setRestClient(tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
         var userHttp = new RestTemplate(githubRequestFactory);
-        userHttp.setInterceptors(java.util.List.of(GitHubHttp.boundedResponse(GitHubHttp.MAX_RESPONSE_BYTES, meters)));
+        userHttp.setInterceptors(List.of(GitHubHttp.boundedResponse(GitHubHttp.MAX_RESPONSE_BYTES, meters)));
         userHttp.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
         var userService = new DefaultOAuth2UserService();
         userService.setRestOperations(userHttp);

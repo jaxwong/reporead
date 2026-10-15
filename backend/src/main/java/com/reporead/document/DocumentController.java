@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * External-call ceilings: listing 0 GitHub requests; content 1 (the note's blob); image 1 (the file at the note's commit);
@@ -78,7 +79,24 @@ public class DocumentController {
 
     /** [reason] says why the older version is unavailable; [sections] is empty unless the status is CHANGED. */
     record Changes(long documentId, String sinceBlobSha, String toBlobSha, ChangeStatus status, String reason,
-                   int addedLines, int removedLines, List<NoteChanges.Section> sections) {}
+                   int addedLines, int removedLines, List<NoteChanges.Section> sections) {
+        static Changes changed(long documentId, String since, String to, NoteChanges.Comparison comparison) {
+            return new Changes(documentId, since, to, ChangeStatus.CHANGED, null, comparison.addedLines(), comparison.removedLines(),
+                comparison.sections());
+        }
+
+        static Changes unchanged(long documentId, String since, String to) {
+            return new Changes(documentId, since, to, ChangeStatus.UNCHANGED, null, 0, 0, List.of());
+        }
+
+        static Changes sinceUnavailable(long documentId, String since, String to, String reason) {
+            return new Changes(documentId, since, to, ChangeStatus.SINCE_UNAVAILABLE, reason, 0, 0, List.of());
+        }
+
+        static Changes tooLarge(long documentId, String since, String to) {
+            return new Changes(documentId, since, to, ChangeStatus.TOO_LARGE, null, 0, 0, List.of());
+        }
+    }
 
     /**
      * Which sections changed between [since], the version the user last read, and [to], the version on their screen,
@@ -95,7 +113,7 @@ public class DocumentController {
         var document = present(user, id);
         Changes result;
         if (since.equals(to)) {
-            result = new Changes(id, since, to, ChangeStatus.UNCHANGED, null, 0, 0, List.of());
+            result = Changes.unchanged(id, since, to);
         } else {
             result = compare(user, document, since, to);
         }
@@ -110,14 +128,13 @@ public class DocumentController {
             old = noteVersions.render(user, document, since);
         } catch (ApiFailure failure) {
             if (failure.code != Code.SOURCE_NOT_FOUND && failure.code != Code.UNSUPPORTED_CONTENT) throw failure;
-            return new Changes(document.id(), since, to, ChangeStatus.SINCE_UNAVAILABLE, failure.getMessage(), 0, 0, List.of());
+            return Changes.sinceUnavailable(document.id(), since, to, failure.getMessage());
         }
         var current = noteVersions.render(user, document, to);
         return NoteChanges.compare(MarkdownRenderer.sourceLines(old.markdown()), old.note().headings(),
                 MarkdownRenderer.sourceLines(current.markdown()), current.note().headings())
-            .map(comparison -> new Changes(document.id(), since, to, ChangeStatus.CHANGED, null,
-                comparison.addedLines(), comparison.removedLines(), comparison.sections()))
-            .orElseGet(() -> new Changes(document.id(), since, to, ChangeStatus.TOO_LARGE, null, 0, 0, List.of()));
+            .map(comparison -> Changes.changed(document.id(), since, to, comparison))
+            .orElseGet(() -> Changes.tooLarge(document.id(), since, to));
     }
 
     /**
@@ -138,7 +155,7 @@ public class DocumentController {
         if (embed != null) path = attachments.resolve(document.connectionId(), document.path(), embed);
         String token = github.userToken(user.githubUserId());
         byte[] bytes = github.imageFile(token, document.owner(), document.repositoryName(), path, document.commitSha());
-        String extension = path.substring(path.lastIndexOf('.') + 1).toLowerCase(java.util.Locale.ROOT);
+        String extension = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         LOG.info("Document image served; userId={} documentId={} bytes={}", user.id(), id, bytes.length);
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(MarkdownRenderer.IMAGE_TYPES.get(extension)))
             .header("X-Content-Type-Options", "nosniff").body(bytes);
