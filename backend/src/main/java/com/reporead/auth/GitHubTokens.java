@@ -1,8 +1,8 @@
 package com.reporead.auth;
 
+import com.reporead.RepoReadProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
@@ -45,11 +45,10 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
     private final ClientRegistrationRepository registrations;
     private final SecretKey key;
 
-    public GitHubTokens(JdbcClient db, ClientRegistrationRepository registrations,
-                        @Value("${reporead.github.token-key-file}") String keyFile) throws IOException {
+    public GitHubTokens(JdbcClient db, ClientRegistrationRepository registrations, RepoReadProperties properties) throws IOException {
         this.db = db;
         this.registrations = registrations;
-        this.key = readKey(Path.of(keyFile));
+        this.key = readKey(properties.github().tokenKeyFile());
     }
 
     static SecretKey readKey(Path file) throws IOException {

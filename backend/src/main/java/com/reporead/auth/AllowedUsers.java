@@ -1,6 +1,6 @@
 package com.reporead.auth;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.reporead.RepoReadProperties;
 import org.springframework.stereotype.Component;
 
 import java.util.HashSet;
@@ -19,7 +19,8 @@ final class AllowedUsers {
     private static final Pattern ID = Pattern.compile("[1-9][0-9]{0,17}");
     private final Set<Long> githubUserIds;
 
-    AllowedUsers(@Value("${reporead.allowed-github-user-ids}") String ids) {
+    AllowedUsers(RepoReadProperties properties) {
+        String ids = properties.allowedGithubUserIds();
         var parsed = new HashSet<Long>();
         for (String id : ids.split(",", -1)) {
             if (!ID.matcher(id.strip()).matches()) {

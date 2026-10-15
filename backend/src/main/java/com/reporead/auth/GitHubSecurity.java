@@ -1,13 +1,15 @@
 package com.reporead.auth;
 
+import com.reporead.RepoReadProperties;
 import com.reporead.github.GitHubHttp;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.catalina.session.StandardManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.autoconfigure.web.server.ManagementServerProperties;
 import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
+import org.springframework.boot.web.server.autoconfigure.ServerProperties;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -64,19 +66,15 @@ public class GitHubSecurity {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubSecurity.class);
 
     @Bean
-    ClientRegistrationRepository registrations(
-        @Value("${reporead.github.client-id}") String clientId,
-        @Value("${reporead.github.client-secret-file}") String secretFile,
-        @Value("${server.address}") String address,
-        @Value("${server.port}") int port,
-        @Value("${reporead.public-url}") String publicUrl
-    ) throws IOException {
-        if (clientId.isBlank()) throw new IllegalArgumentException("reporead.github.client-id must not be blank");
+    ClientRegistrationRepository registrations(RepoReadProperties properties, ServerProperties server) throws IOException {
         // Only loopback clients reach the server: the phone through `adb reverse` on the Mac, or the hosted HTTPS proxy.
-        if (!address.equals("127.0.0.1")) throw new IllegalArgumentException("RepoRead must bind to 127.0.0.1, not " + address);
-        String callback = callbackUri(publicUrl, port);
+        var address = server.getAddress();
+        if (address == null || !address.getHostAddress().equals("127.0.0.1")) {
+            throw new IllegalArgumentException("RepoRead must bind to 127.0.0.1, not " + address);
+        }
+        String callback = callbackUri(properties.publicUrl(), server.getPort());
         var registration = ClientRegistration.withRegistrationId("github")
-            .clientId(clientId).clientSecret(readSecret(Path.of(secretFile)))
+            .clientId(properties.github().clientId()).clientSecret(readSecret(properties.github().clientSecretFile()))
             .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST)
             .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
             .redirectUri(callback)
@@ -94,7 +92,8 @@ public class GitHubSecurity {
      */
     @Bean
     @Order(0)
-    SecurityFilterChain management(HttpSecurity http, @Value("${management.server.port}") int managementPort) throws Exception {
+    SecurityFilterChain management(HttpSecurity http, ManagementServerProperties management) throws Exception {
+        int managementPort = management.getPort();
         http.securityMatcher(request -> request.getLocalPort() == managementPort)
             .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
