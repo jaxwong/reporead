@@ -29,12 +29,13 @@ class NoteImages(private val api: Api, filesDir: File) {
     private fun cached(documentId: Long, blobSha: String, key: String, query: String): ByteArray? {
         val file = File(root, "$documentId/$blobSha/$key")
         if (file.isFile) return file.readBytes()
-        val bytes = try {
-            api.bytes("/api/documents/$documentId/image?$query")
-        } catch (error: ApiException) {
-            Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
-            return null
-        }
+        val bytes =
+            try {
+                api.bytes("/api/documents/$documentId/image?$query")
+            } catch (error: ApiException) {
+                Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
+                return null
+            }
         file.parentFile!!.mkdirs()
         val partial = File(file.parentFile, file.name + ".partial")
         partial.writeBytes(bytes)
@@ -44,14 +45,19 @@ class NoteImages(private val api: Api, filesDir: File) {
 
     /** Deletes every saved image of [documentIds]. */
     fun delete(documentIds: List<Long>) {
-        for (id in documentIds) File(root, id.toString()).let { check(!it.exists() || it.deleteRecursively()) { "Could not remove saved images at $it" } }
+        for (id in documentIds) File(root, id.toString()).let {
+            check(!it.exists() || it.deleteRecursively()) { "Could not remove saved images at $it" }
+        }
     }
 
     /** Deletes [documentId]'s images of every version but [blobSha], once that version's page is saved. */
     fun keepOnly(documentId: Long, blobSha: String) {
-        File(root, documentId.toString()).listFiles()?.filter { it.name != blobSha }?.forEach { old ->
-            check(old.deleteRecursively()) { "Could not remove images of an older version at $old" }
-        }
+        File(root, documentId.toString())
+            .listFiles()
+            ?.filter { it.name != blobSha }
+            ?.forEach { old ->
+                check(old.deleteRecursively()) { "Could not remove images of an older version at $old" }
+            }
     }
 
     /** Deletes every saved image (sign-out). */
@@ -59,5 +65,6 @@ class NoteImages(private val api: Api, filesDir: File) {
         check(!root.exists() || root.deleteRecursively()) { "Could not remove saved images at $root" }
     }
 
-    private fun sha256(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+    private fun sha256(value: String) =
+        MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 }

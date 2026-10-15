@@ -1,15 +1,13 @@
 package com.reporead.android.search
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,15 +18,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.Scaffold
 import com.reporead.android.R
 import com.reporead.android.Screen
+import com.reporead.android.data.LibraryDao
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.folderOf
-import com.reporead.android.data.LibraryDao
 import kotlinx.coroutines.delay
 
 /** Matches of each kind shown per query; more are not listed. */
@@ -52,22 +49,38 @@ internal fun snippet(text: String, query: String): String {
 internal data class SearchResult(val documentId: Long, val title: String, val path: String, val detail: String)
 
 /**
- * Searches only what is saved on this phone, which belongs to the signed-in account: note titles and paths in the
- * saved lists, the text of saved notes, and highlights with their notes.
+ * Searches only what is saved on this phone, which belongs to the signed-in account: note titles and paths in the saved
+ * lists, the text of saved notes, and highlights with their notes.
  */
 internal suspend fun search(dao: LibraryDao, query: String): Pair<List<SearchResult>, Boolean> {
     val pattern = likePattern(query)
     val notes = dao.searchNotes(pattern, SEARCH_LIMIT)
     val highlights = dao.searchHighlights(pattern, SEARCH_LIMIT)
     // A note can match as a list entry and as a saved copy; the text match is the more useful one.
-    val byNote = notes.groupBy { it.documentId }.values.map { matches -> matches.firstOrNull { it.searchText != null } ?: matches.first() }
-    val results = byNote.map { note ->
-        SearchResult(note.documentId, note.title, note.path, note.searchText?.let { snippet(it, query) } ?: "Title or path")
-    } + highlights.map { highlight ->
-        val inQuote = highlight.exactText.contains(query, ignoreCase = true)
-        SearchResult(highlight.documentId, highlight.title, highlight.path,
-            if (inQuote) "Your highlight: “${snippet(highlight.exactText, query)}”" else "Your note: ${snippet(highlight.note!!, query)}")
-    }
+    val byNote =
+        notes
+            .groupBy { it.documentId }
+            .values
+            .map { matches -> matches.firstOrNull { it.searchText != null } ?: matches.first() }
+    val results =
+        byNote.map { note ->
+            SearchResult(
+                note.documentId,
+                note.title,
+                note.path,
+                note.searchText?.let { snippet(it, query) } ?: "Title or path",
+            )
+        } +
+            highlights.map { highlight ->
+                val inQuote = highlight.exactText.contains(query, ignoreCase = true)
+                SearchResult(
+                    highlight.documentId,
+                    highlight.title,
+                    highlight.path,
+                    if (inQuote) "Your highlight: “${snippet(highlight.exactText, query)}”"
+                    else "Your note: ${snippet(highlight.note!!, query)}",
+                )
+            }
     return results to (notes.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT)
 }
 
@@ -84,29 +97,59 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
         results = search(dao, query.trim())
     }
     Scaffold(topBar = { AppBar("Search", onBack = onBack) }) { padding ->
-    Column(Modifier.padding(padding).fillMaxSize()) {
-        OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Search saved notes") },
-            leadingIcon = { AppIcon(R.drawable.ic_search, null) },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-        val found = results
-        when {
-            query.isBlank() -> EmptyState(counts?.let { (listed, texts) ->
-                "Searching $texts of $listed notes by their text, all $listed by title and path, and your highlights." +
-                    if (texts < listed) " Notes not saved here are found by title and path only; a repository's menu has Save all notes on this phone." else ""
-            } ?: "")
-            found == null -> Unit
-            found.first.isEmpty() -> EmptyState("No saved note matches “${query.trim()}”." + counts?.let { (listed, texts) ->
-                if (texts < listed) " Only $texts of $listed notes are saved on this phone, so only those are searched by their text." else null
-            }.orEmpty())
-            else -> LazyColumn {
-                if (found.second) item { Text("Showing the first $SEARCH_LIMIT matches; refine the search to see others.", Modifier.padding(16.dp)) }
-                itemsIndexed(found.first) { _, result ->
-                    EntryRow(result.title, result.detail, R.drawable.ic_description, listOfNotNull(folderOf(result.path).ifEmpty { null })) {
-                        push(Screen.Reader(result.documentId, result.title))
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            OutlinedTextField(
+                query,
+                { query = it },
+                singleLine = true,
+                label = { Text("Search saved notes") },
+                leadingIcon = { AppIcon(R.drawable.ic_search, null) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            )
+            val found = results
+            when {
+                query.isBlank() ->
+                    EmptyState(
+                        counts?.let { (listed, texts) ->
+                            "Searching $texts of $listed notes by their text, all $listed by title and path, and your highlights." +
+                                if (texts < listed)
+                                    " Notes not saved here are found by title and path only; a repository's menu has Save all notes on this phone."
+                                else ""
+                        } ?: ""
+                    )
+                found == null -> Unit
+                found.first.isEmpty() ->
+                    EmptyState(
+                        "No saved note matches “${query.trim()}”." +
+                            counts
+                                ?.let { (listed, texts) ->
+                                    if (texts < listed)
+                                        " Only $texts of $listed notes are saved on this phone, so only those are searched by their text."
+                                    else null
+                                }
+                                .orEmpty()
+                    )
+                else ->
+                    LazyColumn {
+                        if (found.second)
+                            item {
+                                Text(
+                                    "Showing the first $SEARCH_LIMIT matches; refine the search to see others.",
+                                    Modifier.padding(16.dp),
+                                )
+                            }
+                        itemsIndexed(found.first) { _, result ->
+                            EntryRow(
+                                result.title,
+                                result.detail,
+                                R.drawable.ic_description,
+                                listOfNotNull(folderOf(result.path).ifEmpty { null }),
+                            ) {
+                                push(Screen.Reader(result.documentId, result.title))
+                            }
+                        }
                     }
-                }
             }
         }
-    }
     }
 }

@@ -48,19 +48,28 @@ private const val GUIDE_HEIGHT = 0.3f
 /** Where a link on an answer line leads, among the bank's repository's saved notes. */
 private sealed interface LinkedNote {
     data object Loading : LinkedNote
+
     data class Problem(val text: String) : LinkedNote
+
     data class Found(val document: DocumentRow, val saved: NoteRow?) : LinkedNote
 }
 
 /**
  * A bank question's answer, shown after an attempt: what the bank says a complete answer covers, to grade against, then
  * the core section its Canonical line links (one at a time when it links several), alone and from the copy saved on
- * this phone, filling the height [modifier] gives it. Works offline; nothing is fetched. [push] opens the linked note at
- * that heading, or a table or diagram of the section full screen.
+ * this phone, filling the height [modifier] gives it. Works offline; nothing is fetched. [push] opens the linked note
+ * at that heading, or a table or diagram of the section full screen.
  */
 @Composable
-internal fun BankAnswer(question: StudyQuestion, bankDocumentId: Long, bankPath: String, sync: Sync, dao: LibraryDao,
-                        modifier: Modifier, push: (Screen) -> Unit) {
+internal fun BankAnswer(
+    question: StudyQuestion,
+    bankDocumentId: Long,
+    bankPath: String,
+    sync: Sync,
+    dao: LibraryDao,
+    modifier: Modifier,
+    push: (Screen) -> Unit,
+) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (question.guide.isNotEmpty()) {
             val most = (LocalConfiguration.current.screenHeightDp * GUIDE_HEIGHT).dp
@@ -70,42 +79,74 @@ internal fun BankAnswer(question: StudyQuestion, bankDocumentId: Long, bankPath:
         }
         val links = question.answer.links
         if (links.isEmpty()) {
-            Text("This answer line links no section: “${question.answer.text}”. Add a link to the section that answers it.")
+            Text(
+                "This answer line links no section: “${question.answer.text}”. Add a link to the section that answers it."
+            )
             return@Column
         }
         var selected by rememberSaveable(question.blockId) { mutableIntStateOf(0) }
-        if (links.size > 1) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            links.forEachIndexed { index, link ->
-                FilterChip(selected = selected == index, onClick = { selected = index }, label = { Text("${index + 1}. ${link.text}") })
+        if (links.size > 1)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                links.forEachIndexed { index, link ->
+                    FilterChip(
+                        selected = selected == index,
+                        onClick = { selected = index },
+                        label = { Text("${index + 1}. ${link.text}") },
+                    )
+                }
             }
+        key(bankDocumentId, question.blockId, selected) {
+            AnswerSection(links[selected], bankDocumentId, bankPath, sync, dao, push)
         }
-        key(bankDocumentId, question.blockId, selected) { AnswerSection(links[selected], bankDocumentId, bankPath, sync, dao, push) }
     }
 }
 
 @Composable
-private fun ColumnScope.AnswerSection(link: AnswerLink, bankDocumentId: Long, bankPath: String, sync: Sync, dao: LibraryDao,
-                                      push: (Screen) -> Unit) {
-    val linked by produceState<LinkedNote>(LinkedNote.Loading, link) {
-        val bank = dao.document(bankDocumentId)
-        value = if (bank == null) LinkedNote.Problem("This bank isn't in a saved note list, so its links can't be followed. Refresh the repository.")
-        else {
-            val matches = resolveNoteLink(link.target, link.path, bankPath, dao.documentsOnce(bank.repositoryId))
-            when (matches.size) {
-                0 -> LinkedNote.Problem("No note “${link.path ?: link.target}” in this repository's saved list. Refresh the repository if it is new.")
-                1 -> LinkedNote.Found(matches.single(), dao.note(matches.single().id))
-                else -> LinkedNote.Problem("Several notes are named “${link.target}”: ${matches.joinToString { it.path }}. Link one by its path.")
-            }
+private fun ColumnScope.AnswerSection(
+    link: AnswerLink,
+    bankDocumentId: Long,
+    bankPath: String,
+    sync: Sync,
+    dao: LibraryDao,
+    push: (Screen) -> Unit,
+) {
+    val linked by
+        produceState<LinkedNote>(LinkedNote.Loading, link) {
+            val bank = dao.document(bankDocumentId)
+            value =
+                if (bank == null)
+                    LinkedNote.Problem(
+                        "This bank isn't in a saved note list, so its links can't be followed. Refresh the repository."
+                    )
+                else {
+                    val matches =
+                        resolveNoteLink(link.target, link.path, bankPath, dao.documentsOnce(bank.repositoryId))
+                    when (matches.size) {
+                        0 ->
+                            LinkedNote.Problem(
+                                "No note “${link.path ?: link.target}” in this repository's saved list. Refresh the repository if it is new."
+                            )
+                        1 -> LinkedNote.Found(matches.single(), dao.note(matches.single().id))
+                        else ->
+                            LinkedNote.Problem(
+                                "Several notes are named “${link.target}”: ${matches.joinToString { it.path }}. Link one by its path."
+                            )
+                    }
+                }
         }
-    }
     when (val note = linked) {
         LinkedNote.Loading -> Unit
         is LinkedNote.Problem -> Text(note.text)
         is LinkedNote.Found -> {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(listOfNotNull(note.document.title, link.heading?.let { "# ${link.text}" }).joinToString(" "),
-                    style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = { push(Screen.Reader(note.document.id, note.document.title, link.heading)) }) { Text("Open note") }
+                Text(
+                    listOfNotNull(note.document.title, link.heading?.let { "# ${link.text}" }).joinToString(" "),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { push(Screen.Reader(note.document.id, note.document.title, link.heading)) }) {
+                    Text("Open note")
+                }
             }
             val saved = note.saved
             if (saved == null) {
@@ -113,12 +154,21 @@ private fun ColumnScope.AnswerSection(link: AnswerLink, bankDocumentId: Long, ba
                 return
             }
             var notice by remember(saved.blobSha, link) { mutableStateOf<String?>(null) }
-            if (saved.blobSha != note.document.blobSha) Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
+            if (saved.blobSha != note.document.blobSha)
+                Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
             notice?.let { Text(it) }
             AndroidView(
                 factory = { context ->
-                    sectionView(context, sync, saved, link.heading, onProblem = { notice = it },
-                        onFigure = { figure -> push(Screen.Figure(saved.documentId, saved.blobSha, figure, saved.title)) })
+                    sectionView(
+                        context,
+                        sync,
+                        saved,
+                        link.heading,
+                        onProblem = { notice = it },
+                        onFigure = { figure ->
+                            push(Screen.Figure(saved.documentId, saved.blobSha, figure, saved.title))
+                        },
+                    )
                 },
                 onRelease = { it.destroy() },
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -134,37 +184,57 @@ private fun ColumnScope.AnswerSection(link: AnswerLink, bankDocumentId: Long, ba
  * Full screen link passes the page's id for that table or diagram to [onFigure], numbered over the whole note as the
  * full-screen view numbers it.
  */
-private fun sectionView(context: Context, sync: Sync, note: NoteRow, heading: String?, onProblem: (String) -> Unit,
-                        onFigure: (String) -> Unit): WebView {
+private fun sectionView(
+    context: Context,
+    sync: Sync,
+    note: NoteRow,
+    heading: String?,
+    onProblem: (String) -> Unit,
+    onFigure: (String) -> Unit,
+): WebView {
     val assets = readerAssets(context)
     val main = Handler(Looper.getMainLooper())
     return WebView(context).apply {
         isolateReaderPage()
         alpha = 0f
-        webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val url = request.url
-                if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN) url.getQueryParameter("figure")?.let(onFigure)
-                return true
-            }
-
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = readerResource(assets, sync.images, note, request.url)
-
-            override fun onPageFinished(view: WebView, url: String) = awaitRendered(view, main) { state, _ ->
-                if (state != "ready") {
-                    Log.w("RepoRead", "Answer section did not render; documentId=${note.documentId} state=$state")
-                    onProblem("${note.title} could not be shown.")
-                    return@awaitRendered
+        webViewClient =
+            object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                    val url = request.url
+                    if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN)
+                        url.getQueryParameter("figure")?.let(onFigure)
+                    return true
                 }
-                view.evaluateJavascript("window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})") { encoded ->
-                    if (JSONTokener(encoded).nextValue() == true) view.alpha = 1f
-                    else {
-                        Log.w("RepoRead", "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha} heading=$heading")
-                        onProblem("No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date.")
+
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                    readerResource(assets, sync.images, note, request.url)
+
+                override fun onPageFinished(view: WebView, url: String) =
+                    awaitRendered(view, main) { state, _ ->
+                        if (state != "ready") {
+                            Log.w(
+                                "RepoRead",
+                                "Answer section did not render; documentId=${note.documentId} state=$state",
+                            )
+                            onProblem("${note.title} could not be shown.")
+                            return@awaitRendered
+                        }
+                        view.evaluateJavascript(
+                            "window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})"
+                        ) { encoded ->
+                            if (JSONTokener(encoded).nextValue() == true) view.alpha = 1f
+                            else {
+                                Log.w(
+                                    "RepoRead",
+                                    "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha} heading=$heading",
+                                )
+                                onProblem(
+                                    "No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date."
+                                )
+                            }
+                        }
                     }
-                }
             }
-        }
         loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
     }
 }

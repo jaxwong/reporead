@@ -12,8 +12,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.ui.Modifier
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 
 class MainActivity : ComponentActivity() {
     /** The code from this build's sign-in redirect (<SIGN_IN_SCHEME>://auth), consumed once by the app. */
@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
 
     private fun receive(intent: Intent) {
         val uri = intent.data ?: return
-        if (uri.scheme == BuildConfig.SIGN_IN_SCHEME && uri.host == "auth") signInCode.value = uri.getQueryParameter("code")
+        if (uri.scheme == BuildConfig.SIGN_IN_SCHEME && uri.host == "auth")
+            signInCode.value = uri.getQueryParameter("code")
     }
 }

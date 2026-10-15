@@ -18,8 +18,11 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
-import kotlinx.coroutines.delay
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -30,9 +33,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 /** Real ReaderScreen, Activity teardown and Room writes; isolated test-only data, zero network calls. */
 @RunWith(AndroidJUnit4::class)
@@ -48,22 +48,29 @@ class ReaderLifecycleTest {
     private val screenUnderTest = mutableStateOf(Screen.Reader(1, title))
     private var readerReady = false
 
-    @Before fun open() = runBlocking {
+    @Before
+    fun open() = runBlocking {
         val context = instrumentation.targetContext
         store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
         files = File(context.cacheDir, "reader-lifecycle-test")
         check(files.mkdirs() || files.isDirectory) { "Cannot create test-only directory $files" }
         val dao = store.library()
         val path = "test-only/lifecycle.md"
-        fun block(id: Int, tag: String, text: String) = """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
-        val body = block(0, "h1", title) + block(1, "h2", "Start") + (2..5).joinToString("") { block(it, "p", "Test-only opening $it.") } +
-            block(6, "h2", "Answer") + (7..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) } +
-            // A same-note link, and a block whose 64-unit prefix would end inside an emoji.
-            """<p data-block-id="b61" data-anchor-text="Back to the answer"><a href="#answer">Back to the answer</a></p>""" +
-            block(62, "p", "x".repeat(63) + "\uD83D\uDE00 after the emoji") +
-            // Enough text below, so those blocks can reach the top of the screen.
-            (63..80).joinToString("") { block(it, "p", "Test-only closing paragraph $it. ".repeat(20)) }
-        val html = """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+        fun block(id: Int, tag: String, text: String) =
+            """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
+        val body =
+            block(0, "h1", title) +
+                block(1, "h2", "Start") +
+                (2..5).joinToString("") { block(it, "p", "Test-only opening $it.") } +
+                block(6, "h2", "Answer") +
+                (7..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) } +
+                // A same-note link, and a block whose 64-unit prefix would end inside an emoji.
+                """<p data-block-id="b61" data-anchor-text="Back to the answer"><a href="#answer">Back to the answer</a></p>""" +
+                block(62, "p", "x".repeat(63) + "\uD83D\uDE00 after the emoji") +
+                // Enough text below, so those blocks can reach the top of the screen.
+                (63..80).joinToString("") { block(it, "p", "Test-only closing paragraph $it. ".repeat(20)) }
+        val html =
+            """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
             <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
             <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
             <p id="render-status"></p><main id="note">$body</main></body></html>"""
@@ -74,10 +81,18 @@ class ReaderLifecycleTest {
         ReaderTestActivity.content = {
             MaterialTheme {
                 val activityScope = rememberCoroutineScope()
-                if (showingReader.value) key(screenUnderTest.value) {
-                    ReaderScreen(sync, dao, activityScope, signedIn = false,
-                        screen = screenUnderTest.value, onBack = {}, push = { error("Lifecycle fixture must not navigate") })
-                }
+                if (showingReader.value)
+                    key(screenUnderTest.value) {
+                        ReaderScreen(
+                            sync,
+                            dao,
+                            activityScope,
+                            signedIn = false,
+                            screen = screenUnderTest.value,
+                            onBack = {},
+                            push = { error("Lifecycle fixture must not navigate") },
+                        )
+                    }
             }
         }
         scenario = ActivityScenario.launch(ReaderTestActivity::class.java)
@@ -86,7 +101,8 @@ class ReaderLifecycleTest {
         readerReady = true
     }
 
-    @After fun close() = runBlocking {
+    @After
+    fun close() = runBlocking {
         if (readerReady) {
             val lastSavedAt = checkNotNull(store.library().reading(1)).lastReadAt
             // ActivityScenario.close does not await WebView callbacks or Room writes. Dispose the reader first,
@@ -97,7 +113,10 @@ class ReaderLifecycleTest {
                     while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(10)
                 }
             } catch (error: TimeoutCancellationException) {
-                throw AssertionError("Reader teardown did not save after $lastSavedAt; current=${store.library().reading(1)}", error)
+                throw AssertionError(
+                    "Reader teardown did not save after $lastSavedAt; current=${store.library().reading(1)}",
+                    error,
+                )
             }
         }
         if (::scenario.isInitialized) scenario.close()
@@ -107,7 +126,8 @@ class ReaderLifecycleTest {
         if (::files.isInitialized) check(files.deleteRecursively()) { "Cannot delete test-only directory $files" }
     }
 
-    @Test fun aLinkedHeadingIsShownOnceAndRecreationRestoresTheReadingPositionInstead() {
+    @Test
+    fun aLinkedHeadingIsShownOnceAndRecreationRestoresTheReadingPositionInstead() {
         scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, heading = "Answer") }
         awaitReader(6)
         awaitSaved(6)
@@ -118,17 +138,22 @@ class ReaderLifecycleTest {
         awaitSaved(12)
     }
 
-    @Test fun aSameNoteLinkScrollsToItsHeadingAndPrefixesKeepWholeCharacters() {
-        val prefix = evaluate("window.reporead.showBlock('b62'); return {prefix: window.reporead.position().anchor.textPrefix};").getString("prefix")
+    @Test
+    fun aSameNoteLinkScrollsToItsHeadingAndPrefixesKeepWholeCharacters() {
+        val prefix =
+            evaluate("window.reporead.showBlock('b62'); return {prefix: window.reporead.position().anchor.textPrefix};")
+                .getString("prefix")
         assertEquals("x".repeat(63), prefix)
         evaluate("window.reporead.showBlock('b61'); document.querySelector('a[href=\"#answer\"]').click(); return {};")
         awaitReader(6)
         awaitSaved(6)
-        // A Copy link in the note's own text can name a block that is not code; the page answers null instead of throwing.
+        // A Copy link in the note's own text can name a block that is not code; the page answers null instead of
+        // throwing.
         assertTrue(evaluate("return {text: window.reporead.codeText('b5')};").isNull("text"))
     }
 
-    @Test fun ordinaryReadingSurvivesActivityRecreationTwiceAndSavesInRoom() {
+    @Test
+    fun ordinaryReadingSurvivesActivityRecreationTwiceAndSavesInRoom() {
         val position = evaluate("window.reporead.showBlock('b12'); return window.reporead.position();")
         assertEquals(12, position.getJSONObject("anchor").getInt("blockIndex"))
         scenario.recreate()
@@ -158,11 +183,16 @@ class ReaderLifecycleTest {
     private fun awaitReader(block: Int) = runBlocking {
         var last = JSONObject()
         repeat(100) {
-            last = evaluate("""
-                if (!window.reporead || document.body.dataset.state !== 'ready') return {};
-                return {block: window.reporead.position().anchor.blockIndex,
-                    canonical: [...document.querySelectorAll('#note [data-block-id]')].every(b => b.textContent === b.dataset.anchorText)};
-            """.trimIndent(), allowLoading = true)
+            last =
+                evaluate(
+                    """
+                    if (!window.reporead || document.body.dataset.state !== 'ready') return {};
+                    return {block: window.reporead.position().anchor.blockIndex,
+                        canonical: [...document.querySelectorAll('#note [data-block-id]')].every(b => b.textContent === b.dataset.anchorText)};
+                    """
+                        .trimIndent(),
+                    allowLoading = true,
+                )
             if (last.optInt("block", -1) == block) {
                 assertTrue("Canonical text changed: $last", last.getBoolean("canonical"))
                 return@runBlocking
@@ -181,9 +211,15 @@ class ReaderLifecycleTest {
                 encoded = "\"{}\""
                 done.countDown()
             } else {
-                checkNotNull(view) { "Reader WebView is missing" }.evaluateJavascript("""JSON.stringify((() => {
+                checkNotNull(view) { "Reader WebView is missing" }
+                    .evaluateJavascript(
+                        """JSON.stringify((() => {
                     try { $script } catch (error) { return {error: error.stack}; }
-                })())""") { encoded = it; done.countDown() }
+                })())"""
+                    ) {
+                        encoded = it
+                        done.countDown()
+                    }
             }
         }
         assertTrue("Reader JavaScript timed out: $script", done.await(5, TimeUnit.SECONDS))
@@ -194,9 +230,12 @@ class ReaderLifecycleTest {
 
     private fun findWebView(view: View): WebView? {
         if (view is WebView) return view
-        if (view is ViewGroup) for (index in 0 until view.childCount) {
-            findWebView(view.getChildAt(index))?.let { return it }
-        }
+        if (view is ViewGroup)
+            for (index in 0 until view.childCount) {
+                findWebView(view.getChildAt(index))?.let {
+                    return it
+                }
+            }
         return null
     }
 }

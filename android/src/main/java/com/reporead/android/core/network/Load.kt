@@ -15,7 +15,9 @@ import androidx.compose.ui.unit.dp
 
 sealed interface Load<out T> {
     data object Loading : Load<Nothing>
+
     data class Failed(val error: ApiException) : Load<Nothing>
+
     data class Ready<T>(val value: T) : Load<T>
 }
 
@@ -24,21 +26,23 @@ sealed interface Load<out T> {
 fun <T> rememberLoad(key: Any?, block: suspend () -> T): State<Load<T>> =
     produceState<Load<T>>(Load.Loading, key) {
         value = Load.Loading
-        value = try {
-            Load.Ready(block())
-        } catch (error: ApiException) {
-            Load.Failed(error)
-        }
+        value =
+            try {
+                Load.Ready(block())
+            } catch (error: ApiException) {
+                Load.Failed(error)
+            }
     }
 
 @Composable
 fun <T> LoadContent(load: Load<T>, onRetry: () -> Unit, content: @Composable (T) -> Unit) {
     when (load) {
         Load.Loading -> CircularProgressIndicator(Modifier.padding(24.dp))
-        is Load.Failed -> Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(load.error.describe())
-            Button(onClick = onRetry) { Text("Try again") }
-        }
+        is Load.Failed ->
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(load.error.describe())
+                Button(onClick = onRetry) { Text("Try again") }
+            }
         is Load.Ready -> content(load.value)
     }
 }

@@ -2,6 +2,16 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+    id("com.diffplug.spotless")
+}
+
+// One formatter owns the app's Kotlin layout, as palantir-java-format does the backend's (Kotlin coding conventions,
+// 120 columns to match). CI runs spotlessCheck; spotlessApply fixes it. reader-web's JavaScript is not covered.
+spotless {
+    kotlin {
+        target("src/**/*.kt")
+        ktfmt("0.64").kotlinlangStyle().configure { it.setMaxWidth(120) }
+    }
 }
 
 // The Variant API needs a typed output directory to wire generated assets to their producer.

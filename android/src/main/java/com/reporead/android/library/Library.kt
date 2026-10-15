@@ -64,21 +64,31 @@ import com.reporead.android.ui.sectionTitle
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-private data class Available(val githubRepositoryId: Long, val installationId: Long, val fullName: String,
-                             val privateRepository: Boolean, val connectionId: Long?)
+private data class Available(
+    val githubRepositoryId: Long,
+    val installationId: Long,
+    val fullName: String,
+    val privateRepository: Boolean,
+    val connectionId: Long?,
+)
 
 /** When a refresh found the note changed; RepoRead does not know the commit time. */
-private fun seenChanged(note: ChangedNote) = note.changedAt?.let {
-    "Seen changed ${DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)}"
-}
+private fun seenChanged(note: ChangedNote) =
+    note.changedAt?.let {
+        "Seen changed ${DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)}"
+    }
 
 /**
  * Runs [block] when the screen appears (and on [key] changes) and shows what it returns, or a failure, as the status;
  * cached data stays visible.
  */
 @Composable
-private fun RefreshOnEntry(key: Any, onRefreshing: (Boolean) -> Unit, onStatus: (String?) -> Unit,
-                           block: suspend () -> String?) {
+private fun RefreshOnEntry(
+    key: Any,
+    onRefreshing: (Boolean) -> Unit,
+    onStatus: (String?) -> Unit,
+    block: suspend () -> String?,
+) {
     LaunchedEffect(key) {
         onRefreshing(true)
         try {
@@ -100,8 +110,15 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, push: (Screen) -> Unit,
-                  onSignIn: () -> Unit, onSignOut: () -> Unit, onAccountDeleted: () -> Unit) {
+fun LibraryScreen(
+    sync: Sync,
+    dao: LibraryDao,
+    signedIn: Boolean,
+    push: (Screen) -> Unit,
+    onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+    onAccountDeleted: () -> Unit,
+) {
     var tab by rememberSaveable { mutableStateOf(LibraryTab.READING) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
     /** Changes the server has not acknowledged, counted for the sign-out confirmation; non-null while it is shown. */
@@ -114,54 +131,83 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, push: (Screen)
     val waiting by dao.waitingCount().collectAsState(0)
     val outlook = rememberReviewOutlook(dao)
     if (signedIn) {
-        // Pushes pending changes, then pulls the server's view. The background sync sends changes without this (ADR-08).
+        // Pushes pending changes, then pulls the server's view. The background sync sends changes without this
+        // (ADR-08).
         RefreshOnEntry(refresh, { refreshing = it }, { status = it }) {
             sync.refreshRepositories()
             val synced = sync.syncLocalChanges()
             listOfNotNull(
-                synced.notSent?.let { "New highlights and cards stay on this phone for now. ${it.describe()}" },
-                synced.refused.takeIf { it.isNotEmpty() }?.let { "The server refused: ${it.joinToString("; ")}. A refused place stays on this phone." },
-            ).joinToString(" ").ifEmpty { null }
+                    synced.notSent?.let { "New highlights and cards stay on this phone for now. ${it.describe()}" },
+                    synced.refused
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { "The server refused: ${it.joinToString("; ")}. A refused place stays on this phone." },
+                )
+                .joinToString(" ")
+                .ifEmpty { null }
         }
     }
     Scaffold(
         topBar = {
-            AppBar("Library", actions = {
-                IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
-                OverflowMenu(if (signedIn) listOf(
-                    MenuAction("Sign out and remove from phone…") { scope.launch { confirmSignOut = dao.unsentCount() } },
-                    MenuAction("Delete account…") { confirmDeleteAccount = true },
-                ) else listOf(MenuAction("Sign in with GitHub", onSignIn)))
-            })
+            AppBar(
+                "Library",
+                actions = {
+                    IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
+                    OverflowMenu(
+                        if (signedIn)
+                            listOf(
+                                MenuAction("Sign out and remove from phone…") {
+                                    scope.launch { confirmSignOut = dao.unsentCount() }
+                                },
+                                MenuAction("Delete account…") { confirmDeleteAccount = true },
+                            )
+                        else listOf(MenuAction("Sign in with GitHub", onSignIn))
+                    )
+                },
+            )
         },
         bottomBar = {
             NavigationBar {
                 for (entry in LibraryTab.entries) {
                     // Practice carries the review cards due now, so they are seen without opening it.
                     val due = if (entry == LibraryTab.PRACTICE) outlook?.due ?: 0 else 0
-                    NavigationBarItem(selected = tab == entry, onClick = { tab = entry }, label = { Text(entry.label) },
-                        icon = { BadgedBox(badge = { if (due > 0) Badge { Text("$due") } }) { AppIcon(entry.icon, null) } })
+                    NavigationBarItem(
+                        selected = tab == entry,
+                        onClick = { tab = entry },
+                        label = { Text(entry.label) },
+                        icon = {
+                            BadgedBox(badge = { if (due > 0) Badge { Text("$due") } }) { AppIcon(entry.icon, null) }
+                        },
+                    )
                 }
             }
         },
         floatingActionButton = {
             if (signedIn && tab == LibraryTab.REPOSITORIES) {
-                ExtendedFloatingActionButton(onClick = { push(Screen.Available) }, icon = { AppIcon(R.drawable.ic_add, null) },
-                    text = { Text("Add repository") })
+                ExtendedFloatingActionButton(
+                    onClick = { push(Screen.Available) },
+                    icon = { AppIcon(R.drawable.ic_add, null) },
+                    text = { Text("Add repository") },
+                )
             }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (!signedIn) {
                 StatusLine("GitHub sign-in needed. Saved notes are still readable; sign in to refresh and sync.")
-                FilledTonalButton(onClick = onSignIn, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Sign in with GitHub") }
+                FilledTonalButton(onClick = onSignIn, modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Text("Sign in with GitHub")
+                }
             }
             StatusLine(status)
             if (signedIn && waiting > 0) {
                 // The background sync sends these once the phone is online; Sync now sends them while you watch.
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${counted(waiting, "change")} waiting to sync", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    Text(
+                        "${counted(waiting, "change")} waiting to sync",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
                     TextButton(onClick = { refresh++ }, enabled = !refreshing) { Text("Sync now") }
                 }
             }
@@ -174,40 +220,65 @@ fun LibraryScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, push: (Screen)
                     LibraryTab.REPOSITORIES -> RepositoriesTab(repositories, signedIn, push)
                 }
             }
-            if (signedIn) PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refresh++ }, modifier = Modifier.fillMaxSize()) { content() }
+            if (signedIn)
+                PullToRefreshBox(
+                    isRefreshing = refreshing,
+                    onRefresh = { refresh++ },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    content()
+                }
             else Box(Modifier.fillMaxSize()) { content() }
         }
     }
     if (confirmDeleteAccount) {
-        DeleteAccountDialog(repositories.map { it.fullName }, onDismiss = { confirmDeleteAccount = false }, onConfirm = {
-            confirmDeleteAccount = false
-            status = "Deleting account…"
-            scope.launch {
-                try {
-                    sync.deleteAccount()
-                    onAccountDeleted()
-                } catch (failure: ApiException) {
-                    status = if (failure.status == 401) {
-                        // A lost answer to an earlier deletion also ends the session, so this cannot tell the two apart.
-                        "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
-                            "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
-                    } else "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
+        DeleteAccountDialog(
+            repositories.map { it.fullName },
+            onDismiss = { confirmDeleteAccount = false },
+            onConfirm = {
+                confirmDeleteAccount = false
+                status = "Deleting account…"
+                scope.launch {
+                    try {
+                        sync.deleteAccount()
+                        onAccountDeleted()
+                    } catch (failure: ApiException) {
+                        status =
+                            if (failure.status == 401) {
+                                // A lost answer to an earlier deletion also ends the session, so this cannot tell the
+                                // two apart.
+                                "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
+                                    "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
+                            } else "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
+                    }
                 }
-            }
-        })
+            },
+        )
     }
     confirmSignOut?.let { unsent ->
         AlertDialog(
             onDismissRequest = { confirmSignOut = null },
             title = { Text("Sign out of RepoRead?") },
             text = {
-                Text("This phone's saved notes, highlights, cards, and reading progress are deleted from it; what the server has stays " +
-                    "there for your next sign-in." + if (unsent == 0) "" else
-                    " ${counted(unsent, "change")} on this phone never reached the server and will be lost. Cancel and use Sync now to keep them.")
+                Text(
+                    "This phone's saved notes, highlights, cards, and reading progress are deleted from it; what the server has stays " +
+                        "there for your next sign-in." +
+                        if (unsent == 0) ""
+                        else
+                            " ${counted(unsent, "change")} on this phone never reached the server and will be lost. Cancel and use Sync now to keep them."
+                )
             },
             confirmButton = {
-                TextButton(onClick = { confirmSignOut = null; onSignOut() }) {
-                    Text(if (unsent == 0) "Sign out" else "Sign out and lose them", color = MaterialTheme.colorScheme.error)
+                TextButton(
+                    onClick = {
+                        confirmSignOut = null
+                        onSignOut()
+                    }
+                ) {
+                    Text(
+                        if (unsent == 0) "Sign out" else "Sign out and lose them",
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             },
             dismissButton = { TextButton(onClick = { confirmSignOut = null }) { Text("Cancel") } },
@@ -229,11 +300,12 @@ private fun ReadingTab(dao: LibraryDao, push: (Screen) -> Unit) {
         if (recent.isNotEmpty()) {
             sectionTitle("Continue reading")
             items(recent, key = { "recent:${it.documentId}" }) { row ->
-                val flags = when {
-                    row.deleted -> listOf("Removed from the repository")
-                    row.documentId in updatedIds -> listOf("Updated since you read")
-                    else -> emptyList()
-                }
+                val flags =
+                    when {
+                        row.deleted -> listOf("Removed from the repository")
+                        row.documentId in updatedIds -> listOf("Updated since you read")
+                        else -> emptyList()
+                    }
                 EntryRow(row.title, folderOf(row.path), R.drawable.ic_book, flags, progress = row.progressPercent) {
                     push(Screen.Reader(row.documentId, row.title))
                 }
@@ -250,8 +322,12 @@ private fun ReadingTab(dao: LibraryDao, push: (Screen) -> Unit) {
         if (changed.isNotEmpty()) {
             sectionTitle("Recently changed")
             items(changed, key = { "changed:${it.documentId}" }) { note ->
-                EntryRow(note.title, folderOf(note.path), R.drawable.ic_description,
-                    listOfNotNull(if (note.lastReadBlobSha == null) "Not read yet" else "Read", seenChanged(note))) {
+                EntryRow(
+                    note.title,
+                    folderOf(note.path),
+                    R.drawable.ic_description,
+                    listOfNotNull(if (note.lastReadBlobSha == null) "Not read yet" else "Read", seenChanged(note)),
+                ) {
                     push(Screen.Reader(note.documentId, note.title))
                 }
             }
@@ -268,7 +344,12 @@ private fun BookmarksTab(dao: LibraryDao, push: (Screen) -> Unit) {
     }
     LazyColumn(Modifier.fillMaxSize()) {
         items(bookmarks, key = { "bookmark:${it.documentId}" }) { row ->
-            EntryRow(row.title, folderOf(row.path), R.drawable.ic_bookmark, if (row.deleted) listOf("Removed from the repository") else emptyList()) {
+            EntryRow(
+                row.title,
+                folderOf(row.path),
+                R.drawable.ic_bookmark,
+                if (row.deleted) listOf("Removed from the repository") else emptyList(),
+            ) {
                 push(Screen.Reader(row.documentId, row.title))
             }
         }
@@ -276,15 +357,23 @@ private fun BookmarksTab(dao: LibraryDao, push: (Screen) -> Unit) {
 }
 
 @Composable
-private fun RepositoriesTab(repositories: List<com.reporead.android.data.RepositoryRow>, signedIn: Boolean, push: (Screen) -> Unit) {
+private fun RepositoriesTab(
+    repositories: List<com.reporead.android.data.RepositoryRow>,
+    signedIn: Boolean,
+    push: (Screen) -> Unit,
+) {
     if (repositories.isEmpty()) {
         EmptyState(if (signedIn) "No repositories connected yet. Tap Add repository." else "No saved repositories.")
         return
     }
     LazyColumn(Modifier.fillMaxSize()) {
         items(repositories, key = { "repository:${it.id}" }) { repository ->
-            EntryRow(repository.fullName, if (repository.lastSyncedCommitSha == null) "Not refreshed yet" else "${repository.documentCount} notes",
-                R.drawable.ic_folder) {
+            EntryRow(
+                repository.fullName,
+                if (repository.lastSyncedCommitSha == null) "Not refreshed yet"
+                else "${repository.documentCount} notes",
+                R.drawable.ic_folder,
+            ) {
                 push(Screen.Folder(repository.id, repository.fullName, ""))
             }
         }
@@ -297,11 +386,13 @@ private fun DeleteAccountDialog(repositories: List<String>, onDismiss: () -> Uni
         onDismissRequest = onDismiss,
         title = { Text("Delete your RepoRead account?") },
         text = {
-            Text("RepoRead will delete, on its server and this phone, your connections" +
-                (if (repositories.isEmpty()) "" else " (${repositories.joinToString()})") +
-                ", note lists, reading progress, bookmarks, highlights and notes, cards and review logs, and sign this phone out. This cannot be undone. " +
-                "Your GitHub repositories are not changed. RepoRead asks GitHub to revoke its authorization; to also uninstall " +
-                "the RepoRead App, use GitHub's Settings → Applications.")
+            Text(
+                "RepoRead will delete, on its server and this phone, your connections" +
+                    (if (repositories.isEmpty()) "" else " (${repositories.joinToString()})") +
+                    ", note lists, reading progress, bookmarks, highlights and notes, cards and review logs, and sign this phone out. This cannot be undone. " +
+                    "Your GitHub repositories are not changed. RepoRead asks GitHub to revoke its authorization; to also uninstall " +
+                    "the RepoRead App, use GitHub's Settings → Applications."
+            )
         },
         confirmButton = { TextButton(onClick = onConfirm) { Text("Delete account") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
@@ -314,54 +405,76 @@ fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit)
     var connecting by remember { mutableStateOf<Long?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val load by rememberLoad(reload) {
-        val json = api.get("/api/repositories/available")
-        contract {
-            json.getJSONArray("repositories").let { array ->
-                List(array.length()) {
-                    val item = array.getJSONObject(it)
-                    Available(item.getLong("githubRepositoryId"), item.getLong("installationId"), item.getString("fullName"),
-                        item.getBoolean("privateRepository"), if (item.isNull("connectionId")) null else item.getLong("connectionId"))
+    val load by
+        rememberLoad(reload) {
+            val json = api.get("/api/repositories/available")
+            contract {
+                json.getJSONArray("repositories").let { array ->
+                    List(array.length()) {
+                        val item = array.getJSONObject(it)
+                        Available(
+                            item.getLong("githubRepositoryId"),
+                            item.getLong("installationId"),
+                            item.getString("fullName"),
+                            item.getBoolean("privateRepository"),
+                            if (item.isNull("connectionId")) null else item.getLong("connectionId"),
+                        )
+                    }
                 }
             }
         }
-    }
     Scaffold(topBar = { AppBar("Add repository", onBack = onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             StatusLine("Only repositories you granted to the RepoRead GitHub App appear here.")
             StatusLine(error)
             LoadContent(load, onRetry = { reload++ }) { repositories ->
                 if (repositories.isEmpty()) {
-                    EmptyState("No repositories are available. Grant repositories to the RepoRead GitHub App on GitHub, then try again.")
-                } else LazyColumn {
-                    items(repositories, key = { it.githubRepositoryId }) { repository ->
-                        ListItem(
-                            leadingContent = { AppIcon(R.drawable.ic_folder, null) },
-                            headlineContent = { Text(repository.fullName) },
-                            supportingContent = { Text(if (repository.privateRepository) "Private" else "Public") },
-                            trailingContent = {
-                                if (repository.connectionId != null) Text("Connected")
-                                else Button(enabled = connecting == null, onClick = {
-                                    connecting = repository.githubRepositoryId
-                                    error = null
-                                    scope.launch {
-                                        try {
-                                            val json = api.post("/api/repositories/${repository.githubRepositoryId}/connect",
-                                                JSONObject().put("installationId", repository.installationId))
-                                            val id = contract { json.getLong("id") }
-                                            val fullName = contract { json.getString("fullName") }
-                                            onConnected(Screen.Folder(id, fullName, ""))
-                                        } catch (failure: ApiException) {
-                                            error = failure.describe()
-                                        } finally {
-                                            connecting = null
+                    EmptyState(
+                        "No repositories are available. Grant repositories to the RepoRead GitHub App on GitHub, then try again."
+                    )
+                } else
+                    LazyColumn {
+                        items(repositories, key = { it.githubRepositoryId }) { repository ->
+                            ListItem(
+                                leadingContent = { AppIcon(R.drawable.ic_folder, null) },
+                                headlineContent = { Text(repository.fullName) },
+                                supportingContent = { Text(if (repository.privateRepository) "Private" else "Public") },
+                                trailingContent = {
+                                    if (repository.connectionId != null) Text("Connected")
+                                    else
+                                        Button(
+                                            enabled = connecting == null,
+                                            onClick = {
+                                                connecting = repository.githubRepositoryId
+                                                error = null
+                                                scope.launch {
+                                                    try {
+                                                        val json =
+                                                            api.post(
+                                                                "/api/repositories/${repository.githubRepositoryId}/connect",
+                                                                JSONObject()
+                                                                    .put("installationId", repository.installationId),
+                                                            )
+                                                        val id = contract { json.getLong("id") }
+                                                        val fullName = contract { json.getString("fullName") }
+                                                        onConnected(Screen.Folder(id, fullName, ""))
+                                                    } catch (failure: ApiException) {
+                                                        error = failure.describe()
+                                                    } finally {
+                                                        connecting = null
+                                                    }
+                                                }
+                                            },
+                                        ) {
+                                            Text(
+                                                if (connecting == repository.githubRepositoryId) "Connecting…"
+                                                else "Connect"
+                                            )
                                         }
-                                    }
-                                }) { Text(if (connecting == repository.githubRepositoryId) "Connecting…" else "Connect") }
-                            },
-                        )
+                                },
+                            )
+                        }
                     }
-                }
             }
         }
     }
@@ -371,14 +484,22 @@ fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit)
 internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<String>, List<DocumentRow>> {
     val prefix = if (folder.isEmpty()) "" else "$folder/"
     val inside = documents.filter { it.path.startsWith(prefix) }
-    val folders = inside.mapNotNull { it.path.removePrefix(prefix).substringBefore('/', "").ifEmpty { null } }.distinct().sorted()
+    val folders =
+        inside.mapNotNull { it.path.removePrefix(prefix).substringBefore('/', "").ifEmpty { null } }.distinct().sorted()
     val notes = inside.filter { '/' !in it.path.removePrefix(prefix) }.sortedBy { it.title.lowercase() }
     return folders to notes
 }
 
 @Composable
-fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, screen: Screen.Folder, push: (Screen) -> Unit,
-                 onBack: () -> Unit, onDisconnected: () -> Unit) {
+fun FolderScreen(
+    sync: Sync,
+    dao: LibraryDao,
+    signedIn: Boolean,
+    screen: Screen.Folder,
+    push: (Screen) -> Unit,
+    onBack: () -> Unit,
+    onDisconnected: () -> Unit,
+) {
     var status by remember { mutableStateOf<String?>(null) }
     /** What disconnecting would delete, fetched for the confirmation; non-null while it is shown. */
     var confirmDisconnect by remember { mutableStateOf<Sync.DisconnectPreview?>(null) }
@@ -417,74 +538,104 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, screen: Screen.
         status = null
         saving = 0 to 0
         scope.launch {
-            status = try {
-                val saved = sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = done to toFetch }
-                listed = true
-                listOfNotNull(
-                    "Saved ${counted(saved.fetched, "note")} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
-                    saved.cannotShow.takeIf { it.isNotEmpty() }?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
-                ).joinToString(" ")
-            } catch (failure: ApiException) {
-                val (done, toFetch) = saving ?: (0 to 0)
-                "Stopped after $done of $toFetch notes; those are saved, and saving again continues from there. ${failure.describe()}"
-            } finally {
-                saving = null
-            }
+            status =
+                try {
+                    val saved = sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = done to toFetch }
+                    listed = true
+                    listOfNotNull(
+                            "Saved ${counted(saved.fetched, "note")} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
+                            saved.cannotShow
+                                .takeIf { it.isNotEmpty() }
+                                ?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
+                        )
+                        .joinToString(" ")
+                } catch (failure: ApiException) {
+                    val (done, toFetch) = saving ?: (0 to 0)
+                    "Stopped after $done of $toFetch notes; those are saved, and saving again continues from there. ${failure.describe()}"
+                } finally {
+                    saving = null
+                }
         }
     }
     val busy = refreshing || disconnecting || saving != null
-    Scaffold(topBar = {
-        AppBar(if (root) screen.repositoryName else screen.path.substringAfterLast('/'),
-            if (root) null else "${screen.repositoryName} / ${screen.path}", onBack = onBack, actions = {
-                if (signedIn && root) {
-                    IconButton(enabled = !busy, onClick = { refreshFromGitHub() }) {
-                        AppIcon(R.drawable.ic_refresh, "Refresh from GitHub")
-                    }
-                    OverflowMenu(listOf(MenuAction("Save all notes on this phone") {
-                        if (!busy) saveAll()
-                    }, MenuAction("Disconnect…") {
-                        if (busy) return@MenuAction
-                        status = null
-                        scope.launch {
-                            try {
-                                // Null: the server had already disconnected it, and this phone's copies are now gone too.
-                                val preview = sync.disconnectPreview(screen.repositoryId)
-                                if (preview == null) onDisconnected() else confirmDisconnect = preview
-                            } catch (failure: ApiException) {
-                                status = "Can't disconnect now. ${failure.describe()}"
-                            }
+    Scaffold(
+        topBar = {
+            AppBar(
+                if (root) screen.repositoryName else screen.path.substringAfterLast('/'),
+                if (root) null else "${screen.repositoryName} / ${screen.path}",
+                onBack = onBack,
+                actions = {
+                    if (signedIn && root) {
+                        IconButton(enabled = !busy, onClick = { refreshFromGitHub() }) {
+                            AppIcon(R.drawable.ic_refresh, "Refresh from GitHub")
                         }
-                    }))
-                }
-            })
-    }) { padding ->
+                        OverflowMenu(
+                            listOf(
+                                MenuAction("Save all notes on this phone") {
+                                    if (!busy) saveAll()
+                                },
+                                MenuAction("Disconnect…") {
+                                    if (busy) return@MenuAction
+                                    status = null
+                                    scope.launch {
+                                        try {
+                                            // Null: the server had already disconnected it, and this phone's copies are
+                                            // now gone too.
+                                            val preview = sync.disconnectPreview(screen.repositoryId)
+                                            if (preview == null) onDisconnected() else confirmDisconnect = preview
+                                        } catch (failure: ApiException) {
+                                            status = "Can't disconnect now. ${failure.describe()}"
+                                        }
+                                    }
+                                },
+                            )
+                        )
+                    }
+                },
+            )
+        }
+    ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             val progress = saving
             when {
                 progress != null && progress.second > 0 ->
-                    LinearProgressIndicator(progress = { progress.first.toFloat() / progress.second }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
+                    LinearProgressIndicator(
+                        progress = { progress.first.toFloat() / progress.second },
+                        modifier = Modifier.fillMaxWidth(),
+                        drawStopIndicator = {},
+                    )
                 refreshing || disconnecting || progress != null -> LinearProgressIndicator(Modifier.fillMaxWidth())
             }
-            StatusLine(when {
-                disconnecting -> "Disconnecting…"
-                progress != null && progress.second > 0 -> "Saving notes on this phone: ${progress.first} of ${progress.second}. Leaving this screen stops it."
-                progress != null -> "Checking which notes need saving…"
-                else -> status
-            })
+            StatusLine(
+                when {
+                    disconnecting -> "Disconnecting…"
+                    progress != null && progress.second > 0 ->
+                        "Saving notes on this phone: ${progress.first} of ${progress.second}. Leaving this screen stops it."
+                    progress != null -> "Checking which notes need saving…"
+                    else -> status
+                }
+            )
             val rows = documents ?: return@Column
             val (folders, notes) = children(rows, screen.path)
             when {
-                rows.isEmpty() && neverRefreshed -> EmptyState("This repository has not been refreshed yet. Tap the refresh icon above.")
+                rows.isEmpty() && neverRefreshed ->
+                    EmptyState("This repository has not been refreshed yet. Tap the refresh icon above.")
                 rows.isEmpty() && !listed -> EmptyState("This repository's note list isn't saved on this phone yet.")
-                folders.isEmpty() && notes.isEmpty() -> EmptyState(if (root) "This repository has no Markdown notes." else "This folder is empty.")
-                else -> LazyColumn(Modifier.fillMaxSize()) {
-                    items(folders, key = { "folder:$it" }) { folder ->
-                        EntryRow(folder, null, R.drawable.ic_folder) { push(screen.copy(path = if (root) folder else "${screen.path}/$folder")) }
+                folders.isEmpty() && notes.isEmpty() ->
+                    EmptyState(if (root) "This repository has no Markdown notes." else "This folder is empty.")
+                else ->
+                    LazyColumn(Modifier.fillMaxSize()) {
+                        items(folders, key = { "folder:$it" }) { folder ->
+                            EntryRow(folder, null, R.drawable.ic_folder) {
+                                push(screen.copy(path = if (root) folder else "${screen.path}/$folder"))
+                            }
+                        }
+                        items(notes, key = { "note:${it.id}" }) { note ->
+                            EntryRow(note.title, null, R.drawable.ic_description) {
+                                push(Screen.Reader(note.id, note.title))
+                            }
+                        }
                     }
-                    items(notes, key = { "note:${it.id}" }) { note ->
-                        EntryRow(note.title, null, R.drawable.ic_description) { push(Screen.Reader(note.id, note.title)) }
-                    }
-                }
             }
         }
     }
@@ -494,29 +645,37 @@ fun FolderScreen(sync: Sync, dao: LibraryDao, signedIn: Boolean, screen: Screen.
             onDismissRequest = { confirmDisconnect = null },
             title = { Text("Disconnect ${screen.repositoryName}?") },
             text = {
-                Text("RepoRead will delete, on its server and this phone, its list of ${counted(stored.documents, "note")}, your reading progress on " +
-                    "${counted(stored.readingStates, "note")}, ${counted(stored.bookmarks, "bookmark")}, ${counted(stored.highlights, "highlight")} with their notes, " +
-                    "and ${counted(stored.cards, "card")} with their review logs. " +
-                    (if (preview.unsent == 0) "" else "${counted(preview.unsent, "highlight, card, or grade", "highlights, cards, or grades")} only on this phone " +
-                        "go too${preview.notSent?.let { " (not sent: $it)" } ?: ""}. ") +
-                    "This cannot be undone. The repository on GitHub is not changed; to remove " +
-                    "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub.")
+                Text(
+                    "RepoRead will delete, on its server and this phone, its list of ${counted(stored.documents, "note")}, your reading progress on " +
+                        "${counted(stored.readingStates, "note")}, ${counted(stored.bookmarks, "bookmark")}, ${counted(stored.highlights, "highlight")} with their notes, " +
+                        "and ${counted(stored.cards, "card")} with their review logs. " +
+                        (if (preview.unsent == 0) ""
+                        else
+                            "${counted(preview.unsent, "highlight, card, or grade", "highlights, cards, or grades")} only on this phone " +
+                                "go too${preview.notSent?.let { " (not sent: $it)" } ?: ""}. ") +
+                        "This cannot be undone. The repository on GitHub is not changed; to remove " +
+                        "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub."
+                )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    confirmDisconnect = null
-                    disconnecting = true
-                    scope.launch {
-                        try {
-                            sync.disconnect(screen.repositoryId)
-                            onDisconnected()
-                        } catch (failure: ApiException) {
-                            status = "Not disconnected; nothing was deleted on this phone. ${failure.describe()}"
-                        } finally {
-                            disconnecting = false
+                TextButton(
+                    onClick = {
+                        confirmDisconnect = null
+                        disconnecting = true
+                        scope.launch {
+                            try {
+                                sync.disconnect(screen.repositoryId)
+                                onDisconnected()
+                            } catch (failure: ApiException) {
+                                status = "Not disconnected; nothing was deleted on this phone. ${failure.describe()}"
+                            } finally {
+                                disconnecting = false
+                            }
                         }
                     }
-                }) { Text("Disconnect") }
+                ) {
+                    Text("Disconnect")
+                }
             },
             dismissButton = { TextButton(onClick = { confirmDisconnect = null }) { Text("Cancel") } },
         )

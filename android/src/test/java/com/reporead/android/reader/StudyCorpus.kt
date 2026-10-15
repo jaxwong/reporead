@@ -1,9 +1,9 @@
 package com.reporead.android.reader
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
 import org.junit.Test
-import java.io.File
 
 /**
  * Reads every bank among the pages the backend's opt-in RenderedCorpus wrote (its `pages` directory, named by
@@ -13,7 +13,8 @@ import java.io.File
  * and are never committed. Run it after adding or editing interview folders.
  */
 class StudyCorpus {
-    @Test fun everyBankFollowsTheFormat() {
+    @Test
+    fun everyBankFollowsTheFormat() {
         val pages = System.getenv("REPOREAD_STUDY_PAGES")
         assumeTrue("Set REPOREAD_STUDY_PAGES to RenderedCorpus's pages directory", pages != null)
         val root = File(checkNotNull(pages))
@@ -28,7 +29,10 @@ class StudyCorpus {
             counts.merge(path.substringBeforeLast('/'), bank.questions.size, Int::plus)
             for (answer in bank.questions.map { it.answer }.distinct()) {
                 if (answer.links.isEmpty()) problems += "$path: answer links nothing: ${answer.text}"
-                answer.links.mapNotNull { it.path }.filterNot { File(root, "$it.html").isFile }.forEach { problems += "$path: no page for link to $it" }
+                answer.links
+                    .mapNotNull { it.path }
+                    .filterNot { File(root, "$it.html").isFile }
+                    .forEach { problems += "$path: no page for link to $it" }
             }
         }
         counts.forEach { (folder, count) -> println("$count questions in $folder") }

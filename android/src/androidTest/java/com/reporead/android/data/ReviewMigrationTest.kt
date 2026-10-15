@@ -13,12 +13,20 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ReviewMigrationTest {
-    @Test fun migratingPreservesSavedNotesAndUnsentHighlightsAndCreatesEmptyReviewTables() = runBlocking {
-        withMigratedStore(6, fill = { db ->
-            db.execSQL("insert into notes(documentId, blobSha, commitSha, path, title, html, fetchedAt, renderFormat) values (1, 'sha', 'commit', 'a.md', 'a', '<html/>', 0, 3)")
-            db.execSQL("""insert into annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
-                exactText, note, version, createdAt, pending, rejection) values ('offline', null, 1, 'sha', 'b1', 0, 4, 'text', 'mine', 1, 0, 1, null)""")
-        }) { dao ->
+    @Test
+    fun migratingPreservesSavedNotesAndUnsentHighlightsAndCreatesEmptyReviewTables() = runBlocking {
+        withMigratedStore(
+            6,
+            fill = { db ->
+                db.execSQL(
+                    "insert into notes(documentId, blobSha, commitSha, path, title, html, fetchedAt, renderFormat) values (1, 'sha', 'commit', 'a.md', 'a', '<html/>', 0, 3)"
+                )
+                db.execSQL(
+                    """insert into annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
+                exactText, note, version, createdAt, pending, rejection) values ('offline', null, 1, 'sha', 'b1', 0, 4, 'text', 'mine', 1, 0, 1, null)"""
+                )
+            },
+        ) { dao ->
             assertEquals("<html/>", dao.note(1)!!.html)
             val highlight = checkNotNull(dao.annotation("offline"))
             assertEquals("HIGHLIGHT", highlight.type)

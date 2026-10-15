@@ -19,20 +19,36 @@ class LocalStoreTest {
     private lateinit var store: LocalStore
     private lateinit var dao: LibraryDao
 
-    @Before fun open() {
-        store = Room.inMemoryDatabaseBuilder(InstrumentationRegistry.getInstrumentation().targetContext, LocalStore::class.java).build()
+    @Before
+    fun open() {
+        store =
+            Room.inMemoryDatabaseBuilder(
+                    InstrumentationRegistry.getInstrumentation().targetContext,
+                    LocalStore::class.java,
+                )
+                .build()
         dao = store.library()
     }
 
     @After fun close() = store.close()
 
     private fun reading(at: Long, progress: Int, pending: Boolean) =
-        ReadingRow(1, "title", "a.md", "a".repeat(40), progress, "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}", at, pending)
+        ReadingRow(
+            1,
+            "title",
+            "a.md",
+            "a".repeat(40),
+            progress,
+            "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}",
+            at,
+            pending,
+        )
 
     private fun bookmark(id: Long, bookmarked: Boolean, pending: Boolean, at: Long) =
         BookmarkRow(id, "title", "a.md", "a".repeat(40), bookmarked, pending, at)
 
-    @Test fun pendingLocalProgressSurvivesAnOlderServerStateButYieldsToANewerOne() = runBlocking {
+    @Test
+    fun pendingLocalProgressSurvivesAnOlderServerStateButYieldsToANewerOne() = runBlocking {
         dao.saveReading(reading(at = 200, progress = 60, pending = true))
         dao.mergeRemoteReading(reading(at = 100, progress = 10, pending = false))
         assertEquals(60, dao.reading(1)!!.progressPercent)
@@ -42,7 +58,8 @@ class LocalStoreTest {
         assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
     }
 
-    @Test fun acknowledgingAnOldSaveLeavesANewerLocalSavePending() = runBlocking {
+    @Test
+    fun acknowledgingAnOldSaveLeavesANewerLocalSavePending() = runBlocking {
         dao.saveReading(reading(at = 200, progress = 60, pending = true))
         dao.acknowledgeReading(1, lastReadAt = 100)
         assertTrue(dao.reading(1)!!.pending)
@@ -50,17 +67,24 @@ class LocalStoreTest {
         assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
     }
 
-    @Test fun acknowledgedProgressIsReplacedByTheServer() = runBlocking {
+    @Test
+    fun acknowledgedProgressIsReplacedByTheServer() = runBlocking {
         dao.saveReading(reading(at = 200, progress = 60, pending = false))
         dao.mergeRemoteReading(reading(at = 200, progress = 70, pending = false))
         assertEquals(70, dao.reading(1)!!.progressPercent)
     }
 
-    @Test fun serverBookmarkListReplacesAcknowledgedRowsButKeepsPendingToggles() = runBlocking {
+    @Test
+    fun serverBookmarkListReplacesAcknowledgedRowsButKeepsPendingToggles() = runBlocking {
         dao.saveBookmark(bookmark(1, bookmarked = true, pending = false, at = 1))
         dao.saveBookmark(bookmark(2, bookmarked = false, pending = true, at = 2))
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = true, at = 3))
-        dao.replaceRemoteBookmarks(listOf(bookmark(2, bookmarked = true, pending = false, at = 0), bookmark(4, bookmarked = true, pending = false, at = 4)))
+        dao.replaceRemoteBookmarks(
+            listOf(
+                bookmark(2, bookmarked = true, pending = false, at = 0),
+                bookmark(4, bookmarked = true, pending = false, at = 4),
+            )
+        )
         assertNull(dao.bookmark(1).first())
         assertEquals(false, dao.bookmark(2).first()!!.bookmarked)
         assertTrue(dao.bookmark(3).first()!!.pending)
@@ -68,7 +92,8 @@ class LocalStoreTest {
         assertEquals(listOf(4L, 3L), dao.bookmarks().first().map { it.documentId })
     }
 
-    @Test fun bookmarkAcknowledgementsMatchTheToggleThatWasSent() = runBlocking {
+    @Test
+    fun bookmarkAcknowledgementsMatchTheToggleThatWasSent() = runBlocking {
         dao.saveBookmark(bookmark(1, bookmarked = false, pending = true, at = 5))
         dao.acknowledgeBookmarkCleared(1, changedAt = 4)
         assertEquals(1, dao.pendingBookmarks().size)
@@ -79,8 +104,12 @@ class LocalStoreTest {
         assertEquals(false, dao.bookmark(2).first()!!.pending)
     }
 
-    @Test fun replacingDocumentsAndRepositoriesUsesOnlyTheCompleteNewList() = runBlocking {
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40)), DocumentRow(2, 7, "b.md", "b", "b".repeat(40))))
+    @Test
+    fun replacingDocumentsAndRepositoriesUsesOnlyTheCompleteNewList() = runBlocking {
+        dao.replaceDocuments(
+            7,
+            listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40)), DocumentRow(2, 7, "b.md", "b", "b".repeat(40))),
+        )
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
         dao.replaceDocuments(7, listOf(DocumentRow(2, 7, "b.md", "b", "c".repeat(40))))
         assertEquals(listOf(2L), dao.documents(7).first().map { it.id })
@@ -90,13 +119,20 @@ class LocalStoreTest {
         assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
     }
 
-    @Test fun bankPagesAreOnlyInterviewFoldersCountUnsavedBanksAndDropUnlistedCopies() = runBlocking {
+    @Test
+    fun bankPagesAreOnlyInterviewFoldersCountUnsavedBanksAndDropUnlistedCopies() = runBlocking {
         assertEquals(emptyList<PracticePage>(), dao.bankPages().first())
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "core/interview/a.md", "a", "a".repeat(40)),
-            DocumentRow(2, 7, "interview/b.md", "b", "b".repeat(40)),
-            // Not banks: their pages are never loaded for practice.
-            DocumentRow(3, 7, "core/a.md", "core", "a".repeat(40)), DocumentRow(4, 7, "core/interview.md", "x", "a".repeat(40)),
-            DocumentRow(5, 7, "core/interviews/a.md", "y", "a".repeat(40))))
+        dao.replaceDocuments(
+            7,
+            listOf(
+                DocumentRow(1, 7, "core/interview/a.md", "a", "a".repeat(40)),
+                DocumentRow(2, 7, "interview/b.md", "b", "b".repeat(40)),
+                // Not banks: their pages are never loaded for practice.
+                DocumentRow(3, 7, "core/a.md", "core", "a".repeat(40)),
+                DocumentRow(4, 7, "core/interview.md", "x", "a".repeat(40)),
+                DocumentRow(5, 7, "core/interviews/a.md", "y", "a".repeat(40)),
+            ),
+        )
         dao.saveNote(NoteRow(3, "a".repeat(40), "core/a.md", "core", "<main/>", 0))
         dao.saveNote(NoteRow(1, "a".repeat(40), "old/a.md", "Old title", "<main/>", 0))
         dao.saveNote(NoteRow(9, "a".repeat(40), "removed.md", "removed", "<main/>", 0))
@@ -115,12 +151,20 @@ class LocalStoreTest {
         assertEquals(emptyList<PracticePage>(), dao.bankPages().first())
     }
 
-    @Test fun aSavedPagesNoteLinksAreSavedReplacedAndDeletedWithIt() = runBlocking {
+    @Test
+    fun aSavedPagesNoteLinksAreSavedReplacedAndDeletedWithIt() = runBlocking {
         val sha = "a".repeat(40)
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha), DocumentRow(2, 7, "b.md", "b", sha),
-            DocumentRow(3, 7, "c.md", "c", sha)))
+        dao.replaceDocuments(
+            7,
+            listOf(
+                DocumentRow(1, 7, "a.md", "a", sha),
+                DocumentRow(2, 7, "b.md", "b", sha),
+                DocumentRow(3, 7, "c.md", "c", sha),
+            ),
+        )
         dao.replaceDocuments(8, listOf(DocumentRow(4, 8, "d.md", "d", sha)))
-        val linking = """<main><a href="/note-link?target=b">b</a><a href="/note-link?path=c.md&amp;heading=x">c</a></main>"""
+        val linking =
+            """<main><a href="/note-link?target=b">b</a><a href="/note-link?path=c.md&amp;heading=x">c</a></main>"""
         dao.saveNote(NoteRow(1, sha, "a.md", "a", linking, 0))
         dao.saveNote(NoteRow(2, sha, "b.md", "b", "<main>no links</main>", 0))
         dao.saveNote(NoteRow(4, sha, "d.md", "d", linking, 0))
@@ -134,18 +178,32 @@ class LocalStoreTest {
     }
 
     private fun readAt(documentId: Long, blobSha: String, at: Long) =
-        ReadingRow(documentId, "title", "n.md", blobSha, 50, "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}", at, pending = false)
+        ReadingRow(
+            documentId,
+            "title",
+            "n.md",
+            blobSha,
+            50,
+            "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}",
+            at,
+            pending = false,
+        )
 
-    @Test fun libraryListsNotesUpdatedSinceReadAndOtherRecentChangesOnce() = runBlocking {
+    @Test
+    fun libraryListsNotesUpdatedSinceReadAndOtherRecentChangesOnce() = runBlocking {
         val a = "a".repeat(40)
         val b = "b".repeat(40)
-        dao.replaceDocuments(7, listOf(
-            DocumentRow(1, 7, "read-old.md", "read-old", b, changedAt = 300),
-            DocumentRow(2, 7, "read-current.md", "read-current", b, changedAt = 400),
-            DocumentRow(3, 7, "never-read.md", "never-read", b, changedAt = 500),
-            DocumentRow(4, 7, "unseen-change.md", "unseen-change", b, changedAt = null),
-            DocumentRow(5, 7, "first-refresh.md", "first-refresh", b, changedAt = null),
-            DocumentRow(6, 7, "older-change.md", "older-change", b, changedAt = 100)))
+        dao.replaceDocuments(
+            7,
+            listOf(
+                DocumentRow(1, 7, "read-old.md", "read-old", b, changedAt = 300),
+                DocumentRow(2, 7, "read-current.md", "read-current", b, changedAt = 400),
+                DocumentRow(3, 7, "never-read.md", "never-read", b, changedAt = 500),
+                DocumentRow(4, 7, "unseen-change.md", "unseen-change", b, changedAt = null),
+                DocumentRow(5, 7, "first-refresh.md", "first-refresh", b, changedAt = null),
+                DocumentRow(6, 7, "older-change.md", "older-change", b, changedAt = 100),
+            ),
+        )
         dao.saveReading(readAt(1, a, at = 10))
         dao.saveReading(readAt(2, b, at = 20))
         dao.saveReading(readAt(4, a, at = 30))
@@ -165,15 +223,50 @@ class LocalStoreTest {
         assertEquals(listOf(3L, 2L, 1L, 6L), dao.recentlyChanged(5).first().map { it.documentId })
     }
 
-    @Test fun searchMatchesSavedTitlesTextAndHighlightsWithLiteralWildcards() = runBlocking {
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "java/Spring.md", "Spring", "a".repeat(40)),
-            DocumentRow(2, 7, "db/Postgres.md", "Postgres", "b".repeat(40)), DocumentRow(3, 7, "misc/100_percent.md", "100_percent", "c".repeat(40))))
-        dao.saveNote(NoteRow(2, "b".repeat(40), "db/Postgres.md", "Postgres", "<html/>", 0, "MVCC\nUse 100% of the TRANSACTION log"))
+    @Test
+    fun searchMatchesSavedTitlesTextAndHighlightsWithLiteralWildcards() = runBlocking {
+        dao.replaceDocuments(
+            7,
+            listOf(
+                DocumentRow(1, 7, "java/Spring.md", "Spring", "a".repeat(40)),
+                DocumentRow(2, 7, "db/Postgres.md", "Postgres", "b".repeat(40)),
+                DocumentRow(3, 7, "misc/100_percent.md", "100_percent", "c".repeat(40)),
+            ),
+        )
+        dao.saveNote(
+            NoteRow(
+                2,
+                "b".repeat(40),
+                "db/Postgres.md",
+                "Postgres",
+                "<html/>",
+                0,
+                "MVCC\nUse 100% of the TRANSACTION log",
+            )
+        )
         dao.saveNote(NoteRow(9, "d".repeat(40), "gone/Old.md", "Old", "<html/>", 0, null))
-        dao.saveAnnotation(AnnotationRow("m1", 5, 1, "a".repeat(40), "b1", 0, 4, "Propagation", "about transactions", 1, 0, state = AnnotationState.ACKNOWLEDGED))
+        dao.saveAnnotation(
+            AnnotationRow(
+                "m1",
+                5,
+                1,
+                "a".repeat(40),
+                "b1",
+                0,
+                4,
+                "Propagation",
+                "about transactions",
+                1,
+                0,
+                state = AnnotationState.ACKNOWLEDGED,
+            )
+        )
 
         // Title in a saved list, saved text (ASCII case-insensitive), and a highlight's note all match "transaction".
-        assertEquals(listOf(2L), dao.searchNotes("%transaction%", 50).filter { it.searchText != null }.map { it.documentId })
+        assertEquals(
+            listOf(2L),
+            dao.searchNotes("%transaction%", 50).filter { it.searchText != null }.map { it.documentId },
+        )
         assertEquals(listOf(1L), dao.searchHighlights("%transaction%", 50).map { it.documentId })
         assertEquals(listOf(1L), dao.searchNotes("%spring%", 50).map { it.documentId })
         // A saved copy of a note no longer in any list still matches by title; one saved before search has no text.
@@ -185,8 +278,11 @@ class LocalStoreTest {
         assertEquals(2, dao.searchNotes("%s%", 2).size)
     }
 
-    @Test fun forgettingADisconnectedRepositoryRemovesOnlyItsRowsIncludingPendingOnes() = runBlocking {
-        dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 2, "c".repeat(40)), RepositoryRow(8, "o/other", 1, "c".repeat(40))))
+    @Test
+    fun forgettingADisconnectedRepositoryRemovesOnlyItsRowsIncludingPendingOnes() = runBlocking {
+        dao.replaceRepositories(
+            listOf(RepositoryRow(7, "o/notes", 2, "c".repeat(40)), RepositoryRow(8, "o/other", 1, "c".repeat(40)))
+        )
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
         for (id in listOf(1L, 2L, 3L)) {
@@ -195,19 +291,26 @@ class LocalStoreTest {
             dao.saveBookmark(bookmark(id, bookmarked = true, pending = false, at = id))
             dao.saveAnnotation(annotation("m$id", null, null, AnnotationState.UNSENT).copy(documentId = id))
         }
-        // Document 2 was deleted upstream: it is in the server's list of the connection's documents, not in the saved list.
+        // Document 2 was deleted upstream: it is in the server's list of the connection's documents, not in the saved
+        // list.
         dao.forgetRepository(7, listOf(1L, 2L))
         assertEquals(listOf(8L), dao.repositories().first().map { it.id })
         assertEquals(emptyList<DocumentRow>(), dao.documents(7).first())
         assertEquals(listOf(3L), dao.documents(8).first().map { it.id })
-        assertNull(dao.note(1)); assertNull(dao.note(2)); assertEquals("text", dao.note(3)!!.searchText)
-        assertNull(dao.reading(2)); assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
+        assertNull(dao.note(1))
+        assertNull(dao.note(2))
+        assertEquals("text", dao.note(3)!!.searchText)
+        assertNull(dao.reading(2))
+        assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
         assertEquals(listOf(3L), dao.bookmarks().first().map { it.documentId })
         assertEquals(listOf("m3"), dao.waitingAnnotations().map { it.mutationId })
     }
 
-    @Test fun aRepositoryMissingFromTheServersListIsForgottenWithItsNotesAndUnsentWork() = runBlocking {
-        dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, "c".repeat(40)), RepositoryRow(8, "o/other", 1, "c".repeat(40))))
+    @Test
+    fun aRepositoryMissingFromTheServersListIsForgottenWithItsNotesAndUnsentWork() = runBlocking {
+        dao.replaceRepositories(
+            listOf(RepositoryRow(7, "o/notes", 1, "c".repeat(40)), RepositoryRow(8, "o/other", 1, "c".repeat(40)))
+        )
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
         for (id in listOf(1L, 3L)) {
@@ -218,13 +321,16 @@ class LocalStoreTest {
         // Disconnected with its answer lost, or from another device: the server no longer lists repository 7.
         assertEquals(listOf(1L), dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40)))))
         assertEquals(listOf(8L), dao.repositories().first().map { it.id })
-        assertNull(dao.note(1)); assertNull(dao.reading(1)); assertNull(dao.annotation("m1"))
+        assertNull(dao.note(1))
+        assertNull(dao.reading(1))
+        assertNull(dao.annotation("m1"))
         assertEquals("text", dao.note(3)!!.searchText)
         assertEquals(listOf(3L), dao.pendingReading().map { it.documentId })
         assertEquals(emptyList<Long>(), dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40)))))
     }
 
-    @Test fun theServersReadingListReplacesAcknowledgedRowsAndKeepsPendingSaves() = runBlocking {
+    @Test
+    fun theServersReadingListReplacesAcknowledgedRowsAndKeepsPendingSaves() = runBlocking {
         dao.saveReading(readAt(1, "a".repeat(40), at = 10))
         dao.saveReading(readAt(2, "a".repeat(40), at = 10).copy(pending = true))
         dao.saveReading(readAt(3, "a".repeat(40), at = 10))
@@ -235,7 +341,8 @@ class LocalStoreTest {
         assertEquals(setOf(2L, 3L, 4L), dao.recentReading(5).first().map { it.documentId }.toSet())
     }
 
-    @Test fun onlySavedCopiesThatNothingListsOrRefersToAreForgotten() = runBlocking {
+    @Test
+    fun onlySavedCopiesThatNothingListsOrRefersToAreForgotten() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "listed.md", "listed", "a".repeat(40))))
         for (id in 1L..5L) dao.saveNote(NoteRow(id, "a".repeat(40), "n$id.md", "n", "<html/>", 0))
         dao.saveReading(readAt(2, "a".repeat(40), at = 1))
@@ -245,12 +352,16 @@ class LocalStoreTest {
         assertEquals(listOf(1L, 2L, 3L, 4L), (1L..5L).filter { dao.note(it) != null })
     }
 
-    @Test fun unsentCountsIncludeRefusedWorkAndStayWithinTheirRepository() = runBlocking {
+    @Test
+    fun unsentCountsIncludeRefusedWorkAndStayWithinTheirRepository() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
         dao.saveAnnotation(annotation("pending", null, null, AnnotationState.UNSENT).copy(documentId = 1))
         dao.saveAnnotation(annotation("refused", null, null, AnnotationState.REFUSED, "Refused").copy(documentId = 1))
-        dao.saveAnnotation(annotation("card", 9, null, AnnotationState.ACKNOWLEDGED).copy(documentId = 1, type = "CARD", question = "Why?"))
+        dao.saveAnnotation(
+            annotation("card", 9, null, AnnotationState.ACKNOWLEDGED)
+                .copy(documentId = 1, type = "CARD", question = "Why?")
+        )
         dao.saveReview(ReviewRow("grade", "card", 4, 1, "a".repeat(40), true))
         dao.saveAnnotation(annotation("elsewhere", null, null, AnnotationState.UNSENT).copy(documentId = 3))
         dao.saveReading(readAt(3, "a".repeat(40), at = 1).copy(pending = true))
@@ -262,7 +373,8 @@ class LocalStoreTest {
         assertEquals(5, dao.waitingCount().first())
     }
 
-    @Test fun aNewVersionKeepsTheOldOneAsBaselineUntilItsChangesAreShown() = runBlocking {
+    @Test
+    fun aNewVersionKeepsTheOldOneAsBaselineUntilItsChangesAreShown() = runBlocking {
         val (a, b, c) = listOf("a".repeat(40), "b".repeat(40), "c".repeat(40))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "n", c, changedAt = 5)))
         dao.saveDisplayedReading(readAt(1, a, at = 1).copy(pending = true))
@@ -283,9 +395,12 @@ class LocalStoreTest {
         assertEquals(listOf(1L), dao.recentlyChanged(5).first().map { it.documentId })
     }
 
-    @Test fun aCreationDeletedBeforeItsAcknowledgementStaysDeletedThroughServerLists() = runBlocking {
+    @Test
+    fun aCreationDeletedBeforeItsAcknowledgementStaysDeletedThroughServerLists() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
-        dao.saveAnnotation(annotation("deleted", null, null, AnnotationState.UNSENT).copy(type = "CARD", question = "Why?"))
+        dao.saveAnnotation(
+            annotation("deleted", null, null, AnnotationState.UNSENT).copy(type = "CARD", question = "Why?")
+        )
         dao.saveReview(ReviewRow("grade", "deleted", 4, 1, "a".repeat(40), pending = true))
         dao.markDeleting("deleted")
         assertTrue(dao.annotations(1).first().isEmpty())
@@ -305,14 +420,26 @@ class LocalStoreTest {
         assertEquals(1, dao.unsentInRepository(7))
     }
 
-    private fun annotation(mutationId: String, serverId: Long?, note: String?, state: AnnotationState, rejection: String? = null) =
-        AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, state, rejection)
+    private fun annotation(
+        mutationId: String,
+        serverId: Long?,
+        note: String?,
+        state: AnnotationState,
+        rejection: String? = null,
+    ) = AnnotationRow(mutationId, serverId, 1, "a".repeat(40), "b2", 0, 4, "text", note, 1, 0, state, rejection)
 
-    @Test fun serverAnnotationListAcknowledgesAMatchingPendingCreationAndKeepsOthers() = runBlocking {
+    @Test
+    fun serverAnnotationListAcknowledgesAMatchingPendingCreationAndKeepsOthers() = runBlocking {
         dao.saveAnnotation(annotation("lost-ack", null, "mine", AnnotationState.UNSENT))
         dao.saveAnnotation(annotation("offline", null, "later", AnnotationState.UNSENT))
         dao.saveAnnotation(annotation("deleted-elsewhere", 9, null, AnnotationState.ACKNOWLEDGED))
-        dao.replaceRemoteAnnotations(1, listOf(annotation("lost-ack", 7, "mine", AnnotationState.ACKNOWLEDGED), annotation("other-device", 8, null, AnnotationState.ACKNOWLEDGED)))
+        dao.replaceRemoteAnnotations(
+            1,
+            listOf(
+                annotation("lost-ack", 7, "mine", AnnotationState.ACKNOWLEDGED),
+                annotation("other-device", 8, null, AnnotationState.ACKNOWLEDGED),
+            ),
+        )
         val rows = dao.annotations(1).first().associateBy { it.mutationId }
         assertEquals(setOf("lost-ack", "offline", "other-device"), rows.keys)
         assertEquals(7L, rows.getValue("lost-ack").serverId)
@@ -320,34 +447,54 @@ class LocalStoreTest {
         assertEquals(AnnotationState.UNSENT, rows.getValue("offline").state)
     }
 
-    @Test fun refusedCreationsAreKeptVisibleButNotRetried() = runBlocking {
+    @Test
+    fun refusedCreationsAreKeptVisibleButNotRetried() = runBlocking {
         dao.saveAnnotation(annotation("refused", null, null, AnnotationState.UNSENT))
         dao.rejectAnnotation("refused", "The selected text does not match that version of the note.")
         assertEquals(emptyList<AnnotationRow>(), dao.waitingAnnotations())
-        assertEquals("The selected text does not match that version of the note.", dao.annotation("refused")!!.rejection)
+        assertEquals(
+            "The selected text does not match that version of the note.",
+            dao.annotation("refused")!!.rejection,
+        )
     }
 
     /** Note edits use PATCH; Android's HttpURLConnection must accept it before any network I/O. */
-    @Test fun platformHttpClientAcceptsPatch() {
+    @Test
+    fun platformHttpClientAcceptsPatch() {
         val connection = java.net.URL("http://127.0.0.1:9/").openConnection() as java.net.HttpURLConnection
         connection.requestMethod = "PATCH"
         assertEquals("PATCH", connection.requestMethod)
     }
 
-    @Test fun gradesSurviveNotebookRefreshAndAcknowledgementAndOnlyCurrentAnswersCanBeGraded() = runBlocking {
+    @Test
+    fun gradesSurviveNotebookRefreshAndAcknowledgementAndOnlyCurrentAnswersCanBeGraded() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
         dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
-        val card = annotation("card", null, null, AnnotationState.UNSENT).copy(type = "CARD", question = "Why?", checkedBlobSha = sha)
+        val card =
+            annotation("card", null, null, AnnotationState.UNSENT)
+                .copy(type = "CARD", question = "Why?", checkedBlobSha = sha)
         dao.saveAnnotation(card)
         val grades = (1..10).map { ReviewRow("g$it", "card", 4, it.toLong(), sha, true) }
         grades.forEach { assertTrue(dao.recordReview(it)) }
-        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)), emptyList(), 40)
+        dao.replaceRemoteNotebook(
+            listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)),
+            emptyList(),
+            40,
+        )
         assertEquals(10, dao.pendingReviews().size)
-        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)), grades.map { it.copy(pending = false) }, 40)
+        dao.replaceRemoteNotebook(
+            listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)),
+            grades.map { it.copy(pending = false) },
+            40,
+        )
         assertTrue(dao.pendingReviews().isEmpty())
         assertEquals(10, dao.reviews().first().size)
-        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)), grades.map { it.copy(pending = false) }, 40)
+        dao.replaceRemoteNotebook(
+            listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)),
+            grades.map { it.copy(pending = false) },
+            40,
+        )
         assertEquals(10, dao.reviews().first().size)
         dao.saveAnnotation(card.copy(checkedBlobSha = null))
         assertEquals(false, dao.recordReview(grades[0].copy(mutationId = "stale")))
@@ -358,9 +505,13 @@ class LocalStoreTest {
         assertTrue(dao.reviews().first().isEmpty())
     }
 
-    @Test fun disconnectRemovesCardsAndPendingGradesButKeepsOtherRepositories() = runBlocking {
+    @Test
+    fun disconnectRemovesCardsAndPendingGradesButKeepsOtherRepositories() = runBlocking {
         for (id in listOf(1L, 2L)) {
-            dao.saveAnnotation(annotation("card$id", id, null, AnnotationState.ACKNOWLEDGED).copy(documentId = id, type = "CARD", question = "Why?"))
+            dao.saveAnnotation(
+                annotation("card$id", id, null, AnnotationState.ACKNOWLEDGED)
+                    .copy(documentId = id, type = "CARD", question = "Why?")
+            )
             dao.saveReview(ReviewRow("grade$id", "card$id", 4, id, "a".repeat(40), true))
         }
         dao.forgetRepository(7, listOf(1L))

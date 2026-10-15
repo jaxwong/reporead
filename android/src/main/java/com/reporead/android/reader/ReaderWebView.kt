@@ -32,10 +32,11 @@ internal class ReaderWebView(
     private inner class SelectionActions(private val wrapped: ActionMode.Callback) : ActionMode.Callback2() {
         override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
             val created = wrapped.onCreateActionMode(mode, menu)
-            val actions = when {
-                reattaching() -> listOf(SelectionAction.REATTACH)
-                else -> listOf(SelectionAction.HIGHLIGHT, SelectionAction.ADD_NOTE, SelectionAction.MAKE_QUESTION)
-            }
+            val actions =
+                when {
+                    reattaching() -> listOf(SelectionAction.REATTACH)
+                    else -> listOf(SelectionAction.HIGHLIGHT, SelectionAction.ADD_NOTE, SelectionAction.MAKE_QUESTION)
+                }
             actions.forEachIndexed { order, action -> menu.add(Menu.NONE, action.id, order, action.label) }
             return created
         }
@@ -43,7 +44,9 @@ internal class ReaderWebView(
         override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = wrapped.onPrepareActionMode(mode, menu)
 
         override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
-            val action = SelectionAction.entries.firstOrNull { it.id == item.itemId } ?: return wrapped.onActionItemClicked(mode, item)
+            val action =
+                SelectionAction.entries.firstOrNull { it.id == item.itemId }
+                    ?: return wrapped.onActionItemClicked(mode, item)
             onAction(action) { mode.finish() }
             return true
         }
@@ -51,7 +54,8 @@ internal class ReaderWebView(
         override fun onDestroyActionMode(mode: ActionMode) = wrapped.onDestroyActionMode(mode)
 
         override fun onGetContentRect(mode: ActionMode, view: View, outRect: Rect) {
-            if (wrapped is ActionMode.Callback2) wrapped.onGetContentRect(mode, view, outRect) else super.onGetContentRect(mode, view, outRect)
+            if (wrapped is ActionMode.Callback2) wrapped.onGetContentRect(mode, view, outRect)
+            else super.onGetContentRect(mode, view, outRect)
         }
     }
 }
