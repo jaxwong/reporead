@@ -1,12 +1,8 @@
 package com.reporead.android.reader
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import android.webkit.WebResourceRequest
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -40,7 +36,6 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.Sync
 import org.json.JSONObject
-import org.json.JSONTokener
 
 /** The most of the screen height the bank's checklist takes above the section; it scrolls inside that. */
 private const val GUIDE_HEIGHT = 0.3f
@@ -191,50 +186,25 @@ private fun sectionView(
     heading: String?,
     onProblem: (String) -> Unit,
     onFigure: (String) -> Unit,
-): WebView {
-    val assets = readerAssets(context)
-    val main = Handler(Looper.getMainLooper())
-    return WebView(context).apply {
-        isolateReaderPage()
-        alpha = 0f
-        webViewClient =
-            object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    val url = request.url
-                    if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN)
-                        url.getQueryParameter("figure")?.let(onFigure)
-                    return true
-                }
-
-                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                    readerResource(assets, sync.images, note, request.url)
-
-                override fun onPageFinished(view: WebView, url: String) =
-                    awaitRendered(view, main) { state, _ ->
-                        if (state != "ready") {
-                            Log.w(
-                                "RepoRead",
-                                "Answer section did not render; documentId=${note.documentId} state=$state",
-                            )
-                            onProblem("${note.title} could not be shown.")
-                            return@awaitRendered
-                        }
-                        view.evaluateJavascript(
-                            "window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})"
-                        ) { encoded ->
-                            if (JSONTokener(encoded).nextValue() == true) view.alpha = 1f
-                            else {
-                                Log.w(
-                                    "RepoRead",
-                                    "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha} heading=$heading",
-                                )
-                                onProblem(
-                                    "No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date."
-                                )
-                            }
-                        }
-                    }
+): WebView =
+    WebView(context).apply {
+        showIsolatedPage(
+            sync.images,
+            note,
+            "Answer section",
+            "window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})",
+            onFullScreen = onFigure,
+            onFailed = { onProblem("${note.title} could not be shown.") },
+        ) { found ->
+            if (!found) {
+                Log.w(
+                    "RepoRead",
+                    "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha} heading=$heading",
+                )
+                onProblem(
+                    "No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date."
+                )
             }
-        loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
+            found
+        }
     }
-}

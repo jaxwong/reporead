@@ -4,8 +4,12 @@ import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.NoteImages
@@ -13,8 +17,8 @@ import java.io.ByteArrayInputStream
 import org.json.JSONTokener
 
 /*
- * One owner for how a rendered note page is hosted, shared by the reader and the full-screen figure view: the same
- * isolation, the same resources, and the same wait for rendering.
+ * One owner for how a rendered note page is hosted, shared by the reader and the pages shown beside it (the full-screen
+ * figure, a link preview, a bank answer): the same isolation, the same resources, and the same wait for rendering.
  */
 
 internal const val ASSET_HOST = "appassets.androidplatform.net"
@@ -115,4 +119,54 @@ internal fun awaitRendered(view: WebView, main: Handler, then: (state: String, a
         }
     }
     poll(0)
+}
+
+/**
+ * Shows the saved [note] in this WebView as a page beside the reader: the full-screen figure, a link preview, or a bank
+ * answer. It stays hidden while it renders; then [script] (null: none) keeps the part to show, and [reveal] receives
+ * whether that part is in this version and returns whether to show the page. [onFailed] runs when the page does not
+ * render; [name] says which page in the log. Nothing navigates; a tapped Full screen link passes its figure id to
+ * [onFullScreen], when given.
+ */
+internal fun WebView.showIsolatedPage(
+    images: NoteImages,
+    note: NoteRow,
+    name: String,
+    script: String?,
+    onFullScreen: ((String) -> Unit)?,
+    onFailed: () -> Unit,
+    reveal: (found: Boolean) -> Boolean,
+) {
+    val assets = readerAssets(context)
+    val main = Handler(Looper.getMainLooper())
+    isolateReaderPage()
+    alpha = 0f
+    webViewClient =
+        object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val url = request.url
+                if (onFullScreen != null && request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN)
+                    url.getQueryParameter("figure")?.let(onFullScreen)
+                return true
+            }
+
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                readerResource(assets, images, note, request.url)
+
+            override fun onPageFinished(view: WebView, url: String) =
+                awaitRendered(view, main) { state, _ ->
+                    when {
+                        state != "ready" -> {
+                            Log.w("RepoRead", "$name did not render; documentId=${note.documentId} state=$state")
+                            onFailed()
+                        }
+                        script == null -> if (reveal(true)) view.alpha = 1f
+                        else ->
+                            view.evaluateJavascript(script) { encoded ->
+                                if (reveal(JSONTokener(encoded).nextValue() == true)) view.alpha = 1f
+                            }
+                    }
+                }
+        }
+    loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
 }
