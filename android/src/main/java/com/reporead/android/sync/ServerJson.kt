@@ -59,23 +59,16 @@ internal fun annotationRow(json: JSONObject) = contract {
         type = json.getString("type"),
         question = json.nullableString("question"),
         checkedBlobSha = json.nullableString("checkedBlobSha"),
-        cachedTitle = json.getString("title"),
-        cachedPath = json.getString("path"),
-        cachedCurrentBlobSha = json.getString("currentBlobSha"),
-        cachedDeleted = json.getBoolean("deleted"),
     )
 }
 
 internal fun readingRow(json: JSONObject) = contract {
     ReadingRow(
         json.getLong("documentId"),
-        json.getString("title"),
-        json.getString("path"),
         json.getString("lastReadBlobSha"),
         json.getInt("progressPercent"),
         json.getJSONObject("anchor").toString(),
         Instant.parse(json.getString("lastReadAt")).toEpochMilli(),
         pending = false,
-        deleted = json.getBoolean("deleted"),
     )
 }

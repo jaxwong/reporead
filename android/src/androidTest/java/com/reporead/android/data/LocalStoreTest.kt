@@ -35,8 +35,6 @@ class LocalStoreTest {
     private fun reading(at: Long, progress: Int, pending: Boolean) =
         ReadingRow(
             1,
-            "title",
-            "a.md",
             "a".repeat(40),
             progress,
             "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}",
@@ -45,7 +43,7 @@ class LocalStoreTest {
         )
 
     private fun bookmark(id: Long, bookmarked: Boolean, pending: Boolean, at: Long) =
-        BookmarkRow(id, "title", "a.md", bookmarked, pending, at)
+        BookmarkRow(id, bookmarked, pending, at)
 
     @Test
     fun pendingLocalProgressSurvivesAnOlderServerStateButYieldsToANewerOne() = runBlocking {
@@ -76,6 +74,7 @@ class LocalStoreTest {
 
     @Test
     fun serverBookmarkListReplacesAcknowledgedRowsButKeepsPendingToggles() = runBlocking {
+        dao.replaceDocuments(7, (1L..4L).map { DocumentRow(it, 7, "$it.md", "$it", "a".repeat(40)) })
         dao.saveBookmark(bookmark(1, bookmarked = true, pending = false, at = 1))
         dao.saveBookmark(bookmark(2, bookmarked = false, pending = true, at = 2))
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = true, at = 3))
@@ -180,8 +179,6 @@ class LocalStoreTest {
     private fun readAt(documentId: Long, blobSha: String, at: Long) =
         ReadingRow(
             documentId,
-            "title",
-            "n.md",
             blobSha,
             50,
             "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}",
@@ -331,6 +328,7 @@ class LocalStoreTest {
 
     @Test
     fun theServersReadingListReplacesAcknowledgedRowsAndKeepsPendingSaves() = runBlocking {
+        dao.replaceDocuments(7, (1L..4L).map { DocumentRow(it, 7, "$it.md", "$it", "a".repeat(40)) })
         dao.saveReading(readAt(1, "a".repeat(40), at = 10))
         dao.saveReading(readAt(2, "a".repeat(40), at = 10).copy(pending = true))
         dao.saveReading(readAt(3, "a".repeat(40), at = 10))
@@ -343,12 +341,19 @@ class LocalStoreTest {
 
     @Test
     fun onlySavedCopiesThatNothingListsOrRefersToAreForgotten() = runBlocking {
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "listed.md", "listed", "a".repeat(40))))
-        for (id in 1L..5L) dao.saveNote(NoteRow(id, "a".repeat(40), "n$id.md", "n", "<html/>", 0))
+        dao.replaceDocuments(
+            7,
+            listOf(
+                DocumentRow(1, 7, "listed.md", "listed", "a".repeat(40)),
+                DocumentRow(6, 7, "removed.md", "removed", "a".repeat(40), deleted = true),
+            ),
+        )
+        for (id in 1L..6L) dao.saveNote(NoteRow(id, "a".repeat(40), "n$id.md", "n", "<html/>", 0))
         dao.saveReading(readAt(2, "a".repeat(40), at = 1))
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = false, at = 1))
         dao.saveAnnotation(annotation("m4", 4, null, AnnotationState.ACKNOWLEDGED).copy(documentId = 4))
-        assertEquals(listOf(5L), dao.forgetUnreferencedNotes())
+        // A removed note's copy goes once nothing refers to it, as an unlisted one's does.
+        assertEquals(listOf(5L, 6L), dao.forgetUnreferencedNotes().sorted())
         assertEquals(listOf(1L, 2L, 3L, 4L), (1L..5L).filter { dao.note(it) != null })
     }
 
@@ -371,6 +376,45 @@ class LocalStoreTest {
         assertEquals(6, dao.unsentCount())
         // The refused highlight is lost by signing out, but is not waiting to be sent.
         assertEquals(5, dao.waitingCount().first())
+    }
+
+    @Test
+    fun aRemovedNoteIsNamedWhereItsUsersDataIsKeptAndLeftOutOfEveryListOfNotes() = runBlocking {
+        val (a, b) = listOf("a".repeat(40), "b".repeat(40))
+        val links = """<main><a href="/note-link?target=listed">listed</a></main>"""
+        dao.replaceDocuments(
+            7,
+            listOf(
+                DocumentRow(1, 7, "interview/listed.md", "listed", a),
+                DocumentRow(2, 7, "interview/removed.md", "removed", a, deleted = true),
+                DocumentRow(3, 7, "gone.md", "gone", a, changedAt = 5, deleted = true),
+            ),
+        )
+        for (id in listOf(1L, 2L)) {
+            dao.saveNote(NoteRow(id, a, "interview/n$id.md", "n$id", links, 0, "text"))
+            dao.saveReading(readAt(id, b, at = id))
+            dao.saveBookmark(bookmark(id, bookmarked = true, pending = false, at = id))
+            dao.saveAnnotation(annotation("m$id", id, null, AnnotationState.ACKNOWLEDGED).copy(documentId = id))
+        }
+
+        assertEquals(listOf(1L), dao.documents(7).first().map { it.id })
+        assertEquals(listOf(1L), dao.listedDocuments(7).map { it.id })
+        assertEquals(listOf(1L, 2L, 3L), dao.documentIds(7).sorted())
+        assertEquals(listOf(1L), dao.bankPages().first().map { it.documentId })
+        assertEquals(listOf(1L), dao.noteLinks(7).map { it.documentId })
+        assertEquals(1, dao.savedNoteCount(7))
+        assertEquals(1, dao.savedListCount())
+        assertEquals(1, dao.searchableNoteCount())
+        assertEquals(emptyList<NoteMatch>(), dao.searchNotes("%gone%", 10))
+        assertEquals(listOf(1L), dao.updatedSinceRead().first().map { it.documentId })
+        assertTrue(dao.recentlyChanged(5).first().isEmpty())
+        // Named, and marked removed, wherever the user's own data on it is kept.
+        val removed = mapOf(1L to false, 2L to true)
+        assertEquals(removed, dao.recentReading(5).first().associate { it.documentId to it.deleted })
+        assertEquals("removed", dao.recentReading(5).first().single { it.deleted }.title)
+        assertEquals(removed, dao.bookmarks().first().associate { it.documentId to it.deleted })
+        assertEquals(removed, dao.notebook().first().associate { it.annotation.documentId to it.deleted })
+        assertEquals(setOf("listed", "removed"), dao.searchHighlights("%text%", 10).map { it.title }.toSet())
     }
 
     @Test

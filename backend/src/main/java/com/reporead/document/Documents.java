@@ -27,9 +27,11 @@ public class Documents {
     public record SourceFile(String path, String blobSha) {}
     /**
      * {@code contentChangedAt}: when a refresh found the note new, changed, or back; null if RepoRead never saw it
-     * change.
+     * change. {@code deleted}: the note was not in the latest complete refresh; it is listed because the user's reading
+     * state, bookmark or highlights on it are kept, and this is the one place a client learns its title and path.
      */
-    public record Summary(long id, String path, String title, String blobSha, Instant contentChangedAt) {}
+    public record Summary(
+            long id, String path, String title, String blobSha, Instant contentChangedAt, boolean deleted) {}
     /** A document that kept its identity under a new path. */
     public record Move(long documentId, String fromPath, String toPath) {}
 
@@ -186,10 +188,11 @@ public class Documents {
                 .list());
     }
 
+    /** Every document of the connection, deleted ones too. */
     public List<Summary> list(long connectionId) {
         return db.sql("""
-                select id, path, title, current_blob_sha, content_changed_at from documents
-                where repository_connection_id = :connectionId and deleted_at is null order by path""")
+                select id, path, title, current_blob_sha, content_changed_at, deleted_at is not null as deleted from documents
+                where repository_connection_id = :connectionId order by path""")
                 .param("connectionId", connectionId)
                 .query((row, n) -> {
                     var changedAt = row.getTimestamp("content_changed_at");
@@ -198,7 +201,8 @@ public class Documents {
                             row.getString("path"),
                             row.getString("title"),
                             row.getString("current_blob_sha"),
-                            changedAt == null ? null : changedAt.toInstant());
+                            changedAt == null ? null : changedAt.toInstant(),
+                            row.getBoolean("deleted"));
                 })
                 .list();
     }

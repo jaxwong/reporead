@@ -1,5 +1,6 @@
 package com.reporead.sync;
 
+import static org.hamcrest.Matchers.contains;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -301,6 +302,11 @@ class RepositorySyncTest {
         assertEquals(List.of("a.md"), activePaths());
         assertEquals(
                 2, db.sql("select count(*) from documents").query(Integer.class).single());
+        // Still listed, so the app can name a note whose reading state, bookmark or highlights are kept.
+        documents(alice, connection)
+                .andExpect(jsonPath("$.documents.length()").value(2))
+                .andExpect(jsonPath("$.documents[?(@.path == 'a.md')].deleted").value(contains(false)))
+                .andExpect(jsonPath("$.documents[?(@.path == 'b.md')].deleted").value(contains(true)));
         assertEquals(
                 BLOB_2,
                 db.sql("select current_blob_sha from documents where path = 'a.md'")
@@ -315,6 +321,8 @@ class RepositorySyncTest {
                 db.sql("select id from documents where path = 'b.md' and deleted_at is null")
                         .query(Long.class)
                         .single());
+        documents(alice, connection)
+                .andExpect(jsonPath("$.documents[?(@.path == 'b.md')].deleted").value(contains(false)));
     }
 
     private long documentId(String path) {
@@ -396,7 +404,7 @@ class RepositorySyncTest {
                 .andExpect(jsonPath("$.documents[?(@.path == 'edited.md')].contentChangedAt")
                         .value(second.toString()))
                 .andExpect(jsonPath("$.documents[?(@.path == 'same.md')].contentChangedAt")
-                        .value(org.hamcrest.Matchers.contains((Object) null)));
+                        .value(contains((Object) null)));
 
         next();
         // The same snapshot again changes nothing; a note that returns after being deleted was found again.

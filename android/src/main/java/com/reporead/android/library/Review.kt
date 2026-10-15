@@ -121,7 +121,7 @@ internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: Zo
  * checking is shown too, to be fixed in place; refused and removed ones are dealt with in Notebook.
  */
 private fun reviewable(item: NotebookItem) =
-    item.annotation.type == "CARD" && item.annotation.state != AnnotationState.REFUSED && !item.annotation.cachedDeleted
+    item.annotation.type == "CARD" && item.annotation.state != AnnotationState.REFUSED && !item.deleted
 
 /** When each reviewable card is next due. */
 private fun dueTimes(
@@ -173,7 +173,7 @@ internal fun reviewOutlook(
     return ReviewOutlook(
         today,
         due.size,
-        due.count { (item) -> item.annotation.cardBlock(item.currentBlobSha, item.savedBlobSha) != null },
+        due.count { (item) -> item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha) != null },
         next,
         laterDays.count { it == next },
         laterDays.count { it <= today.plusDays(7) },
@@ -395,7 +395,7 @@ private fun ColumnScope.FixCard(
             )
             openNote("Open note")
         }
-        current == null || item.savedBlobSha != current -> {
+        item.savedBlobSha != current -> {
             Text(
                 "The note's current version isn't saved on this phone. Open the note while online to save it, then review this card."
             )
@@ -405,7 +405,7 @@ private fun ColumnScope.FixCard(
             Text(
                 "This card hasn't reached the server yet, so it can't be confirmed. Open Library while online to sync it."
             )
-        row.drawn.blobSha != current || (row.cachedCurrentBlobSha != null && row.cachedCurrentBlobSha != current) ->
+        row.drawn.blobSha != current ->
             Text(
                 "The server hasn't placed this answer in the note's current version yet. Open Library while online to sync, then review it."
             )
@@ -549,7 +549,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             }
             val row = item.annotation
             Text(checkNotNull(row.question), style = MaterialTheme.typography.titleLarge)
-            if (item.annotation.cardBlock(item.currentBlobSha, item.savedBlobSha) != null) {
+            if (item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha) != null) {
                 // Confirmed, it goes to the back of the session like any card still to answer.
                 FixCard(item, sync, dao, push, onConfirmed = { next(ids.drop(1) + id) })
                 return@Column

@@ -51,8 +51,9 @@ class ReviewTest {
             ),
             "Note",
             "topic/a.md",
-            "sha",
-            "sha",
+            currentBlobSha = "sha",
+            deleted = false,
+            savedBlobSha = "sha",
         )
 
     @Test
@@ -132,25 +133,23 @@ class ReviewTest {
     @Test
     fun dueCardsNeedingACheckJoinTheSessionToBeFixedButRefusedOrRemovedOnesDoNot() {
         val ready = card(1)
-        assertNull(ready.annotation.cardBlock(ready.currentBlobSha, ready.savedBlobSha))
+        assertNull(ready.annotation.cardBlock(ready.deleted, ready.currentBlobSha, ready.savedBlobSha))
         for (changed in
             listOf(
                 ready.copy(currentBlobSha = "new"),
-                ready.copy(currentBlobSha = null),
-                ready.copy(annotation = ready.annotation.copy(cachedCurrentBlobSha = "server-newer")),
                 ready.copy(savedBlobSha = null),
                 ready.copy(annotation = ready.annotation.copy(checkedBlobSha = null)),
                 ready.copy(annotation = ready.annotation.copy(status = "ORPHANED")),
             )) {
-            assertNotNull(changed.annotation.cardBlock(changed.currentBlobSha, changed.savedBlobSha))
+            assertNotNull(changed.annotation.cardBlock(changed.deleted, changed.currentBlobSha, changed.savedBlobSha))
             assertEquals(listOf(changed), dueSession(listOf(changed), emptyList(), 0, 40, 1))
         }
         for (gone in
             listOf(
-                ready.copy(annotation = ready.annotation.copy(cachedDeleted = true)),
+                ready.copy(deleted = true),
                 ready.copy(annotation = ready.annotation.copy(state = AnnotationState.REFUSED, rejection = "refused")),
             )) {
-            assertNotNull(gone.annotation.cardBlock(gone.currentBlobSha, gone.savedBlobSha))
+            assertNotNull(gone.annotation.cardBlock(gone.deleted, gone.currentBlobSha, gone.savedBlobSha))
             assertTrue(dueSession(listOf(gone), emptyList(), 0, 40, 1).isEmpty())
             assertEquals(ReviewOutlook(day0, 0, 0, null, 0, 0), reviewOutlook(listOf(gone), emptyList(), 0, utc))
         }

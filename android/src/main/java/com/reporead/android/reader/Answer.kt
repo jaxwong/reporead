@@ -115,7 +115,7 @@ private fun ColumnScope.AnswerSection(
                     )
                 else {
                     val matches =
-                        resolveNoteLink(link.target, link.path, bankPath, dao.documentsOnce(bank.repositoryId))
+                        resolveNoteLink(link.target, link.path, bankPath, dao.listedDocuments(bank.repositoryId))
                     when (matches.size) {
                         0 ->
                             LinkedNote.Problem(

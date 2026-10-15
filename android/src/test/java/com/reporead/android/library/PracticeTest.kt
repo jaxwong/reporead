@@ -45,8 +45,9 @@ class PracticeTest {
             ),
             "note",
             "core/interview/note.md",
-            blobSha,
-            blobSha,
+            currentBlobSha = blobSha,
+            deleted = false,
+            savedBlobSha = blobSha,
         )
 
     @Test

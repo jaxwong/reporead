@@ -238,7 +238,8 @@ fun ReaderScreen(
                                     "This note isn't in a saved note list, so its links can't be followed. Refresh the repository."
                                 return@launch
                             }
-                            val matches = resolveNoteLink(target, path, from.path, dao.documentsOnce(from.repositoryId))
+                            val matches =
+                                resolveNoteLink(target, path, from.path, dao.listedDocuments(from.repositoryId))
                             when (matches.size) {
                                 0 ->
                                     message =
@@ -308,7 +309,9 @@ fun ReaderScreen(
                             }
                         }
                         val marked = bookmark?.bookmarked == true
-                        IconButton(onClick = { appScope.launch { sync.setBookmark(opened.note, !marked) } }) {
+                        IconButton(
+                            onClick = { appScope.launch { sync.setBookmark(opened.note.documentId, !marked) } }
+                        ) {
                             AppIcon(
                                 if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border,
                                 if (marked) "Remove bookmark" else "Bookmark",
@@ -767,8 +770,6 @@ private class ReaderSession(
             val row =
                 ReadingRow(
                     note.documentId,
-                    note.title,
-                    note.path,
                     note.blobSha,
                     position.getInt("progressPercent"),
                     position.getJSONObject("anchor").toString(),

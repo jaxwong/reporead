@@ -23,22 +23,13 @@ public class ReadingStates {
     /** A semantic location: restored by heading path, then text prefix, then block index, then percent. */
     public record Anchor(List<String> headingPath, String textPrefix, Integer blockIndex) {}
 
+    /** The note's own title, path, version and removal are in its document list, their one source for clients. */
     public record State(
-            long documentId,
-            long repositoryId,
-            String path,
-            String title,
-            String currentBlobSha,
-            boolean deleted,
-            String lastReadBlobSha,
-            int progressPercent,
-            Anchor anchor,
-            Instant lastReadAt) {}
+            long documentId, String lastReadBlobSha, int progressPercent, Anchor anchor, Instant lastReadAt) {}
 
     private static final String SELECT = """
-        select r.document_id, d.repository_connection_id, d.path, d.title, d.current_blob_sha, d.deleted_at is not null as deleted,
-               r.last_read_blob_sha, r.progress_percent, r.anchor_json::text as anchor_json, r.last_read_at
-        from reading_states r join documents d on d.id = r.document_id""";
+        select r.document_id, r.last_read_blob_sha, r.progress_percent, r.anchor_json::text as anchor_json, r.last_read_at
+        from reading_states r""";
 
     /** Applies the write only if it is newer than the stored one; returns the state that is now current. */
     State save(
@@ -88,11 +79,6 @@ public class ReadingStates {
     private State state(ResultSet row, int n) throws SQLException {
         return new State(
                 row.getLong("document_id"),
-                row.getLong("repository_connection_id"),
-                row.getString("path"),
-                row.getString("title"),
-                row.getString("current_blob_sha"),
-                row.getBoolean("deleted"),
                 row.getString("last_read_blob_sha"),
                 row.getInt("progress_percent"),
                 json.readValue(row.getString("anchor_json"), Anchor.class),
