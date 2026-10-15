@@ -2,6 +2,7 @@ package com.reporead.sync;
 
 import com.reporead.document.MarkdownRenderer;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -32,8 +33,8 @@ final class ContentMoves {
             if (document.getValue().size() < MIN_SHINGLES) continue;
             for (var path : fresh.entrySet()) {
                 if (path.getValue().size() < MIN_SHINGLES || similarity(document.getValue(), path.getValue()) < MIN_SIMILARITY) continue;
-                candidates.computeIfAbsent(document.getKey(), id -> new java.util.ArrayList<>()).add(path.getKey());
-                reverse.computeIfAbsent(path.getKey(), key -> new java.util.ArrayList<>()).add(document.getKey());
+                candidates.computeIfAbsent(document.getKey(), id -> new ArrayList<>()).add(path.getKey());
+                reverse.computeIfAbsent(path.getKey(), key -> new ArrayList<>()).add(document.getKey());
             }
         }
         var pairs = new HashMap<Long, String>();
@@ -53,7 +54,7 @@ final class ContentMoves {
 
     /** The set of five consecutive lower-cased words across all canonical block text. */
     static Set<String> shingles(List<MarkdownRenderer.Block> blocks) {
-        var words = new java.util.ArrayList<String>();
+        var words = new ArrayList<String>();
         for (var block : blocks) {
             for (String word : block.text().toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+")) if (!word.isEmpty()) words.add(word);
         }

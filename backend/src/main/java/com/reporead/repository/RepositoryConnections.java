@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -99,7 +100,7 @@ public class RepositoryConnections {
 
     public void markSynced(long connectionId, String commitSha, Instant syncedAt) {
         db.sql("update repository_connections set last_synced_commit_sha = :commitSha, last_synced_at = :syncedAt where id = :id")
-            .param("commitSha", commitSha).param("syncedAt", java.sql.Timestamp.from(syncedAt)).param("id", connectionId).update();
+            .param("commitSha", commitSha).param("syncedAt", Timestamp.from(syncedAt)).param("id", connectionId).update();
     }
 
     private static Connection connection(ResultSet row, int n) throws SQLException {
