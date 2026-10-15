@@ -56,10 +56,10 @@ public class AnnotationController {
 
     public AnnotationController(
             Annotations annotations, Documents documents, NoteVersions noteVersions, MeterRegistry meters) {
-        this.meters = meters;
         this.annotations = annotations;
         this.documents = documents;
         this.noteVersions = noteVersions;
+        this.meters = meters;
     }
 
     record AnnotationList(List<Annotations.Annotation> annotations) {}
@@ -85,7 +85,7 @@ public class AnnotationController {
             var from = annotation.location();
             var resolved =
                     meters.timer(REANCHOR_DURATION).record(() -> Anchoring.resolve(from, current, currentBlocks));
-            boolean applied = annotations.resolved(annotation, current, resolved.map(Anchoring.Resolved::anchor));
+            boolean applied = annotations.resolved(annotation, current, resolved.map(Anchoring.Resolved::location));
             String outcome = resolved.map(found -> found.method().name()).orElse("ORPHANED");
             // Counted once per applied resolution; a concurrent listing that lost the race changed nothing.
             if (applied) meters.counter(REANCHOR, "outcome", outcome).increment();
@@ -94,7 +94,7 @@ public class AnnotationController {
                     user.id(),
                     document.id(),
                     annotation.id(),
-                    from.sourceBlobSha(),
+                    from.passage().sourceBlobSha(),
                     current,
                     outcome,
                     applied);
@@ -147,10 +147,10 @@ public class AnnotationController {
                     replayed.get().id());
             return ResponseEntity.ok(replayed.get());
         }
-        var anchor = verifiedAnchor(
+        var location = verifiedLocation(
                 selection,
                 noteVersions.render(user, document, selection.sourceBlobSha()).note());
-        var created = annotations.create(user.id(), id, mutationId, hash, anchor, body.note(), type, body.question());
+        var created = annotations.create(user.id(), id, mutationId, hash, location, body.note(), type, body.question());
         if (!created.replayed()) meters.counter(CREATED).increment();
         LOG.info(
                 "Annotation {}; userId={} documentId={} annotationId={}",
@@ -179,7 +179,7 @@ public class AnnotationController {
                 .find(user.id(), annotation.documentId())
                 .orElseThrow(() -> new IllegalStateException("Annotation " + id + " of user " + user.id()
                         + " references document " + annotation.documentId() + " outside their connections"));
-        var location = verifiedAnchor(
+        var location = verifiedLocation(
                 body.anchor(),
                 noteVersions
                         .render(user, document, body.anchor().sourceBlobSha())
@@ -190,7 +190,7 @@ public class AnnotationController {
                 user.id(),
                 document.id(),
                 id,
-                location.sourceBlobSha(),
+                location.passage().sourceBlobSha(),
                 reattached.version());
         return reattached;
     }
@@ -229,7 +229,7 @@ public class AnnotationController {
     }
 
     /** The selection must name real text in that exact version; context and headings come from the server's render. */
-    static Annotations.Anchor verifiedAnchor(Selection selection, MarkdownRenderer.RenderedNote rendered) {
+    static Annotations.Location verifiedLocation(Selection selection, MarkdownRenderer.RenderedNote rendered) {
         var block = rendered.blocks().stream()
                 .filter(candidate -> candidate.id().equals(selection.blockId()))
                 .findFirst()

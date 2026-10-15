@@ -33,13 +33,13 @@ class AnchoringTest {
     }
 
     /** Anchors {@code quote} in block {@code index} of the old version, exactly as creation does. */
-    private static Annotations.Anchor anchor(List<Block> version, int index, String quote) {
+    private static Annotations.Location anchor(List<Block> version, int index, String quote) {
         var block = version.get(index);
         int start = block.text().indexOf(quote);
         return Anchoring.anchorAt(OLD, version, block, start, start + quote.length());
     }
 
-    private static Optional<Anchoring.Resolved> resolve(Annotations.Anchor from, List<Block> version) {
+    private static Optional<Anchoring.Resolved> resolve(Annotations.Location from, List<Block> version) {
         return Anchoring.resolve(from, NEW, version);
     }
 
@@ -47,10 +47,10 @@ class AnchoringTest {
             Optional<Anchoring.Resolved> resolved, Anchoring.Method method, String blockId, String exact) {
         assertTrue(resolved.isPresent(), "expected an anchor, got an orphan");
         assertEquals(method, resolved.get().method());
-        assertEquals(blockId, resolved.get().anchor().blockId());
-        assertEquals(exact, resolved.get().anchor().exactText());
-        assertEquals(NEW, resolved.get().anchor().sourceBlobSha());
-        var text = resolved.get().anchor();
+        assertEquals(blockId, resolved.get().location().passage().blockId());
+        assertEquals(exact, resolved.get().location().passage().exactText());
+        assertEquals(NEW, resolved.get().location().passage().sourceBlobSha());
+        var text = resolved.get().location().passage();
         assertEquals(exact.length(), text.endOffset() - text.startOffset());
     }
 
@@ -64,7 +64,11 @@ class AnchoringTest {
         assertEquals(1, unique.quoteOccurrences());
         assertEquals(0.0, unique.rivalContext());
         assertNotNull(unique.blockSha());
-        assertEquals("the ", unique.prefixText().substring(unique.prefixText().length() - 4));
+        assertEquals(
+                "the ",
+                unique.passage()
+                        .prefixText()
+                        .substring(unique.passage().prefixText().length() - 4));
     }
 
     @Test
@@ -214,11 +218,12 @@ class AnchoringTest {
         // The 32-unit windows on both sides would end inside an emoji's surrogate pair.
         String text = "😀" + "x".repeat(31) + quote + "y".repeat(31) + "😀";
         var from = anchor(blocks(text, PROXIES), 0, quote);
-        for (String context : List.of(from.prefixText(), from.suffixText())) {
+        for (String context :
+                List.of(from.passage().prefixText(), from.passage().suffixText())) {
             assertEquals(context, new String(context.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
         }
-        assertEquals("x".repeat(31), from.prefixText());
-        assertEquals("y".repeat(31), from.suffixText());
+        assertEquals("x".repeat(31), from.passage().prefixText());
+        assertEquals("y".repeat(31), from.passage().suffixText());
     }
 
     @Test

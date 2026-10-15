@@ -792,7 +792,7 @@ class AnnotationTest {
                 "the listing's stale resolution must not apply");
         var kept = annotations.find(1, id).orElseThrow();
         assertEquals("REANCHORED", kept.status());
-        assertEquals("By default", kept.location().exactText());
+        assertEquals("By default", kept.location().passage().exactText());
     }
 
     @Test

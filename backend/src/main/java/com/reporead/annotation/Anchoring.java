@@ -44,7 +44,7 @@ final class Anchoring {
         FUZZY
     }
 
-    record Resolved(Method method, Annotations.Anchor anchor) {}
+    record Resolved(Method method, Annotations.Location location) {}
 
     record Candidate(
             MarkdownRenderer.Block block, int start, int end, double quote, double context, boolean sameHeadings) {}
@@ -55,7 +55,7 @@ final class Anchoring {
      * {@code fuzzy} is only searched when none of those nor a full-context exact quote can decide.
      */
     record Evidence(
-            Annotations.Anchor from,
+            Annotations.Location from,
             Candidate position,
             Candidate block,
             List<Candidate> exact,
@@ -64,10 +64,10 @@ final class Anchoring {
     private Anchoring() {}
 
     /**
-     * The anchor for [start, end) of a block in one source version, with its context and headings from that version and
-     * how distinguishable its quote is among all of that version's blocks.
+     * The location of [start, end) of a block in one source version: the passage with its context and headings from
+     * that version, and how distinguishable its quote is among all of that version's blocks.
      */
-    static Annotations.Anchor anchorAt(
+    static Annotations.Location anchorAt(
             String sourceBlobSha,
             List<MarkdownRenderer.Block> blocks,
             MarkdownRenderer.Block block,
@@ -91,45 +91,22 @@ final class Anchoring {
                 }
             }
         }
-        var located = new Annotations.Anchor(
-                sourceBlobSha,
-                block.id(),
-                quote,
-                prefix,
-                suffix,
-                start,
-                end,
-                block.headingPath(),
-                null,
-                null,
-                null,
-                null);
+        var passage = new Annotations.Passage(
+                sourceBlobSha, block.id(), quote, prefix, suffix, start, end, block.headingPath());
         // Look-alikes too many (or too long) to compare are unknown, so the passage counts as indistinguishable from
         // them.
-        double lookAlike = fuzzyCandidates(located, blocks)
+        double lookAlike = fuzzyCandidates(passage, blocks)
                 .map(candidates -> candidates.stream()
                         .filter(candidate -> candidate.block() != block)
                         .mapToDouble(Candidate::quote)
                         .max()
                         .orElse(0))
                 .orElse(1.0);
-        return new Annotations.Anchor(
-                sourceBlobSha,
-                block.id(),
-                quote,
-                prefix,
-                suffix,
-                start,
-                end,
-                block.headingPath(),
-                sameBlocks == 1 ? sha256(text) : null,
-                occurrences,
-                rival,
-                lookAlike);
+        return new Annotations.Location(passage, sameBlocks == 1 ? sha256(text) : null, occurrences, rival, lookAlike);
     }
 
     static Optional<Resolved> resolve(
-            Annotations.Anchor from, String sourceBlobSha, List<MarkdownRenderer.Block> blocks) {
+            Annotations.Location from, String sourceBlobSha, List<MarkdownRenderer.Block> blocks) {
         return decide(evidence(from, blocks), MEASURED)
                 .map(found -> new Resolved(
                         found.method(),
@@ -141,17 +118,18 @@ final class Anchoring {
                                 found.candidate().end())));
     }
 
-    static Evidence evidence(Annotations.Anchor from, List<MarkdownRenderer.Block> blocks) {
-        String quote = from.exactText();
+    static Evidence evidence(Annotations.Location from, List<MarkdownRenderer.Block> blocks) {
+        var passage = from.passage();
+        String quote = passage.exactText();
         Candidate position = null;
         var exact = new ArrayList<Candidate>();
         for (var block : blocks) {
             for (int at = block.text().indexOf(quote);
                     at >= 0;
                     at = block.text().indexOf(quote, at + 1)) {
-                var candidate = candidate(from, block, at, at + quote.length());
+                var candidate = candidate(passage, block, at, at + quote.length());
                 exact.add(candidate);
-                if (block.id().equals(from.blockId()) && at == from.startOffset() && candidate.context() == 1.0)
+                if (block.id().equals(passage.blockId()) && at == passage.startOffset() && candidate.context() == 1.0)
                     position = candidate;
             }
         }
@@ -160,7 +138,8 @@ final class Anchoring {
             var same = blocks.stream()
                     .filter(block -> sha256(block.text()).equals(from.blockSha()))
                     .toList();
-            if (same.size() == 1) unchanged = candidate(from, same.getFirst(), from.startOffset(), from.endOffset());
+            if (same.size() == 1)
+                unchanged = candidate(passage, same.getFirst(), passage.startOffset(), passage.endOffset());
         }
         boolean decided = position != null
                 || unchanged != null
@@ -171,7 +150,7 @@ final class Anchoring {
                 position,
                 unchanged,
                 List.copyOf(exact),
-                decided ? List.of() : fuzzyCandidates(from, blocks).orElse(List.of()));
+                decided ? List.of() : fuzzyCandidates(passage, blocks).orElse(List.of()));
     }
 
     record Found(Method method, Candidate candidate) {}
@@ -201,7 +180,7 @@ final class Anchoring {
                 .filter(candidate -> (candidate.context() >= thresholds.quoteContext() && candidate.context() > rival)
                         || (exact.size() == 1
                                 && uniqueQuote
-                                && from.exactText().length() >= thresholds.uniqueQuoteChars()))
+                                && from.passage().exactText().length() >= thresholds.uniqueQuoteChars()))
                 .toList();
         if (!supported.isEmpty()) return single(supported).map(found -> new Found(Method.QUOTE, found));
         var fuzzy = evidence.fuzzy().stream()
@@ -220,7 +199,7 @@ final class Anchoring {
         return sameHeadings.size() == 1 ? Optional.of(sameHeadings.getFirst()) : Optional.empty();
     }
 
-    private static Candidate candidate(Annotations.Anchor from, MarkdownRenderer.Block block, int start, int end) {
+    private static Candidate candidate(Annotations.Passage from, MarkdownRenderer.Block block, int start, int end) {
         String text = block.text();
         return new Candidate(
                 block,
@@ -245,7 +224,7 @@ final class Anchoring {
      * are not searched.
      */
     private static Optional<List<Candidate>> fuzzyCandidates(
-            Annotations.Anchor from, List<MarkdownRenderer.Block> blocks) {
+            Annotations.Passage from, List<MarkdownRenderer.Block> blocks) {
         if (from.exactText().length() > MAX_FUZZY_QUOTE_CHARS) return Optional.empty();
         String pattern = from.prefixText() + from.exactText() + from.suffixText();
         Set<String> words = words(pattern);
