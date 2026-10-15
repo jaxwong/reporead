@@ -225,7 +225,7 @@ Amended 2026-10-09 (Room v8): moving to a newer version keeps the version left b
 **Decision.**
 
 - Backend tests run against real PostgreSQL 17.11 through Testcontainers, with explicit test-only GitHub mocks; no test depends on live GitHub.
-- Backend layout is palantir-java-format's, applied by Spotless; CI fails on unformatted code before running the tests (the user's, 2026-10-15).
+- Layout belongs to formatters applied by Spotless: palantir-java-format for the backend's Java, ktfmt (Kotlin coding conventions) for the app's Kotlin, both at 120 columns. CI fails on unformatted code before running the tests (the user's, 2026-10-15). `android/reader-web`'s JavaScript has no formatter.
 - Real-corpus harnesses (`AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus`, `StudyCorpus`) are opt-in and point at a local clone outside the repository. Their outputs contain private note text and are never committed.
 - Device tests run with `adb shell am instrument` on the phone used for reading, never `connectedDebugAndroidTest` (it uninstalls the app and its data). Success is the run's `OK (n tests)` line, not adb's exit code.
 - Records distinguish automated checks, device checks and user-reported observations; a gate never passes on mocks or a build alone. Real data is backed up before a migration runs on it. Test edits to the notes repository go only under `scratch/`, with the user's approval.

@@ -15,6 +15,8 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:a
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am start -n com.reporead.android.dev/com.reporead.android.MainActivity
 ```
 
+Spotless with ktfmt (Kotlin coding conventions, 120 columns; `build.gradle.kts`) owns the app's Kotlin layout. CI runs `./gradlew :app:spotlessCheck` before the unit tests; `:app:spotlessApply` rewrites the files instead. `reader-web`'s JavaScript has no formatter.
+
 Debug builds use the Mac's backend: `adb reverse` makes the phone's `127.0.0.1:8081` reach the Mac's loopback backend, so the registered GitHub callback is unchanged. It is reset when the phone disconnects — including when airplane mode or Wi-Fi loss ends wireless debugging. Re-enable wireless debugging and repeat it before syncing. Only debug builds permit cleartext HTTP, and only to `127.0.0.1` (`src/debug/res/xml/network_security_config.xml` overrides the HTTPS-only `src/main` one). The base URL is a per-build-type `BuildConfig` constant in `build.gradle.kts`.
 
 ## Signing and the release APK
