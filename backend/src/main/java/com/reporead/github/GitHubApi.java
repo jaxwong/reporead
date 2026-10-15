@@ -150,7 +150,7 @@ public class GitHubApi {
     /**
      * Revokes RepoRead's authorization for this GitHub user on GitHub, so no token GitHub issued RepoRead for them works
      * any more ("Deleting an application's grant will also delete all OAuth tokens associated with the application for
-     * the user", GitHub REST docs). Authenticated as the App, with a current [token] from {@link #tokenToRevoke}: one
+     * the user", GitHub REST docs). Authenticated as the App, with a current {@code token} from {@link #tokenToRevoke}: one
      * GitHub call. A failure is logged, never thrown, and the caller deletes the stored token either way; GitHub then
      * expires the tokens on its own schedule.
      */

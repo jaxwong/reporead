@@ -28,7 +28,7 @@ public class Attachments {
             .param("connectionId", connectionId).param("paths", paths.toArray(String[]::new)).update();
     }
 
-    /** The repository path an embed of [name] in the note at [notePath] means; 404 IMAGE_NOT_FOUND or 409 IMAGE_AMBIGUOUS. */
+    /** The repository path an embed of {@code name} in the note at {@code notePath} means; 404 IMAGE_NOT_FOUND or 409 IMAGE_AMBIGUOUS. */
     public String resolve(long connectionId, String notePath, String name) {
         String wanted = name.toLowerCase(Locale.ROOT);
         var matches = db.sql("select path from repository_images where repository_connection_id = :connectionId")

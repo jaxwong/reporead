@@ -32,7 +32,7 @@ import java.util.Optional;
 public final class MarkdownRenderer {
     /** The largest note RepoRead reads from GitHub. */
     public static final int MAX_NOTE_BYTES = GitHubHttp.MAX_RESPONSE_BYTES;
-    /** [MAX_NOTE_BYTES] in MiB, for messages. */
+    /** {@code MAX_NOTE_BYTES} in MiB, for messages. */
     public static final int MAX_NOTE_MIB = MAX_NOTE_BYTES / 1_048_576;
     public static final int MAX_DIAGRAM_CHARS = 20_000;
     public static final int MAX_DIAGRAMS = 16;
@@ -337,8 +337,8 @@ public final class MarkdownRenderer {
     }
 
     /**
-     * Wraps each footnote match in [text] that [accept] takes — a definition marker {@code [^label]:} when
-     * [definitions], otherwise a reference {@code [^label]} (a following colon stays text) — and returns the new elements.
+     * Wraps each footnote match in {@code text} that {@code accept} takes — a definition marker {@code [^label]:} when
+     * {@code definitions}, otherwise a reference {@code [^label]} (a following colon stays text) — and returns the new elements.
      */
     private static List<Element> splitFootnotes(TextNode text, boolean definitions,
                                                 java.util.function.BiPredicate<String, java.util.regex.MatchResult> accept) {
@@ -366,7 +366,7 @@ public final class MarkdownRenderer {
 
     /**
      * A heading as heading paths (and the page's data-heading attributes) carry it: whole when short enough, otherwise
-     * cut so that, with a closing ellipsis, it is [MAX_HEADING_CHARS] long. The heading block's own text is not cut.
+     * cut so that, with a closing ellipsis, it is {@code MAX_HEADING_CHARS} long. The heading block's own text is not cut.
      */
     private static String headingPathEntry(String heading) {
         if (heading.length() <= MAX_HEADING_CHARS) return heading;

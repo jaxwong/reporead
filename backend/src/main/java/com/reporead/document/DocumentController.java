@@ -49,7 +49,7 @@ public class DocumentController {
     }
 
     /**
-     * [text]: the canonical text of the note's blocks, one per line, for search on the phone. [renderFormat]:
+     * {@code text}: the canonical text of the note's blocks, one per line, for search on the phone. {@code renderFormat}:
      * MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format.
      */
     record Content(long documentId, String path, String title, String sourceBlobSha, int blockCount, int diagramCount, String html,
@@ -77,7 +77,7 @@ public class DocumentController {
 
     enum ChangeStatus { CHANGED, UNCHANGED, SINCE_UNAVAILABLE, TOO_LARGE }
 
-    /** [reason] says why the older version is unavailable; [sections] is empty unless the status is CHANGED. */
+    /** {@code reason} says why the older version is unavailable; {@code sections} is empty unless the status is CHANGED. */
     record Changes(long documentId, String sinceBlobSha, String toBlobSha, ChangeStatus status, String reason,
                    int addedLines, int removedLines, List<NoteChanges.Section> sections) {
         static Changes changed(long documentId, String since, String to, NoteChanges.Comparison comparison) {
@@ -99,7 +99,7 @@ public class DocumentController {
     }
 
     /**
-     * Which sections changed between [since], the version the user last read, and [to], the version on their screen,
+     * Which sections changed between {@code since}, the version the user last read, and {@code to}, the version on their screen,
      * whose heading blocks the sections name. The phone supplies both: its last-read version can be newer than the
      * server's until its pending reading saves are sent. A version GitHub no longer has, or can no longer be read as a
      * note, makes the comparison unavailable; any other failure fails the request.
@@ -138,8 +138,8 @@ public class DocumentController {
     }
 
     /**
-     * A repository image referenced by an owned note, fetched at the note's current commit: by [path], or by an Obsidian
-     * [embed] name resolved against the latest snapshot's image files (no GitHub call when it is missing or ambiguous).
+     * A repository image referenced by an owned note, fetched at the note's current commit: by {@code path}, or by an Obsidian
+     * {@code embed} name resolved against the latest snapshot's image files (no GitHub call when it is missing or ambiguous).
      * Not cached on the server.
      */
     @GetMapping("/api/documents/{id}/image")

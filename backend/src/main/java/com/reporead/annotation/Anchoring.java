@@ -29,9 +29,9 @@ final class Anchoring {
     static final int MAX_FUZZY_BLOCKS = 16;
 
     /**
-     * How much evidence each stage needs. [quoteContext]: context similarity that supports an exact-quote occurrence.
-     * [uniqueQuoteChars]: an exact quote at least this long that occurs once needs no context. [fuzzyQuote] and
-     * [fuzzyContext]: the quote and context similarity a fuzzy candidate needs.
+     * How much evidence each stage needs. {@code quoteContext}: context similarity that supports an exact-quote occurrence.
+     * {@code uniqueQuoteChars}: an exact quote at least this long that occurs once needs no context. {@code fuzzyQuote} and
+     * {@code fuzzyContext}: the quote and context similarity a fuzzy candidate needs.
      */
     record Thresholds(double quoteContext, int uniqueQuoteChars, double fuzzyQuote, double fuzzyContext) {}
 
@@ -45,8 +45,8 @@ final class Anchoring {
     record Candidate(MarkdownRenderer.Block block, int start, int end, double quote, double context, boolean sameHeadings) {}
 
     /**
-     * What one version offers for an anchor, independent of thresholds. [position]: the passage at its old block id and
-     * offsets with unchanged context. [block]: the same offsets in the one block whose text is unchanged. [fuzzy] is only
+     * What one version offers for an anchor, independent of thresholds. {@code position}: the passage at its old block id and
+     * offsets with unchanged context. {@code block}: the same offsets in the one block whose text is unchanged. {@code fuzzy} is only
      * searched when none of those nor a full-context exact quote can decide.
      */
     record Evidence(Annotations.Anchor from, Candidate position, Candidate block, List<Candidate> exact, List<Candidate> fuzzy) {}

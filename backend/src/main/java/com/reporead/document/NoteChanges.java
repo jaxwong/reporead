@@ -23,7 +23,7 @@ public final class NoteChanges {
     public enum Change { ADDED, CHANGED, REMOVED }
 
     /**
-     * A changed section. [headingPath] is empty for the beginning of the note. [blockId] is the heading block in the newer
+     * A changed section. {@code headingPath} is empty for the beginning of the note. {@code blockId} is the heading block in the newer
      * version, null for a removed section and for the beginning of the note (the top).
      */
     public record Section(Change change, List<String> headingPath, String blockId, int addedLines, int removedLines) {}
@@ -109,7 +109,7 @@ public final class NoteChanges {
 
     /**
      * A minimal line diff (Myers' greedy algorithm) after removing the common prefix and suffix. Empty when more than
-     * [maxEdits] lines must be inserted or deleted. Time is O((n + m) * edits); the kept trace is O(edits²).
+     * {@code maxEdits} lines must be inserted or deleted. Time is O((n + m) * edits); the kept trace is O(edits²).
      */
     static Optional<LineDiff> lineDiff(List<String> oldLines, List<String> newLines, int maxEdits) {
         var ids = new HashMap<String, Integer>();

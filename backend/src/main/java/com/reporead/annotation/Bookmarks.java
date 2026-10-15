@@ -18,7 +18,7 @@ public class Bookmarks {
         this.db = db;
     }
 
-    /** [deleted]: the note was not in the latest complete repository refresh; the bookmark is kept. */
+    /** {@code deleted}: the note was not in the latest complete repository refresh; the bookmark is kept. */
     public record Bookmark(long documentId, long repositoryId, String path, String title, String sourceBlobSha, Instant createdAt, boolean deleted) {}
 
     private static final String SELECT = """

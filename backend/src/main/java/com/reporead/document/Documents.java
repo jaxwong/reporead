@@ -26,22 +26,22 @@ public class Documents {
     }
 
     public record SourceFile(String path, String blobSha) {}
-    /** [contentChangedAt]: when a refresh found the note new, changed, or back; null if RepoRead never saw it change. */
+    /** {@code contentChangedAt}: when a refresh found the note new, changed, or back; null if RepoRead never saw it change. */
     public record Summary(long id, String path, String title, String blobSha, Instant contentChangedAt) {}
     /** A document that kept its identity under a new path. */
     public record Move(long documentId, String fromPath, String toPath) {}
     public record Existing(long id, String path, String blobSha, boolean deleted) {}
-    /** [commitSha]: the connection's last published commit, which the document is at unless [deleted]. */
+    /** {@code commitSha}: the connection's last published commit, which the document is at unless {@code deleted}. */
     public record Located(long id, String path, String title, String blobSha, String commitSha, boolean deleted,
                           String owner, String repositoryName, long connectionId) {}
 
     /**
      * Applies one complete tree snapshot. Moved documents take their new path first; then paths in the snapshot are
      * inserted, or updated when their content changed or they were deleted, and paths absent from it are marked deleted,
-     * never removed. An unchanged document's row is not rewritten. [contentMoves] were decided before the lock and apply
+     * never removed. An unchanged document's row is not rewritten. {@code contentMoves} were decided before the lock and apply
      * only if both their sides are still unmatched in the locked rows. A note that is new, has a new blob, or is back
-     * after being deleted records [syncedAt] as its content change, except in a connection's first snapshot
-     * ([previouslySynced] false), where RepoRead has seen nothing change. Callers must hold the connection's sync lock
+     * after being deleted records {@code syncedAt} as its content change, except in a connection's first snapshot
+     * ({@code previouslySynced} false), where RepoRead has seen nothing change. Callers must hold the connection's sync lock
      * inside a transaction. Returns the moves applied.
      */
     public List<Move> publishSnapshot(long connectionId, List<SourceFile> files, Instant syncedAt, List<Move> contentMoves,
@@ -79,10 +79,10 @@ public class Documents {
     }
 
     /**
-     * A snapshot against the stored documents. [exact] pairs an active document whose path left the snapshot with a path
+     * A snapshot against the stored documents. {@code exact} pairs an active document whose path left the snapshot with a path
      * that has never had a document, when they have the same blob SHA and that SHA is unique on both sides:
      * identical-content duplicates are never merged, and a path that once had a document resumes that document instead.
-     * [vanished] and [fresh] are the sides left unpaired, the only candidates for a content move.
+     * {@code vanished} and {@code fresh} are the sides left unpaired, the only candidates for a content move.
      */
     public record Unmatched(List<Move> exact, List<Existing> vanished, List<SourceFile> fresh) {}
 
