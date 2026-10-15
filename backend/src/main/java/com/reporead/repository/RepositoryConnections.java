@@ -32,7 +32,7 @@ public class RepositoryConnections {
     private static final String SELECT = """
         select c.id, c.github_repository_id, c.installation_id, c.owner, c.name, c.default_branch,
                c.last_synced_commit_sha, c.last_synced_at,
-               (select count(*) from documents d where d.repository_connection_id = c.id and d.deleted_at is null)
+               (select count(*) from documents d where d.repository_connection_id = c.id and d.deleted_at is null) as document_count
         from repository_connections c""";
 
     public List<Connection> list(long userId) {
@@ -48,7 +48,7 @@ public class RepositoryConnections {
     /** GitHub repository id → connection id, for marking which available repositories are already connected. */
     Map<Long, Long> connectedIds(long userId) {
         return db.sql("select github_repository_id, id from repository_connections where user_id = :userId")
-            .param("userId", userId).query((row, n) -> Map.entry(row.getLong(1), row.getLong(2))).list()
+            .param("userId", userId).query((row, n) -> Map.entry(row.getLong("github_repository_id"), row.getLong("id"))).list()
             .stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
@@ -76,7 +76,7 @@ public class RepositoryConnections {
      */
     public Checkpoint lockForSync(long userId, long connectionId) {
         return db.sql("select last_synced_commit_sha from repository_connections where id = :id and user_id = :userId for update")
-            .param("id", connectionId).param("userId", userId).query((row, n) -> new Checkpoint(row.getString(1))).optional().orElseThrow(ApiFailure::notFound);
+            .param("id", connectionId).param("userId", userId).query((row, n) -> new Checkpoint(row.getString("last_synced_commit_sha"))).optional().orElseThrow(ApiFailure::notFound);
     }
 
     /**
@@ -103,8 +103,9 @@ public class RepositoryConnections {
     }
 
     private static Connection connection(ResultSet row, int n) throws SQLException {
-        var synced = row.getTimestamp(8);
-        return new Connection(row.getLong(1), row.getLong(2), row.getLong(3), row.getString(4), row.getString(5),
-            row.getString(6), row.getString(7), synced == null ? null : synced.toInstant(), row.getInt(9));
+        var synced = row.getTimestamp("last_synced_at");
+        return new Connection(row.getLong("id"), row.getLong("github_repository_id"), row.getLong("installation_id"), row.getString("owner"),
+            row.getString("name"), row.getString("default_branch"), row.getString("last_synced_commit_sha"),
+            synced == null ? null : synced.toInstant(), row.getInt("document_count"));
     }
 }

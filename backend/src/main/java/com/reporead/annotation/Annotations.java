@@ -86,10 +86,14 @@ public class Annotations {
 
     private static final String SELECT = """
         select a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at, a.mutation_id, a.resolved_blob_sha,
-               n.source_blob_sha, n.block_id, n.exact_text, n.prefix_text, n.suffix_text, n.start_offset, n.end_offset, n.heading_path::text,
-               l.source_blob_sha, l.block_id, l.exact_text, l.prefix_text, l.suffix_text, l.start_offset, l.end_offset, l.heading_path::text,
+               n.source_blob_sha as anchor_source_blob_sha, n.block_id as anchor_block_id, n.exact_text as anchor_exact_text,
+               n.prefix_text as anchor_prefix_text, n.suffix_text as anchor_suffix_text, n.start_offset as anchor_start_offset,
+               n.end_offset as anchor_end_offset, n.heading_path::text as anchor_heading_path,
+               l.source_blob_sha as location_source_blob_sha, l.block_id as location_block_id, l.exact_text as location_exact_text,
+               l.prefix_text as location_prefix_text, l.suffix_text as location_suffix_text, l.start_offset as location_start_offset,
+               l.end_offset as location_end_offset, l.heading_path::text as location_heading_path,
                l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote, a.question, a.checked_blob_sha,
-               d.title, d.path, d.current_blob_sha, d.deleted_at is not null
+               d.title, d.path, d.current_blob_sha, d.deleted_at is not null as deleted
         from annotations a join documents d on d.id = a.document_id join annotation_anchors n on n.annotation_id = a.id
         join annotation_locations l on l.annotation_id = a.id
         where a.type in ('HIGHLIGHT', 'CARD') and a.user_id = :userId""";
@@ -113,7 +117,7 @@ public class Annotations {
      */
     Optional<Annotation> replay(long userId, UUID mutationId, byte[] requestHash) {
         var hash = db.sql("select request_hash from annotation_mutations where user_id = :userId and mutation_id = :mutationId")
-            .param("userId", userId).param("mutationId", mutationId).query((row, n) -> row.getBytes(1)).optional();
+            .param("userId", userId).param("mutationId", mutationId).query((row, n) -> row.getBytes("request_hash")).optional();
         if (hash.isEmpty()) return Optional.empty();
         if (!MessageDigest.isEqual(hash.get(), requestHash)) {
             throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId was already used for a different annotation request.");
@@ -254,19 +258,22 @@ public class Annotations {
     }
 
     private Annotation annotation(ResultSet row, int n) throws SQLException {
-        var location = anchor(row, 19);
+        var location = anchor(row, "location_");
         location = new Anchor(location.sourceBlobSha(), location.blockId(), location.exactText(), location.prefixText(),
-            location.suffixText(), location.startOffset(), location.endOffset(), location.headingPath(), row.getString(27),
-            (Integer) row.getObject(28), (Double) row.getObject(29), (Double) row.getObject(30));
-        return new Annotation(row.getLong(1), row.getString(9), row.getLong(2), row.getString(3), row.getString(4), row.getString(5),
-            row.getInt(6), row.getTimestamp(7).toInstant(), row.getTimestamp(8).toInstant(), anchor(row, 11), location, row.getString(10), row.getString(31), row.getString(32),
-            row.getString(33), row.getString(34), row.getString(35), row.getBoolean(36));
+            location.suffixText(), location.startOffset(), location.endOffset(), location.headingPath(), row.getString("block_sha"),
+            (Integer) row.getObject("quote_occurrences"), (Double) row.getObject("rival_context"), (Double) row.getObject("rival_quote"));
+        return new Annotation(row.getLong("id"), row.getString("mutation_id"), row.getLong("document_id"), row.getString("type"),
+            row.getString("note"), row.getString("status"), row.getInt("version"), row.getTimestamp("created_at").toInstant(),
+            row.getTimestamp("updated_at").toInstant(), anchor(row, "anchor_"), location, row.getString("resolved_blob_sha"),
+            row.getString("question"), row.getString("checked_blob_sha"), row.getString("title"), row.getString("path"),
+            row.getString("current_blob_sha"), row.getBoolean("deleted"));
     }
 
-    /** The eight anchor columns starting at [first]; distinguishability is not part of an original anchor. */
-    private Anchor anchor(ResultSet row, int first) throws SQLException {
-        return new Anchor(row.getString(first), row.getString(first + 1), row.getString(first + 2), row.getString(first + 3),
-            row.getString(first + 4), row.getInt(first + 5), row.getInt(first + 6),
-            json.readValue(row.getString(first + 7), new TypeReference<List<String>>() {}), null, null, null, null);
+    /** The eight anchor columns named with [prefix]; distinguishability is not part of an original anchor. */
+    private Anchor anchor(ResultSet row, String prefix) throws SQLException {
+        return new Anchor(row.getString(prefix + "source_blob_sha"), row.getString(prefix + "block_id"), row.getString(prefix + "exact_text"),
+            row.getString(prefix + "prefix_text"), row.getString(prefix + "suffix_text"), row.getInt(prefix + "start_offset"),
+            row.getInt(prefix + "end_offset"), json.readValue(row.getString(prefix + "heading_path"), new TypeReference<List<String>>() {}),
+            null, null, null, null);
     }
 }
