@@ -127,7 +127,7 @@ class AnnotationTest {
                 .build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
         db.sql(
-                        "insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch) values (1, 11, 7, 'test-only', 'notes', 'main')")
+                        "insert into repository_connections (user_id, github_repository_id, owner, name, default_branch) values (1, 11, 'test-only', 'notes', 'main')")
                 .update();
         // The note has moved on to CURRENT; annotations are created against the older version the user was reading.
         note = db.sql("""

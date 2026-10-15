@@ -95,6 +95,25 @@ class MigrationTest {
     }
 
     @Test
+    void columnsNothingReadAreDroppedAndTheirRowsKept() {
+        var database = TestEnvironment.emptyDatabase();
+        var db = JdbcClient.create(database);
+        flyway(database, "8").migrate();
+        noteAtV8(db);
+        db.sql("update repository_connections set last_synced_at = now()").update();
+
+        flyway(database, "latest").migrate();
+
+        assertFalse(hasColumn(db, "repository_connections", "last_synced_at"));
+        assertFalse(hasColumn(db, "repository_connections", "installation_id"));
+        assertEquals(
+                SHA,
+                db.sql("select last_synced_commit_sha from repository_connections")
+                        .query(String.class)
+                        .single());
+    }
+
+    @Test
     void aHighlightWithoutAMutationRecordStopsTheMigrationAndChangesNothing() {
         var database = TestEnvironment.emptyDatabase();
         var db = JdbcClient.create(database);

@@ -90,8 +90,8 @@ class DocumentContentTest {
                 .build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, TOKEN);
         db.sql("""
-                insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch, last_synced_commit_sha)
-                values (1, 11, 7, 'test-only', 'notes', 'main', :commit)""").param("commit", "c".repeat(40)).update();
+                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
+                values (1, 11, 'test-only', 'notes', 'main', :commit)""").param("commit", "c".repeat(40)).update();
     }
 
     @AfterEach
