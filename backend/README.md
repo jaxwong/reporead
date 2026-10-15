@@ -56,7 +56,7 @@ Oracle Cloud Always Free (ADR-14): `VM.Standard.A1.Flex`, 1 OCPU / 6 GB, Oracle 
 | Configuration | `/etc/reporead/backend.env` (root 0600, includes the database password and `REPOREAD_ALLOWED_GITHUB_USER_IDS`), `/etc/reporead/github-client-secret` (`reporead` 0600), `/etc/reporead/github-token-key` (`reporead` 0600), `/etc/reporead/db-password` (root 0600, also the Podman secret `reporead-db-password`) |
 | HTTPS | Caddy (`/etc/caddy/Caddyfile`), Let's Encrypt via HTTP-01, proxies only to `127.0.0.1:8081` |
 
-**Deploying.** A push to `main` that touches the backend or the build runs `.github/workflows/backend.yml`: backend tests, `bootJar`, then the jar is piped over SSH to the `deploy` user (secret `DEPLOY_SSH_KEY`; the VM's host key is pinned in the workflow). Pull requests run the tests only. `reporead-deploy` checks that stdin is a RepoRead boot jar, keeps the running jar as `/opt/reporead/backend.previous.jar`, restarts the service, and waits up to 120 s for Actuator health; otherwise it restores the previous jar and exits 1, failing the run. It prints only outcomes and the jar's SHA-256, because the repository and its CI logs are public. To deploy by hand, build with `./gradlew :backend:bootJar --no-daemon`, then `ssh opc@152.69.219.238 'sudo /usr/local/sbin/reporead-deploy' < backend/build/libs/backend.jar`. Changes to `backend/deploy/reporead-deploy` take effect only once copied to the VM by hand (root 0755); CI cannot change it.
+**Deploying.** A push to `main` that touches the backend or the build runs `.github/workflows/backend.yml`: the formatting check, backend tests, `bootJar`, then the jar is piped over SSH to the `deploy` user (secret `DEPLOY_SSH_KEY`; the VM's host key is pinned in the workflow). Pull requests run the formatting check and the tests only. `reporead-deploy` checks that stdin is a RepoRead boot jar, keeps the running jar as `/opt/reporead/backend.previous.jar`, restarts the service, and waits up to 120 s for Actuator health; otherwise it restores the previous jar and exits 1, failing the run. It prints only outcomes and the jar's SHA-256, because the repository and its CI logs are public. To deploy by hand, build with `./gradlew :backend:bootJar --no-daemon`, then `ssh opc@152.69.219.238 'sudo /usr/local/sbin/reporead-deploy' < backend/build/libs/backend.jar`. Changes to `backend/deploy/reporead-deploy` take effect only once copied to the VM by hand (root 0755); CI cannot change it.
 
 Logs: `sudo journalctl -u reporead-backend`. Restarts and deploys keep GitHub sign-ins (stored encrypted, see the sign-in contract).
 
@@ -201,8 +201,11 @@ The server stores no due dates, scores derived from history, or scheduling state
 ## Verify
 
 ```sh
+./gradlew :backend:spotlessCheck --no-daemon   # formatting; spotlessApply rewrites the files instead
 ./gradlew :backend:test --no-daemon
 ```
+
+Spotless with palantir-java-format (`backend/build.gradle.kts`) owns the backend's layout, Javadoc included; CI runs `spotlessCheck` before the tests.
 
 Tests run against a real PostgreSQL 17.11 container through Testcontainers (Docker must be running). GitHub is mocked with explicit test-only data; tests do not prove live GitHub authorization.
 

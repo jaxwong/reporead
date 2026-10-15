@@ -19,6 +19,7 @@ An Android reading and study layer for technical Markdown notes kept in GitHub: 
 
 ```sh
 ./gradlew :backend:test --no-daemon                       # PostgreSQL via Testcontainers; Docker must be running
+./gradlew :backend:spotlessApply --no-daemon              # format the backend; CI fails on unformatted code (spotlessCheck)
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --no-daemon
 ```
 
