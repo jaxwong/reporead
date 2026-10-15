@@ -31,7 +31,7 @@ class SignInSessionsTest {
 
     /** A new browser each time: no cookie is sent, so every sign-in opens its own session. */
     private HttpResponse<String> startSignIn() throws Exception {
-        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/app/sign-in?code_challenge="
+        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/app/sign-in?scheme=reporead&code_challenge="
             + TestSessions.challenge(TestSessions.verifier()))).build();
         return http.send(request, HttpResponse.BodyHandlers.ofString());
     }

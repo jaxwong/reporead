@@ -15,7 +15,7 @@ val bundleReader = tasks.register<BundleReader>("bundleReader") {
 }
 
 /*
- * Release and development builds are signed with one personal key kept outside the repository, so every build installs
+ * Release and development builds are signed with one personal key kept outside the repository, so each release installs
  * over the last and keeps the phone's data (see android/README.md). Packaging without it fails; nothing falls back to
  * the debug key.
  */
@@ -54,9 +54,20 @@ android {
             signingConfigs.findByName("personal")?.let { signingConfig = it }
             // Development backend on the Mac, reached through `adb reverse tcp:8081 tcp:8081`; see backend/README.md.
             buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8081\"")
+            // A separate app beside the release one (ADR-12): its own id, name, data and sign-in scheme, so testing on
+            // the phone never replaces the app in use. The server accepts only the two apps' schemes (AppAuthController).
+            applicationIdSuffix = ".dev"
+            val signInScheme = "reporead-dev"
+            manifestPlaceholders["appLabel"] = "RepoRead Dev"
+            manifestPlaceholders["signInScheme"] = signInScheme
+            buildConfigField("String", "SIGN_IN_SCHEME", "\"$signInScheme\"")
         }
         release {
             signingConfigs.findByName("personal")?.let { signingConfig = it }
+            val signInScheme = "reporead"
+            manifestPlaceholders["appLabel"] = "RepoRead"
+            manifestPlaceholders["signInScheme"] = signInScheme
+            buildConfigField("String", "SIGN_IN_SCHEME", "\"$signInScheme\"")
             // Hosted backend (ADR-14); HTTPS only.
             buildConfigField("String", "API_BASE_URL", "\"https://reporead.duckdns.org\"")
             // Not minified: Room, Compose, and the reader bridge-free WebView are verified unshrunk only.

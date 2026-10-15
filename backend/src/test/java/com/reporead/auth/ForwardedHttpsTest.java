@@ -31,7 +31,7 @@ class ForwardedHttpsTest {
 
     private HttpResponse<Void> startSignIn(String forwardedProto) throws Exception {
         var challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[32]);
-        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/app/sign-in?code_challenge=" + challenge));
+        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/app/sign-in?scheme=reporead&code_challenge=" + challenge));
         if (forwardedProto != null) request.header("X-Forwarded-Proto", forwardedProto);
         return http.send(request.build(), HttpResponse.BodyHandlers.discarding());
     }

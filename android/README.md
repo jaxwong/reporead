@@ -12,14 +12,14 @@ Start PostgreSQL and the backend first (see the backend README). Install reader 
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> reverse tcp:8081 tcp:8081
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r android/build/outputs/apk/debug/app-debug.apk
-~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am start -n com.reporead.android/.MainActivity
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am start -n com.reporead.android.dev/com.reporead.android.MainActivity
 ```
 
 Debug builds use the Mac's backend: `adb reverse` makes the phone's `127.0.0.1:8081` reach the Mac's loopback backend, so the registered GitHub callback is unchanged. It is reset when the phone disconnects — including when airplane mode or Wi-Fi loss ends wireless debugging. Re-enable wireless debugging and repeat it before syncing. Only debug builds permit cleartext HTTP, and only to `127.0.0.1` (`src/debug/res/xml/network_security_config.xml` overrides the HTTPS-only `src/main` one). The base URL is a per-build-type `BuildConfig` constant in `build.gradle.kts`.
 
 ## Signing and the release APK
 
-Every build — release, debug, and the device-test APK — is signed with one personal key, so each installs over the last and keeps the phone's data. The key is outside the repository; `~/.gradle/gradle.properties` names it (paths only):
+Every build — release, debug, and the device-test APK — is signed with one personal key, so each release installs over the last and keeps the phone's data. The debug build is a **separate app**, RepoRead Dev (`com.reporead.android.dev`), installed beside the release app with its own data and sign-in scheme (`reporead-dev://auth`; ADR-12), so testing never touches the app in use. The key is outside the repository; `~/.gradle/gradle.properties` names it (paths only):
 
 ```properties
 reporead.signing.storeFile=/Users/<you>/.config/reporead/release.jks
@@ -33,13 +33,13 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleRelease --no-dae
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r android/build/outputs/apk/release/app-release.apk
 ```
 
-The release build is not debuggable (no WebView DevTools, no `run-as`) and not minified. It uses the hosted backend, `https://reporead.duckdns.org` (ADR-14), so refreshing and syncing need only an internet connection; saved notes, highlights, and progress work offline and sync later. To inspect the phone's database, install the debug build over it (same key and app id; data is kept), then the release build again.
+The release build is not debuggable (no WebView DevTools, no `run-as`) and not minified. It uses the hosted backend, `https://reporead.duckdns.org` (ADR-14), so refreshing and syncing need only an internet connection; saved notes, highlights, and progress work offline and sync later. Its data cannot be inspected on the phone; `run-as` and WebView DevTools work on RepoRead Dev, whose data is its own.
 
 ## Releases and Obtainium
 
 A push to `main` that changes the app or the build runs `.github/workflows/android.yml`: unit tests, then a release APK signed with the personal key (repository secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`), checked against the certificate SHA-256 `2049299f…53293f`, and published as GitHub Release `v0.1.<n>` with `reporead-0.1.<n>.apk` and its `.sha256`. Pull requests run the unit tests only. `versionCode` is `n`, the commit count of `HEAD` (`git rev-list --count HEAD`), and `versionName` is `0.1.<n>`, so releases from `main` only go up.
 
-On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https://github.com/jaxwong/reporead` (public, so no token) and installs each new release over the current app, keeping its data, because every release is signed with the same key. A build installed by hand from a branch can carry a higher commit count than the next release from `main`; Android refuses that as a downgrade, so reinstall the release with `adb install -r -d`.
+On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https://github.com/jaxwong/reporead` (public, so no token) and installs each new release over the current app, keeping its data, because every release is signed with the same key. A release build installed by hand from a branch can carry a higher commit count than the next release from `main`; Android refuses that as a downgrade, so reinstall the release with `adb install -r -d`, and only a release whose database version is at least the hand-installed build's (Room cannot open a newer database).
 
 ## Device tests
 
@@ -49,10 +49,10 @@ These run against in-memory databases on the phone: the Room cache and pending-c
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r android/build/outputs/apk/debug/app-debug.apk
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w com.reporead.android.test/androidx.test.runner.AndroidJUnitRunner
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-They need the debug build installed; reinstall the release build afterwards. `./gradlew :app:connectedDebugAndroidTest` runs the same tests but **uninstalls the app afterwards**, deleting its session, cache, and any unsynced changes; do not use it on the phone you read on. `am instrument` exits 0 even when tests fail: the run passed only if it ends with `OK (n tests)`.
+They need the debug build (RepoRead Dev) installed; the release app is untouched. `./gradlew :app:connectedDebugAndroidTest` runs the same tests but **uninstalls RepoRead Dev afterwards**, deleting its session, cache, and any unsynced changes. `am instrument` exits 0 even when tests fail: the run passed only if it ends with `OK (n tests)`.
 
 ### Real-corpus check
 
@@ -64,7 +64,7 @@ REPOREAD_STUDY_PAGES=<dir>/pages ANDROID_HOME="$HOME/Library/Android/sdk" ./grad
 
 ## Behavior
 
-- **Sign-in:** a Chrome Custom Tab opens `/app/sign-in` with a PKCE challenge; the `reporead://auth` redirect is exchanged with the verifier for a bearer session, encrypted with an Android Keystore AES-GCM key. A 401 (expired session, or a GitHub sign-in the server can no longer renew) signs the app out of the network only: saved notes stay readable and the library offers **Sign in with GitHub**. **Sign out and remove from phone…** first says how many changes on the phone never reached the server; confirming revokes the session (and, on the last signed-in device, RepoRead's GitHub authorization) and deletes this phone's cached notes, images, and those unsynced changes.
+- **Sign-in:** a Chrome Custom Tab opens `/app/sign-in` with a PKCE challenge and the build's scheme; the redirect to that scheme (`reporead://auth`, or `reporead-dev://auth` for RepoRead Dev) is exchanged with the verifier for a bearer session, encrypted with an Android Keystore AES-GCM key. A 401 (expired session, or a GitHub sign-in the server can no longer renew) signs the app out of the network only: saved notes stay readable and the library offers **Sign in with GitHub**. **Sign out and remove from phone…** first says how many changes on the phone never reached the server; confirming revokes the session (and, on the last signed-in device, RepoRead's GitHub authorization) and deletes this phone's cached notes, images, and those unsynced changes.
 - **Offline cache (Room):** repositories, document lists, and the latest complete rendered copy of each opened note, keyed by document and blob SHA. **Save all notes on this phone** (a repository's overflow menu) fetches, one note at a time, every note whose saved copy is missing, of another version, or of an older page format, using the saved note list (refresh the repository first to pick up GitHub changes). A note the server refuses to render (too large) is listed and skipped; any other failure, or leaving the screen, stops the run and keeps the copies already saved, so running again continues. Images are not fetched by it; they are saved when the note is read online. A note whose cached version and path match the document's current version and path opens without a network call. Otherwise the current version is fetched; if that fails, the older saved copy is shown with the reason. Failed refreshes never replace saved lists or notes. There is no eviction yet; every saved note's latest version is kept (on the Pixel, 653 notes take 28.8 MB).
 - **Reading position:** the reader saves the first block visible at the top of the screen (heading path, 64-character text prefix, block index) and scroll percent 0.7 s after scrolling stops, when the app goes to the background, and when leaving the note. Once captured, the bounded local database write finishes even if rotation cancels the Activity's UI scope; it does not start a network sync. It records the blob SHA actually displayed; refreshing a repository never changes it. Restoring tries heading + text, text, section, block index, then percent, and says when it is approximate or when the note changed since the last read. The system font size is applied to the reader.
 - **Continue reading and bookmarks:** the library shows the five most recently read notes and all bookmarks. Saves and bookmark toggles are stored locally as pending and sent by the background sync; pending changes win over older server state and yield to newer state.

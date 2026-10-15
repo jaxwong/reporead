@@ -13,12 +13,12 @@ import java.io.IOException;
 
 /**
  * Completes the browser half of app sign-in: saves the user, issues a single-use code bound to the app's PKCE
- * challenge, ends the browser session, and redirects to the app. A login can only start from /app/sign-in
- * (GitHubSecurity.startedByTheApp), so the challenge is always in the session that reaches this callback.
+ * challenge, ends the browser session, and redirects to the app that started it, by its scheme. A login can only start
+ * from /app/sign-in (GitHubSecurity.startedByTheApp), so the challenge and scheme are always in the session that
+ * reaches this callback.
  */
 final class AppSignInSuccess implements AuthenticationSuccessHandler {
     private static final Logger LOG = LoggerFactory.getLogger(AppSignInSuccess.class);
-    static final String APP_REDIRECT = "reporead://auth?code=";
     private final AppSessions sessions;
 
     AppSignInSuccess(AppSessions sessions) {
@@ -30,11 +30,15 @@ final class AppSignInSuccess implements AuthenticationSuccessHandler {
         throws IOException {
         var session = request.getSession(false);
         Object challenge = session == null ? null : session.getAttribute(AppAuthController.CHALLENGE_ATTRIBUTE);
+        Object scheme = session == null ? null : session.getAttribute(AppAuthController.SCHEME_ATTRIBUTE);
         // The browser session has done its job; only the app's bearer session may call /api.
         if (session != null) session.invalidate();
         SecurityContextHolder.clearContext();
         if (!(challenge instanceof String codeChallenge)) {
             throw new IllegalStateException("GitHub sign-in completed without the app's PKCE challenge in its browser session");
+        }
+        if (!(scheme instanceof String appScheme) || !AppAuthController.APP_SCHEMES.contains(appScheme)) {
+            throw new IllegalStateException("GitHub sign-in completed without a known app scheme in its browser session; got " + scheme);
         }
         var user = (OAuth2User) authentication.getPrincipal();
         Object id = user.getAttribute("id");
@@ -44,7 +48,7 @@ final class AppSignInSuccess implements AuthenticationSuccessHandler {
         }
         long userId = sessions.saveUser(number.longValue(), name);
         String code = sessions.issueSignInCode(userId, codeChallenge);
-        LOG.info("GitHub sign-in completed; userId={} app code issued", userId);
-        response.sendRedirect(APP_REDIRECT + code);
+        LOG.info("GitHub sign-in completed; userId={} app code issued; scheme={}", userId, appScheme);
+        response.sendRedirect(appScheme + "://auth?code=" + code);
     }
 }

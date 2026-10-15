@@ -5,7 +5,7 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
-        android:label="RepoRead"
+        android:label="${appLabel}"
         android:theme="@style/Theme.RepoRead"
         android:networkSecurityConfig="@xml/network_security_config">
         <provider android:name="androidx.core.content.FileProvider"
@@ -20,12 +20,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Sign-in handoff; the code is useless without this app's PKCE verifier. -->
+            <!-- Sign-in handoff, on this build's own scheme; the code is useless without this app's PKCE verifier. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="reporead" android:host="auth" />
+                <data android:scheme="${signInScheme}" android:host="auth" />
             </intent-filter>
         </activity>
     </application>

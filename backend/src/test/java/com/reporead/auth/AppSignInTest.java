@@ -70,11 +70,16 @@ class AppSignInTest {
         return new OAuth2AuthenticationToken(user, user.getAuthorities(), "github");
     }
 
-    /** Runs the real success handler as the OAuth callback would, returning the redirect target. */
+    /** Runs the real success handler as the OAuth callback would for the release app, returning the redirect target. */
     private String completeGitHubLogin(String challenge, long githubUserId, String login) throws Exception {
+        return completeGitHubLogin(challenge, "reporead", githubUserId, login);
+    }
+
+    private String completeGitHubLogin(String challenge, String scheme, long githubUserId, String login) throws Exception {
         var request = new MockHttpServletRequest();
         var session = new MockHttpSession();
         if (challenge != null) session.setAttribute(AppAuthController.CHALLENGE_ATTRIBUTE, challenge);
+        if (scheme != null) session.setAttribute(AppAuthController.SCHEME_ATTRIBUTE, scheme);
         request.setSession(session);
         var response = new MockHttpServletResponse();
         new AppSignInSuccess(sessions).onAuthenticationSuccess(request, response, github(githubUserId, login));
@@ -83,8 +88,13 @@ class AppSignInTest {
     }
 
     private String code(String redirect) {
-        assertTrue(redirect.startsWith(AppSignInSuccess.APP_REDIRECT), redirect);
-        return redirect.substring(AppSignInSuccess.APP_REDIRECT.length());
+        return code("reporead", redirect);
+    }
+
+    private String code(String scheme, String redirect) {
+        String prefix = scheme + "://auth?code=";
+        assertTrue(redirect.startsWith(prefix), redirect);
+        return redirect.substring(prefix.length());
     }
 
     private org.springframework.test.web.servlet.ResultActions exchange(String code, String verifier) throws Exception {
@@ -97,14 +107,31 @@ class AppSignInTest {
         return json.readTree(body).get("accessToken").stringValue();
     }
 
-    @Test void signInStartStoresAValidChallengeAndRejectsOthers() throws Exception {
+    @Test void signInStartStoresAValidChallengeAndAppSchemeAndRejectsOthers() throws Exception {
         String challenge = TestSessions.challenge(TestSessions.verifier());
-        var result = mvc.perform(get("/app/sign-in").param("code_challenge", challenge))
-            .andExpect(status().isFound()).andExpect(redirectedUrl("/oauth2/authorization/github")).andReturn();
-        assertEquals(challenge, result.getRequest().getSession().getAttribute(AppAuthController.CHALLENGE_ATTRIBUTE));
-        mvc.perform(get("/app/sign-in").param("code_challenge", "too-short"))
+        for (String scheme : List.of("reporead", "reporead-dev")) {
+            var result = mvc.perform(get("/app/sign-in").param("code_challenge", challenge).param("scheme", scheme))
+                .andExpect(status().isFound()).andExpect(redirectedUrl("/oauth2/authorization/github")).andReturn();
+            assertEquals(challenge, result.getRequest().getSession().getAttribute(AppAuthController.CHALLENGE_ATTRIBUTE));
+            assertEquals(scheme, result.getRequest().getSession().getAttribute(AppAuthController.SCHEME_ATTRIBUTE));
+        }
+        mvc.perform(get("/app/sign-in").param("code_challenge", "too-short").param("scheme", "reporead"))
             .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_CODE_CHALLENGE"));
+        // Only the apps' own schemes: anything else would hand the sign-in code to whatever registered it.
+        for (String scheme : List.of("https", "javascript", "reporead-other", "")) {
+            var refused = mvc.perform(get("/app/sign-in").param("code_challenge", challenge).param("scheme", scheme))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST")).andReturn();
+            assertNull(refused.getRequest().getSession(false), scheme);
+        }
+        mvc.perform(get("/app/sign-in").param("code_challenge", challenge))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mvc.perform(get("/app/sign-in")).andExpect(status().isBadRequest());
+    }
+
+    @Test void theCodeGoesToTheAppThatStartedTheSignIn() throws Exception {
+        String verifier = TestSessions.verifier();
+        String token = accessToken(code("reporead-dev", completeGitHubLogin(TestSessions.challenge(verifier), "reporead-dev", 42, "test-only-alice")), verifier);
+        mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token)).andExpect(status().isOk());
     }
 
     @Test void fullHandoffIssuesASessionThatAuthenticatesTheApiAndExposesNoGitHubToken() throws Exception {
@@ -123,6 +150,13 @@ class AppSignInTest {
         request.setSession(new MockHttpSession());
         assertThrows(IllegalStateException.class,
             () -> new AppSignInSuccess(sessions).onAuthenticationSuccess(request, new MockHttpServletResponse(), github(42, "test-only-alice")));
+        assertEquals(0, db.sql("select count(*) from app_sign_in_codes").query(Integer.class).single());
+        assertEquals(0, db.sql("select count(*) from users").query(Integer.class).single());
+    }
+
+    /** /app/sign-in stores the scheme with the challenge, so a session holding only the challenge is a broken invariant. */
+    @Test void loginWithoutTheAppSchemeIsAnInvariantFailureAndIssuesNoCode() {
+        assertThrows(IllegalStateException.class, () -> completeGitHubLogin(TestSessions.challenge(TestSessions.verifier()), null, 42, "test-only-alice"));
         assertEquals(0, db.sql("select count(*) from app_sign_in_codes").query(Integer.class).single());
         assertEquals(0, db.sql("select count(*) from users").query(Integer.class).single());
     }
