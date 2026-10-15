@@ -1,0 +1,9 @@
+#!/bin/bash
+# Writes the newest nightly dump to stdout: the forced SSH command of the backup user, whose key the developer's Mac
+# uses to copy backups off the VM (reporead-backup-pull). Installed as /usr/local/sbin/reporead-backup-latest
+# (root 0755); /etc/sudoers.d/reporead-backup lets the backup user run this and nothing else.
+set -euo pipefail
+
+latest=$(ls -1 /var/lib/reporead-backups/nightly-*.dump | sort | tail -n 1)
+echo "reporead-backup-latest: $(basename "$latest")" >&2
+exec cat "$latest"

@@ -1,0 +1,9 @@
+# Installed as /etc/systemd/system/reporead-backup.service; started by reporead-backup.timer.
+[Unit]
+Description=RepoRead database dump
+Requires=reporead-postgres.service
+After=reporead-postgres.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/reporead-backup
