@@ -434,7 +434,7 @@ class AvailableRepositoriesTest {
         var deleted = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // What account deletion does to the user row (AccountController.delete), held open while the connect
+            // What account deletion does to the user row (DataControlController.delete), held open while the connect
             // arrives.
             var deleting = executor.submit(() -> transaction.execute(status -> {
                 db.sql("select id from users where id = 1 for update")
@@ -452,15 +452,7 @@ class AvailableRepositoriesTest {
             assertTrue(deleted.await(10, TimeUnit.SECONDS));
             var connecting = executor.submit(() ->
                     connect(alice, 11, "{\"installationId\":7}").andReturn().getResponse());
-            long waitUntil = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-            while (db.sql(
-                                    "select count(*) from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()")
-                            .query(Integer.class)
-                            .single()
-                    == 0) {
-                assertTrue(System.nanoTime() < waitUntil, "the connect never waited for the account deletion's lock");
-                Thread.sleep(20);
-            }
+            TestEnvironment.awaitLockWait(db);
             release.countDown();
             assertTrue(deleting.get(10, TimeUnit.SECONDS));
             var response = connecting.get(10, TimeUnit.SECONDS);

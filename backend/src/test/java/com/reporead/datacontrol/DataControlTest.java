@@ -298,7 +298,7 @@ class DataControlTest {
     }
 
     /**
-     * Runs {@code write} while a disconnect of {@code notes} holds its lock, as RepositoryController.disconnect does,
+     * Runs {@code write} while a disconnect of {@code notes} holds its lock, as DataControlController.disconnect does,
      * and returns the write's HTTP status. A write that did not wait would commit rows the disconnect's deletes no
      * longer see.
      */
@@ -314,7 +314,7 @@ class DataControlTest {
             }));
             assertTrue(locked.await(10, TimeUnit.SECONDS));
             var written = executor.submit(write);
-            Thread.sleep(300);
+            TestEnvironment.awaitLockWait(db);
             assertFalse(written.isDone(), "the write must wait for the disconnect");
             release.countDown();
             disconnect.get(10, TimeUnit.SECONDS);
@@ -369,7 +369,9 @@ class DataControlTest {
                             .andReturn()
                             .getResponse()
                             .getStatus());
-            Thread.sleep(300);
+            // The deletion waits for the user row the new connection's foreign key holds.
+            TestEnvironment.awaitLockWait(db);
+            assertFalse(deleting.isDone(), "the account deletion must wait for the connection being added");
             release.countDown();
             connecting.get(10, TimeUnit.SECONDS);
             assertEquals(200, deleting.get(10, TimeUnit.SECONDS));
