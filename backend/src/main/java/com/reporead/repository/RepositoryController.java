@@ -101,19 +101,22 @@ public class RepositoryController {
                 .orElseThrow(() -> new ApiFailure(
                         Code.REPOSITORY_NOT_AUTHORIZED,
                         "This repository is not available to you through the RepoRead GitHub App installation."));
-        long id = transaction.execute(status -> {
+        var connection = transaction.execute(status -> {
             // Account deletion locks the user before listing connections to delete, so this connection is either listed
             // and deleted with the rest, or added after the account is gone, which is refused here.
             if (!sessions.lockUserForWrite(user.id())) {
                 throw new ApiFailure(Code.SIGN_IN_REQUIRED, "This RepoRead account was deleted; sign in again.");
             }
-            return connections.connect(user.id(), repository);
+            // Read under the same lock, so a deletion cannot remove the connection before it is returned.
+            return connections
+                    .find(user.id(), connections.connect(user.id(), repository))
+                    .orElseThrow();
         });
         LOG.info(
                 "Repository connected; userId={} connectionId={} githubRepositoryId={}",
                 user.id(),
-                id,
+                connection.id(),
                 githubRepositoryId);
-        return connections.find(user.id(), id).orElseThrow();
+        return connection;
     }
 }

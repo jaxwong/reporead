@@ -435,42 +435,50 @@ fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit)
                 } else
                     LazyColumn {
                         items(repositories, key = { it.githubRepositoryId }) { repository ->
+                            val connected = repository.connectionId != null
                             ListItem(
                                 leadingContent = { AppIcon(R.drawable.ic_folder, null) },
                                 headlineContent = { Text(repository.fullName) },
-                                supportingContent = { Text(if (repository.privateRepository) "Private" else "Public") },
+                                supportingContent = {
+                                    val visibility = if (repository.privateRepository) "Private" else "Public"
+                                    Text(if (connected) "$visibility · Connected" else visibility)
+                                },
+                                // Connecting a connected repository again keeps its data and takes GitHub's current
+                                // name and default branch: the way back after either is renamed on GitHub.
                                 trailingContent = {
-                                    if (repository.connectionId != null) Text("Connected")
-                                    else
-                                        Button(
-                                            enabled = connecting == null,
-                                            onClick = {
-                                                connecting = repository.githubRepositoryId
-                                                error = null
-                                                scope.launch {
-                                                    try {
-                                                        val json =
-                                                            api.post(
-                                                                "/api/repositories/${repository.githubRepositoryId}/connect",
-                                                                JSONObject()
-                                                                    .put("installationId", repository.installationId),
-                                                            )
-                                                        val id = contract { json.getLong("id") }
-                                                        val fullName = contract { json.getString("fullName") }
-                                                        onConnected(Screen.Folder(id, fullName, ""))
-                                                    } catch (failure: ApiException) {
-                                                        error = failure.describe()
-                                                    } finally {
-                                                        connecting = null
-                                                    }
+                                    Button(
+                                        enabled = connecting == null,
+                                        onClick = {
+                                            connecting = repository.githubRepositoryId
+                                            error = null
+                                            scope.launch {
+                                                try {
+                                                    val json =
+                                                        api.post(
+                                                            "/api/repositories/${repository.githubRepositoryId}/connect",
+                                                            JSONObject()
+                                                                .put("installationId", repository.installationId),
+                                                        )
+                                                    val id = contract { json.getLong("id") }
+                                                    val fullName = contract { json.getString("fullName") }
+                                                    onConnected(Screen.Folder(id, fullName, ""))
+                                                } catch (failure: ApiException) {
+                                                    error = failure.describe()
+                                                } finally {
+                                                    connecting = null
                                                 }
-                                            },
-                                        ) {
-                                            Text(
-                                                if (connecting == repository.githubRepositoryId) "Connecting…"
-                                                else "Connect"
-                                            )
-                                        }
+                                            }
+                                        },
+                                    ) {
+                                        Text(
+                                            when {
+                                                connecting == repository.githubRepositoryId ->
+                                                    if (connected) "Updating…" else "Connecting…"
+                                                connected -> "Update"
+                                                else -> "Connect"
+                                            }
+                                        )
+                                    }
                                 },
                             )
                         }
