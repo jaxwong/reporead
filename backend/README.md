@@ -110,7 +110,7 @@ Writes that add rows for a document (annotation creation, reading-state saves, b
 
 ### Observability
 
-Logs name ids, SHAs, counts, outcomes, and repository paths; never tokens, authorization headers, note text, quotes, or annotation notes. Metrics (Micrometer, Spring Boot Actuator) are served only on the management port `127.0.0.1:8082`, which exposes `health` and `metrics` and nothing else; `adb reverse` forwards only 8081, so the phone cannot reach it. Tags never carry paths or content.
+Logs name ids, SHAs, counts, outcomes, and repository paths; never tokens, authorization headers, note text, quotes, or annotation notes. Metrics (Micrometer, Spring Boot Actuator) are served only on the management port `127.0.0.1:8082`, which exposes `health`, `metrics` and `info` and nothing else; `adb reverse` forwards only 8081, so the phone cannot reach it. Tags never carry paths or content. `info` names the Git commit the running jar was built from (`build.commit`, from `springBoot.buildInfo` in `backend/build.gradle.kts`), so a deploy can be checked on the host.
 
 | Meter | Tags | Counts |
 | --- | --- | --- |
@@ -123,6 +123,7 @@ Logs name ids, SHAs, counts, outcomes, and repository paths; never tokens, autho
 
 ```sh
 curl -s http://127.0.0.1:8082/actuator/metrics/reporead.github.requests
+curl -s http://127.0.0.1:8082/actuator/info   # {"build":{"commit":"<sha>",...}}
 ```
 
 Meters appear after their first use. They are in memory and reset when the server restarts: a projection, never application state.
