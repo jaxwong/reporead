@@ -36,11 +36,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
@@ -59,6 +63,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -66,6 +71,9 @@ import java.nio.file.StandardCopyOption
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.time.ZoneId
+import java.time.Duration
+import java.time.LocalDate
+import java.time.ZonedDateTime
 import java.util.UUID
 import kotlin.random.Random
 
@@ -188,10 +196,38 @@ internal fun GradeBar(enabled: Boolean, gaps: Map<Int, Long>?, onGrade: (Int) ->
 internal fun rememberReviewOutlook(dao: LibraryDao): ReviewOutlook? {
     val items by dao.notebook().collectAsState(null)
     val reviews by dao.reviews().collectAsState(null)
+    val today = rememberStartOfToday()
     val ready = items
     val log = reviews
-    return remember(ready, log) { if (ready == null || log == null) null else reviewOutlook(ready, log, System.currentTimeMillis(), ZoneId.systemDefault()) }
+    return remember(ready, log, today) { if (ready == null || log == null) null else reviewOutlook(ready, log, System.currentTimeMillis(), today.zone) }
 }
+
+/**
+ * The start of the phone's local day, in its time zone. Cards fall due at the start of a local day, so apart from cards
+ * and grades only this changes an outlook: the date, and the zone that decides which day each grade fell on. It updates
+ * at each local midnight while on screen, and whenever the screen starts, because the midnight timer does not run while
+ * the phone sleeps and a zone change has no timer at all.
+ */
+@Composable
+private fun rememberStartOfToday(): ZonedDateTime {
+    var today by remember { mutableStateOf(startOfToday()) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_START) today = startOfToday() }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = ZonedDateTime.now()
+            delay(Duration.between(now, now.toLocalDate().plusDays(1).atStartOfDay(now.zone)).toMillis())
+            today = startOfToday()
+        }
+    }
+    return today
+}
+
+private fun startOfToday(): ZonedDateTime = ZoneId.systemDefault().let { zone -> LocalDate.now(zone).atStartOfDay(zone) }
 
 /**
  * One line on what review holds: the due count, then what falls due next — tomorrow or on the next day with cards — and
