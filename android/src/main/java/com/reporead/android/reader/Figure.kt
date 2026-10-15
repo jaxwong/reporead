@@ -2,14 +2,10 @@ package com.reporead.android.reader
 
 import android.content.Context
 import android.content.pm.ActivityInfo
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.WindowInsets
 import android.view.WindowInsetsController
-import android.webkit.WebResourceRequest
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -37,7 +33,6 @@ import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
 import org.json.JSONObject
-import org.json.JSONTokener
 
 /**
  * One table or diagram of a note, full screen, with pinch zoom, turning with the phone even when rotation is locked. It
@@ -95,39 +90,21 @@ private fun figureView(
     note: NoteRow,
     figure: String,
     onFailure: (String) -> Unit,
-): WebView {
-    val assets = readerAssets(context)
-    val main = Handler(Looper.getMainLooper())
-    return WebView(context).apply {
-        isolateReaderPage()
+): WebView =
+    WebView(context).apply {
         settings.setSupportZoom(true)
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
-        // Hidden until the page has removed everything but the figure.
-        alpha = 0f
-        webViewClient =
-            object : WebViewClient() {
-                // Nothing navigates here; links are followed in the reader.
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
-
-                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                    readerResource(assets, sync.images, note, request.url)
-
-                override fun onPageFinished(view: WebView, url: String) =
-                    awaitRendered(view, main) { state, _ ->
-                        if (state != "ready") {
-                            Log.w("RepoRead", "Figure page did not render; documentId=${note.documentId} state=$state")
-                            onFailure("This note could not be displayed.")
-                            return@awaitRendered
-                        }
-                        view.evaluateJavascript("window.reporead.figure(${JSONObject.quote(figure)})") { encoded ->
-                            val shown = JSONTokener(encoded).nextValue() == true
-                            Log.i("RepoRead", "Figure shown; documentId=${note.documentId} figure=$figure found=$shown")
-                            if (shown) view.alpha = 1f
-                            else onFailure("That table or diagram is not in this version of the note.")
-                        }
-                    }
-            }
-        loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
+        showIsolatedPage(
+            sync.images,
+            note,
+            "Figure page",
+            "window.reporead.figure(${JSONObject.quote(figure)})",
+            onFullScreen = null,
+            onFailed = { onFailure("This note could not be displayed.") },
+        ) { found ->
+            Log.i("RepoRead", "Figure shown; documentId=${note.documentId} figure=$figure found=$found")
+            if (!found) onFailure("That table or diagram is not in this version of the note.")
+            found
+        }
     }
-}

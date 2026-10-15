@@ -1,12 +1,7 @@
 package com.reporead.android.reader
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
-import android.webkit.WebResourceRequest
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,7 +30,6 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.folderOf
 import org.json.JSONObject
-import org.json.JSONTokener
 
 /** What the preview found on this phone for the linked note. */
 private sealed interface Saved {
@@ -115,40 +109,17 @@ private fun previewView(
     note: NoteRow,
     heading: String?,
     onNotice: (String) -> Unit,
-): WebView {
-    val assets = readerAssets(context)
-    val main = Handler(Looper.getMainLooper())
-    return WebView(context).apply {
-        isolateReaderPage()
-        // Hidden until it shows the linked heading, so the top of the note does not flash first.
-        alpha = 0f
-        webViewClient =
-            object : WebViewClient() {
-                // Links are followed from the reader, not from a preview.
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
-
-                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                    readerResource(assets, sync.images, note, request.url)
-
-                override fun onPageFinished(view: WebView, url: String) =
-                    awaitRendered(view, main) { state, _ ->
-                        if (state != "ready") {
-                            Log.w("RepoRead", "Link preview did not render; documentId=${note.documentId} state=$state")
-                            onNotice("This note could not be previewed.")
-                            return@awaitRendered
-                        }
-                        if (heading == null) {
-                            view.alpha = 1f
-                            return@awaitRendered
-                        }
-                        view.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(heading)})") { encoded
-                            ->
-                            if (JSONTokener(encoded).nextValue() != true)
-                                onNotice("No heading “$heading” in the saved copy; showing the start.")
-                            view.alpha = 1f
-                        }
-                    }
-            }
-        loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
+): WebView =
+    WebView(context).apply {
+        showIsolatedPage(
+            sync.images,
+            note,
+            "Link preview",
+            heading?.let { "window.reporead.showHeading(${JSONObject.quote(it)})" },
+            onFullScreen = null,
+            onFailed = { onNotice("This note could not be previewed.") },
+        ) { found ->
+            if (!found) onNotice("No heading “$heading” in the saved copy; showing the start.")
+            true
+        }
     }
-}
