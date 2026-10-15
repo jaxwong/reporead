@@ -11,6 +11,7 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.contract
 import java.security.MessageDigest
 import java.security.SecureRandom
+import org.json.JSONException
 import org.json.JSONObject
 
 private val RANDOM = SecureRandom()
@@ -35,12 +36,12 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
 }
 
 /**
- * Exchanges the code from the sign-in redirect for a bearer session. The verifier is single-use either way. Data saved
- * on this phone belongs to the account that saved it: signing in as a different account runs [clearSavedData] first, so
- * one account never sees another's notes. The new session is stored last, so a process death part-way leaves the phone
- * signed out rather than signed in beside another account's data.
+ * Exchanges the code from the sign-in redirect for a bearer session and stores it. The verifier is single-use either
+ * way. Data saved on this phone belongs to the account that saved it, so the exchange names that account and the server
+ * issues no session for another (ACCOUNT_MISMATCH): a sign-in never removes anything from the phone, and switching
+ * accounts takes signing out, which says first what it would lose.
  */
-suspend fun completeSignIn(code: String, api: Api, store: SessionStore, clearSavedData: suspend () -> Unit) {
+suspend fun completeSignIn(code: String, api: Api, store: SessionStore) {
     val verifier =
         store.pendingVerifier
             ?: throw ApiException(
@@ -49,14 +50,19 @@ suspend fun completeSignIn(code: String, api: Api, store: SessionStore, clearSav
                 "This sign-in was not started from this app. Tap Sign in again.",
             )
     store.pendingVerifier = null
-    val session = api.post("/api/app-auth/token", JSONObject().put("code", code).put("codeVerifier", verifier))
-    val (token, userId) = contract { session.getString("accessToken") to session.getJSONObject("user").getLong("id") }
-    val owner = store.dataOwner
-    if (owner != null && owner != userId) {
-        Log.i("RepoRead", "Signed in as a different account; clearing saved data")
-        clearSavedData()
-    }
     // A phone that saved data before owners were recorded has owner null; its data is taken to be this account's.
+    val owner = store.dataOwner
+    val request = JSONObject().put("code", code).put("codeVerifier", verifier)
+    if (owner != null) request.put("expectedUserId", owner)
+    val session = api.post("/api/app-auth/token", request)
+    val (token, userId) =
+        contract {
+            val userId = session.getJSONObject("user").getLong("id")
+            if (owner != null && userId != owner)
+                throw JSONException("Session for user $userId; this phone holds $owner's data")
+            session.getString("accessToken") to userId
+        }
+    Log.i("RepoRead", "Signed in; userId=$userId firstOnThisPhone=${owner == null}")
     store.dataOwner = userId
     store.save(token)
 }

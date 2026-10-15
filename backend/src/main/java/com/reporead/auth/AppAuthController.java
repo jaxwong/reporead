@@ -75,11 +75,12 @@ public class AppAuthController {
         return new RedirectView("/oauth2/authorization/github");
     }
 
-    record TokenRequest(String code, String codeVerifier) {}
+    /** {@code expectedUserId}: the account whose data the app holds, which only that account may sign in to. */
+    record TokenRequest(String code, String codeVerifier, Long expectedUserId) {}
 
     @PostMapping("/api/app-auth/token")
     AppSessions.IssuedSession token(@RequestBody TokenRequest body) {
-        var issued = sessions.exchange(body.code(), body.codeVerifier())
+        var issued = sessions.exchange(body.code(), body.codeVerifier(), body.expectedUserId())
                 .orElseThrow(
                         () -> new ApiFailure(
                                 Code.INVALID_SIGN_IN_CODE,

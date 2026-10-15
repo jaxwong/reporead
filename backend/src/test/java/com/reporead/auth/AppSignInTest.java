@@ -122,6 +122,15 @@ class AppSignInTest {
                 .content(json.writeValueAsString(Map.of("code", code, "codeVerifier", verifier))));
     }
 
+    /** An exchange from an app that holds the data of RepoRead user {@code expectedUserId}. */
+    private org.springframework.test.web.servlet.ResultActions exchange(
+            String code, String verifier, long expectedUserId) throws Exception {
+        return mvc.perform(post("/api/app-auth/token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(
+                        Map.of("code", code, "codeVerifier", verifier, "expectedUserId", expectedUserId))));
+    }
+
     private String accessToken(String code, String verifier) throws Exception {
         String body = exchange(code, verifier)
                 .andExpect(status().isOk())
@@ -299,6 +308,34 @@ class AppSignInTest {
         assertEquals(
                 1,
                 db.sql("select count(*) from app_sessions").query(Integer.class).single());
+    }
+
+    @Test
+    void anAppHoldingOneAccountsDataSignsInOnlyAsThatAccount() throws Exception {
+        String verifier = TestSessions.verifier();
+        accessToken(code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice")), verifier);
+        accessToken(code(completeGitHubLogin(TestSessions.challenge(verifier), 84, "test-only-bob")), verifier);
+        long alice = db.sql("select id from users where github_user_id = 42")
+                .query(Long.class)
+                .single();
+        int sessionsBefore =
+                db.sql("select count(*) from app_sessions").query(Integer.class).single();
+
+        String bob = code(completeGitHubLogin(TestSessions.challenge(verifier), 84, "test-only-bob"));
+        exchange(bob, verifier, alice)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_MISMATCH"));
+        assertEquals(
+                sessionsBefore,
+                db.sql("select count(*) from app_sessions").query(Integer.class).single(),
+                "no session is issued for another account");
+        // Used up like any exchanged code, so it cannot be tried again without the expectation.
+        exchange(bob, verifier).andExpect(status().isBadRequest());
+
+        String again = code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice"));
+        exchange(again, verifier, alice)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.id").value(alice));
     }
 
     @Test

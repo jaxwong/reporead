@@ -1,5 +1,7 @@
 package com.reporead.auth;
 
+import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -68,9 +70,12 @@ public class AppSessions {
 
     /**
      * Consumes the code whether or not the exchange succeeds, so a code can never be guessed against twice. Issuing a
-     * session also deletes expired ones, so they cannot accumulate.
+     * session also deletes expired ones, so they cannot accumulate. {@code expectedUserId} is the account whose data
+     * the app already holds, if any: a code for another account issues no session, so a sign-in never puts two
+     * accounts' data on one phone, and switching accounts takes the app's sign-out, which says first what it would
+     * lose.
      */
-    Optional<IssuedSession> exchange(String code, String codeVerifier) {
+    Optional<IssuedSession> exchange(String code, String codeVerifier, Long expectedUserId) {
         if (code == null
                 || codeVerifier == null
                 || !TOKEN.matcher(code).matches()
@@ -93,6 +98,12 @@ public class AppSessions {
                 .encodeToString(hash(codeVerifier))
                 .getBytes(StandardCharsets.US_ASCII);
         if (!MessageDigest.isEqual(expected, actual)) return Optional.empty();
+        if (expectedUserId != null && expectedUserId != pending.get().userId()) {
+            throw new ApiFailure(
+                    Code.ACCOUNT_MISMATCH,
+                    "This phone holds another account's notes, so it signs in only as that account. Sign in with the"
+                            + " GitHub account that saved them, or sign out first to remove them from this phone.");
+        }
 
         String token = randomToken();
         Instant now = Instant.now();

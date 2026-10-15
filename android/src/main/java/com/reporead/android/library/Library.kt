@@ -153,15 +153,15 @@ fun LibraryScreen(
                 "Library",
                 actions = {
                     IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
+                    // Signing out is offered after the session has ended too: it is the one way to remove this phone's
+                    // copy, and to sign in as another account.
+                    val signOut =
+                        MenuAction("Sign out and remove from phone…") {
+                            scope.launch { confirmSignOut = dao.unsentCount() }
+                        }
                     OverflowMenu(
-                        if (signedIn)
-                            listOf(
-                                MenuAction("Sign out and remove from phone…") {
-                                    scope.launch { confirmSignOut = dao.unsentCount() }
-                                },
-                                MenuAction("Delete account…") { confirmDeleteAccount = true },
-                            )
-                        else listOf(MenuAction("Sign in with GitHub", onSignIn))
+                        if (signedIn) listOf(signOut, MenuAction("Delete account…") { confirmDeleteAccount = true })
+                        else listOf(MenuAction("Sign in with GitHub", onSignIn), signOut)
                     )
                 },
             )
