@@ -1,5 +1,6 @@
 package com.reporead.auth;
 
+import com.reporead.RepoReadProperties;
 import com.reporead.TestEnvironment;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ class GitHubTokensTest {
     @Autowired OAuth2AuthorizedClientService clients;
     @Autowired ClientRegistrationRepository registrations;
     @Autowired JdbcClient db;
+    @Autowired RepoReadProperties properties;
     Instant expires;
 
     @BeforeEach void setup() {
@@ -39,7 +41,9 @@ class GitHubTokensTest {
     }
 
     private GitHubTokens restartedWithKey(String key) throws IOException {
-        return new GitHubTokens(db, registrations, TestEnvironment.secretFile("reporead-test-token-key-", key).toString());
+        var keyFile = TestEnvironment.secretFile("reporead-test-token-key-", key);
+        var github = new RepoReadProperties.GitHub(properties.github().clientId(), properties.github().clientSecretFile(), keyFile);
+        return new GitHubTokens(db, registrations, new RepoReadProperties(properties.publicUrl(), properties.allowedGithubUserIds(), github));
     }
 
     private int rows() {
