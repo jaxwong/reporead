@@ -1,8 +1,5 @@
 package com.reporead.android.library
 
-import androidx.compose.foundation.lazy.items
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
