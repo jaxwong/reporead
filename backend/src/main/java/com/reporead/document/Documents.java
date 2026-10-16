@@ -109,9 +109,10 @@ public class Documents {
 
     /**
      * A snapshot against the stored documents. {@code exact} pairs an active document whose path left the snapshot with
-     * a path that has never had a document, when they have the same blob SHA and that SHA is unique on both sides:
-     * identical-content duplicates are never merged, and a path that once had a document resumes that document instead.
-     * {@code vanished} and {@code fresh} are the sides left unpaired, the only candidates for a content move.
+     * a path that has never had a document, when they have the same blob SHA and no other active document or snapshot
+     * path has it: content another note shares (identical duplicates, untouched copies of a template) identifies
+     * neither, and a path that once had a document resumes that document instead. {@code vanished} and {@code fresh}
+     * are the sides left unpaired, the only candidates for a content move.
      */
     public record Unmatched(List<Move> exact, List<Existing> vanished, List<SourceFile> fresh) {}
 
@@ -123,17 +124,18 @@ public class Documents {
                 .toList();
         var fresh =
                 files.stream().filter(file -> !knownPaths.contains(file.path())).toList();
-        var vanishedByBlob = vanished.stream().collect(Collectors.groupingBy(Existing::blobSha));
-        var freshByBlob = fresh.stream().collect(Collectors.groupingBy(SourceFile::blobSha));
+        var activeByBlob =
+                existing.stream().filter(row -> !row.deleted()).collect(Collectors.groupingBy(Existing::blobSha));
+        var filesByBlob = files.stream().collect(Collectors.groupingBy(SourceFile::blobSha));
         var exact = new ArrayList<Move>();
-        for (var entry : vanishedByBlob.entrySet()) {
-            var documents = entry.getValue();
-            var targets = freshByBlob.getOrDefault(entry.getKey(), List.of());
-            if (documents.size() == 1 && targets.size() == 1) {
+        for (var document : vanished) {
+            var targets = filesByBlob.get(document.blobSha());
+            if (activeByBlob.get(document.blobSha()).size() == 1
+                    && targets != null
+                    && targets.size() == 1
+                    && !knownPaths.contains(targets.getFirst().path())) {
                 exact.add(new Move(
-                        documents.getFirst().id(),
-                        documents.getFirst().path(),
-                        targets.getFirst().path()));
+                        document.id(), document.path(), targets.getFirst().path()));
             }
         }
         var movedIds = exact.stream().map(Move::documentId).collect(Collectors.toSet());
