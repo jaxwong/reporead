@@ -835,15 +835,6 @@ abstract class LocalStore : RoomDatabase() {
     abstract fun library(): LibraryDao
 
     companion object {
-        @Volatile private var instance: LocalStore? = null
-
-        /** One database instance per process, shared across activity recreation. */
-        fun get(context: Context): LocalStore =
-            instance
-                ?: synchronized(this) {
-                    instance ?: open(context.applicationContext, "reporead.db").also { instance = it }
-                }
-
         /** The database file [name] with every migration: the automatic ones above and the hand-written ones here. */
         fun open(context: Context, name: String): LocalStore =
             Room.databaseBuilder(context, LocalStore::class.java, name).addMigrations(ANNOTATION_STATE_10_11).build()

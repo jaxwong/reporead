@@ -63,9 +63,7 @@ import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -173,12 +171,12 @@ fun ReaderScreen(
         }
     }
     /**
-     * Saves a highlight (or, with a question, a card) on this phone — finished even if rotation cancels the screen —
-     * then sends it now when signed in. The message says where it stands: nothing when it reached the server.
+     * Saves a highlight (or, with a question, a card) on this phone, then sends it now when signed in. The message says
+     * where it stands: nothing when it reached the server.
      */
     val save: (selection: JSONObject, note: String?, question: String?) -> Unit = { selection, note, question ->
         appScope.launch {
-            val id = withContext(NonCancellable) { sync.createAnnotation(selection, screen.documentId, note, question) }
+            val id = sync.createAnnotation(selection, screen.documentId, note, question)
             val kind = if (question == null) "Highlight" else "Card"
             message =
                 if (!signedIn) "$kind saved on this phone; it is sent after you sign in."
@@ -777,18 +775,14 @@ private class ReaderSession(
                     pending = true,
                 )
             val viewHeight = webView.height
-            // Teardown can cancel the UI scope before this callback. Finish this captured local write, not a network
-            // sync.
-            scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                withContext(NonCancellable) {
-                    sync.saveReading(row)
-                    Log.i(
-                        "RepoRead",
-                        "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} " +
-                            "block=${position.getJSONObject("anchor").getInt("blockIndex")} viewHeight=$viewHeight",
-                    )
-                    then()
-                }
+            scope.launch {
+                sync.saveReading(row)
+                Log.i(
+                    "RepoRead",
+                    "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} " +
+                        "block=${position.getJSONObject("anchor").getInt("blockIndex")} viewHeight=$viewHeight",
+                )
+                then()
             }
             topBlock = position.getJSONObject("anchor").getInt("blockIndex")
         }

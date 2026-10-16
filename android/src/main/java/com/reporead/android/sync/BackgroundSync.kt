@@ -11,11 +11,8 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.reporead.android.BuildConfig
-import com.reporead.android.auth.SessionStore
-import com.reporead.android.core.network.Api
+import com.reporead.android.RepoReadApplication
 import com.reporead.android.core.network.ApiException
-import com.reporead.android.data.LocalStore
 import java.time.Duration
 
 private const val WORK_NAME = "sync-local-changes"
@@ -30,23 +27,11 @@ private val SETTLE: Duration = Duration.ofSeconds(5)
 private val FIRST_BACKOFF: Duration = Duration.ofSeconds(30)
 private const val MAX_ATTEMPTS = 10
 
-/** The app's one Api wiring: the stored session, which ends when the server refuses it (any 401). */
-fun appApi(context: Context): Api {
-    val session = SessionStore(context.applicationContext)
-    return Api(BuildConfig.API_BASE_URL, session::accessToken, session::endRefused)
-}
-
-/** The app's one Sync wiring, shared by the UI and the background sync. */
-fun appSync(context: Context): Sync {
-    val app = context.applicationContext
-    return Sync(appApi(app), LocalStore.get(app), app.filesDir) { requestSync(app) }
-}
-
 /**
  * Asks for one background sync once the phone has a network. A change saved while a run is under way replaces that run,
  * so the run cannot miss it; sending again is idempotent (mutation ids, last-write-wins positions; ADR-08).
  */
-private fun requestSync(context: Context) {
+internal fun requestSync(context: Context) {
     val request =
         OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -57,7 +42,8 @@ private fun requestSync(context: Context) {
 }
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result = backgroundSync(appSync(applicationContext), runAttemptCount)
+    override suspend fun doWork(): Result =
+        backgroundSync((applicationContext as RepoReadApplication).sync, runAttemptCount)
 }
 
 /**
