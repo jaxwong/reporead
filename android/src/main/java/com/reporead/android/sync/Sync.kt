@@ -5,6 +5,7 @@ import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.contract
 import com.reporead.android.core.network.describe
+import com.reporead.android.core.network.string
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
@@ -135,7 +136,7 @@ class Sync(
                 val item = array.getJSONObject(it)
                 RepositoryRow(
                     item.getLong("id"),
-                    item.getString("fullName"),
+                    item.string("fullName"),
                     item.getInt("documentCount"),
                     item.nullableString("lastSyncedCommitSha"),
                 )
@@ -157,9 +158,9 @@ class Sync(
                 DocumentRow(
                     item.getLong("id"),
                     repositoryId,
-                    item.getString("path"),
-                    item.getString("title"),
-                    item.getString("blobSha"),
+                    item.string("path"),
+                    item.string("title"),
+                    item.string("blobSha"),
                     item.nullableString("contentChangedAt")?.let { Instant.parse(it).toEpochMilli() },
                     item.getBoolean("deleted"),
                 )
@@ -216,12 +217,12 @@ class Sync(
         val note = contract {
             NoteRow(
                 documentId,
-                json.getString("sourceBlobSha"),
-                json.getString("path"),
-                json.getString("title"),
-                json.getString("html"),
+                json.string("sourceBlobSha"),
+                json.string("path"),
+                json.string("title"),
+                json.string("html"),
                 System.currentTimeMillis(),
-                json.getString("text"),
+                json.string("text"),
                 json.getInt("renderFormat"),
             )
         }
@@ -295,7 +296,7 @@ class Sync(
                     val path = item.getJSONArray("headingPath")
                     ChangedSection(
                         item.enumValue<SectionChange>("change"),
-                        List(path.length()) { index -> path.getString(index) },
+                        List(path.length()) { index -> path.string(index) },
                         item.nullableString("blockId"),
                         item.getInt("addedLines"),
                         item.getInt("removedLines"),
@@ -502,7 +503,7 @@ class Sync(
                             item.getLong("documentId"),
                             bookmarked = true,
                             pending = false,
-                            Instant.parse(item.getString("createdAt")).toEpochMilli(),
+                            Instant.parse(item.string("createdAt")).toEpochMilli(),
                         )
                     }
                 }

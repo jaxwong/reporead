@@ -9,6 +9,7 @@ import java.net.URL
 import java.time.format.DateTimeParseException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -129,6 +130,14 @@ inline fun <T> contract(read: () -> T): T =
     } catch (error: DateTimeParseException) {
         throw contractBroken(error)
     }
+
+/**
+ * The text field [name] of a response. Not getString: Android's reads a JSON null as the text "null" and a number as
+ * its digits, which would pass the contract as data.
+ */
+fun JSONObject.string(name: String): String = get(name) as? String ?: throw JSONException("$name is not text")
+
+fun JSONArray.string(index: Int): String = get(index) as? String ?: throw JSONException("Item $index is not text")
 
 @PublishedApi
 internal fun contractBroken(cause: Exception) =

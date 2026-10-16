@@ -9,6 +9,7 @@ import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.contract
+import com.reporead.android.core.network.string
 import java.security.MessageDigest
 import java.security.SecureRandom
 import org.json.JSONException
@@ -61,7 +62,7 @@ suspend fun completeSignIn(code: String, api: Api, store: SessionStore) {
             val userId = session.getJSONObject("user").getLong("id")
             if (owner != null && userId != owner)
                 throw JSONException("Session for user $userId; this phone holds $owner's data")
-            session.getString("accessToken") to userId
+            session.string("accessToken") to userId
         }
     Log.i("RepoRead", "Signed in; userId=$userId firstOnThisPhone=${owner == null}")
     store.dataOwner = userId

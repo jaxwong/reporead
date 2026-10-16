@@ -25,6 +25,7 @@ import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.contract
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.rememberLoad
+import com.reporead.android.core.network.string
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
@@ -50,7 +51,7 @@ private suspend fun availableRepositories(api: Api): List<Available> {
             Available(
                 item.getLong("githubRepositoryId"),
                 item.getLong("installationId"),
-                item.getString("fullName"),
+                item.string("fullName"),
                 item.getBoolean("privateRepository"),
                 if (item.isNull("connectionId")) null else item.getLong("connectionId"),
             )
@@ -68,7 +69,7 @@ private suspend fun connect(api: Api, repository: Available): Screen.Folder {
             "/api/repositories/${repository.githubRepositoryId}/connect",
             JSONObject().put("installationId", repository.installationId),
         )
-    return contract { Screen.Folder(json.getLong("id"), json.getString("fullName"), "") }
+    return contract { Screen.Folder(json.getLong("id"), json.string("fullName"), "") }
 }
 
 @Composable
