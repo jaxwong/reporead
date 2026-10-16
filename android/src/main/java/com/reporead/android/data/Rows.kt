@@ -46,6 +46,13 @@ data class ChangedNote(
     val lastReadBlobSha: String?,
 )
 
+/** What a saved page is a copy of: enough to tell whether it is current without reading the page. */
+interface SavedCopy {
+    val blobSha: String
+    val path: String
+    val renderFormat: Int
+}
+
 /**
  * The latest complete rendered copy of an opened note, identified by document and source version. [searchText] is its
  * blocks' canonical text, one per line; null for a copy saved before search existed. [renderFormat] is the server's
@@ -54,14 +61,22 @@ data class ChangedNote(
 @Entity(tableName = "notes")
 data class NoteRow(
     @PrimaryKey val documentId: Long,
-    val blobSha: String,
-    val path: String,
+    override val blobSha: String,
+    override val path: String,
     val title: String,
     val html: String,
     val fetchedAt: Long,
     val searchText: String? = null,
-    @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0,
-)
+    @ColumnInfo(defaultValue = "0") override val renderFormat: Int = 0,
+) : SavedCopy
+
+/** A saved page's [SavedCopy] alone, read without its HTML. */
+data class SavedVersion(
+    val documentId: Long,
+    override val blobSha: String,
+    override val path: String,
+    override val renderFormat: Int,
+) : SavedCopy
 
 private val NOTE_LINK_QUERY = Regex("""href="/note-link\?([^"]*)"""")
 
