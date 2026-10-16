@@ -294,10 +294,14 @@ private fun ColumnScope.FixCard(
             Text(
                 "This card hasn't reached the server yet, so it can't be confirmed. Open Library while online to sync it."
             )
-        row.drawn.blobSha != current ->
+        // The server places a card in a new version only when its note's highlights are listed (ADR-06), which opening
+        // the note does and a sync does not.
+        row.drawn.blobSha != current -> {
             Text(
-                "The server hasn't placed this answer in the note's current version yet. Open Library while online to sync, then review it."
+                "The note changed since this card was made. Open the note while online to find its answer there, then confirm it here."
             )
+            openNote("Open note")
+        }
         else -> {
             var confirming by remember(row.mutationId) { mutableStateOf(false) }
             var problem by remember(row.mutationId) { mutableStateOf<String?>(null) }

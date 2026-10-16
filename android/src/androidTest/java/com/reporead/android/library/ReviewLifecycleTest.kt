@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.OpenAt
+import com.reporead.android.Screen
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
@@ -33,18 +35,18 @@ import org.junit.runner.RunWith
 class ReviewLifecycleTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val sha = "a".repeat(40)
+    private val html =
+        "<main id=note>" +
+            (1..10).joinToString("") {
+                """<p data-block-id="b$it" data-anchor-text="Test-only answer $it in context.">Test-only answer $it in context.</p>"""
+            } +
+            "</main>"
     private lateinit var store: LocalStore
 
     @Before
     fun open() = runBlocking {
         store = Room.inMemoryDatabaseBuilder(instrumentation.targetContext, LocalStore::class.java).build()
         val dao = store.library()
-        val html =
-            "<main id=note>" +
-                (1..10).joinToString("") {
-                    """<p data-block-id="b$it" data-anchor-text="Test-only answer $it in context.">Test-only answer $it in context.</p>"""
-                } +
-                "</main>"
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/review.md", "Test-only review", sha)))
         dao.saveNote(NoteRow(1, sha, "test-only/review.md", "Test-only review", html, 0))
         dao.saveReviewLimit(ReviewLimitRow(sessionLimit = 40))
@@ -114,6 +116,32 @@ class ReviewLifecycleTest {
                 assertEquals(10, dao.pendingReviews().map { it.cardMutationId }.distinct().size)
                 assertTrue(dao.pendingReviews().all { it.grade == 4 && it.blobSha == sha })
             }
+        }
+
+    /**
+     * The note was edited and its new version saved, but the server places a card in a new version only when the note's
+     * highlights are listed, which opening the note does and a sync does not: the card offers the note.
+     */
+    @Test
+    fun aCardOfAnEditedNoteOffersTheNoteWhereItsAnswerIsFound() =
+        runBlocking<Unit> {
+            val current = "b".repeat(40)
+            val dao = store.library()
+            dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/review.md", "Test-only review", current)))
+            dao.saveNote(NoteRow(1, current, "test-only/review.md", "Test-only review", html, 0))
+            card(1)
+            val sync =
+                Sync(
+                    Api("http://127.0.0.1:1", { null }) {},
+                    store,
+                    File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
+                ) {}
+            val pushed = mutableListOf<Screen>()
+            ReaderTestActivity.content = {
+                MaterialTheme { ReviewScreen(dao, sync, push = { pushed += it }, onBack = {}) }
+            }
+            ActivityScenario.launch(ReaderTestActivity::class.java).use { click("Open note") }
+            assertEquals(listOf(Screen.Reader(1, "Test-only review", OpenAt.Highlight("card1"))), pushed)
         }
 
     @Test
