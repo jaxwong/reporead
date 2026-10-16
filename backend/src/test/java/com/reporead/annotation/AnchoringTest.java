@@ -236,4 +236,19 @@ class AnchoringTest {
         assertNotNull(span);
         assertEquals("Spring cleverly implements", text.substring(span[0], span[1]));
     }
+
+    /** Two emoji with the same half differ by one UTF-16 unit, and the alignment could pair that half alone. */
+    @Test
+    void alignmentNeverEndsInsideACharacter() {
+        String prefix = "🍌🍌 ";
+        String exact = "b🝎🍎b";
+        int[] widenedStart = Anchoring.align(
+                prefix + exact + "a", prefix.length(), prefix.length() + exact.length(), "🍌🍌 🍏🝎🍎ba🍌");
+        assertArrayEquals(new int[] {5, 12}, widenedStart, "🍏 starts at 5");
+        prefix = "a🍏 🍎";
+        exact = "🝎🍎";
+        int[] widenedEnd = Anchoring.align(
+                prefix + exact + "a", prefix.length(), prefix.length() + exact.length(), "🝎🍌a🍏 🍎🝎🍏🍎a🍌🍎");
+        assertArrayEquals(new int[] {10, 14}, widenedEnd, "🍏 ends at 14");
+    }
 }

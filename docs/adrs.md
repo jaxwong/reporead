@@ -55,7 +55,7 @@ The decisions that shape RepoRead, as built. Each says what was decided, why, an
 
 - **Canonical text** is not raw Markdown: inline formatting contributes its visible text, a soft line break becomes a space, a hard break one LF, code keeps its whitespace, and nothing is Unicode-normalized. The exported blob SHA must match the exact UTF-8 source bytes.
 - **Anchorable blocks** are paragraphs, headings, code fences, table cells, and list items without nested candidate blocks. Blocks do not overlap. Ids `b0`, `b1`, … are deterministic within one source version only.
-- **Offsets** are zero-based, start-inclusive and end-exclusive; a surrogate pair is two units.
+- **Offsets** are zero-based, start-inclusive and end-exclusive; a surrogate pair is two units, and no range the server stores, or context it cuts, ends between them.
 - **The page** compares its text with the exported canonical text; a mismatch is an invariant failure, never an approximate anchor. Empty selections produce no anchor.
 
 **Consequences.** Cross-block selections are refused. Every later version needs re-anchoring (ADR-06). Any rendering change must leave an unchanged blob's canonical text identical (ADR-18). Known gaps: a tight list item with nested points has its own text in no block, so it cannot be highlighted; the server checks that `sourceBlobSha` is a blob in the document's repository that renders the selection, not that it belongs to that document's history.

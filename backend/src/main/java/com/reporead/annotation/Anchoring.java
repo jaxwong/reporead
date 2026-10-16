@@ -253,7 +253,8 @@ final class Anchoring {
     /**
      * Aligns pattern to its best-matching substring of text and maps the pattern range [from, to) onto text. Only
      * insertions and deletions count (a mismatch costs both), so the alignment keeps the most characters matched and
-     * pairs identical words instead of substituting across them. Null when that range maps to nothing.
+     * pairs identical words instead of substituting across them. The mapped range holds whole characters; null when it
+     * maps to nothing.
      */
     static int[] align(String pattern, int from, int to, String text) {
         int m = pattern.length();
@@ -305,7 +306,13 @@ final class Anchoring {
             }
         }
         if (mapped[0] < 0 || mapped[1] <= mapped[0]) return null;
-        return new int[] {start + mapped[0], start + mapped[1]};
+        // The units are UTF-16, so a boundary between a surrogate pair's halves takes in the whole character.
+        int first = start + mapped[0];
+        int last = start + mapped[1];
+        return new int[] {
+            MarkdownRenderer.splitsCharacter(text, first) ? first - 1 : first,
+            MarkdownRenderer.splitsCharacter(text, last) ? last + 1 : last
+        };
     }
 
     /** 1 - edit distance / longer length; two empty strings are identical. */
