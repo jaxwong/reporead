@@ -3,6 +3,7 @@ package com.reporead.repository;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
+import com.reporead.auth.GitHubCredentials;
 import com.reporead.github.GitHubApi;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -24,10 +25,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class RepositoryController {
     private static final Logger LOG = LoggerFactory.getLogger(RepositoryController.class);
     private final GitHubApi github;
+    private final GitHubCredentials credentials;
     private final RepositoryConnections connections;
 
-    public RepositoryController(GitHubApi github, RepositoryConnections connections) {
+    public RepositoryController(GitHubApi github, GitHubCredentials credentials, RepositoryConnections connections) {
         this.github = github;
+        this.credentials = credentials;
         this.connections = connections;
     }
 
@@ -50,7 +53,7 @@ public class RepositoryController {
 
     @GetMapping("/api/repositories/available")
     AvailableList available(@AuthenticationPrincipal AppUser user) {
-        String token = github.userToken(user.githubUserId());
+        String token = credentials.githubUserToken(user.githubUserId());
         var connected = connections.connectedIds(user.id());
         var result = new ArrayList<Available>();
         var seen = new HashSet<Long>();
@@ -84,7 +87,7 @@ public class RepositoryController {
             throw new ApiFailure(
                     Code.INVALID_REPOSITORY, "githubRepositoryId and installationId must be positive integers.");
         }
-        String token = github.userToken(user.githubUserId());
+        String token = credentials.githubUserToken(user.githubUserId());
         var repository = github.repositories(token, body.installationId()).stream()
                 .filter(candidate -> candidate.id() == githubRepositoryId)
                 .findFirst()

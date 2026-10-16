@@ -3,11 +3,10 @@ package com.reporead.datacontrol;
 import com.reporead.annotation.Annotations;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.AppUser;
-import com.reporead.github.GitHubApi;
+import com.reporead.auth.GitHubCredentials;
 import com.reporead.repository.RepositoryConnections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -24,25 +23,22 @@ public class AccountDeletion {
     private final ConnectionData data;
     private final Annotations annotations;
     private final AppSessions sessions;
-    private final OAuth2AuthorizedClientService clients;
+    private final GitHubCredentials credentials;
     private final TransactionTemplate transaction;
-    private final GitHubApi github;
 
     public AccountDeletion(
             RepositoryConnections connections,
             ConnectionData data,
             Annotations annotations,
             AppSessions sessions,
-            OAuth2AuthorizedClientService clients,
-            TransactionTemplate transaction,
-            GitHubApi github) {
+            GitHubCredentials credentials,
+            TransactionTemplate transaction) {
         this.connections = connections;
         this.data = data;
         this.annotations = annotations;
         this.sessions = sessions;
-        this.clients = clients;
+        this.credentials = credentials;
         this.transaction = transaction;
-        this.github = github;
     }
 
     record Deleted(int repositories, int readingStates, int bookmarks, int highlights, int cards) {}
@@ -53,7 +49,7 @@ public class AccountDeletion {
      * installed on GitHub until the user uninstalls it.
      */
     Deleted delete(AppUser user) {
-        var token = github.tokenToRevoke(user.githubUserId());
+        var token = credentials.tokenToRevoke(user.githubUserId());
         var deleted = transaction.execute(status -> {
             // First, so a connection being added concurrently commits before the list below, or waits and then fails.
             sessions.lockUserForDeletion(user.id());
@@ -73,10 +69,10 @@ public class AccountDeletion {
             }
             annotations.deleteMutations(user.id());
             sessions.deleteUser(user.id());
-            clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
+            credentials.forget(user.githubUserId());
             return new Deleted(repositories, reading, bookmarks, highlights, cards);
         });
-        token.ifPresent(value -> github.revokeAuthorization(user.githubUserId(), value));
+        token.ifPresent(value -> credentials.revoke(user.githubUserId(), value));
         LOG.info(
                 "Account deleted; userId={} repositories={} readingStates={} bookmarks={} highlights={} cards={}",
                 user.id(),

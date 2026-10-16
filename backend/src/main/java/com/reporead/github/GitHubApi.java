@@ -5,29 +5,18 @@ import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.oauth2.client.OAuth2AuthorizeRequest;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientManager;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
@@ -40,10 +29,9 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Every GitHub REST call RepoRead makes with a signed-in user's GitHub App user token. Each method makes exactly one
- * request: no retries, pagination, redirects, or installation-token fallback. Getting the token may first refresh it
- * (see userToken). revokeAuthorization alone authenticates as the App instead. GitHub owns authorization: user-token
- * endpoints only return repositories the user and installation can both access.
+ * Every GitHub REST read RepoRead makes, each with a signed-in user's GitHub App user token from GitHubCredentials.
+ * Each method makes exactly one GET request: no retries, pagination, redirects, or installation-token fallback. GitHub
+ * owns authorization: user-token endpoints only return repositories the user and installation can both access.
  */
 @Component
 public class GitHubApi {
@@ -58,26 +46,16 @@ public class GitHubApi {
     private final RestTemplate githubTreeApi;
     private final RestTemplate githubImageApi;
     private final JsonMapper json;
-    private final OAuth2AuthorizedClientService clients;
-    private final OAuth2AuthorizedClientManager tokens;
-    private final ClientRegistrationRepository registrations;
-    private final ConcurrentHashMap<Long, Object> refreshLocks = new ConcurrentHashMap<>();
 
     public GitHubApi(
             @Qualifier("githubUserApi") RestTemplate githubUserApi,
             @Qualifier("githubTreeApi") RestTemplate githubTreeApi,
             @Qualifier("githubImageApi") RestTemplate githubImageApi,
-            JsonMapper json,
-            OAuth2AuthorizedClientService clients,
-            OAuth2AuthorizedClientManager tokens,
-            ClientRegistrationRepository registrations) {
+            JsonMapper json) {
         this.githubUserApi = githubUserApi;
         this.githubTreeApi = githubTreeApi;
         this.githubImageApi = githubImageApi;
         this.json = json;
-        this.clients = clients;
-        this.tokens = tokens;
-        this.registrations = registrations;
     }
 
     public record Repository(
@@ -90,115 +68,6 @@ public class GitHubApi {
     public record Branch(String commitSha, String treeSha) {}
 
     public record TreeEntry(String path, String mode, String type, String sha) {}
-
-    /**
-     * The server-side GitHub user token saved by the OAuth callback. One expiring within a minute is first refreshed
-     * with one token-endpoint call. A user's refreshes are serialized: GitHub rotates the refresh token on use, so a
-     * second concurrent refresh with the old one would be refused. The lock is this process's, which is enough because
-     * the backend is one process by design (ADR-14: one systemd unit on one fixed loopback port); a second instance
-     * would need a row lock on the stored token instead. Tokens are stored encrypted (GitHubTokens) and survive
-     * restarts.
-     */
-    public String userToken(long githubUserId) {
-        String principal = Long.toString(githubUserId);
-        OAuth2AuthorizedClient client;
-        synchronized (refreshLocks.computeIfAbsent(githubUserId, id -> new Object())) {
-            try {
-                client = tokens.authorize(OAuth2AuthorizeRequest.withClientRegistrationId("github")
-                        .principal(principal)
-                        .build());
-            } catch (OAuth2AuthorizationException error) {
-                Throwable unanswered = unanswered(error);
-                if (unanswered != null) {
-                    LOG.warn(
-                            "GitHub token refresh failed; githubUserId={} failureType={}",
-                            githubUserId,
-                            unanswered.getClass().getSimpleName());
-                    throw new ApiFailure(
-                            Code.GITHUB_UNAVAILABLE, "GitHub could not renew your sign-in; nothing was changed.");
-                }
-                // A refused refresh token stays refused; dropping it makes later requests ask for sign-in without a
-                // call.
-                clients.removeAuthorizedClient("github", principal);
-                LOG.warn(
-                        "GitHub refused the token refresh; githubUserId={} error={}",
-                        githubUserId,
-                        error.getError().getErrorCode());
-                throw new ApiFailure(Code.SIGN_IN_REQUIRED, "GitHub refused to renew your sign-in; sign in again.");
-            }
-        }
-        // Without a refresh token the manager returns the expired client unchanged.
-        if (client == null
-                || (client.getAccessToken().getExpiresAt() != null
-                        && !client.getAccessToken().getExpiresAt().isAfter(Instant.now()))) {
-            throw new ApiFailure(Code.SIGN_IN_REQUIRED, "No current GitHub user token is available; sign in again.");
-        }
-        return client.getAccessToken().getTokenValue();
-    }
-
-    /**
-     * The failure behind a refresh GitHub never answered (network, timeout, 429, 5xx), which leaves the refresh token
-     * usable by the next request; null when GitHub answered and refused. Spring nests it under its own OAuth2
-     * exceptions.
-     */
-    private static Throwable unanswered(OAuth2AuthorizationException error) {
-        for (Throwable cause = error.getCause(); cause != null; cause = cause.getCause()) {
-            if (cause instanceof ResourceAccessException) return cause;
-            if (cause instanceof RestClientResponseException response
-                    && (response.getStatusCode().value() == 429
-                            || response.getStatusCode().is5xxServerError())) return cause;
-        }
-        return null;
-    }
-
-    /**
-     * The current token to revoke this user's authorization with ({@link #revokeAuthorization}), renewed first when it
-     * expires within a minute: at most one GitHub call. Empty when RepoRead holds no usable token or GitHub did not
-     * renew it. Signing out and deleting the account must not depend on GitHub, so that is logged, never thrown.
-     */
-    public Optional<String> tokenToRevoke(long githubUserId) {
-        try {
-            return Optional.of(userToken(githubUserId));
-        } catch (ApiFailure failure) {
-            // SIGN_IN_REQUIRED: no stored token, or GitHub refused to renew it, so RepoRead holds nothing usable.
-            if (failure.code == Code.SIGN_IN_REQUIRED)
-                LOG.info("GitHub authorization not revoked: no usable token; githubUserId={}", githubUserId);
-            else LOG.warn("GitHub authorization not revoked; githubUserId={} code={}", githubUserId, failure.code);
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Revokes RepoRead's authorization for this GitHub user on GitHub, so no token GitHub issued RepoRead for them
-     * works any more ("Deleting an application's grant will also delete all OAuth tokens associated with the
-     * application for the user", GitHub REST docs). Authenticated as the App, with a current {@code token} from
-     * {@link #tokenToRevoke}: one GitHub call. A failure is logged, never thrown, and the caller deletes the stored
-     * token either way; GitHub then expires the tokens on its own schedule.
-     */
-    public void revokeAuthorization(long githubUserId, String token) {
-        var app = registrations.findByRegistrationId("github");
-        var request = RequestEntity.method(HttpMethod.DELETE, uri("/applications/{clientId}/grant", app.getClientId()))
-                .headers(headers -> headers.setBasicAuth(app.getClientId(), app.getClientSecret()))
-                .accept(JSON)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(json.writeValueAsBytes(Map.of("access_token", token)));
-        try {
-            githubUserApi.exchange(request, byte[].class);
-            LOG.info("GitHub authorization revoked; githubUserId={}", githubUserId);
-        } catch (RestClientResponseException error) {
-            LOG.warn(
-                    "GitHub authorization not revoked; githubUserId={} status={}",
-                    githubUserId,
-                    error.getStatusCode().value());
-        } catch (ResourceAccessException error) {
-            LOG.warn(
-                    "GitHub authorization not revoked; githubUserId={} failureType={}",
-                    githubUserId,
-                    (error.getCause() == null ? error : error.getCause())
-                            .getClass()
-                            .getSimpleName());
-        }
-    }
 
     /** Installation IDs of this GitHub App that the user can access; a complete list of at most 10. */
     public List<Long> installations(String token) {
