@@ -65,7 +65,8 @@ android {
             // Development backend on the Mac, reached through `adb reverse tcp:8081 tcp:8081`; see backend/README.md.
             buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8081\"")
             // A separate app beside the release one (ADR-12): its own id, name, data and sign-in scheme, so testing on
-            // the phone never replaces the app in use. The server accepts only the two apps' schemes (AppAuthController).
+            // the phone never replaces the app in use. Each server accepts only its own app's scheme, this one on the Mac's
+            // loopback backend (PendingAppSignIn.appScheme).
             applicationIdSuffix = ".dev"
             val signInScheme = "reporead-dev"
             manifestPlaceholders["appLabel"] = "RepoRead Dev"

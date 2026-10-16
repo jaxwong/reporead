@@ -84,6 +84,7 @@ public class GitHubSecurity {
             JdkClientHttpRequestFactory githubRequestFactory,
             AppSessions sessions,
             AllowedUsers allowed,
+            RepoReadProperties properties,
             MeterRegistry meters)
             throws Exception {
         var pkce = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
@@ -110,7 +111,8 @@ public class GitHubSecurity {
                         .tokenEndpoint(endpoint -> endpoint.accessTokenResponseClient(tokenClient))
                         .userInfoEndpoint(endpoint ->
                                 endpoint.userService(request -> allowedOnly(userService.loadUser(request), allowed)))
-                        .successHandler(new AppSignInSuccess(sessions))
+                        .successHandler(
+                                new AppSignInSuccess(sessions, PendingAppSignIn.appScheme(properties.publicUrl())))
                         .failureHandler((request, response, error) -> {
                             LOG.warn(
                                     "GitHub sign-in rejected; failureType={}",

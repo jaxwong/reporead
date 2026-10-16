@@ -21,7 +21,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Sign-in handoff, on this build's own scheme; the code is useless without this app's PKCE verifier. -->
+            <!-- Sign-in handoff on this build's own scheme: the server it uses sends codes only to this scheme, and a
+                 code works only with this app's PKCE verifier. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

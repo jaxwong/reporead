@@ -32,7 +32,7 @@ class GitHubLoginTest extends SharedSpringTest {
     private MockHttpSession appSignIn() throws Exception {
         return (MockHttpSession) mvc.perform(get("/app/sign-in")
                         .param("code_challenge", TestSessions.challenge(TestSessions.verifier()))
-                        .param("scheme", "reporead"))
+                        .param("scheme", "reporead-dev"))
                 .andExpect(status().isFound())
                 .andReturn()
                 .getRequest()
@@ -86,7 +86,7 @@ class GitHubLoginTest extends SharedSpringTest {
         }
         var malformed = mvc.perform(get("/app/sign-in")
                         .param("code_challenge", "test-only-short")
-                        .param("scheme", "reporead"))
+                        .param("scheme", "reporead-dev"))
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertNull(malformed.getRequest().getSession(false));
