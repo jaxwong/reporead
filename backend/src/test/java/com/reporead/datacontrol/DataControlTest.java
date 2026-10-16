@@ -4,13 +4,16 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServiceUnavailable;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.reporead.TestEnvironment;
+import com.reporead.annotation.Annotations;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.repository.RepositoryConnections;
@@ -77,6 +80,9 @@ class DataControlTest {
 
     @Autowired
     ConnectionData data;
+
+    @Autowired
+    Annotations annotations;
 
     MockRestServiceServer github;
     String alice;
@@ -375,6 +381,50 @@ class DataControlTest {
         }
         assertEquals(0, count("select count(*) from repository_connections where user_id = 1"));
         assertEquals(0, count("select count(*) from users where id = 1"));
+    }
+
+    /**
+     * The other order: a connection that reaches the user's lock while an account deletion holds it waits, and once the
+     * deletion commits it is refused as signed out, instead of failing on the deleted user's foreign key.
+     */
+    @Test
+    void aConnectionWaitingForAnAccountDeletionIsRefusedOnceTheAccountIsGone() throws Exception {
+        var deleted = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        github.expect(requestTo("https://api.github.com/user/installations/7/repositories?per_page=100"))
+                .andRespond(withSuccess(
+                        "{\"total_count\":1,\"repositories\":[{\"id\":13,\"full_name\":\"test-only/new\",\"private\":true,\"default_branch\":\"main\"}]}",
+                        MediaType.APPLICATION_JSON));
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var deleting = executor.submit(() -> transaction.execute(status -> {
+                // What account deletion does, held open before it commits.
+                sessions.lockUserForDeletion(1);
+                for (long id : List.of(notes, other)) {
+                    connections.lockForSync(1, id);
+                    data.delete(id);
+                }
+                annotations.deleteMutations(1);
+                sessions.deleteUser(1);
+                deleted.countDown();
+                await(release);
+                return null;
+            }));
+            assertTrue(deleted.await(10, TimeUnit.SECONDS));
+            var connecting = executor.submit(() -> mvc.perform(post("/api/repositories/13/connect")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"installationId\":7}"))
+                    .andReturn()
+                    .getResponse());
+            TestEnvironment.awaitLockWait(db);
+            assertFalse(connecting.isDone(), "the connection must wait for the account deletion");
+            release.countDown();
+            deleting.get(10, TimeUnit.SECONDS);
+            var refused = connecting.get(10, TimeUnit.SECONDS);
+            assertEquals(401, refused.getStatus());
+            assertTrue(refused.getContentAsString().contains("\"SIGN_IN_REQUIRED\""), refused.getContentAsString());
+        }
+        assertEquals(0, count("select count(*) from repository_connections where user_id = 1"));
     }
 
     /**

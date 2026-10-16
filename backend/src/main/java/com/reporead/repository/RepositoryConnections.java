@@ -2,6 +2,8 @@ package com.reporead.repository;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.reporead.ApiFailure;
+import com.reporead.ApiFailure.Code;
+import com.reporead.auth.AppSessions;
 import com.reporead.github.GitHubApi;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -12,14 +14,19 @@ import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Owns repository_connections. Every read is scoped to the requesting user. */
 @Component
 public class RepositoryConnections {
     private final JdbcClient db;
+    private final TransactionTemplate transaction;
+    private final AppSessions sessions;
 
-    public RepositoryConnections(JdbcClient db) {
+    public RepositoryConnections(JdbcClient db, TransactionTemplate transaction, AppSessions sessions) {
         this.db = db;
+        this.transaction = transaction;
+        this.sessions = sessions;
     }
 
     public record Connection(
@@ -67,21 +74,32 @@ public class RepositoryConnections {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
-    /** Connecting twice returns the same connection, refreshed with GitHub's current metadata. */
-    long connect(long userId, GitHubApi.Repository repository) {
-        return db.sql("""
-                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch)
-                values (:userId, :githubRepositoryId, :owner, :name, :defaultBranch)
-                on conflict (user_id, github_repository_id) do update
-                set owner = excluded.owner, name = excluded.name, default_branch = excluded.default_branch
-                returning id""")
-                .param("userId", userId)
-                .param("githubRepositoryId", repository.id())
-                .param("owner", repository.owner())
-                .param("name", repository.name())
-                .param("defaultBranch", repository.defaultBranch())
-                .query(Long.class)
-                .single();
+    /**
+     * Connecting twice returns the same connection, refreshed with GitHub's current metadata. Account deletion locks
+     * the user before listing the connections it deletes, so under the user's lock this connection is either listed and
+     * deleted with the rest, or refused because the account is already gone. It is read back under the same lock, so a
+     * deletion cannot remove it before it is returned.
+     */
+    Connection connect(long userId, GitHubApi.Repository repository) {
+        return transaction.execute(status -> {
+            if (!sessions.lockUserForWrite(userId)) {
+                throw new ApiFailure(Code.SIGN_IN_REQUIRED, "This RepoRead account was deleted; sign in again.");
+            }
+            long id = db.sql("""
+                    insert into repository_connections (user_id, github_repository_id, owner, name, default_branch)
+                    values (:userId, :githubRepositoryId, :owner, :name, :defaultBranch)
+                    on conflict (user_id, github_repository_id) do update
+                    set owner = excluded.owner, name = excluded.name, default_branch = excluded.default_branch
+                    returning id""")
+                    .param("userId", userId)
+                    .param("githubRepositoryId", repository.id())
+                    .param("owner", repository.owner())
+                    .param("name", repository.name())
+                    .param("defaultBranch", repository.defaultBranch())
+                    .query(Long.class)
+                    .single();
+            return find(userId, id).orElseThrow();
+        });
     }
 
     /** The commit a connection last published (null before its first sync), read under its lock. */
