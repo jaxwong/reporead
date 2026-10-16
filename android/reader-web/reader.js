@@ -456,10 +456,12 @@ function showSheetMessage(text) {
 }
 
 /*
- * A same-note Markdown link ([text](#heading)) scrolls to its heading here: the sanitized page keeps no ids, so the
- * browser's own jump would find nothing. Its fragment is a GitHub anchor or a heading's text, as showHeading accepts.
+ * A same-note Markdown link ([text](#heading)) scrolls to its heading here, wherever it is shown: in the note, the
+ * footnote sheet, or a full-screen figure. The sanitized page keeps no ids, so the browser's own jump would find
+ * nothing, and in the reader it reopened the note at its start. Its fragment is a GitHub anchor or a heading's text, as
+ * showHeading accepts.
  */
-note.addEventListener('click', event => {
+document.addEventListener('click', event => {
   const link = event.target.closest?.('a[href^="#"]');
   if (!link) return;
   event.preventDefault();

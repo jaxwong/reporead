@@ -74,7 +74,10 @@ class ReaderLifecycleTest {
                 """<p data-block-id="b61" data-anchor-text="Back to the answer"><a href="#answer">Back to the answer</a></p>""" +
                 block(62, "p", "x".repeat(63) + "\uD83D\uDE00 after the emoji") +
                 // Enough text below, so those blocks can reach the top of the screen.
-                (63..80).joinToString("") { block(it, "p", "Test-only closing paragraph $it. ".repeat(20)) }
+                (63..80).joinToString("") { block(it, "p", "Test-only closing paragraph $it. ".repeat(20)) } +
+                // A footnote whose definition links a heading of this note, as the renderer marks them.
+                """<p data-block-id="b81" data-anchor-text="See the footnote[^n].">See the footnote<sup class="fn-ref" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]</span></sup>.</p>""" +
+                """<p data-block-id="b82" data-anchor-text="[^n]: Back to the answer"><span class="fn-def" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]:</span></span> <a href="#answer">Back to the answer</a></p>"""
         val html =
             """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
             <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
@@ -192,6 +195,17 @@ class ReaderLifecycleTest {
         // A Copy link in the note's own text can name a block that is not code; the page answers null instead of
         // throwing.
         assertTrue(evaluate("return {text: window.reporead.codeText('b5')};").isNull("text"))
+    }
+
+    /** The footnote sheet is outside the note; a same-note link in it is followed here too, never by the browser. */
+    @Test
+    fun aSameNoteLinkInAFootnoteScrollsToItsHeading() {
+        evaluate(
+            "window.reporead.showBlock('b81'); document.querySelector('.fn-ref').click(); " +
+                "document.querySelector('#footnote a').click(); return {};"
+        )
+        awaitReader(6)
+        assertEquals("", evaluate("return {hash: location.hash};").getString("hash"))
     }
 
     /**
