@@ -32,6 +32,7 @@ import com.reporead.android.ui.StatusLine
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
+/** A repository both this user and the RepoRead GitHub App can read; [connectionId] is set once it is connected. */
 private data class Available(
     val githubRepositoryId: Long,
     val installationId: Long,
@@ -40,91 +41,98 @@ private data class Available(
     val connectionId: Long?,
 )
 
+private suspend fun availableRepositories(api: Api): List<Available> {
+    val json = api.get("/api/repositories/available")
+    return contract {
+        val array = json.getJSONArray("repositories")
+        List(array.length()) {
+            val item = array.getJSONObject(it)
+            Available(
+                item.getLong("githubRepositoryId"),
+                item.getLong("installationId"),
+                item.getString("fullName"),
+                item.getBoolean("privateRepository"),
+                if (item.isNull("connectionId")) null else item.getLong("connectionId"),
+            )
+        }
+    }
+}
+
+/**
+ * Connects [repository] and returns its top folder. Connecting a connected repository again keeps its data and takes
+ * GitHub's current name and default branch: the way back after either is renamed on GitHub.
+ */
+private suspend fun connect(api: Api, repository: Available): Screen.Folder {
+    val json =
+        api.post(
+            "/api/repositories/${repository.githubRepositoryId}/connect",
+            JSONObject().put("installationId", repository.installationId),
+        )
+    return contract { Screen.Folder(json.getLong("id"), json.getString("fullName"), "") }
+}
+
 @Composable
 fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit) {
     var reload by remember { mutableIntStateOf(0) }
+    // The repository being connected; one at a time.
     var connecting by remember { mutableStateOf<Long?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val load by
-        rememberLoad(reload) {
-            val json = api.get("/api/repositories/available")
-            contract {
-                json.getJSONArray("repositories").let { array ->
-                    List(array.length()) {
-                        val item = array.getJSONObject(it)
-                        Available(
-                            item.getLong("githubRepositoryId"),
-                            item.getLong("installationId"),
-                            item.getString("fullName"),
-                            item.getBoolean("privateRepository"),
-                            if (item.isNull("connectionId")) null else item.getLong("connectionId"),
-                        )
-                    }
-                }
+    val load by rememberLoad(reload) { availableRepositories(api) }
+
+    fun connectTo(repository: Available) {
+        connecting = repository.githubRepositoryId
+        error = null
+        scope.launch {
+            try {
+                onConnected(connect(api, repository))
+            } catch (failure: ApiException) {
+                error = failure.describe()
+            } finally {
+                connecting = null
             }
         }
+    }
+
     Scaffold(topBar = { AppBar("Add repository", onBack = onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             StatusLine("Only repositories you granted to the RepoRead GitHub App appear here.")
             StatusLine(error)
             LoadContent(load, onRetry = { reload++ }) { repositories ->
-                if (repositories.isEmpty()) {
+                if (repositories.isEmpty())
                     EmptyState(
                         "No repositories are available. Grant repositories to the RepoRead GitHub App on GitHub, then try again."
                     )
-                } else
+                else
                     LazyColumn {
                         items(repositories, key = { it.githubRepositoryId }) { repository ->
-                            val connected = repository.connectionId != null
-                            ListItem(
-                                leadingContent = { AppIcon(R.drawable.ic_folder, null) },
-                                headlineContent = { Text(repository.fullName) },
-                                supportingContent = {
-                                    val visibility = if (repository.privateRepository) "Private" else "Public"
-                                    Text(if (connected) "$visibility · Connected" else visibility)
-                                },
-                                // Connecting a connected repository again keeps its data and takes GitHub's current
-                                // name and default branch: the way back after either is renamed on GitHub.
-                                trailingContent = {
-                                    Button(
-                                        enabled = connecting == null,
-                                        onClick = {
-                                            connecting = repository.githubRepositoryId
-                                            error = null
-                                            scope.launch {
-                                                try {
-                                                    val json =
-                                                        api.post(
-                                                            "/api/repositories/${repository.githubRepositoryId}/connect",
-                                                            JSONObject()
-                                                                .put("installationId", repository.installationId),
-                                                        )
-                                                    val id = contract { json.getLong("id") }
-                                                    val fullName = contract { json.getString("fullName") }
-                                                    onConnected(Screen.Folder(id, fullName, ""))
-                                                } catch (failure: ApiException) {
-                                                    error = failure.describe()
-                                                } finally {
-                                                    connecting = null
-                                                }
-                                            }
-                                        },
-                                    ) {
-                                        Text(
-                                            when {
-                                                connecting == repository.githubRepositoryId ->
-                                                    if (connected) "Updating…" else "Connecting…"
-                                                connected -> "Update"
-                                                else -> "Connect"
-                                            }
-                                        )
-                                    }
-                                },
-                            )
+                            AvailableRow(repository, connecting, onConnect = { connectTo(repository) })
                         }
                     }
             }
         }
     }
+}
+
+/** A repository with Connect, or Update once connected; [connecting] is the repository being connected, if any. */
+@Composable
+private fun AvailableRow(repository: Available, connecting: Long?, onConnect: () -> Unit) {
+    val connected = repository.connectionId != null
+    val visibility = if (repository.privateRepository) "Private" else "Public"
+    ListItem(
+        leadingContent = { AppIcon(R.drawable.ic_folder, null) },
+        headlineContent = { Text(repository.fullName) },
+        supportingContent = { Text(if (connected) "$visibility · Connected" else visibility) },
+        trailingContent = {
+            Button(enabled = connecting == null, onClick = onConnect) {
+                Text(
+                    when {
+                        connecting == repository.githubRepositoryId -> if (connected) "Updating…" else "Connecting…"
+                        connected -> "Update"
+                        else -> "Connect"
+                    }
+                )
+            }
+        },
+    )
 }

@@ -128,6 +128,23 @@ fun LibraryScreen(
                 .ifEmpty { null }
         }
     }
+    val deleteAccount = {
+        confirmDeleteAccount = false
+        status = "Deleting account…"
+        scope.launch {
+            try {
+                sync.deleteAccount()
+                onAccountDeleted()
+            } catch (failure: ApiException) {
+                status =
+                    if (failure.status == 401) {
+                        // A lost answer to an earlier deletion also ends the session; the two look the same.
+                        "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
+                            "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
+                    } else "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
+            }
+        }
+    }
     Scaffold(
         topBar = {
             AppBar(
@@ -217,54 +234,43 @@ fun LibraryScreen(
         DeleteAccountDialog(
             repositories.map { it.fullName },
             onDismiss = { confirmDeleteAccount = false },
-            onConfirm = {
-                confirmDeleteAccount = false
-                status = "Deleting account…"
-                scope.launch {
-                    try {
-                        sync.deleteAccount()
-                        onAccountDeleted()
-                    } catch (failure: ApiException) {
-                        status =
-                            if (failure.status == 401) {
-                                // A lost answer to an earlier deletion also ends the session; the two look the same.
-                                "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
-                                    "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
-                            } else "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
-                    }
-                }
-            },
+            onConfirm = { deleteAccount() },
         )
     }
     confirmSignOut?.let { unsent ->
-        AlertDialog(
-            onDismissRequest = { confirmSignOut = null },
-            title = { Text("Sign out of RepoRead?") },
-            text = {
-                Text(
-                    "This phone's saved notes, highlights, cards, and reading progress are deleted from it; what the server has stays " +
-                        "there for your next sign-in." +
-                        if (unsent == 0) ""
-                        else
-                            " ${counted(unsent, "change")} on this phone never reached the server and will be lost. Cancel and use Sync now to keep them."
-                )
+        SignOutDialog(
+            unsent,
+            onDismiss = { confirmSignOut = null },
+            onConfirm = {
+                confirmSignOut = null
+                onSignOut()
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmSignOut = null
-                        onSignOut()
-                    }
-                ) {
-                    Text(
-                        if (unsent == 0) "Sign out" else "Sign out and lose them",
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmSignOut = null }) { Text("Cancel") } },
         )
     }
+}
+
+/** What signing out deletes from this phone, including the [unsent] changes the server never received. */
+@Composable
+private fun SignOutDialog(unsent: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sign out of RepoRead?") },
+        text = {
+            Text(
+                "This phone's saved notes, highlights, cards, and reading progress are deleted from it; what the server has stays " +
+                    "there for your next sign-in." +
+                    if (unsent == 0) ""
+                    else
+                        " ${counted(unsent, "change")} on this phone never reached the server and will be lost. Cancel and use Sync now to keep them."
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(if (unsent == 0) "Sign out" else "Sign out and lose them", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

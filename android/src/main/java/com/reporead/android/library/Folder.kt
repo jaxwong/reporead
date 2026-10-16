@@ -50,6 +50,16 @@ internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<S
     return folders to notes
 }
 
+/** What saving every note did, for the status line. */
+private fun savedSummary(saved: Sync.SavedAll): String =
+    listOfNotNull(
+            "Saved ${counted(saved.fetched, "note")} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
+            saved.cannotShow
+                .takeIf { it.isNotEmpty() }
+                ?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
+        )
+        .joinToString(" ")
+
 @Composable
 fun FolderScreen(
     sync: Sync,
@@ -103,19 +113,40 @@ fun FolderScreen(
                     val saved =
                         sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = SaveProgress(done, toFetch) }
                     listed = true
-                    listOfNotNull(
-                            "Saved ${counted(saved.fetched, "note")} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
-                            saved.cannotShow
-                                .takeIf { it.isNotEmpty() }
-                                ?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
-                        )
-                        .joinToString(" ")
+                    savedSummary(saved)
                 } catch (failure: ApiException) {
                     val (done, toFetch) = saving ?: SaveProgress(0, 0)
                     "Stopped after $done of $toFetch notes; those are saved, and saving again continues from there. ${failure.describe()}"
                 } finally {
                     saving = null
                 }
+        }
+    }
+    // Asks the server what disconnecting would delete, for the confirmation.
+    val askToDisconnect = {
+        status = null
+        scope.launch {
+            try {
+                // Null: the server had already disconnected it, and this phone's copies are now gone too.
+                val preview = sync.disconnectPreview(screen.repositoryId)
+                if (preview == null) onDisconnected() else confirmDisconnect = preview
+            } catch (failure: ApiException) {
+                status = "Can't disconnect now. ${failure.describe()}"
+            }
+        }
+    }
+    val disconnect = {
+        confirmDisconnect = null
+        disconnecting = true
+        scope.launch {
+            try {
+                sync.disconnect(screen.repositoryId)
+                onDisconnected()
+            } catch (failure: ApiException) {
+                status = "Not disconnected; nothing was deleted on this phone. ${failure.describe()}"
+            } finally {
+                disconnecting = false
+            }
         }
     }
     val busy = refreshing || disconnecting || saving != null
@@ -136,18 +167,7 @@ fun FolderScreen(
                                     if (!busy) saveAll()
                                 },
                                 MenuAction("Disconnect…") {
-                                    if (busy) return@MenuAction
-                                    status = null
-                                    scope.launch {
-                                        try {
-                                            // Null: the server had already disconnected it, and this phone's copies are
-                                            // now gone too.
-                                            val preview = sync.disconnectPreview(screen.repositoryId)
-                                            if (preview == null) onDisconnected() else confirmDisconnect = preview
-                                        } catch (failure: ApiException) {
-                                            status = "Can't disconnect now. ${failure.describe()}"
-                                        }
-                                    }
+                                    if (!busy) askToDisconnect()
                                 },
                             )
                         )
@@ -201,44 +221,43 @@ fun FolderScreen(
         }
     }
     confirmDisconnect?.let { preview ->
-        val stored = preview.stored
-        AlertDialog(
-            onDismissRequest = { confirmDisconnect = null },
-            title = { Text("Disconnect ${screen.repositoryName}?") },
-            text = {
-                Text(
-                    "RepoRead will delete, on its server and this phone, its list of ${counted(stored.documents, "note")}, your reading progress on " +
-                        "${counted(stored.readingStates, "note")}, ${counted(stored.bookmarks, "bookmark")}, ${counted(stored.highlights, "highlight")} with their notes, " +
-                        "and ${counted(stored.cards, "card")} with their review logs. " +
-                        (if (preview.unsent == 0) ""
-                        else
-                            "${counted(preview.unsent, "highlight, card, or grade", "highlights, cards, or grades")} only on this phone " +
-                                "go too${preview.notSent?.let { " (not sent: $it)" } ?: ""}. ") +
-                        "This cannot be undone. The repository on GitHub is not changed; to remove " +
-                        "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub."
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmDisconnect = null
-                        disconnecting = true
-                        scope.launch {
-                            try {
-                                sync.disconnect(screen.repositoryId)
-                                onDisconnected()
-                            } catch (failure: ApiException) {
-                                status = "Not disconnected; nothing was deleted on this phone. ${failure.describe()}"
-                            } finally {
-                                disconnecting = false
-                            }
-                        }
-                    }
-                ) {
-                    Text("Disconnect")
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirmDisconnect = null }) { Text("Cancel") } },
+        DisconnectDialog(
+            screen.repositoryName,
+            preview,
+            onDismiss = { confirmDisconnect = null },
+            onConfirm = { disconnect() },
         )
     }
+}
+
+/** What disconnecting [repositoryName] deletes, on the server and this phone, before it is confirmed. */
+@Composable
+private fun DisconnectDialog(
+    repositoryName: String,
+    preview: Sync.DisconnectPreview,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val stored = preview.stored
+    val unsent =
+        if (preview.unsent == 0) ""
+        else
+            "${counted(preview.unsent, "highlight, card, or grade", "highlights, cards, or grades")} only on this phone " +
+                "go too${preview.notSent?.let { " (not sent: $it)" } ?: ""}. "
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Disconnect $repositoryName?") },
+        text = {
+            Text(
+                "RepoRead will delete, on its server and this phone, its list of ${counted(stored.documents, "note")}, your reading progress on " +
+                    "${counted(stored.readingStates, "note")}, ${counted(stored.bookmarks, "bookmark")}, ${counted(stored.highlights, "highlight")} with their notes, " +
+                    "and ${counted(stored.cards, "card")} with their review logs. " +
+                    unsent +
+                    "This cannot be undone. The repository on GitHub is not changed; to remove " +
+                    "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub."
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Disconnect") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
