@@ -19,8 +19,11 @@ import org.jsoup.Jsoup;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -33,6 +36,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
+@ExtendWith(OutputCaptureExtension.class)
 class DocumentContentTest extends SharedSpringTest {
     // Test-only note content, tokens, and repository; no live GitHub call is made or claimed.
     private static final String TOKEN = "TEST_ONLY_ALICE_USER_TOKEN";
@@ -213,7 +217,7 @@ class DocumentContentTest extends SharedSpringTest {
     }
 
     @Test
-    void renderLimitRejectionIsVisible() throws Exception {
+    void renderLimitRejectionIsVisible(CapturedOutput log) throws Exception {
         byte[] diagrams = "```mermaid\nA-->B\n```\n\n"
                 .repeat(MarkdownRenderer.MAX_DIAGRAMS + 1)
                 .getBytes(StandardCharsets.UTF_8);
@@ -222,6 +226,9 @@ class DocumentContentTest extends SharedSpringTest {
         read(alice, document("diagrams.md", sha, false))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.message").value("Markdown exceeds the 16-diagram reader limit"));
+        // The log says which limit, not only the code: messages hold no credentials or note content.
+        assertTrue(
+                log.getOut().contains("code=UNSUPPORTED_CONTENT message=Markdown exceeds the 16-diagram reader limit"));
     }
 
     @Test
