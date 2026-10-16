@@ -10,8 +10,11 @@ import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.core.network.Api
+import com.reporead.android.data.AnnotationRow
+import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
@@ -131,7 +134,7 @@ class ReaderLifecycleTest {
 
     @Test
     fun aLinkedHeadingIsShownOnceAndRecreationRestoresTheReadingPositionInstead() {
-        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, heading = "Answer") }
+        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, OpenAt.Heading("Answer")) }
         awaitReader(6)
         awaitSaved(6)
         evaluate("window.reporead.showBlock('b12'); return {};")
@@ -139,6 +142,42 @@ class ReaderLifecycleTest {
         scenario.recreate()
         awaitReader(12)
         awaitSaved(12)
+    }
+
+    @Test
+    fun aNotebookPassageIsShownOnceInsteadOfTheReadingPosition() {
+        evaluate("window.reporead.showBlock('b12'); return {};")
+        awaitSaved(12)
+        val passage = "Test-only paragraph 50."
+        runBlocking {
+            store
+                .library()
+                .saveAnnotation(
+                    AnnotationRow(
+                        mutationId = "test-only-highlight",
+                        serverId = null,
+                        documentId = 1,
+                        sourceBlobSha = sha,
+                        blockId = "b50",
+                        startOffset = 0,
+                        endOffset = passage.length,
+                        exactText = passage,
+                        note = null,
+                        version = 1,
+                        createdAt = 0,
+                        state = AnnotationState.UNSENT,
+                    )
+                )
+        }
+        scenario.onActivity {
+            screenUnderTest.value = Screen.Reader(1, title, OpenAt.Highlight("test-only-highlight"))
+        }
+        val shown = awaitHighlightInView("test-only-highlight")
+        assertTrue("Opened with block $shown at the top, not at the passage in block 50", shown in 13..50)
+        awaitSaved(shown)
+        scenario.recreate()
+        awaitReader(shown)
+        awaitSaved(shown)
     }
 
     @Test
@@ -203,6 +242,29 @@ class ReaderLifecycleTest {
             delay(100)
         }
         throw AssertionError("Reader did not restore block=$block; last=$last")
+    }
+
+    /** The block at the top once the highlight [key] is drawn and within the screen. */
+    private fun awaitHighlightInView(key: String): Int = runBlocking {
+        var last = JSONObject()
+        repeat(100) {
+            last =
+                evaluate(
+                    """
+                    if (!window.reporead || document.body.dataset.state !== 'ready') return {};
+                    const mark = document.querySelector('#note mark[data-key="$key"]');
+                    if (!mark) return {};
+                    const rect = mark.getBoundingClientRect();
+                    return {inView: rect.top >= 0 && rect.bottom <= window.innerHeight,
+                        block: window.reporead.position().anchor.blockIndex};
+                    """
+                        .trimIndent(),
+                    allowLoading = true,
+                )
+            if (last.optBoolean("inView")) return@runBlocking last.getInt("block")
+            delay(100)
+        }
+        throw AssertionError("Highlight $key never came into view; last=$last")
     }
 
     private fun evaluate(script: String, allowLoading: Boolean = false): JSONObject {

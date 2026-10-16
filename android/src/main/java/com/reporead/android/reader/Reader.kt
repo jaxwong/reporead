@@ -46,6 +46,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
@@ -62,9 +63,13 @@ import com.reporead.android.sync.Changes
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -217,15 +222,14 @@ fun ReaderScreen(
                     sync,
                     dao,
                     appScope,
-                    openAtHeading = screen.heading.takeUnless { targetShown },
-                    onHeadingOpened = { targetShown = true },
+                    openAt = screen.openAt.takeUnless { targetShown },
+                    onOpenedAtTarget = {
+                        targetShown = true
+                        // A passage opened from the notebook or a review is shown with the note's highlights.
+                        if (screen.openAt is OpenAt.Highlight) notesOpen = true
+                    },
                     study = ready.study,
                     studying = { studying },
-                    openAtAnnotation = screen.annotation.takeUnless { targetShown },
-                    onAnnotationOpened = {
-                        targetShown = true
-                        notesOpen = true
-                    },
                     onNoteLink = { target, path, heading ->
                         scope.launch {
                             // Resolved against the saved note list of this note's repository, so links work offline
@@ -345,12 +349,11 @@ fun ReaderScreen(
             DisposableEffect(lifecycle, session) {
                 // Process death can follow ON_STOP, so the position is captured whenever the reader leaves the screen.
                 val observer = LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_STOP) session.capture()
+                    if (event == Lifecycle.Event.ON_STOP) session.savePosition()
                 }
                 lifecycle.addObserver(observer)
                 onDispose { lifecycle.removeObserver(observer) }
             }
-            LaunchedEffect(session, annotations) { session.showHighlights(annotations) }
             changes?.let { comparison ->
                 ChangesPanel(
                     comparison,
@@ -359,8 +362,9 @@ fun ReaderScreen(
                     onRetry = { changesReload++ },
                     onOpen = { section ->
                         changesExpanded = false
-                        session.showBlock(section.blockId) { shown ->
-                            if (!shown) message = "That section isn't in the version on screen; reopen the note."
+                        scope.launch {
+                            if (!session.showBlock(section.blockId))
+                                message = "That section isn't in the version on screen; reopen the note."
                         }
                     },
                 )
@@ -411,8 +415,9 @@ fun ReaderScreen(
             onDismiss = { outlineOpen = false },
             onJump = { entry ->
                 outlineOpen = false
-                session.showBlock(entry.blockId) { shown ->
-                    if (!shown) message = "Couldn't scroll to “${entry.text}”; reopen the note."
+                scope.launch {
+                    if (!session.showBlock(entry.blockId))
+                        message = "Couldn't scroll to “${entry.text}”; reopen the note."
                 }
             },
         )
@@ -426,7 +431,7 @@ fun ReaderScreen(
             onDismiss = { preview = null },
             onOpen = {
                 preview = null
-                push(Screen.Reader(target.id, target.title, heading))
+                push(Screen.Reader(target.id, target.title, heading?.let(OpenAt::Heading)))
             },
         )
     }
@@ -440,7 +445,7 @@ fun ReaderScreen(
                         TextButton(
                             onClick = {
                                 linkChoices = null
-                                push(Screen.Reader(choice.id, choice.title, heading))
+                                push(Screen.Reader(choice.id, choice.title, heading?.let(OpenAt::Heading)))
                             }
                         ) {
                             Text(choice.path)
@@ -508,6 +513,14 @@ private fun Notice(text: String) {
 }
 
 /**
+ * Runs [script] in the page and returns its result as JSONTokener decodes it: a String, Int, Boolean, JSONObject.NULL,
+ * and so on.
+ */
+private suspend fun WebView.evaluate(script: String): Any? = suspendCancellableCoroutine { result ->
+    evaluateJavascript(script) { encoded -> result.resume(JSONTokener(encoded).nextValue()) }
+}
+
+/**
  * One displayed note version in an isolated WebView. Repository content gets no credentials, no JavaScript bridge, and
  * no network, file, or content access; native code reads and restores the position through evaluateJavascript only.
  */
@@ -515,14 +528,14 @@ private class ReaderSession(
     private val note: NoteRow,
     private val sync: Sync,
     private val dao: LibraryDao,
-    private val scope: CoroutineScope,
-    /** A heading to open at instead of the saved position (the target of a note link), until [onHeadingOpened]. */
-    private val openAtHeading: String?,
-    private val onHeadingOpened: () -> Unit,
+    /** Never cancelled, so the position saved when the view is released reaches the database. */
+    private val appScope: CoroutineScope,
+    /** Where the page opens; null is where the note was last read. */
+    private val openAt: OpenAt?,
+    /** The page has opened at [openAt], found or not; never called for null. */
+    private val onOpenedAtTarget: () -> Unit,
     private val study: StudyNote,
     private val studying: () -> Boolean,
-    private var openAtAnnotation: String?,
-    private val onAnnotationOpened: () -> Unit,
     /**
      * A tapped link to another note: an Obsidian [target] name or a repository [path], and an optional heading. A link
      * to a heading of this note is followed here.
@@ -549,7 +562,7 @@ private class ReaderSession(
     var notShown by mutableStateOf(emptySet<String>())
         private set
 
-    /** How the saved position was restored, when not exactly; null when it was, or before restoring. */
+    /** Why the page did not open exactly where it was meant to; null when it did, or before it opened. */
     var restoreNotice by mutableStateOf<String?>(null)
         private set
 
@@ -561,12 +574,14 @@ private class ReaderSession(
 
     private val main = Handler(Looper.getMainLooper())
     private var view: WebView? = null
-    /** Rendering finished, so highlights and the scripts' functions can be used. */
-    private var ready = false
-    private var highlights: List<AnnotationRow> = emptyList()
-    /** Saving starts only after the saved position is restored, so the top of the page never overwrites it. */
-    private var restored = false
-    private val saveAfterScroll = Runnable { capture() }
+    /**
+     * The page has rendered and opened, so its scripts can be used and scrolling saves the position. Saving waits for
+     * this so that the top of the page, shown while loading, never overwrites the saved position.
+     */
+    private var opened = false
+    /** Opening the page, then keeping its highlights current; cancelled when the view is released. */
+    private var opening: Job? = null
+    private val saveAfterScroll = Runnable { savePosition() }
     private val sectionAfterScroll = Runnable { reportTopBlock() }
     /**
      * Only scrolling that follows a touch on the page moves the bars; jumps made by the app (restoring the position,
@@ -584,11 +599,15 @@ private class ReaderSession(
     fun createView(context: Context): WebView {
         val assets = readerAssets(context)
         return ReaderWebView(context, reattaching) { action, finish ->
-                captureSelection { selection ->
-                    // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
-                    if (selection != null && !selection.has("error")) finish()
-                    onSelection(selection, action)
-                }
+                val webView = openedView()
+                if (webView == null) onMessage("The note is still loading; select the text again in a moment.")
+                else
+                    appScope.launch {
+                        val selection = captureSelection(webView)
+                        // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
+                        if (selection != null && !selection.has("error")) finish()
+                        onSelection(selection, action)
+                    }
             }
             .apply {
                 isolateReaderPage()
@@ -603,13 +622,13 @@ private class ReaderSession(
                                 val heading = link["heading"]
                                 if (target != null || path != null) onNoteLink(target, path, heading)
                                 else if (heading != null)
-                                    showHeading(heading) { shown ->
-                                        if (!shown) onMessage("No heading “$heading” in this note.")
+                                    appScope.launch {
+                                        if (!showHeading(heading)) onMessage("No heading “$heading” in this note.")
                                     }
                                 return true
                             }
                             if (request.hasGesture() && url.host == ASSET_HOST && url.path == COPY_CODE) {
-                                url.getQueryParameter("block")?.let { copyCode(view, it) }
+                                url.getQueryParameter("block")?.let { appScope.launch { copyCode(it) } }
                                 return true
                             }
                             if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN) {
@@ -638,7 +657,10 @@ private class ReaderSession(
                         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
                             readerResource(assets, sync.images, note, request.url)
 
-                        override fun onPageFinished(view: WebView, url: String) = awaitReady(view)
+                        override fun onPageFinished(view: WebView, url: String) {
+                            opening?.cancel()
+                            opening = appScope.launch { open(view) }
+                        }
                     }
                 val barsThreshold = (BARS_SCROLL_DP * context.resources.displayMetrics.density).toInt()
                 setOnTouchListener { view, event ->
@@ -662,8 +684,10 @@ private class ReaderSession(
                 setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
                     main.removeCallbacks(saveAfterScroll)
                     main.removeCallbacks(sectionAfterScroll)
-                    if (restored) main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
-                    if (ready) main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
+                    if (opened) {
+                        main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
+                        main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
+                    }
                     if (fingerDown) swipeScroll += scrollY - oldScrollY
                     // A fling that reaches the top brings the bars back; nothing else changes them without a finger
                     // lifting.
@@ -674,149 +698,131 @@ private class ReaderSession(
             }
     }
 
-    private fun awaitReady(view: WebView) {
-        awaitRendered(view, main) { state, attempt ->
-            when (state) {
-                "ready" -> {
-                    view.evaluateJavascript(
-                        "window.reporead.configureStudy(${study.json()}); window.reporead.setStudy(${studying()}); true"
-                    ) { encoded ->
-                        check(JSONTokener(encoded).nextValue() == true) {
-                            "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}"
-                        }
-                        Log.i(
-                            "RepoRead",
-                            "Reader ready; documentId=${note.documentId} viewHeight=${view.height} attempt=$attempt",
-                        )
-                        ready = true
-                        applyHighlights()
-                        view.evaluateJavascript("JSON.stringify(window.reporead.outline())") { outline ->
-                            this.outline = parseOutline(JSONTokener(outline).nextValue() as String)
-                        }
-                        restore(view)
-                    }
-                }
-                // The page itself shows why rendering failed.
-                "failed" -> Log.w("RepoRead", "Reader render failed; position not saved; documentId=${note.documentId}")
-                else -> {
-                    Log.w("RepoRead", "Reader never became ready; position not saved; documentId=${note.documentId}")
-                    onMessage(
-                        "This note did not finish rendering, so highlights and your reading position are off here. Reopen it to try again."
-                    )
-                }
-            }
-        }
-    }
+    private fun openedView(): WebView? = view?.takeIf { opened }
 
-    private fun restore(view: WebView) {
-        val heading = openAtHeading
-        if (heading != null) {
-            view.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(heading)})") { encoded ->
-                val shown = JSONTokener(encoded).nextValue() == true
-                onHeadingOpened()
-                Log.i("RepoRead", "Reader opened at a linked heading; documentId=${note.documentId} found=$shown")
-                restoreNotice = if (shown) null else "No heading “$heading” in this note; showing the top."
-                restored = true
-                capture()
-            }
+    /**
+     * Waits for the page to render, opens it at [openAt] or where the note was last read, then saves that position and
+     * keeps the drawn highlights current until the view is released.
+     */
+    private suspend fun open(view: WebView) {
+        val state = suspendCancellableCoroutine { rendered ->
+            awaitRendered(view, main) { state, _ -> rendered.resume(state) }
+        }
+        if (state != "ready") {
+            // A page that failed to render shows why itself.
+            Log.w("RepoRead", "Reader did not render; position not saved; documentId=${note.documentId} state=$state")
+            if (state == "timeout")
+                onMessage(
+                    "This note did not finish rendering, so highlights and your reading position are off here. Reopen it to try again."
+                )
             return
         }
-        scope.launch {
-            val saved = dao.reading(note.documentId)
-            if (saved == null) {
-                restored = true
-                capture()
-                return@launch
+        val configured =
+            view.evaluate(
+                "window.reporead.configureStudy(${study.json()}); window.reporead.setStudy(${studying()}); true"
+            )
+        check(configured == true) { "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}" }
+        Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height}")
+        outline = parseOutline(view.evaluate("JSON.stringify(window.reporead.outline())") as String)
+        val highlights = dao.annotations(note.documentId)
+        // Drawn before opening, so that a highlight to open at is on the page.
+        drawHighlights(view, highlights.first())
+        restoreNotice =
+            when (openAt) {
+                null -> restoreSaved(view)
+                is OpenAt.Heading -> {
+                    val found = view.evaluate("window.reporead.showHeading(${JSONObject.quote(openAt.text)})") == true
+                    Log.i("RepoRead", "Reader opened at a linked heading; documentId=${note.documentId} found=$found")
+                    if (found) null else "No heading “${openAt.text}” in this note; showing the top."
+                }
+                is OpenAt.Highlight -> {
+                    val found = view.evaluate("window.reporead.reveal(${JSONObject.quote(openAt.mutationId)})") == true
+                    Log.i("RepoRead", "Reader opened at a highlight; documentId=${note.documentId} found=$found")
+                    if (found) null
+                    else "That passage isn't marked in this version of the note; Highlights and notes says why."
+                }
             }
-            view.evaluateJavascript("window.reporead.restore(${saved.anchorJson}, ${saved.progressPercent})") { encoded
-                ->
-                val mode = JSONTokener(encoded).nextValue() as String
-                Log.i(
-                    "RepoRead",
-                    "Reader restored; documentId=${note.documentId} mode=$mode savedPercent=${saved.progressPercent} " +
-                        "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}",
-                )
-                restoreNotice =
-                    when {
-                        mode == "collapsed" ->
-                            "Resumed at a collapsed study section; tap Show / hide section to reveal it."
-                        mode == "section" ->
-                            "Resumed at the start of the section you were reading; the exact passage changed."
-                        mode == "block" || mode == "percent" ->
-                            "Resumed near your last position; the exact passage could not be found."
-                        saved.lastReadBlobSha != note.blobSha ->
-                            "This note changed since you last read it; resumed at the same passage."
-                        else -> null
-                    }
-                restored = true
-                capture()
-            }
+        if (openAt != null) onOpenedAtTarget()
+        opened = true
+        save(view)
+        // Room sends the list drawn above again first, then every change: a new highlight, an edit, a sync.
+        highlights.collect { drawHighlights(view, it) }
+    }
+
+    /** Restores where the note was last read; returns what to tell the reader when that place could not be found. */
+    private suspend fun restoreSaved(view: WebView): String? {
+        val saved = dao.reading(note.documentId) ?: return null
+        val mode = view.evaluate("window.reporead.restore(${saved.anchorJson}, ${saved.progressPercent})") as String
+        Log.i(
+            "RepoRead",
+            "Reader restored; documentId=${note.documentId} mode=$mode savedPercent=${saved.progressPercent} " +
+                "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}",
+        )
+        return when {
+            mode == "collapsed" -> "Resumed at a collapsed study section; tap Show / hide section to reveal it."
+            mode == "section" -> "Resumed at the start of the section you were reading; the exact passage changed."
+            mode == "block" || mode == "percent" ->
+                "Resumed near your last position; the exact passage could not be found."
+            saved.lastReadBlobSha != note.blobSha ->
+                "This note changed since you last read it; resumed at the same passage."
+            else -> null
         }
     }
 
-    /** Saves the current position for the version on screen, then runs [then]. */
-    fun capture(then: () -> Unit = {}) {
-        jumpToAnnotation()
+    /** Saves the position in the version on screen. */
+    private suspend fun save(view: WebView) {
         main.removeCallbacks(saveAfterScroll)
-        val webView = view
-        if (webView == null || !restored) {
-            then()
-            return
-        }
-        webView.evaluateJavascript("JSON.stringify(window.reporead.position())") { encoded ->
-            val position = JSONObject(JSONTokener(encoded).nextValue() as String)
-            val row =
-                ReadingRow(
-                    note.documentId,
-                    note.blobSha,
-                    position.getInt("progressPercent"),
-                    position.getJSONObject("anchor").toString(),
-                    System.currentTimeMillis(),
-                    pending = true,
-                )
-            val viewHeight = webView.height
-            scope.launch {
-                sync.saveReading(row)
-                Log.i(
-                    "RepoRead",
-                    "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} " +
-                        "block=${position.getJSONObject("anchor").getInt("blockIndex")} viewHeight=$viewHeight",
-                )
-                then()
-            }
-            topBlock = position.getJSONObject("anchor").getInt("blockIndex")
-        }
+        val position = JSONObject(view.evaluate("JSON.stringify(window.reporead.position())") as String)
+        val anchor = position.getJSONObject("anchor")
+        val block = anchor.getInt("blockIndex")
+        topBlock = block
+        val row =
+            ReadingRow(
+                note.documentId,
+                note.blobSha,
+                position.getInt("progressPercent"),
+                anchor.toString(),
+                System.currentTimeMillis(),
+                pending = true,
+            )
+        sync.saveReading(row)
+        Log.i(
+            "RepoRead",
+            "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} block=$block " +
+                "viewHeight=${view.height}",
+        )
+    }
+
+    /** Saves the position now, as when the screen stops: process death can follow. */
+    fun savePosition() {
+        val webView = openedView() ?: return
+        appScope.launch { save(webView) }
     }
 
     private fun reportTopBlock() {
-        val webView = view ?: return
-        if (!ready) return
-        webView.evaluateJavascript("window.reporead.position().anchor.blockIndex") { encoded ->
-            topBlock = JSONTokener(encoded).nextValue() as Int
+        val webView = openedView() ?: return
+        appScope.launch { topBlock = webView.evaluate("window.reporead.position().anchor.blockIndex") as Int }
+    }
+
+    /** Saves the final position, then destroys the view; later lifecycle events no longer touch it. */
+    fun release(webView: WebView) {
+        main.removeCallbacks(saveAfterScroll)
+        main.removeCallbacks(sectionAfterScroll)
+        opening?.cancel()
+        val wasOpened = opened
+        view = null
+        opened = false
+        appScope.launch {
+            if (wasOpened) save(webView)
+            webView.destroy()
         }
     }
 
-    /** Saves the final position before destroying the view; later lifecycle events no longer touch it. */
-    fun release(webView: WebView) {
-        main.removeCallbacks(sectionAfterScroll)
-        capture { webView.destroy() }
-        view = null
-        restored = false
-        ready = false
-    }
-
     /** Draws each highlight whose current location is in the displayed version; others are listed, not drawn. */
-    fun showHighlights(rows: List<AnnotationRow>) {
-        highlights = rows
-        applyHighlights()
-    }
-
-    private fun applyHighlights() {
-        val webView = view ?: return
-        if (!ready) return
+    private suspend fun drawHighlights(view: WebView, rows: List<AnnotationRow>) {
         val payload =
             JSONArray(
-                highlights
+                rows
                     .filter { it.drawn.blobSha == note.blobSha }
                     .map {
                         val passage = it.drawn
@@ -828,108 +834,79 @@ private class ReaderSession(
                             .put("exactText", passage.exactText)
                     }
             )
-        webView.evaluateJavascript("JSON.stringify(window.reporead.highlight($payload))") { encoded ->
-            val missing = JSONArray(JSONTokener(encoded).nextValue() as String)
-            notShown = List(missing.length()) { missing.getString(it) }.toSet()
-            jumpToAnnotation()
-        }
+        val missing = JSONArray(view.evaluate("JSON.stringify(window.reporead.highlight($payload))") as String)
+        notShown = List(missing.length()) { missing.getString(it) }.toSet()
     }
 
     /**
-     * Scrolls to a changed section's heading block in this version, or the top for null; reports whether it was found.
+     * Scrolls to a changed section's heading block in this version, or the top for null; false when it is not there.
      */
-    fun showBlock(blockId: String?, then: (Boolean) -> Unit) {
-        val webView = view
-        if (webView == null || !ready) {
-            then(false)
-            return
-        }
+    suspend fun showBlock(blockId: String?): Boolean {
+        val webView = openedView() ?: return false
         touched = false
-        webView.evaluateJavascript(
-            "window.reporead.showBlock(${if (blockId == null) "null" else JSONObject.quote(blockId)})"
-        ) { encoded ->
-            val shown = JSONTokener(encoded).nextValue() == true
-            if (!shown)
-                Log.w(
-                    "RepoRead",
-                    "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId",
-                )
-            then(shown)
-        }
+        val shown =
+            webView.evaluate(
+                "window.reporead.showBlock(${if (blockId == null) "null" else JSONObject.quote(blockId)})"
+            ) == true
+        if (!shown)
+            Log.w(
+                "RepoRead",
+                "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId",
+            )
+        return shown
     }
 
     /** Scrolls to the first heading whose text is [text] (ignoring case), as Obsidian heading links do. */
-    fun showHeading(text: String, then: (Boolean) -> Unit) {
-        val webView = view
-        if (webView == null || !ready) {
-            then(false)
-            return
-        }
+    private suspend fun showHeading(text: String): Boolean {
+        val webView = openedView() ?: return false
         touched = false
-        webView.evaluateJavascript("window.reporead.showHeading(${JSONObject.quote(text)})") { encoded ->
-            then(JSONTokener(encoded).nextValue() == true)
-        }
+        return webView.evaluate("window.reporead.showHeading(${JSONObject.quote(text)})") == true
     }
 
     fun reveal(key: String) {
-        val webView = view ?: return
-        if (!ready) return
+        val webView = openedView() ?: return
         touched = false
         webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})", null)
     }
 
-    private fun jumpToAnnotation() {
-        val key = openAtAnnotation ?: return
-        val webView = view ?: return
-        if (!ready || !restored || highlights.none { it.mutationId == key }) return
-        openAtAnnotation = null
-        webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})") { onAnnotationOpened() }
-    }
-
     fun setStudy(enabled: Boolean) {
-        val webView = view ?: return
-        if (!ready) return
+        val webView = openedView() ?: return
         touched = false
-        webView.evaluateJavascript("window.reporead.setStudy($enabled)") { capture() }
         Log.i("RepoRead", "Study view changed; documentId=${note.documentId} enabled=$enabled")
+        appScope.launch {
+            webView.evaluate("window.reporead.setStudy($enabled)")
+            save(webView)
+        }
     }
 
     /** Android 13+ confirms clipboard writes itself, so the reader shows nothing more. */
-    private fun copyCode(webView: WebView, blockId: String) {
-        if (!ready) return
-        webView.evaluateJavascript("window.reporead.codeText(${JSONObject.quote(blockId)})") { encoded ->
-            // A link in the note's own text can name /copy-code with something that is not a code block.
-            val text =
-                JSONTokener(encoded).nextValue() as? String
-                    ?: run {
-                        Log.w("RepoRead", "Copy link names no code block; documentId=${note.documentId} block=$blockId")
-                        return@evaluateJavascript
-                    }
-            val clipboard = webView.context.getSystemService(ClipboardManager::class.java)
-            clipboard.setPrimaryClip(ClipData.newPlainText("Code", text))
-            Log.i("RepoRead", "Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
+    private suspend fun copyCode(blockId: String) {
+        val webView = openedView() ?: return
+        // A link in the note's own text can name /copy-code with something that is not a code block.
+        val text = webView.evaluate("window.reporead.codeText(${JSONObject.quote(blockId)})") as? String
+        if (text == null) {
+            Log.w("RepoRead", "Copy link names no code block; documentId=${note.documentId} block=$blockId")
+            return
         }
+        val clipboard = webView.context.getSystemService(ClipboardManager::class.java)
+        clipboard.setPrimaryClip(ClipData.newPlainText("Code", text))
+        Log.i("RepoRead", "Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
     }
 
     /**
      * The selection as capture() reads it: null when nothing is selected, {error} when it is not inside one block. A
      * broken canonical mapping is an invariant failure, raised here, never an approximate anchor.
      */
-    private fun captureSelection(then: (JSONObject?) -> Unit) {
-        val webView = view
-        if (webView == null || !ready) {
-            onMessage("The note is still loading; select the text again in a moment.")
-            return
+    private suspend fun captureSelection(view: WebView): JSONObject? {
+        val encoded =
+            view.evaluate(
+                "(() => { try { return JSON.stringify({selection: window.reporead.capture()}); } " +
+                    "catch (error) { return JSON.stringify({invariant: error.message}); } })()"
+            ) as String
+        val result = JSONObject(encoded)
+        check(!result.has("invariant")) {
+            "Selection capture failed; documentId=${note.documentId}: ${result.getString("invariant")}"
         }
-        webView.evaluateJavascript(
-            "(() => { try { return JSON.stringify({selection: window.reporead.capture()}); } " +
-                "catch (error) { return JSON.stringify({invariant: error.message}); } })()"
-        ) { encoded ->
-            val result = JSONObject(JSONTokener(encoded).nextValue() as String)
-            check(!result.has("invariant")) {
-                "Selection capture failed; documentId=${note.documentId}: ${result.getString("invariant")}"
-            }
-            then(result.optJSONObject("selection"))
-        }
+        return result.optJSONObject("selection")
     }
 }
