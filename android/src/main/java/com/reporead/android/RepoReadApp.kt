@@ -170,6 +170,23 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         signInMessage = message
         stack = listOf(Screen.Repositories)
     }
+    // Revokes the session on the server when it can, then deletes this phone's copy of private notes, unsynced
+    // changes included.
+    val signOut: () -> Unit = {
+        scope.launch {
+            val message =
+                try {
+                    api.delete("/api/app-auth/session")
+                    null
+                } catch (error: ApiException) {
+                    if (error.status == 401) null
+                    else
+                        "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
+                }
+            sync.clearAll()
+            endSession(message)
+        }
+    }
 
     // Keyed on the code, so the code is cleared only after the exchange ends: clearing it first would
     // restart this effect and cancel the exchange after the server had already issued the session.
@@ -224,22 +241,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                         signedIn,
                         push,
                         onSignIn = signIn,
-                        onSignOut = {
-                            scope.launch {
-                                val message =
-                                    try {
-                                        api.delete("/api/app-auth/session")
-                                        null
-                                    } catch (error: ApiException) {
-                                        if (error.status == 401) null
-                                        else
-                                            "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
-                                    }
-                                // Signing out deletes this phone's copy of private notes, unsynced changes included.
-                                sync.clearAll()
-                                endSession(message)
-                            }
-                        },
+                        onSignOut = signOut,
                         onAccountDeleted = {
                             // The server deleted the account and its sessions, and Sync cleared this phone's copy.
                             endSession(
