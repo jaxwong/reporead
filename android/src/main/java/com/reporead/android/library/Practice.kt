@@ -166,7 +166,14 @@ internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: Pra
     val card = sync.createAnnotation(passage, question.documentId, null, question.question.prompt)
     val graded =
         sync.recordReview(
-            ReviewRow(UUID.randomUUID().toString(), card, grade, System.currentTimeMillis(), question.blobSha, true)
+            ReviewRow(
+                mutationId = UUID.randomUUID().toString(),
+                cardMutationId = card,
+                grade = grade,
+                reviewedAt = System.currentTimeMillis(),
+                blobSha = question.blobSha,
+                pending = true,
+            )
         )
     return if (graded) null else "The card was saved but not its grade, so it is due now in Review cards."
 }

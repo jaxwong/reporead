@@ -27,7 +27,8 @@ class NoteImages(private val api: Api, filesDir: File) {
         cached(documentId, blobSha, sha256("embed:$name"), "embed=${URLEncoder.encode(name, Charsets.UTF_8)}")
 
     private fun cached(documentId: Long, blobSha: String, key: String, query: String): ByteArray? {
-        val file = File(root, "$documentId/$blobSha/$key")
+        val directory = File(root, "$documentId/$blobSha")
+        val file = File(directory, key)
         if (file.isFile) return file.readBytes()
         val bytes =
             try {
@@ -36,8 +37,8 @@ class NoteImages(private val api: Api, filesDir: File) {
                 Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
                 return null
             }
-        file.parentFile!!.mkdirs()
-        val partial = File(file.parentFile, file.name + ".partial")
+        directory.mkdirs()
+        val partial = File(directory, "$key.partial")
         partial.writeBytes(bytes)
         check(partial.renameTo(file)) { "Could not publish cached image for document $documentId" }
         return bytes

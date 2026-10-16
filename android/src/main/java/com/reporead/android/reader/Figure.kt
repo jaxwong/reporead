@@ -60,8 +60,9 @@ fun FigureScreen(sync: Sync, dao: LibraryDao, screen: Screen.Figure, onBack: () 
     var failure by remember(screen) { mutableStateOf<String?>(null) }
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         val saved = note
+        val problem = failure
         when {
-            failure != null -> EmptyState(failure!!)
+            problem != null -> EmptyState(problem)
             saved == null -> Unit
             saved.blobSha != screen.blobSha ->
                 EmptyState("This note was updated since it was opened. Go back and open the table or diagram again.")

@@ -65,6 +65,9 @@ import com.reporead.android.ui.sectionTitle
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
+/** How far saving every note has got: [done] of the [toFetch] notes whose saved copy was missing or old. */
+private data class SaveProgress(val done: Int, val toFetch: Int)
+
 private data class Available(
     val githubRepositoryId: Long,
     val installationId: Long,
@@ -515,7 +518,7 @@ fun FolderScreen(
     var refreshing by remember { mutableStateOf(false) }
     var listed by remember { mutableStateOf(false) }
     /** Notes fetched so far and to fetch, while saving every note; null otherwise. Leaving the screen stops it. */
-    var saving by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var saving by remember { mutableStateOf<SaveProgress?>(null) }
     val scope = rememberCoroutineScope()
     val documents by dao.documents(screen.repositoryId).collectAsState(null)
     val repository by dao.repositories().collectAsState(emptyList())
@@ -544,11 +547,12 @@ fun FolderScreen(
     }
     val saveAll = {
         status = null
-        saving = 0 to 0
+        saving = SaveProgress(0, 0)
         scope.launch {
             status =
                 try {
-                    val saved = sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = done to toFetch }
+                    val saved =
+                        sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = SaveProgress(done, toFetch) }
                     listed = true
                     listOfNotNull(
                             "Saved ${counted(saved.fetched, "note")} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
@@ -558,7 +562,7 @@ fun FolderScreen(
                         )
                         .joinToString(" ")
                 } catch (failure: ApiException) {
-                    val (done, toFetch) = saving ?: (0 to 0)
+                    val (done, toFetch) = saving ?: SaveProgress(0, 0)
                     "Stopped after $done of $toFetch notes; those are saved, and saving again continues from there. ${failure.describe()}"
                 } finally {
                     saving = null
@@ -606,9 +610,9 @@ fun FolderScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             val progress = saving
             when {
-                progress != null && progress.second > 0 ->
+                progress != null && progress.toFetch > 0 ->
                     LinearProgressIndicator(
-                        progress = { progress.first.toFloat() / progress.second },
+                        progress = { progress.done.toFloat() / progress.toFetch },
                         modifier = Modifier.fillMaxWidth(),
                         drawStopIndicator = {},
                     )
@@ -617,8 +621,8 @@ fun FolderScreen(
             StatusLine(
                 when {
                     disconnecting -> "Disconnecting…"
-                    progress != null && progress.second > 0 ->
-                        "Saving notes on this phone: ${progress.first} of ${progress.second}. Leaving this screen stops it."
+                    progress != null && progress.toFetch > 0 ->
+                        "Saving notes on this phone: ${progress.done} of ${progress.toFetch}. Leaving this screen stops it."
                     progress != null -> "Checking which notes need saving…"
                     else -> status
                 }

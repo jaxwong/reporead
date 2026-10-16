@@ -616,29 +616,31 @@ private class ReaderSession(
                 webViewClient =
                     object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                            // The page itself never navigates away. A tapped link is opened by the app: a note
+                            // link as a new reader screen, a web or email link in another app.
+                            if (!request.hasGesture()) return true
                             val url = request.url
-                            if (request.hasGesture() && url.host == ASSET_HOST && url.path == NOTE_LINK) {
-                                val link = noteLinkParameters(url.encodedQuery.orEmpty())
-                                val target = link["target"]
-                                val path = link["path"]
-                                val heading = link["heading"]
-                                if (target != null || path != null) onNoteLink(target, path, heading)
-                                else if (heading != null)
-                                    appScope.launch {
-                                        if (!showHeading(heading)) onMessage("No heading “$heading” in this note.")
+                            if (url.host == ASSET_HOST) {
+                                when (url.path) {
+                                    NOTE_LINK -> {
+                                        val link = noteLinkParameters(url.encodedQuery.orEmpty())
+                                        val target = link["target"]
+                                        val path = link["path"]
+                                        val heading = link["heading"]
+                                        if (target != null || path != null) onNoteLink(target, path, heading)
+                                        else if (heading != null)
+                                            appScope.launch {
+                                                if (!showHeading(heading))
+                                                    onMessage("No heading “$heading” in this note.")
+                                            }
                                     }
+                                    COPY_CODE ->
+                                        url.getQueryParameter("block")?.let { appScope.launch { copyCode(it) } }
+                                    FULL_SCREEN -> url.getQueryParameter("figure")?.let(onFigure)
+                                }
                                 return true
                             }
-                            if (request.hasGesture() && url.host == ASSET_HOST && url.path == COPY_CODE) {
-                                url.getQueryParameter("block")?.let { appScope.launch { copyCode(it) } }
-                                return true
-                            }
-                            if (request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN) {
-                                url.getQueryParameter("figure")?.let(onFigure)
-                                return true
-                            }
-                            val external = (url.scheme == "https" || url.scheme == "http") && url.host != ASSET_HOST
-                            if (request.hasGesture() && (external || url.scheme == "mailto")) {
+                            if (url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto") {
                                 try {
                                     view.context.startActivity(
                                         Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE)
@@ -646,13 +648,11 @@ private class ReaderSession(
                                 } catch (error: ActivityNotFoundException) {
                                     Log.w("RepoRead", "No app for an external note link; scheme=${url.scheme}")
                                     onMessage(
-                                        if (external) "No browser is installed to open this link."
-                                        else "No email app is installed to open this link."
+                                        if (url.scheme == "mailto") "No email app is installed to open this link."
+                                        else "No browser is installed to open this link."
                                     )
                                 }
                             }
-                            // The page itself never navigates away; note links are opened by the app as new reader
-                            // screens.
                             return true
                         }
 
