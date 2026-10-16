@@ -111,6 +111,14 @@ class Sync(
      */
     private val oneSyncAtATime = Mutex()
 
+    /**
+     * Runs [work] under [oneSyncAtATime], off the main thread: it maps whole server lists into rows (a notebook of
+     * 2,000 cards and 20,000 grades held the main thread for about 480 ms) and reads and deletes files.
+     */
+    private suspend fun <T> locked(work: suspend () -> T): T = oneSyncAtATime.withLock {
+        withContext(Dispatchers.IO) { work() }
+    }
+
     /** Saved notes' images; deleted here whenever their notes go. */
     val images = NoteImages(api, filesDir)
     private val exportRoot = exportDirectory(filesDir)
@@ -138,7 +146,7 @@ class Sync(
         for (row in rows) loadDocuments(row.id)
     }
 
-    suspend fun refreshDocuments(repositoryId: Long) = oneSyncAtATime.withLock { loadDocuments(repositoryId) }
+    suspend fun refreshDocuments(repositoryId: Long) = locked { loadDocuments(repositoryId) }
 
     private suspend fun loadDocuments(repositoryId: Long) {
         val json = api.get("/api/repositories/$repositoryId/documents")
@@ -161,7 +169,7 @@ class Sync(
     }
 
     /** Asks the backend to reconcile with GitHub, then reloads the now-current lists. */
-    suspend fun refreshFromGitHub(repositoryId: Long) = oneSyncAtATime.withLock {
+    suspend fun refreshFromGitHub(repositoryId: Long) = locked {
         api.post("/api/repositories/$repositoryId/sync")
         loadRepositories()
     }
@@ -190,7 +198,7 @@ class Sync(
         val current = dao.document(documentId)
         if (cached != null && upToDate(cached, current)) return Opened(cached, null)
         return try {
-            Opened(oneSyncAtATime.withLock { fetchNote(documentId) }, null)
+            Opened(locked { fetchNote(documentId) }, null)
         } catch (error: ApiException) {
             if (cached == null) throw error
             val cachedIsCurrent = sameVersion(cached, current)
@@ -248,7 +256,7 @@ class Sync(
         onProgress(0, missing.size)
         missing.forEachIndexed { index, document ->
             try {
-                oneSyncAtATime.withLock { fetchNote(document.id) }
+                locked { fetchNote(document.id) }
             } catch (error: ApiException) {
                 if (error.code != "UNSUPPORTED_CONTENT") {
                     Log.w(
@@ -317,7 +325,7 @@ class Sync(
      * the server no longer has the repository (an earlier disconnect whose answer was lost, or another device): this
      * phone's copies are then removed by reconciling with the server's list.
      */
-    suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = oneSyncAtATime.withLock {
+    suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = locked {
         val synced = sendPending().also { replaceFromServer() }
         val json =
             try {
@@ -326,7 +334,7 @@ class Sync(
                 if (error.code != "NOT_FOUND") throw error
                 Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
                 loadRepositories()
-                return@withLock null
+                return@locked null
             }
         val stored = contract {
             StoredData(
@@ -345,7 +353,7 @@ class Sync(
      * including unsynced changes for those notes. A failure changes nothing on the phone. When the server no longer has
      * the repository (an earlier answer was lost), the phone reconciles with the server's complete list instead.
      */
-    suspend fun disconnect(repositoryId: Long) = oneSyncAtATime.withLock {
+    suspend fun disconnect(repositoryId: Long) = locked {
         val json =
             try {
                 api.delete("/api/repositories/$repositoryId")
@@ -354,7 +362,7 @@ class Sync(
                 if (error.code != "NOT_FOUND") throw error
                 Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
                 loadRepositories()
-                return@withLock
+                return@locked
             }
         val documentIds = contract {
             json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } }
@@ -394,14 +402,14 @@ class Sync(
      * The sync run by library open, pull to refresh and Sync now: sends what waits ([sendPending]), then loads the
      * server's complete lists ([replaceFromServer]).
      */
-    suspend fun syncLocalChanges(): LocalSync = oneSyncAtATime.withLock { sendPending().also { replaceFromServer() } }
+    suspend fun syncLocalChanges(): LocalSync = locked { sendPending().also { replaceFromServer() } }
 
     /**
      * The background sync's run: sends what waits, and nothing when nothing does (null); each send saves the server's
      * answer, so the lists are left to the screens. Checked under the lock, so after sign-out has cleared the phone it
      * makes no request and writes nothing.
      */
-    suspend fun syncWaitingChanges(): LocalSync? = oneSyncAtATime.withLock {
+    suspend fun syncWaitingChanges(): LocalSync? = locked {
         if (dao.waitingCount().first() == 0) null else sendPending()
     }
 
@@ -541,7 +549,7 @@ class Sync(
      * next sync. The same mutation id is replayed until the server answers, so a lost acknowledgement cannot create a
      * duplicate. A refusal is kept on the row and shown; it is not retried.
      */
-    suspend fun pushAnnotations() = oneSyncAtATime.withLock { sendAnnotations() }
+    suspend fun pushAnnotations() = locked { sendAnnotations() }
 
     private suspend fun sendAnnotations() {
         for (row in dao.waitingAnnotations()) {
@@ -618,7 +626,7 @@ class Sync(
     }
 
     /** Pending creations are sent first, so the server's list already contains them where possible. */
-    suspend fun refreshAnnotations(documentId: Long) = oneSyncAtATime.withLock {
+    suspend fun refreshAnnotations(documentId: Long) = locked {
         sendAnnotations()
         val json = api.get("/api/documents/$documentId/annotations")
         dao.replaceRemoteAnnotations(
@@ -632,28 +640,27 @@ class Sync(
     }
 
     /** Online only. A 409 ANNOTATION_CONFLICT means another edit landed first; nothing local changes. */
-    suspend fun editAnnotation(row: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow =
-        oneSyncAtATime.withLock {
-            val serverId =
-                checkNotNull(row.serverId) {
-                    "Only acknowledged highlights can be edited; ${row.mutationId} is pending"
-                }
-            val updated =
-                annotationRow(
-                    api.patch(
-                        "/api/annotations/$serverId",
-                        JSONObject().put("note", note ?: JSONObject.NULL).put("expectedVersion", expectedVersion),
-                    )
+    suspend fun editAnnotation(row: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow = locked {
+        val serverId =
+            checkNotNull(row.serverId) {
+                "Only acknowledged highlights can be edited; ${row.mutationId} is pending"
+            }
+        val updated =
+            annotationRow(
+                api.patch(
+                    "/api/annotations/$serverId",
+                    JSONObject().put("note", note ?: JSONObject.NULL).put("expectedVersion", expectedVersion),
                 )
-            dao.saveAnnotation(updated)
-            updated
-        }
+            )
+        dao.saveAnnotation(updated)
+        updated
+    }
 
     /**
      * Online only: places an acknowledged highlight on a [passage] the user selected. A 409 ANNOTATION_CONFLICT means
      * another change landed first; nothing local changes.
      */
-    suspend fun reattachAnnotation(row: AnnotationRow, passage: Passage): AnnotationRow = oneSyncAtATime.withLock {
+    suspend fun reattachAnnotation(row: AnnotationRow, passage: Passage): AnnotationRow = locked {
         val serverId =
             checkNotNull(row.serverId) {
                 "Only acknowledged highlights can be reattached; ${row.mutationId} is pending"
@@ -675,7 +682,7 @@ class Sync(
      * once and offline too; the next sync replays the creation (the server may have it after a lost acknowledgement)
      * and deletes it there. A refused creation the server never accepted is only local.
      */
-    suspend fun deleteAnnotation(row: AnnotationRow) = oneSyncAtATime.withLock {
+    suspend fun deleteAnnotation(row: AnnotationRow) = locked {
         when (row.state) {
             AnnotationState.ACKNOWLEDGED -> {
                 val serverId = checkNotNull(row.serverId) { "Acknowledged ${row.mutationId} has no server id" }
@@ -713,7 +720,7 @@ class Sync(
         dao.replaceRemoteNotebook(annotations, reviews, limit)
     }
 
-    suspend fun pushReviews() = oneSyncAtATime.withLock { sendReviews() }
+    suspend fun pushReviews() = locked { sendReviews() }
 
     private suspend fun sendReviews() {
         for (row in dao.pendingReviews()) {
@@ -747,7 +754,7 @@ class Sync(
         }
     }
 
-    suspend fun checkCard(row: AnnotationRow, blobSha: String) = oneSyncAtATime.withLock {
+    suspend fun checkCard(row: AnnotationRow, blobSha: String) = locked {
         val id = checkNotNull(row.serverId) { "Only acknowledged cards can be confirmed; ${row.mutationId} is pending" }
         dao.saveAnnotation(
             annotationRow(
@@ -763,13 +770,11 @@ class Sync(
      * Explicit sign-out removes every cached note, image, and pending change from this phone; a running sync finishes
      * first.
      */
-    suspend fun clearAll() = oneSyncAtATime.withLock {
-        withContext(Dispatchers.IO) {
-            store.clearAllTables()
-            images.clear()
-            check(!exportRoot.exists() || exportRoot.deleteRecursively()) {
-                "Could not remove private notebook exports at $exportRoot"
-            }
+    suspend fun clearAll() = locked {
+        store.clearAllTables()
+        images.clear()
+        check(!exportRoot.exists() || exportRoot.deleteRecursively()) {
+            "Could not remove private notebook exports at $exportRoot"
         }
     }
 }
