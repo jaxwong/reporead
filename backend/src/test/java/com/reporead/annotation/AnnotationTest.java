@@ -405,7 +405,7 @@ class AnnotationTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.annotations.length()").value(1));
     }
 
-    // ---- Stage 4: re-anchoring, orphans, reattachment ----
+    // ---- Re-anchoring, orphans, reattachment ----
 
     private ResultActions list(String bearer) throws Exception {
         return mvc.perform(
@@ -574,7 +574,7 @@ class AnnotationTest extends SharedSpringTest {
         return Long.parseLong(response.replaceAll("^\\{\"id\":(\\d+),.*$", "$1"));
     }
 
-    // P4 fixtures are test-only; these exercise the real HTTP, transaction, and anchor paths.
+    // Card fixtures are test-only; these exercise the real HTTP, transaction, and anchor paths.
     private String cardBody() {
         return body(UUID.randomUUID().toString(), "b2", START, EXACT, null)
                 .replace(

@@ -101,7 +101,7 @@ android {
 }
 
 ksp {
-    // Exported schemas let later stages write real migrations instead of discarding pending local changes.
+    // Exported schemas let each schema change ship a real migration instead of discarding pending local changes.
     arg("room.schemaLocation", file("schemas").absolutePath)
 }
 
@@ -131,7 +131,7 @@ dependencies {
     implementation("androidx.webkit:webkit:1.16.0")
     // Custom Tabs for GitHub sign-in in the user's browser rather than an embedded WebView.
     implementation("androidx.browser:browser:1.10.0")
-    // Offline cache and pending local changes (spec: Room for local persistence).
+    // Offline cache and pending local changes.
     implementation("androidx.room:room-runtime:2.8.5")
     ksp("androidx.room:room-compiler:2.8.5")
     // Sends pending changes once the phone has a network, also after the app is closed (ADR-08 background sync).

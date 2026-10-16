@@ -229,7 +229,7 @@ window.reporead = {
 };
 
 /*
- * Selection capture under the Stage 0 contract: one block, UTF-16 offsets into its canonical (Java-exported) text.
+ * Selection capture under ADR-05's contract: one block, UTF-16 offsets into its canonical (Java-exported) text.
  * Broken mapping is an invariant failure, never an approximate anchor.
  */
 function capture() {

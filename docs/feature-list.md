@@ -60,7 +60,7 @@ The milestones were built as vertical slices (GitHub → backend → PostgreSQL 
 
 | Stage | Result | Features | Gate |
 | --- | --- | --- | --- |
-| 0 | Authorization and renderer boundaries proven (ADR-04, ADR-05, ADR-16) | Foundations | Passed 2026-10-06 (user-reported) |
+| 0 | Authorization and renderer boundaries proven (ADR-04, ADR-05, ADR-16) | Foundations | Passed 2026-10-06 (checked by hand on the phone) |
 | 1 | One real note opens through the real backend | F-01–F-04 | Passed 2026-10-06 |
 | 2 | Dependable reading, including offline | F-05, F-06 | Passed 2026-10-06 |
 | 3 | Durable online and offline annotations | F-07, F-08 | Passed 2026-10-06 |
@@ -68,11 +68,11 @@ The milestones were built as vertical slices (GitHub → backend → PostgreSQL 
 | 5 | Changes since the version actually read | F-11 | Passed 2026-10-07 |
 | 6 | Search, data controls, metrics, signed release, ADRs | F-12, F-13 | **Pending** |
 
-Stage 6 is built and checked on the phone, along with two additions the user asked for: a dark theme with a redesigned reader and app shell, and Obsidian `[[links]]` and `![[embeds]]`. Its gate still needs two weeks of voluntary use, at least 20 real highlights, the labelled fixture demo (deferred by the user until after the two weeks), and a full review against F-01–F-13 and US-01–US-11.
+Stage 6 is built and checked on the phone, along with two additions: a dark theme with a redesigned reader and app shell, and Obsidian `[[links]]` and `![[embeds]]`. Its gate still needs two weeks of voluntary use, at least 20 real highlights, the labelled fixture demo (deferred until after the two weeks), and a full review against F-01–F-13 and US-01–US-11.
 
 ## After the MVP
 
-The user chose to start post-MVP work on 2026-10-07, before the Stage 6 gate. Each stage reverses or extends an MVP decision only with an explicit user decision, recorded in the ADRs.
+Post-MVP work started on 2026-10-07, before the Stage 6 gate. Each stage reverses or extends an MVP decision only with an explicit decision, recorded in the ADRs.
 
 | Stage | What | Story | Status |
 | --- | --- | --- | --- |
@@ -93,7 +93,7 @@ The user chose to start post-MVP work on 2026-10-07, before the Stage 6 gate. Ea
 - iOS, Google Play distribution, and LaTeX/math rendering.
 - Webhook-triggered sync, AST-aware diffing, Elasticsearch, Kafka, microservices, a generic sync engine, and cache or retry frameworks (beyond WorkManager's backoff for the phone's background sync, ADR-08).
 
-**Excluded from the MVP, built afterwards:** spaced-repetition review, approved by the user as P3 and P4 on 2026-10-09 (ADR-13, ADR-20).
+**Excluded from the MVP, built afterwards:** spaced-repetition review, added as P3 and P4 on 2026-10-09 (ADR-13, ADR-20).
 
 **Later, if real use asks for it:**
 
@@ -111,7 +111,7 @@ These are exclusions, not hidden stretch goals.
 
 | Decision | Current state |
 | --- | --- |
-| Drawing edge to edge | When the reader hides the system bars, the camera cutout area shows as a black band. Left for the user to decide |
+| Drawing edge to edge | When the reader hides the system bars, the camera cutout area shows as a black band. Not decided |
 | Phone storage eviction | None; every saved note is kept (ADR-19). Revisit if storage matters |
 | Scheduler | Fixed gap ladder (replaced SM-2 on 2026-10-15); consider FSRS only if review data shows a need (ADR-13) |
 | Notebook paging | Not paged; revisit as the review log nears about 40,000 grades (ADR-13) |
@@ -162,4 +162,4 @@ Covered by automated tests only, or not at all:
 
 A short demo should show the same note in GitHub Mobile and RepoRead; folder browsing; Markdown, code, and Mermaid; a new annotation without a source-file change; re-anchoring after a real edit; an orphan after an ambiguous rewrite; changed-since-last-read; and offline annotation followed by one successful sync. Then show the GitHub/source, Spring Boot/durable state, and Room/offline-cache boundaries.
 
-The most useful code and tests to show are anchor resolution, incremental sync, idempotent mutation handling, optimistic annotation updates, GitHub permission and token handling, safe rendering, and annotation-survival integration tests—not generic CRUD. Be ready to explain why GitHub remains canonical, why a backend is needed, how duplicates, moves, force-pushes, conflicts, malicious Markdown, and GitHub outages are handled, what would fail at much larger scale, and what was deliberately not built.
+The most useful code and tests to show are anchor resolution, complete-snapshot sync, idempotent mutation handling, optimistic annotation updates, GitHub permission and token handling, safe rendering, and annotation-survival integration tests—not generic CRUD. The demo should also answer why GitHub remains canonical, why a backend is needed, how duplicates, moves, force-pushes, conflicts, malicious Markdown, and GitHub outages are handled, what would fail at much larger scale, and what was deliberately not built.
