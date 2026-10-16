@@ -144,6 +144,28 @@ class ReviewLifecycleTest {
             assertEquals(listOf(Screen.Reader(1, "Test-only review", OpenAt.Highlight("card1"))), pushed)
         }
 
+    /** Reading the saved page takes a moment; until it is read the answer is unknown, not unverifiable. */
+    @Test
+    fun revealingAnAnswerNeverFirstSaysItCannotBeVerified() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val filler =
+                (11..4_000).joinToString("") {
+                    """<p data-block-id="b$it" data-anchor-text="Filler $it.">Filler $it.</p>"""
+                }
+            dao.saveNote(
+                NoteRow(1, sha, "test-only/review.md", "Test-only review", html.replace("</main>", "$filler</main>"), 0)
+            )
+            card(1)
+            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+                click("Show answer")
+                val unverifiable = "The saved page cannot verify this answer in context. Open the note to check it."
+                withTimeout(10_000) {
+                    while (findText(root(), "Good") == null) assertNull(unverifiable, findText(root(), unverifiable))
+                }
+            }
+        }
+
     @Test
     fun aMissedCardComesBackInTheSessionWithoutASecondSavedGrade() =
         runBlocking<Unit> {

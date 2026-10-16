@@ -212,21 +212,30 @@ private fun dueParts(outlook: ReviewOutlook, cap: Int?): List<String> =
             outlook.blocked.takeIf { it > 0 }?.let { "$it to check first" },
         )
 
-/** A card's answer from the saved copy of its version; null while reading or when that copy cannot verify it. */
+/** A card's answer as the saved copy of its version shows it. */
+private sealed interface Revealed {
+    data object Reading : Revealed
+
+    /** The saved copy is of another version, or does not hold the passage. */
+    data object Unverifiable : Revealed
+
+    data class Shown(val answer: RevealedAnswer) : Revealed
+}
+
+/** Reads a card's answer from the saved copy of its version, from when the card is first shown. */
 @Composable
-private fun rememberRevealed(item: NotebookItem, dao: LibraryDao): RevealedAnswer? {
+private fun rememberRevealed(item: NotebookItem, dao: LibraryDao): Revealed {
     val row = item.annotation
-    val context by
-        produceState<Pair<Passage, RevealedAnswer>?>(null, row.mutationId, row.drawn) {
+    val read by
+        produceState<Pair<Passage, Revealed>?>(null, row.mutationId, row.drawn) {
             val note = dao.note(row.documentId)
-            value =
+            val answer =
                 if (note?.blobSha == row.drawn.blobSha)
-                    withContext(Dispatchers.Default) {
-                        revealedAnswer(note.html, note.path, row.drawn)?.let { row.drawn to it }
-                    }
+                    withContext(Dispatchers.Default) { revealedAnswer(note.html, note.path, row.drawn) }
                 else null
+            value = row.drawn to (answer?.let(Revealed::Shown) ?: Revealed.Unverifiable)
         }
-    return context?.takeIf { it.first == row.drawn }?.second
+    return read?.takeIf { it.first == row.drawn }?.second ?: Revealed.Reading
 }
 
 /** What a card is checked against: a bank question's linked section, or the passage in its block's context. */
@@ -324,9 +333,12 @@ private fun ColumnScope.FixCard(
             }
             Text("The note changed since this card was checked. Is this still its answer?")
             problem?.let { StatusLine(it) }
-            val answer = rememberRevealed(item, dao)
-            if (answer == null) Text("The saved page cannot show this answer in context. Open the note to check it.")
-            else CardAnswer(item, answer, sync, dao, push)
+            when (val answer = rememberRevealed(item, dao)) {
+                Revealed.Reading -> {}
+                Revealed.Unverifiable ->
+                    Text("The saved page cannot show this answer in context. Open the note to check it.")
+                is Revealed.Shown -> CardAnswer(item, answer.answer, sync, dao, push)
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = !confirming, onClick = ::confirm) { Text("Answer is still right") }
                 openNote("Open note")
@@ -441,6 +453,8 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                 FixCard(item, sync, dao, push, onConfirmed = { next(ids.drop(1) + id) })
                 return@Column
             }
+            // Read while the question is asked, so the answer is ready when it is revealed.
+            val answer = rememberRevealed(item, dao)
             if (!revealed) {
                 Text("Answer it aloud or in writing first, then check it.")
                 Button(onClick = { revealed = true }) { Text("Show answer") }
@@ -452,9 +466,12 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                     "Asked again: its first grade is saved. This grade only decides whether it comes back in this session.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-            val answer = rememberRevealed(item, dao)
-            if (answer == null) Text("The saved page cannot verify this answer in context. Open the note to check it.")
-            else CardAnswer(item, answer, sync, dao, push)
+            when (answer) {
+                Revealed.Reading -> {}
+                Revealed.Unverifiable ->
+                    Text("The saved page cannot verify this answer in context. Open the note to check it.")
+                is Revealed.Shown -> CardAnswer(item, answer.answer, sync, dao, push)
+            }
             TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(id))) }) {
                 Text("Open in note")
             }
@@ -489,7 +506,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                 }
             }
             val step = scheduleReviews(row, log, ZoneId.systemDefault()).step
-            if (answer != null)
+            if (answer is Revealed.Shown)
                 GradeBar(enabled = !saving, gaps = if (again) null else gaps(step), onGrade = ::saveGrade)
         }
     }
