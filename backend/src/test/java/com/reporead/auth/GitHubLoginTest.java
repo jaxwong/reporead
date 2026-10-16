@@ -5,6 +5,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.reporead.SharedSpringTest;
@@ -111,6 +112,11 @@ class GitHubLoginTest extends SharedSpringTest {
             var refused =
                     mvc.perform(get(path)).andExpect(status().isUnauthorized()).andReturn();
             assertNull(refused.getRequest().getSession(false), path);
+            // A refused POST too: a CSRF token stored for it would open a session, against the sign-in session cap.
+            var posted = mvc.perform(post(path)).andReturn();
+            assertNull(
+                    posted.getRequest().getSession(false),
+                    "POST " + path + " " + posted.getResponse().getStatus());
         }
         var malformed = mvc.perform(get("/app/sign-in").param("code_challenge", "test-only-short"))
                 .andExpect(status().isBadRequest())
