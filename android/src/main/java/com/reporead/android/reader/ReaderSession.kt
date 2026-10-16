@@ -30,7 +30,9 @@ import com.reporead.android.sync.Sync
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
@@ -301,7 +303,7 @@ internal class ReaderSession(
         outline = parseOutline(view.evaluate("JSON.stringify(window.reporead.outline())") as String)
         val highlights = dao.annotations(note.documentId)
         // Drawn before opening, so that a highlight to open at is on the page.
-        drawHighlights(view, highlights.first())
+        drawHighlights(view, drawn(highlights.first()))
         // A link whose target is gone opens the note where it was last read, as an ordinary open does, so the save
         // below keeps the reader's place instead of replacing it with the top of the page.
         suspend fun missing(what: String) = listOfNotNull(what, restoreSaved(view)).joinToString(" ")
@@ -324,8 +326,9 @@ internal class ReaderSession(
         if (openAt != null) onOpenedAtTarget()
         opened = true
         save(view)
-        // Room sends the list drawn above again first, then every change: a new highlight, an edit, a sync.
-        highlights.collect { drawHighlights(view, it) }
+        // Room sends the list again after every write to the annotations table, any note's; the page is redrawn only
+        // when what it draws changed: a new highlight, an edit, a sync that moved one.
+        highlights.map(::drawn).distinctUntilChanged().collect { drawHighlights(view, it) }
     }
 
     /** Restores where the note was last read; returns what to tell the reader when that place could not be found. */
@@ -397,10 +400,9 @@ internal class ReaderSession(
         }
     }
 
-    /** Draws each highlight whose current location is in the displayed version; others are listed, not drawn. */
-    private suspend fun drawHighlights(view: WebView, rows: List<AnnotationRow>) {
-        val payload =
-            JSONArray(
+    /** What the page draws of [rows]: each highlight whose current location is in the displayed version, as JSON. */
+    private fun drawn(rows: List<AnnotationRow>): String =
+        JSONArray(
                 rows
                     .filter { it.drawn.blobSha == note.blobSha }
                     .map {
@@ -413,6 +415,10 @@ internal class ReaderSession(
                             .put("exactText", passage.exactText)
                     }
             )
+            .toString()
+
+    /** Draws [payload] ([drawn]); a highlight the page cannot place is listed, not drawn. */
+    private suspend fun drawHighlights(view: WebView, payload: String) {
         val missing = JSONArray(view.evaluate("JSON.stringify(window.reporead.highlight($payload))") as String)
         notShown = List(missing.length()) { missing.getString(it) }.toSet()
     }
