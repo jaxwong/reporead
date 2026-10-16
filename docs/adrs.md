@@ -148,7 +148,7 @@ Amended 2026-10-09 (Room v8): moving to a newer version keeps the version left b
 
 **Decision** (the user's, 2026-10-14). Pushes to `main` that change the app build a release APK in GitHub Actions, signed with the personal key (ADR-12) from repository secrets, and publish it as GitHub Release `v0.1.<commit count>`. Obtainium on the phone installs each release over the current app. `versionCode` is the commit count of `HEAD`, which only grows along `main`. No Play Store: its internal testing track would also work, but needs a paid developer account, Play App Signing and a service account.
 
-**Safety.** The workflow refuses to publish an APK whose signing certificate is not the personal key's (`2049299f…53293f`). Pull requests run unit tests without secrets; only the release job on `main` can write releases.
+**Safety.** The workflow refuses to publish an APK whose signing certificate is not the personal key's (`2049299f…53293f`). Pull requests run unit tests and compile the device tests, without secrets; only the release job on `main` can write releases.
 
 **Consequences.** App updates no longer need the Mac or adb. The signing key now also lives in GitHub: anyone who controls the repository's Actions or secrets can publish an update the phone accepts as genuine, so the GitHub account is now part of the app's trust boundary. The repository is public, so release APKs are downloadable by anyone; they contain nothing beyond the public backend address. A hand-installed branch build with a higher commit count blocks the next release until it is reinstalled with `adb install -r -d`.
 
@@ -228,7 +228,7 @@ Amended 2026-10-09 (Room v8): moving to a newer version keeps the version left b
 - Backend tests run against real PostgreSQL 17.11 through Testcontainers, with explicit test-only GitHub mocks; no test depends on live GitHub.
 - Layout belongs to formatters applied by Spotless: palantir-java-format for the backend's Java, ktfmt (Kotlin coding conventions) for the app's Kotlin, both at 120 columns. CI fails on unformatted code before running the tests (the user's, 2026-10-15). `android/reader-web`'s JavaScript has no formatter.
 - Real-corpus harnesses (`AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus`, `StudyCorpus`) are opt-in and point at a local clone outside the repository. Their outputs contain private note text and are never committed.
-- Device tests run with `adb shell am instrument` on the phone used for reading, never `connectedDebugAndroidTest` (it uninstalls the app and its data). Success is the run's `OK (n tests)` line, not adb's exit code.
+- Device tests run with `adb shell am instrument` on the phone used for reading, never `connectedDebugAndroidTest` (it uninstalls the app and its data). Success is the run's `OK (n tests)` line, not adb's exit code. CI only compiles them.
 - Records distinguish automated checks, device checks and user-reported observations; a gate never passes on mocks or a build alone. Real data is backed up before a migration runs on it. Test edits to the notes repository go only under `scratch/`, with the user's approval.
 
 **Consequences.** Live GitHub behaviour (history rewrites, missing blobs) is mostly proven by tests, not on the real system; [the feature list](feature-list.md#not-yet-verified-on-the-real-system) says which.
