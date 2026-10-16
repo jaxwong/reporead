@@ -2,9 +2,6 @@ package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
-import com.reporead.ClientClock;
-import com.reporead.Hashes;
-import com.reporead.auth.AppUser;
 import com.reporead.repository.RepositoryConnections;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -12,25 +9,26 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
 
-/** Owns the durable review log, never scheduling. Every route makes zero external calls. */
-@RestController
+/** Owns review_log, the durable record of every grade; never scheduling, which stays on the phone (ADR-13). */
+@Component
 public class Reviews {
-    private static final Logger LOG = LoggerFactory.getLogger(Reviews.class);
     private static final int SESSION_LIMIT = 40;
+    private static final String SELECT = """
+        select r.mutation_id, a.mutation_id as card_mutation_id, r.grade, r.reviewed_at, r.blob_sha
+        from review_log r join annotations a on a.id = r.annotation_id
+        where r.user_id = :userId""";
+
     private final JdbcClient db;
     private final Annotations annotations;
     private final TransactionTemplate transaction;
+    /** One repeatable, read-only database snapshot: a concurrent delete cannot split cards from their logs. */
+    private final TransactionTemplate snapshot;
+
     private final RepositoryConnections connections;
 
     public Reviews(
@@ -41,6 +39,9 @@ public class Reviews {
         this.db = db;
         this.annotations = annotations;
         this.transaction = transaction;
+        this.snapshot = new TransactionTemplate(transaction.getTransactionManager());
+        snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        snapshot.setReadOnly(true);
         this.connections = connections;
     }
 
@@ -48,64 +49,40 @@ public class Reviews {
 
     record Notebook(List<Annotations.Annotation> annotations, List<Review> reviews, int sessionLimit) {}
 
-    record GradeRequest(String mutationId, Integer grade, Instant reviewedAt, String blobSha) {}
-
-    private static final String SELECT = """
-        select r.mutation_id, a.mutation_id as card_mutation_id, r.grade, r.reviewed_at, r.blob_sha
-        from review_log r join annotations a on a.id = r.annotation_id
-        where r.user_id = :userId""";
-
-    @GetMapping("/api/notebook")
-    Notebook notebook(@AuthenticationPrincipal AppUser user) {
-        // One repeatable database snapshot: a concurrent delete cannot split cards from their logs.
-        return transaction.execute(tx -> {
-            db.sql("set transaction isolation level repeatable read").update();
-            return new Notebook(
-                    annotations.notebook(user.id()),
-                    db.sql(SELECT + " order by r.reviewed_at, r.mutation_id")
-                            .param("userId", user.id())
-                            .query(Reviews::review)
-                            .list(),
-                    SESSION_LIMIT);
-        });
+    Notebook notebook(long userId) {
+        return snapshot.execute(tx -> new Notebook(
+                annotations.notebook(userId),
+                db.sql(SELECT + " order by r.reviewed_at, r.mutation_id")
+                        .param("userId", userId)
+                        .query(Reviews::review)
+                        .list(),
+                SESSION_LIMIT));
     }
 
-    @PostMapping("/api/annotations/{id}/reviews")
-    Review grade(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody GradeRequest body) {
-        UUID mutation;
-        try {
-            mutation = UUID.fromString(body.mutationId() == null ? "" : body.mutationId());
-        } catch (IllegalArgumentException error) {
-            throw invalid("mutationId must be a UUID.");
-        }
-        if (body.grade() == null
-                || body.grade() < 0
-                || body.grade() > 5
-                || body.reviewedAt() == null
-                || (body.reviewedAt().isBefore(Instant.EPOCH)
-                        || body.reviewedAt().getNano() % 1_000_000 != 0
-                        || body.reviewedAt().isAfter(Instant.now().plus(ClientClock.MAX_AHEAD)))
-                || !Hashes.isGitSha(body.blobSha())) {
-            throw invalid("A review needs grade 0–5, a millisecond reviewedAt from 1970 through "
-                    + ClientClock.MAX_AHEAD.toMinutes() + " minutes ahead, and the verified answer's blob SHA.");
-        }
-        var result = transaction.execute(tx -> {
-            // Same lock order as repository refresh/disconnect: connection first, then annotations. The shared lock,
-            // like every write to a document: a refresh or disconnect waits for the grade, other writes do not.
+    /**
+     * Records a grade of the card {@code cardId} once per client {@code mutation}: a replay returns the stored review,
+     * even if the note changed after it was committed; the same id with other content is 409 MUTATION_ID_REUSED. A new
+     * grade of an answer that is not the card's checked, current version is 409 CARD_CHANGED. Holds the card's
+     * connection lock while it writes, so a refresh or disconnect waits for it; a card that is not this user's, or was
+     * disconnected meanwhile, is 404.
+     */
+    Review grade(long userId, long cardId, UUID mutation, int grade, Instant reviewedAt, String blobSha) {
+        return transaction.execute(tx -> {
+            // Same lock order as repository refresh/disconnect: connection first, then annotations.
             long documentId = db.sql(
                             "select document_id from annotations where id = :id and user_id = :userId and type = 'CARD'")
-                    .param("id", id)
-                    .param("userId", user.id())
+                    .param("id", cardId)
+                    .param("userId", userId)
                     .query(Long.class)
                     .optional()
                     .orElseThrow(ApiFailure::notFound);
-            connections.lockForDocumentWrite(user.id(), documentId);
+            connections.lockForDocumentWrite(userId, documentId);
             var current = db.sql("""
                     select a.checked_blob_sha, d.current_blob_sha, d.deleted_at is not null as deleted, a.status
                     from annotations a join documents d on d.id = a.document_id
                     where a.id = :id and a.user_id = :userId and a.type = 'CARD' for update of a""")
-                    .param("id", id)
-                    .param("userId", user.id())
+                    .param("id", cardId)
+                    .param("userId", userId)
                     .query((row, n) -> new Current(
                             row.getString("checked_blob_sha"),
                             row.getString("current_blob_sha"),
@@ -116,16 +93,16 @@ public class Reviews {
             int inserted = db.sql("""
                     insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha)
                     values (:userId, :mutation, :id, :grade, :at, :sha) on conflict do nothing""")
-                    .param("userId", user.id())
+                    .param("userId", userId)
                     .param("mutation", mutation)
-                    .param("id", id)
-                    .param("grade", body.grade())
-                    .param("at", Timestamp.from(body.reviewedAt()))
-                    .param("sha", body.blobSha())
+                    .param("id", cardId)
+                    .param("grade", grade)
+                    .param("at", Timestamp.from(reviewedAt))
+                    .param("sha", blobSha)
                     .update();
             var stored = db.sql(
                             "select annotation_id, grade, reviewed_at, blob_sha from review_log where user_id = :userId and mutation_id = :mutation")
-                    .param("userId", user.id())
+                    .param("userId", userId)
                     .param("mutation", mutation)
                     .query((row, n) -> new Stored(
                             row.getLong("annotation_id"),
@@ -133,33 +110,25 @@ public class Reviews {
                             row.getTimestamp("reviewed_at").toInstant(),
                             row.getString("blob_sha")))
                     .single();
-            if (stored.id() != id
-                    || stored.grade() != body.grade()
-                    || !stored.at().equals(body.reviewedAt())
-                    || !stored.sha().equals(body.blobSha())) {
+            if (stored.id() != cardId
+                    || stored.grade() != grade
+                    || !stored.at().equals(reviewedAt)
+                    || !stored.sha().equals(blobSha)) {
                 throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
             }
-            // Replays remain successful even if the note changed after the original grade was committed.
             if (inserted != 0
                     && (current.deleted()
                             || current.status().equals("ORPHANED")
-                            || !body.blobSha().equals(current.checked())
-                            || !body.blobSha().equals(current.sha()))) {
+                            || !blobSha.equals(current.checked())
+                            || !blobSha.equals(current.sha()))) {
                 throw new ApiFailure(Code.CARD_CHANGED, "Check this card in the current note before reviewing it.");
             }
             return db.sql(SELECT + " and r.mutation_id = :mutation")
-                    .param("userId", user.id())
+                    .param("userId", userId)
                     .param("mutation", mutation)
                     .query(Reviews::review)
                     .single();
         });
-        LOG.info(
-                "Review stored or replayed; userId={} annotationId={} mutationId={} grade={}",
-                user.id(),
-                id,
-                mutation,
-                body.grade());
-        return result;
     }
 
     private record Current(String checked, String sha, boolean deleted, String status) {}
@@ -173,9 +142,5 @@ public class Reviews {
                 row.getInt("grade"),
                 row.getTimestamp("reviewed_at").toInstant(),
                 row.getString("blob_sha"));
-    }
-
-    private static ApiFailure invalid(String message) {
-        return new ApiFailure(Code.INVALID_REVIEW, message);
     }
 }
