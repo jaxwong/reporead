@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Owns RepoRead users, single-use sign-in codes, and Android bearer sessions. Codes and session tokens are random
@@ -142,6 +143,10 @@ public class AppSessions {
 
     /** Locks the user's row for account deletion; must run inside that transaction, before listing what to delete. */
     public void lockUserForDeletion(long userId) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("lockUserForDeletion(userId=" + userId
+                    + ") ran outside a transaction, where its row lock is released as soon as it is taken");
+        }
         db.sql("select id from users where id = :userId for update")
                 .param("userId", userId)
                 .query(Long.class)
@@ -154,6 +159,10 @@ public class AppSessions {
      * deletion this call waited for, so the write never reaches a foreign-key failure.
      */
     public boolean lockUserForWrite(long userId) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("lockUserForWrite(userId=" + userId
+                    + ") ran outside a transaction, where its row lock is released as soon as it is taken");
+        }
         return db.sql("select id from users where id = :userId for share")
                 .param("userId", userId)
                 .query(Long.class)

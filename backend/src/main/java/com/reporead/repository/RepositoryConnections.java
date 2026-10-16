@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /** Owns repository_connections. Every read is scoped to the requesting user. */
 @Component
@@ -91,6 +92,10 @@ public class RepositoryConnections {
      * checkpoint, read under the lock. A connection disconnected meanwhile is not found.
      */
     public Checkpoint lockForSync(long userId, long connectionId) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("lockForSync(connectionId=" + connectionId
+                    + ") ran outside a transaction, where its row lock is released as soon as it is taken");
+        }
         return db.sql(
                         "select last_synced_commit_sha from repository_connections where id = :id and user_id = :userId for update")
                 .param("id", connectionId)
@@ -107,6 +112,10 @@ public class RepositoryConnections {
      * A document disconnected meanwhile is not found.
      */
     public void lockForDocumentWrite(long userId, long documentId) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("lockForDocumentWrite(documentId=" + documentId
+                    + ") ran outside a transaction, where its row lock is released as soon as it is taken");
+        }
         db.sql("""
                 select c.id from repository_connections c join documents d on d.repository_connection_id = c.id
                 where d.id = :documentId and c.user_id = :userId for share of c""")
