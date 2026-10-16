@@ -1,6 +1,6 @@
 # Reader display bundle
 
-The Android reader's display code. It consumes only HTML and canonical block text produced by the backend's Java renderer: it highlights code, renders Mermaid with strict security, and reports render status. It does not parse Markdown or access the network. Mermaid and highlight.js are bundled locally by esbuild with license notices, so the phone makes no CDN requests. `package-lock.json` owns resolved npm dependencies.
+The Android reader's display code. It consumes only HTML and canonical block text produced by the backend's Java renderer: it highlights code, renders Mermaid with strict security, and reports render status. It does not parse Markdown or access the network. Mermaid and highlight.js are bundled locally by esbuild with license notices, so the phone makes no CDN requests. Mermaid, with the KaTeX it brings, is its own script (`diagrams.js`, 3.4 MB), which `reader.js` (0.2 MB) loads only for a page with a diagram, a fifth of the notes: measured on the Pixel 8a (2026-10-17), a page without one became ready in about 0.1 s warm instead of 0.2–0.7 s, and a page with one about 0.1–0.2 s later than before, as Mermaid now follows in a second request. `package-lock.json` owns resolved npm dependencies.
 
 Install once from this directory; the Android build (`:app:bundleReader`) then runs the check and build scripts and writes into the app module's ignored build directory:
 

@@ -20,7 +20,13 @@ abstract class BundleReader : Exec() {
 }
 val bundleReader = tasks.register<BundleReader>("bundleReader") {
     workingDir("reader-web")
-    inputs.files("reader-web/reader.js", "reader-web/reader.css", "reader-web/build.mjs", "reader-web/package-lock.json")
+    inputs.files(
+        "reader-web/reader.js",
+        "reader-web/diagrams.js",
+        "reader-web/reader.css",
+        "reader-web/build.mjs",
+        "reader-web/package-lock.json",
+    )
     doFirst { commandLine("npm", "run", "build", "--", assetDirectory.get().asFile.absolutePath) }
 }
 
