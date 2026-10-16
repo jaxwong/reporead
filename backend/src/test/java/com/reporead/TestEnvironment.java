@@ -46,10 +46,6 @@ public final class TestEnvironment {
         properties.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         properties.add("spring.datasource.username", POSTGRES::getUsername);
         properties.add("spring.datasource.password", POSTGRES::getPassword);
-        // Spring keeps every test class's context (and its Hikari pool) cached, all sharing this one container's
-        // 100 connections. Pools otherwise open their full 10 at startup, so 11 contexts exhausted the server;
-        // with one idle connection each, a pool still grows to 10 when a concurrency test needs it.
-        properties.add("spring.datasource.hikari.minimum-idle", () -> "1");
     }
 
     /** A 0600 temporary file holding one test-only token, as the backend requires for its secrets. */
