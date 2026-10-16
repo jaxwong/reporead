@@ -4,6 +4,7 @@ import android.util.Log
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import java.io.File
+import java.io.IOException
 import java.net.URLEncoder
 import java.security.MessageDigest
 
@@ -37,10 +38,21 @@ class NoteImages(private val api: Api, filesDir: File) {
                 Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
                 return null
             }
-        directory.mkdirs()
-        val partial = File(directory, "$key.partial")
-        partial.writeBytes(bytes)
-        check(partial.renameTo(file)) { "Could not publish cached image for document $documentId" }
+        // A partial file of its own, because two pages can fetch the same image at once. A failed write (a full disk,
+        // or
+        // keepOnly removing the folder meanwhile) leaves the image uncached; the page still gets these bytes.
+        try {
+            directory.mkdirs()
+            val partial = File.createTempFile(key, ".partial", directory)
+            try {
+                partial.writeBytes(bytes)
+                if (!partial.renameTo(file)) throw IOException("Could not publish $partial")
+            } finally {
+                partial.delete()
+            }
+        } catch (error: IOException) {
+            Log.w("RepoRead", "Image not cached; documentId=$documentId error=${error.javaClass.simpleName}")
+        }
         return bytes
     }
 
