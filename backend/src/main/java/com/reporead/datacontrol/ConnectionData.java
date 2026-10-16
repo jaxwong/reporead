@@ -1,12 +1,16 @@
 package com.reporead.datacontrol;
 
+import com.reporead.ApiFailure;
 import com.reporead.annotation.Annotations;
 import com.reporead.document.Documents;
 import com.reporead.reading.ReadingStates;
 import com.reporead.repository.RepositoryConnections;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Everything RepoRead stores for one repository connection: its documents (paths, titles, versions) and the user's
@@ -16,7 +20,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class ConnectionData {
+    private static final Logger LOG = LoggerFactory.getLogger(ConnectionData.class);
     private final JdbcClient db;
+    private final TransactionTemplate transaction;
     private final RepositoryConnections connections;
     private final Documents documents;
     private final ReadingStates readingStates;
@@ -24,11 +30,13 @@ public class ConnectionData {
 
     public ConnectionData(
             JdbcClient db,
+            TransactionTemplate transaction,
             RepositoryConnections connections,
             Documents documents,
             ReadingStates readingStates,
             Annotations annotations) {
         this.db = db;
+        this.transaction = transaction;
         this.connections = connections;
         this.documents = documents;
         this.readingStates = readingStates;
@@ -39,8 +47,9 @@ public class ConnectionData {
     /** {@code documentIds}: every deleted document, so the phone can delete its own rows for them. */
     public record Disconnected(List<Long> documentIds, int readingStates, int bookmarks, int highlights, int cards) {}
 
-    /** What disconnecting would delete; a read-only projection of the owners' tables. */
-    public Counts count(long connectionId) {
+    /** What disconnecting this user's connection would delete; a read-only projection of the owners' tables. */
+    Counts count(long userId, long connectionId) {
+        connections.find(userId, connectionId).orElseThrow(ApiFailure::notFound);
         return db.sql("""
                 select (select count(*) from documents d where d.repository_connection_id = :id) as documents,
                        (select count(*) from reading_states r join documents d on d.id = r.document_id where d.repository_connection_id = :id)
@@ -62,9 +71,28 @@ public class ConnectionData {
     }
 
     /**
-     * Deletes the connection and everything stored for it. Must run in a transaction holding the connection's sync
-     * lock.
+     * Disconnects a repository: deletes the connection and everything stored for it in one transaction, under its sync
+     * lock, so it is serialized with its syncs and every write to its documents waits for it. Another user's
+     * connection, or one already gone, is 404.
      */
+    Disconnected disconnect(long userId, long connectionId) {
+        var deleted = transaction.execute(status -> {
+            connections.lockForSync(userId, connectionId);
+            return delete(connectionId);
+        });
+        LOG.info(
+                "Repository disconnected; userId={} connectionId={} documents={} readingStates={} bookmarks={} highlights={} cards={}",
+                userId,
+                connectionId,
+                deleted.documentIds().size(),
+                deleted.readingStates(),
+                deleted.bookmarks(),
+                deleted.highlights(),
+                deleted.cards());
+        return deleted;
+    }
+
+    /** Deletes the connection and everything stored for it. Runs inside a transaction holding its sync lock. */
     public Disconnected delete(long connectionId) {
         var deletedAnnotations = annotations.deleteOnConnection(connectionId);
         int deletedReading = readingStates.deleteOnConnection(connectionId);
