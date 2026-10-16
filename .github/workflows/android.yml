@@ -1,4 +1,5 @@
-# Android app CI and releases (ADR-15). Pull requests: unit tests only, no secrets (packaging needs the signing key).
+# Android app CI and releases (ADR-15). Pull requests: unit tests and a compile of the device tests, no secrets
+# (packaging needs the signing key; the device tests run on the phone, android/README.md).
 # Pushes to main: unit tests, then a signed release APK published as GitHub Release v0.1.<commit count>, which
 # Obtainium on the phone installs over the current app. This repository is public, so the APKs and logs are too;
 # nothing prints secrets.
@@ -45,6 +46,10 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
+      # The device tests (Room, migrations, sync, the reader) run on a phone, not here; compiling them catches a change
+      # that breaks them before anyone installs them.
+      - name: Compile device tests
+        run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon
 
   release:
     needs: test
