@@ -141,7 +141,7 @@ Meters appear after their first use. They are in memory and reset when the serve
 | Mermaid edges | 200 per diagram, passed to the reader as `data-max-edges` | Enforced by Mermaid on the phone: that diagram shows as an error with its source; the note itself renders (200) |
 | Heading paths | Each heading in a block's path at most 500 UTF-16 units; a longer heading (for example a long paragraph directly followed by `---`) is cut and ends in `…`. The heading's own block text is not cut | None: rendered pages always fit the reading-state limit below |
 | Repository images | 64 per note; 5 MiB each | Extra images render as `[Image limit reached]`; larger images 422 `UNSUPPORTED_CONTENT` |
-| Annotation | selection, note, and card question at most 10,000 UTF-16 units each; one block per selection | 400 `INVALID_ANNOTATION` |
+| Annotation | selection, note, and card question at most 10,000 UTF-16 units each; one block per selection; a note or question with NUL or an unpaired surrogate, which PostgreSQL cannot store exactly | 400 `INVALID_ANNOTATION` |
 | Review | grades 0–5; client UUID; millisecond timestamp from 1970 through 5 minutes ahead | 400 `INVALID_REVIEW`; changed answers 409 `CARD_CHANGED` |
 | Review session | 40 cards, reported as `sessionLimit` in the notebook; the phone has no limit of its own and starts no session without it | Applied where sessions are built, on the phone, because scheduling runs there so review works offline (ADR-13). Grades are not refused for it: refusing a grade can only discard a review already done |
 | Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
