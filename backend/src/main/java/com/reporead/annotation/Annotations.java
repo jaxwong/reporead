@@ -260,17 +260,20 @@ public class Annotations {
 
     /** Optimistic update: applies only at {@code expectedVersion}; 409 if another edit landed first, 404 if absent. */
     Annotation updateNote(long userId, long id, int expectedVersion, String note) {
-        int updated = db.sql("""
-                update annotations set note = :note, version = version + 1, updated_at = :now
-                where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
-                .param("note", note)
-                .param("now", Timestamp.from(Instant.now()))
-                .param("id", id)
-                .param("userId", userId)
-                .param("expected", expectedVersion)
-                .update();
-        if (updated == 0) throw missingOrConflict(userId, id);
-        return find(userId, id).orElseThrow();
+        return transaction.execute(tx -> {
+            lockForWrite(userId, id);
+            int updated = db.sql("""
+                    update annotations set note = :note, version = version + 1, updated_at = :now
+                    where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
+                    .param("note", note)
+                    .param("now", Timestamp.from(Instant.now()))
+                    .param("id", id)
+                    .param("userId", userId)
+                    .param("expected", expectedVersion)
+                    .update();
+            if (updated == 0) throw missingOrConflict(userId, id);
+            return find(userId, id).orElseThrow();
+        });
     }
 
     void delete(long userId, long id, int expectedVersion) {
@@ -311,7 +314,8 @@ public class Annotations {
 
     /** The user's own placement: versioned like a note edit (409 if another change landed first, 404 if absent). */
     Annotation reattach(long userId, long id, int expectedVersion, Location location) {
-        transaction.executeWithoutResult(tx -> {
+        return transaction.execute(tx -> {
+            lockForWrite(userId, id);
             int updated = db.sql("""
                     update annotations set status = 'REANCHORED', resolved_blob_sha = :sha, checked_blob_sha = null, version = version + 1, updated_at = :now
                     where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
@@ -323,30 +327,50 @@ public class Annotations {
                     .update();
             if (updated == 0) throw missingOrConflict(userId, id);
             writeLocation(id, location);
+            return find(userId, id).orElseThrow();
         });
-        return find(userId, id).orElseThrow();
     }
 
     Annotation checkCard(long userId, long id, int expectedVersion, String blobSha) {
-        int updated = db.sql("""
-                update annotations a set checked_blob_sha = :sha, version = version + 1, updated_at = :now
-                from documents d where a.document_id = d.id and a.id = :id and a.user_id = :userId and a.type = 'CARD'
-                and a.version = :expected and a.resolved_blob_sha = :sha and a.status <> 'ORPHANED'
-                and d.current_blob_sha = :sha and d.deleted_at is null""")
-                .param("sha", blobSha)
-                .param("now", Timestamp.from(Instant.now()))
+        return transaction.execute(tx -> {
+            lockForWrite(userId, id);
+            int updated = db.sql("""
+                    update annotations a set checked_blob_sha = :sha, version = version + 1, updated_at = :now
+                    from documents d where a.document_id = d.id and a.id = :id and a.user_id = :userId and a.type = 'CARD'
+                    and a.version = :expected and a.resolved_blob_sha = :sha and a.status <> 'ORPHANED'
+                    and d.current_blob_sha = :sha and d.deleted_at is null""")
+                    .param("sha", blobSha)
+                    .param("now", Timestamp.from(Instant.now()))
+                    .param("id", id)
+                    .param("userId", userId)
+                    .param("expected", expectedVersion)
+                    .update();
+            if (updated == 0) {
+                var card = find(userId, id).filter(a -> a.type() == Type.CARD).orElseThrow(ApiFailure::notFound);
+                // A stale version is another edit landing first, as for edit, delete, and reattach.
+                if (card.version() != expectedVersion) throw missingOrConflict(userId, id);
+                throw new ApiFailure(
+                        Code.CARD_CHANGED,
+                        "Check this card in its current version; reattach an orphan before confirming.");
+            }
+            return find(userId, id).orElseThrow();
+        });
+    }
+
+    /**
+     * Holds off a disconnect of the repository that owns the user's highlight or card {@code id} until the calling
+     * write commits, as every write to a note's rows does, so the write can read its result back. Runs inside that
+     * write's transaction; 404 if the annotation is not this user's or was disconnected meanwhile.
+     */
+    void lockForWrite(long userId, long id) {
+        long documentId = db.sql(
+                        "select document_id from annotations where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD')")
                 .param("id", id)
                 .param("userId", userId)
-                .param("expected", expectedVersion)
-                .update();
-        if (updated == 0) {
-            var card = find(userId, id).filter(a -> a.type() == Type.CARD).orElseThrow(ApiFailure::notFound);
-            // A stale version is another edit landing first, as for edit, delete, and reattach.
-            if (card.version() != expectedVersion) throw missingOrConflict(userId, id);
-            throw new ApiFailure(
-                    Code.CARD_CHANGED, "Check this card in its current version; reattach an orphan before confirming.");
-        }
-        return find(userId, id).orElseThrow();
+                .query(Long.class)
+                .optional()
+                .orElseThrow(ApiFailure::notFound);
+        connections.lockForDocumentWrite(userId, documentId);
     }
 
     private void writeLocation(long id, Location location) {

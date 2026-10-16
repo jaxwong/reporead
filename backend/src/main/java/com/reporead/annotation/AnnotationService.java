@@ -148,11 +148,11 @@ public class AnnotationService {
 
     /** The user places an orphaned (or any) highlight on a selection they made in a version of its note. */
     Annotations.Annotation reattach(AppUser user, long id, int expectedVersion, Selection selection) {
-        var annotation = annotations.find(user.id(), id).orElseThrow(ApiFailure::notFound);
-        var document = documents
-                .find(user.id(), annotation.documentId())
-                .orElseThrow(() -> new IllegalStateException("Annotation " + id + " of user " + user.id()
-                        + " references document " + annotation.documentId() + " outside their connections"));
+        // A disconnect between the two reads deletes the annotation as well, so either one missing is 404.
+        var document = annotations
+                .find(user.id(), id)
+                .flatMap(annotation -> documents.find(user.id(), annotation.documentId()))
+                .orElseThrow(ApiFailure::notFound);
         var location = verifiedLocation(
                 selection,
                 noteVersions.render(user, document, selection.sourceBlobSha()).note());

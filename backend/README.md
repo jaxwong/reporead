@@ -107,7 +107,7 @@ Every GitHub call uses the user's token, 15-second connect/read timeouts, no red
 
 Every connection, document, and content request is scoped to the signed-in user; another user's ids return 404 without a GitHub call.
 
-Writes that add rows for a document (annotation creation, reading-state saves, bookmarks) share the connection's lock, so a concurrent sync or disconnect is waited for; a write that arrives during a disconnect then finds nothing (404) instead of breaking it. Account deletion locks the user first, and `connect` takes the same lock before adding its connection, so a connection being added at the same time is either deleted with the rest or, arriving after, refused with 401 `SIGN_IN_REQUIRED`. A re-anchoring computed before the user edits, reattaches, or confirms an annotation does not apply over that change.
+Writes that add or change a document's rows (annotation creation, edits, reattachments, card confirmations and grades, reading-state saves, bookmarks) share the connection's lock and read their result back under it, so a concurrent sync or disconnect is waited for; a write that arrives during a disconnect then finds nothing (404) instead of breaking it. Account deletion locks the user first, and `connect` takes the same lock before adding its connection, so a connection being added at the same time is either deleted with the rest or, arriving after, refused with 401 `SIGN_IN_REQUIRED`. A re-anchoring computed before the user edits, reattaches, or confirms an annotation does not apply over that change.
 
 ### Observability
 
