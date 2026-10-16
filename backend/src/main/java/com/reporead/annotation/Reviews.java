@@ -87,7 +87,7 @@ public class Reviews {
                             row.getString("checked_blob_sha"),
                             row.getString("current_blob_sha"),
                             row.getBoolean("deleted"),
-                            row.getString("status")))
+                            Annotations.Status.valueOf(row.getString("status"))))
                     .optional()
                     .orElseThrow(ApiFailure::notFound);
             int inserted = db.sql("""
@@ -118,7 +118,7 @@ public class Reviews {
             }
             if (inserted != 0
                     && (current.deleted()
-                            || current.status().equals("ORPHANED")
+                            || current.status() == Annotations.Status.ORPHANED
                             || !blobSha.equals(current.checked())
                             || !blobSha.equals(current.sha()))) {
                 throw new ApiFailure(Code.CARD_CHANGED, "Check this card in the current note before reviewing it.");
@@ -131,7 +131,7 @@ public class Reviews {
         });
     }
 
-    private record Current(String checked, String sha, boolean deleted, String status) {}
+    private record Current(String checked, String sha, boolean deleted, Annotations.Status status) {}
 
     private record Stored(long id, int grade, Instant at, String sha) {}
 

@@ -40,6 +40,20 @@ public class Annotations {
 
     public record DeletedAnnotations(int highlights, int bookmarks, int cards) {}
 
+    /** annotations.type; its check constraint (V7) holds the same set. */
+    public enum Type {
+        BOOKMARK,
+        HIGHLIGHT,
+        CARD
+    }
+
+    /** What a highlight's or card's location means for its resolved version (see Annotation); constraint from V4. */
+    public enum Status {
+        ANCHORED,
+        REANCHORED,
+        ORPHANED
+    }
+
     /**
      * Deletes every annotation on a connection's documents: highlights and cards (their anchors, locations, and review
      * logs cascade) and bookmarks. Their mutation records stay, named by no annotation, so a late replay is answered as
@@ -50,12 +64,12 @@ public class Annotations {
                 delete from annotations where document_id in (select id from documents where repository_connection_id = :connectionId)
                 returning type""")
                 .param("connectionId", connectionId)
-                .query(String.class)
+                .query((row, n) -> Type.valueOf(row.getString("type")))
                 .list();
         return new DeletedAnnotations(
-                (int) types.stream().filter("HIGHLIGHT"::equals).count(),
-                (int) types.stream().filter("BOOKMARK"::equals).count(),
-                (int) types.stream().filter("CARD"::equals).count());
+                (int) types.stream().filter(Type.HIGHLIGHT::equals).count(),
+                (int) types.stream().filter(Type.BOOKMARK::equals).count(),
+                (int) types.stream().filter(Type.CARD::equals).count());
     }
 
     /** Deletes a user's mutation records (request hashes); called when deleting the account, after its annotations. */
@@ -103,9 +117,9 @@ public class Annotations {
             long id,
             String mutationId,
             long documentId,
-            String type,
+            Type type,
             String note,
-            String status,
+            Status status,
             int version,
             Instant createdAt,
             Instant updatedAt,
@@ -194,7 +208,7 @@ public class Annotations {
             byte[] requestHash,
             Location location,
             String note,
-            String type,
+            Type type,
             String question) {
         var anchor = location.passage();
         return transaction.execute(status -> {
@@ -220,7 +234,7 @@ public class Annotations {
                     .param("sha", anchor.sourceBlobSha())
                     .param("mutationId", mutationId)
                     .param("note", note)
-                    .param("type", type)
+                    .param("type", type.name())
                     .param("question", question)
                     .param("now", Timestamp.from(now))
                     .query(Long.class)
@@ -276,14 +290,14 @@ public class Annotations {
      * unchanged: re-anchoring is not an edit. Returns whether this call applied.
      */
     boolean resolved(Annotation annotation, String blobSha, Optional<Location> found) {
-        String status = found.map(
-                        location -> sameSelection(location.passage(), annotation.anchor()) ? "ANCHORED" : "REANCHORED")
-                .orElse("ORPHANED");
+        Status status = found.map(location ->
+                        sameSelection(location.passage(), annotation.anchor()) ? Status.ANCHORED : Status.REANCHORED)
+                .orElse(Status.ORPHANED);
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             int updated = db.sql("""
                     update annotations set status = :status, resolved_blob_sha = :sha, checked_blob_sha = null
                     where id = :id and type in ('HIGHLIGHT', 'CARD') and resolved_blob_sha = :expected and version = :version""")
-                    .param("status", status)
+                    .param("status", status.name())
                     .param("sha", blobSha)
                     .param("id", annotation.id())
                     .param("expected", annotation.resolvedBlobSha())
@@ -325,7 +339,7 @@ public class Annotations {
                 .param("expected", expectedVersion)
                 .update();
         if (updated == 0) {
-            var card = find(userId, id).filter(a -> a.type().equals("CARD")).orElseThrow(ApiFailure::notFound);
+            var card = find(userId, id).filter(a -> a.type() == Type.CARD).orElseThrow(ApiFailure::notFound);
             // A stale version is another edit landing first, as for edit, delete, and reattach.
             if (card.version() != expectedVersion) throw missingOrConflict(userId, id);
             throw new ApiFailure(
@@ -381,9 +395,9 @@ public class Annotations {
                 row.getLong("id"),
                 row.getString("mutation_id"),
                 row.getLong("document_id"),
-                row.getString("type"),
+                Type.valueOf(row.getString("type")),
                 row.getString("note"),
-                row.getString("status"),
+                Status.valueOf(row.getString("status")),
                 row.getInt("version"),
                 row.getTimestamp("created_at").toInstant(),
                 row.getTimestamp("updated_at").toInstant(),

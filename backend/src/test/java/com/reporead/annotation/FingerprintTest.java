@@ -18,9 +18,12 @@ class FingerprintTest {
     void highlightAndCardFingerprintsAreStable() {
         assertEquals(
                 "86569a8ca04ef48254e6dc99e30372a8523fd36b068f38ad8621d4fd2cd50e23",
-                HexFormat.of().formatHex(AnnotationService.fingerprint(7, SELECTION, "a note", "HIGHLIGHT", null)));
+                HexFormat.of()
+                        .formatHex(AnnotationService.fingerprint(
+                                7, SELECTION, "a note", Annotations.Type.HIGHLIGHT, null)));
         assertEquals(
                 "779d7fce9950241133df0ad4809322bb15a3a2da935a811b5ec6b2b1acb169cd",
-                HexFormat.of().formatHex(AnnotationService.fingerprint(7, SELECTION, null, "CARD", "Why?")));
+                HexFormat.of()
+                        .formatHex(AnnotationService.fingerprint(7, SELECTION, null, Annotations.Type.CARD, "Why?")));
     }
 }
