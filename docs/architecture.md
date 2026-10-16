@@ -314,9 +314,9 @@ flowchart TB
 | --- | --- |
 | `auth` | PKCE sign-in through a Custom Tab; the encrypted bearer session |
 | `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made |
-| `data` | `LocalStore`: Room entities and DAOs (schema history in `android/schemas/`) |
+| `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
 | `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion, all under sign-out's lock (ADR-22); `NoteImages`: saved notes' images, fetched for the reader's WebView outside the lock (Sync deletes them with their notes); `ServerJson.kt`: server responses as Room rows; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
-| `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), and Review sessions with the review scheduler (`Review.kt`) |
+| `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), the folder screen (`Folder.kt`), and Add repository (`Available.kt`) |
 | `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
@@ -510,7 +510,7 @@ flowchart LR
     Grade["Grade 0 / 3 / 4 / 5<br/>pending, client UUID"]
     Grade -- "sync" --> Log["Server: review_log<br/>immutable, idempotent"]
     Log -- "GET /api/notebook" --> Proj["Room: review_log projection"]
-    Proj --> Ladder["library/Review.kt<br/>gap ladder over the log"]
+    Proj --> Ladder["library/ReviewSchedule.kt<br/>gap ladder over the log"]
     Ladder --> Due["Due cards → Review session<br/>capped at 40 (server-owned)"]
     Due --> Grade
 
