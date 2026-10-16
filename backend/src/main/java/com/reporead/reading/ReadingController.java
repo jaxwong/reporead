@@ -73,11 +73,11 @@ public class ReadingController {
                             + MAX_HEADINGS + " headings of " + MAX_HEADING_CHARS + " characters, a prefix of at most "
                             + MAX_PREFIX_CHARS + " characters, and a block index 0-" + MAX_BLOCK_INDEX + ".");
         }
-        if (body.lastReadAt().isAfter(Instant.now().plus(ClientClock.MAX_AHEAD))) {
+        if (!ClientClock.accepts(body.lastReadAt())) {
             throw new ApiFailure(
                     Code.INVALID_READING_STATE,
-                    "lastReadAt is more than " + ClientClock.MAX_AHEAD.toMinutes()
-                            + " minutes in the future; check the phone's clock.");
+                    "lastReadAt must be from 1970 through " + ClientClock.MAX_AHEAD.toMinutes()
+                            + " minutes ahead of the server; check the phone's clock.");
         }
     }
 }

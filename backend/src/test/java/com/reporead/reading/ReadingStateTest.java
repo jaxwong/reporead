@@ -168,6 +168,9 @@ class ReadingStateTest extends SharedSpringTest {
                 body(SHA_A, 1, now, "{\"headingPath\":[],\"textPrefix\":\"" + "x".repeat(201) + "\",\"blockIndex\":0}"),
                 body(SHA_A, 1, now, "{\"headingPath\":[null],\"blockIndex\":0}"),
                 body(SHA_A, 1, now.plusSeconds(600), ANCHOR),
+                body(SHA_A, 1, Instant.EPOCH.minusSeconds(1), ANCHOR),
+                // Before PostgreSQL's earliest timestamp.
+                body(SHA_A, 1, Instant.parse("-300000-01-01T00:00:00Z"), ANCHOR),
                 "{\"lastReadBlobSha\":\"" + SHA_A + "\",\"progressPercent\":1,\"anchor\":" + ANCHOR + "}")) {
             save(alice, note, json)
                     .andExpect(status().isBadRequest())

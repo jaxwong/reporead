@@ -98,7 +98,7 @@ Only SHA-256 hashes of codes and session tokens are stored, and expired ones are
 | `POST /api/annotations/{id}/reviews` | 0 | `{mutationId, grade:0..5, reviewedAt, blobSha}`; idempotent, changed/unconfirmed answers rejected |
 | `POST /api/annotations/{id}/check` | 0 | `{expectedVersion, blobSha}`; explicitly confirms a resolved, non-orphaned card in the current version; 409 `ANNOTATION_CONFLICT` on a stale version, 409 `CARD_CHANGED` when the card is not resolved against the current version |
 | `PATCH /api/annotations/{id}` | 0 | `{note, expectedVersion}`; 409 `ANNOTATION_CONFLICT` if another edit landed first |
-| `DELETE /api/annotations/{id}?expectedVersion=` | 0 | 409 on a stale version |
+| `DELETE /api/annotations/{id}?expectedVersion=` | 0 | 409 on a stale version; 400 `INVALID_ANNOTATION` without a version from 1 |
 | `POST /api/annotations/{id}/reattach` | 1 (the selected version's blob) | `{expectedVersion, anchor:{sourceBlobSha, blockId, startOffset, endOffset, exactText}}`; places the highlight on the user's selection, `REANCHORED`; 409 on a stale version |
 
 **Saving every note on the phone** uses `GET /api/documents/{id}/content` once per note whose saved copy is missing or outdated, one request at a time; there is no batch route. One run therefore makes at most one GitHub call per such note, bounded by the repository's Markdown document count (server limit 5,000), and none for notes already saved; a note the server refuses to render (`UNSUPPORTED_CONTENT`) has no saved copy, so every run asks for it again. The phone owns which notes it lacks; the server owns the per-request ceiling and the document limit. A first run on a 654-note repository makes 654 calls, within GitHub's documented 5,000 requests per hour for user tokens (not measured for this App's token).
@@ -144,7 +144,7 @@ Meters appear after their first use. They are in memory and reset when the serve
 | Annotation | selection, note, and card question at most 10,000 UTF-16 units each; one block per selection; a note or question with NUL or an unpaired surrogate, which PostgreSQL cannot store exactly | 400 `INVALID_ANNOTATION` |
 | Review | grades 0–5; client UUID; millisecond timestamp from 1970 through 5 minutes ahead | 400 `INVALID_REVIEW`; changed answers 409 `CARD_CHANGED` |
 | Review session | 40 cards, reported as `sessionLimit` in the notebook; the phone has no limit of its own and starts no session without it | Applied where sessions are built, on the phone, because scheduling runs there so review works offline (ADR-13). Grades are not refused for it: refusing a grade can only discard a review already done |
-| Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
+| Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` from 1970 to at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
 | Changes comparison | 20,000 lines per version; 1,000 inserted plus deleted lines | `TOO_LARGE` status, no sections |
 
 These are chosen ceilings, not measured ones. Clients cannot change them.

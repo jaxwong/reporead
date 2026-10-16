@@ -275,7 +275,9 @@ class AnnotationTest extends SharedSpringTest {
         create(alice, note, "{not json")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mvc.perform(delete("/api/annotations/1").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+        mvc.perform(delete("/api/annotations/1")
+                        .param("expectedVersion", "one")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         mvc.perform(get("/api/documents/not-a-number/annotations").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
@@ -369,6 +371,13 @@ class AnnotationTest extends SharedSpringTest {
         expectSource(ExpectedCount.once());
         String json = body(UUID.randomUUID().toString(), "b2", START, EXACT, null);
         long id = createdId(json);
+        // No annotation is ever at version 0, so it is a malformed request, not a conflict.
+        remove(alice, id, 0)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ANNOTATION"));
+        mvc.perform(delete("/api/annotations/" + id).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ANNOTATION"));
         remove(alice, id, 2).andExpect(status().isConflict());
         remove(alice, id, 1).andExpect(status().isNoContent());
         remove(alice, id, 1).andExpect(status().isNotFound());
