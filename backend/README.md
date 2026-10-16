@@ -133,6 +133,7 @@ Meters appear after their first use. They are in memory and reset when the serve
 
 | Limit | Value | Failure |
 | --- | --- | --- |
+| Request body | 256 KiB, read before anything parses it, signed in or not; the largest valid body (a card's three texts) is under 180 KB | 413 `REQUEST_TOO_LARGE` |
 | GitHub responses (OAuth, metadata, raw note) | 1 MiB | 502 `GITHUB_RESPONSE_LIMIT`; a note over the limit is 422 `UNSUPPORTED_CONTENT` |
 | Recursive tree response | 8 MiB (GitHub's own maximum is 7 MB) | 502 `GITHUB_RESPONSE_LIMIT` |
 | Installations / repositories per installation | 10 / 100, complete lists only | 502 `GITHUB_INSTALLATION_LIMIT` / `GITHUB_REPOSITORY_LIMIT` |

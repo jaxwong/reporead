@@ -31,6 +31,7 @@ public final class ApiFailure extends RuntimeException {
         SYNC_SUPERSEDED(409),
         ANNOTATION_DELETED(410),
         DOCUMENT_DELETED(410),
+        REQUEST_TOO_LARGE(413),
         DOCUMENT_LIMIT(422),
         INVALID_ANCHOR(422),
         UNSUPPORTED_CONTENT(422),
