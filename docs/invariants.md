@@ -129,6 +129,14 @@ These come from the original implementation spec's engineering invariants and th
 - No retry, backoff, alternate fetching strategy, or installation-token fallback. A comparison or listing that hits a limit says so; it never presents a partial result as complete.
 - Why: [ADR-02](adrs.md#adr-02--github-is-canonical-and-read-only-note-bodies-are-not-stored-on-the-server).
 
+### The previous release runs on the current schema
+
+**A migration never removes or requires what the previous release uses, so going back after a deploy is putting the previous jar back.**
+
+- Enforced by: from V15, migrations only add; a step that removes or requires something waits for a release after the one that stops using it, and its migration says so in a `-- Contract:` line.
+- Checked by: `ExpandOnlyMigrationsTest`, which fails on such a step without that line, and which V13 and V14 would have failed.
+- Why: [ADR-24](adrs.md#adr-24--migrations-keep-the-previous-release-working-a-failed-deploy-is-undone-by-hand).
+
 ### Bounded memory on the phone
 
 **No phone query or screen loads every saved page at once.**
