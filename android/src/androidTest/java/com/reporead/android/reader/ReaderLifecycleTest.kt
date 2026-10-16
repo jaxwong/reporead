@@ -236,6 +236,42 @@ class ReaderLifecycleTest {
         awaitSaved(12)
     }
 
+    /** The page is redrawn when what it draws changes, not on every write to the annotations table. */
+    @Test
+    fun aWriteForAnotherNoteDoesNotRedrawThisOnesHighlights() =
+        runBlocking<Unit> {
+            evaluate(
+                "const draw = window.reporead.highlight; window.drawn = 0; " +
+                    "window.reporead.highlight = rows => { window.drawn++; return draw(rows); }; return {};"
+            )
+            // Past the reader's first draws, so only the writes below count.
+            delay(500)
+            evaluate("window.drawn = 0; return {};")
+            val dao = store.library()
+            fun highlight(key: String, documentId: Long, block: String) =
+                AnnotationRow(
+                    key,
+                    null,
+                    documentId,
+                    sha,
+                    block,
+                    0,
+                    9,
+                    "Test-only",
+                    null,
+                    1,
+                    0,
+                    state = AnnotationState.UNSENT,
+                )
+            dao.saveAnnotation(highlight("test-only-elsewhere", 2, "b2"))
+            // Apart, so Room reports the two writes separately.
+            delay(1_000)
+            dao.saveAnnotation(highlight("test-only-here", 1, "b2"))
+            withTimeout(10_000) { while (evaluate("return {n: window.drawn};").getInt("n") == 0) delay(50) }
+            delay(500)
+            assertEquals(1, evaluate("return {n: window.drawn};").getInt("n"))
+        }
+
     /** A renderer can crash or be reclaimed by the system; the reader then says so instead of ending the app. */
     @Test
     fun aPageWhoseRendererStopsIsReplacedAndSavesNothing() {
