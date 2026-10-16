@@ -431,8 +431,7 @@ class Sync(
                 sendAnnotations()
                 null
             } catch (error: ApiException) {
-                // Nothing else can reach the server either.
-                if (error.status == 0) throw error
+                if (error.unreachable) throw error
                 error
             }
         sendReviews()

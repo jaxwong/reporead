@@ -436,6 +436,25 @@ class LocalSyncTest {
         assertEquals("the lists are left as they were", 1, dao.documents(7).first().size)
     }
 
+    /** Only no answer at all is unreachable; an answer over the size limit keeps its HTTP status. */
+    @Test
+    fun onlyAServerThatDoesNotAnswerIsUnreachable() = runBlocking {
+        // Just over Api's 8 MiB limit for a JSON response.
+        val oversized = """{"repositories":[],"padding":"${"x".repeat(8 * 1024 * 1024)}"}"""
+        val answered =
+            LoopbackServer(mapOf("GET /api/repositories" to (200 to oversized))).use { server ->
+                runCatching { Api(server.url, { null }) {}.get("/api/repositories") }.exceptionOrNull() as ApiException
+            }
+        assertEquals("INVALID_RESPONSE", answered.code)
+        assertEquals(200, answered.status)
+        assertFalse(answered.unreachable)
+        val silent =
+            runCatching { Api("http://127.0.0.1:${closedPort()}", { null }) {}.get("/api/repositories") }
+                .exceptionOrNull() as ApiException
+        assertEquals(0, silent.status)
+        assertTrue(silent.unreachable)
+    }
+
     @Test
     fun anUnreachableServerIsTriedAgainUpToTenAttempts() = runBlocking {
         dao.saveReading(reading(1))
