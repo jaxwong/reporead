@@ -58,6 +58,7 @@ import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.sync.Changes
 import com.reporead.android.sync.Sync
@@ -153,8 +154,10 @@ fun ReaderScreen(
     val annotations by dao.annotations(screen.documentId).collectAsState(emptyList())
     var message by remember { mutableStateOf<String?>(null) }
     var notesOpen by remember { mutableStateOf(false) }
-    var newCardSelection by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
-    var newSelection by remember { mutableStateOf<JSONObject?>(null) }
+    /** The passage a new question is being written for. */
+    var questionPassage by rememberSaveable(screen.documentId) { mutableStateOf<Passage?>(null) }
+    /** The passage a new note is being written for. */
+    var notePassage by remember { mutableStateOf<Passage?>(null) }
     /**
      * The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here.
      */
@@ -179,9 +182,9 @@ fun ReaderScreen(
      * Saves a highlight (or, with a question, a card) on this phone, then sends it now when signed in. The message says
      * where it stands: nothing when it reached the server.
      */
-    val save: (selection: JSONObject, note: String?, question: String?) -> Unit = { selection, note, question ->
+    val save: (passage: Passage, note: String?, question: String?) -> Unit = { passage, note, question ->
         appScope.launch {
-            val id = sync.createAnnotation(selection, screen.documentId, note, question)
+            val id = sync.createAnnotation(passage, screen.documentId, note, question)
             val kind = if (question == null) "Highlight" else "Card"
             message =
                 if (!signedIn) "$kind saved on this phone; it is sent after you sign in."
@@ -197,11 +200,11 @@ fun ReaderScreen(
         }
     }
 
-    val reattach: (AnnotationRow, JSONObject) -> Unit = { row, selection ->
+    val reattach: (AnnotationRow, Passage) -> Unit = { row, passage ->
         appScope.launch {
             message =
                 try {
-                    sync.reattachAnnotation(row, selection)
+                    sync.reattachAnnotation(row, passage)
                     reattaching = null
                     null
                 } catch (error: ApiException) {
@@ -259,17 +262,17 @@ fun ReaderScreen(
                     onSelection = { selection, action ->
                         // The menu was built for the state at the time; Cancel may have ended that mode since.
                         val placing = reattaching
-                        when {
-                            selection == null -> message = "Select some text first."
-                            selection.has("error") -> message = selection.getString("error")
-                            else ->
+                        when (selection) {
+                            Selection.None -> message = "Select some text first."
+                            is Selection.Unusable -> message = selection.reason
+                            is Selection.InBlock ->
                                 when (action) {
                                     SelectionAction.REATTACH ->
-                                        if (placing != null) reattach(placing, selection)
+                                        if (placing != null) reattach(placing, selection.passage)
                                         else message = "Reattaching was cancelled; choose Reattach again in Notes."
-                                    SelectionAction.MAKE_QUESTION -> newCardSelection = selection.toString()
-                                    SelectionAction.ADD_NOTE -> newSelection = selection
-                                    SelectionAction.HIGHLIGHT -> save(selection, null, null)
+                                    SelectionAction.MAKE_QUESTION -> questionPassage = selection.passage
+                                    SelectionAction.ADD_NOTE -> notePassage = selection.passage
+                                    SelectionAction.HIGHLIGHT -> save(selection.passage, null, null)
                                 }
                         }
                     },
@@ -385,17 +388,7 @@ fun ReaderScreen(
                     appScope,
                     onReveal = { session.reveal(it.mutationId) },
                     onMessage = { message = it },
-                    onMakeQuestion = { row ->
-                        val passage = row.drawn
-                        newCardSelection =
-                            JSONObject()
-                                .put("sourceBlobSha", passage.blobSha)
-                                .put("blockId", passage.blockId)
-                                .put("startOffset", passage.startOffset)
-                                .put("endOffset", passage.endOffset)
-                                .put("exactText", passage.exactText)
-                                .toString()
-                    },
+                    onMakeQuestion = { row -> questionPassage = row.drawn },
                     onReattach = { row ->
                         reattaching = row
                         notesOpen = false
@@ -457,30 +450,29 @@ fun ReaderScreen(
             dismissButton = { TextButton(onClick = { linkChoices = null }) { Text("Cancel") } },
         )
     }
-    newCardSelection?.let { encoded ->
-        val selection = JSONObject(encoded)
+    questionPassage?.let { passage ->
         NoteDialog(
             title = "Make a question",
-            quote = selection.getString("exactText"),
+            quote = passage.exactText,
             initial = "",
             label = "Question",
             allowBlank = false,
-            onDismiss = { newCardSelection = null },
+            onDismiss = { questionPassage = null },
             onSave = { question ->
-                newCardSelection = null
-                save(selection, null, question)
+                questionPassage = null
+                save(passage, null, question)
             },
         )
     }
-    newSelection?.let { selection ->
+    notePassage?.let { passage ->
         NoteDialog(
             title = "Add a note",
-            quote = selection.getString("exactText"),
+            quote = passage.exactText,
             initial = "",
-            onDismiss = { newSelection = null },
+            onDismiss = { notePassage = null },
             onSave = { note ->
-                newSelection = null
-                save(selection, note.ifBlank { null }, null)
+                notePassage = null
+                save(passage, note.ifBlank { null }, null)
             },
         )
     }
@@ -510,6 +502,16 @@ private fun Notice(text: String) {
         style = MaterialTheme.typography.bodySmall,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
     )
+}
+
+/** The page's text selection when a selection action is chosen (reader.js capture). */
+private sealed interface Selection {
+    data object None : Selection
+
+    /** Not inside one block, so it cannot be saved as it is; [reason] says how to fix it. */
+    data class Unusable(val reason: String) : Selection
+
+    data class InBlock(val passage: Passage) : Selection
 }
 
 /**
@@ -547,8 +549,8 @@ private class ReaderSession(
     private val reattaching: () -> Boolean,
     /** A short message about something the page could not do (a link, the browser, rendering). */
     private val onMessage: (String) -> Unit,
-    /** The captured selection (null when empty, {error} when it spans blocks) and the chosen action. */
-    private val onSelection: (JSONObject?, SelectionAction) -> Unit,
+    /** The selection when a selection action is chosen, and that action. */
+    private val onSelection: (Selection, SelectionAction) -> Unit,
 ) {
     /** The page's headings, once rendering has finished; null until then. */
     var outline by mutableStateOf<List<OutlineEntry>?>(null)
@@ -605,7 +607,7 @@ private class ReaderSession(
                     appScope.launch {
                         val selection = captureSelection(webView)
                         // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
-                        if (selection != null && !selection.has("error")) finish()
+                        if (selection is Selection.InBlock) finish()
                         onSelection(selection, action)
                     }
             }
@@ -894,10 +896,10 @@ private class ReaderSession(
     }
 
     /**
-     * The selection as capture() reads it: null when nothing is selected, {error} when it is not inside one block. A
-     * broken canonical mapping is an invariant failure, raised here, never an approximate anchor.
+     * The page's selection. A broken canonical mapping is an invariant failure, raised here, never an approximate
+     * anchor.
      */
-    private suspend fun captureSelection(view: WebView): JSONObject? {
+    private suspend fun captureSelection(view: WebView): Selection {
         val encoded =
             view.evaluate(
                 "(() => { try { return JSON.stringify({selection: window.reporead.capture()}); } " +
@@ -907,6 +909,16 @@ private class ReaderSession(
         check(!result.has("invariant")) {
             "Selection capture failed; documentId=${note.documentId}: ${result.getString("invariant")}"
         }
-        return result.optJSONObject("selection")
+        val selection = result.optJSONObject("selection") ?: return Selection.None
+        if (selection.has("error")) return Selection.Unusable(selection.getString("error"))
+        return Selection.InBlock(
+            Passage(
+                selection.getString("sourceBlobSha"),
+                selection.getString("blockId"),
+                selection.getInt("startOffset"),
+                selection.getInt("endOffset"),
+                selection.getString("exactText"),
+            )
+        )
     }
 }

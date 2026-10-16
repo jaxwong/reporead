@@ -11,6 +11,7 @@ import com.reporead.android.data.BookmarkRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
@@ -492,34 +493,28 @@ class Sync(
      * Saves a new highlight (or, with [question], a card) locally as a pending creation; it is sent with the returned
      * mutation id until acknowledged.
      */
-    suspend fun createAnnotation(
-        selection: JSONObject,
-        documentId: Long,
-        note: String?,
-        question: String? = null,
-    ): String {
+    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String {
         checkNotNull(dao.note(documentId)) {
             "Cannot create an annotation without its displayed saved note; documentId=$documentId"
         }
-        val row = contract {
+        val row =
             AnnotationRow(
-                UUID.randomUUID().toString(),
-                null,
-                documentId,
-                selection.getString("sourceBlobSha"),
-                selection.getString("blockId"),
-                selection.getInt("startOffset"),
-                selection.getInt("endOffset"),
-                selection.getString("exactText"),
-                note,
-                1,
-                System.currentTimeMillis(),
+                mutationId = UUID.randomUUID().toString(),
+                serverId = null,
+                documentId = documentId,
+                sourceBlobSha = passage.blobSha,
+                blockId = passage.blockId,
+                startOffset = passage.startOffset,
+                endOffset = passage.endOffset,
+                exactText = passage.exactText,
+                note = note,
+                version = 1,
+                createdAt = System.currentTimeMillis(),
                 state = AnnotationState.UNSENT,
                 type = if (question == null) "HIGHLIGHT" else "CARD",
                 question = question,
-                checkedBlobSha = if (question == null) null else selection.getString("sourceBlobSha"),
+                checkedBlobSha = if (question == null) null else passage.blobSha,
             )
-        }
         dao.saveAnnotation(row)
         onPendingChange()
         return row.mutationId
@@ -548,12 +543,8 @@ class Sync(
                             .put("note", row.note ?: JSONObject.NULL)
                             .put(
                                 "anchor",
-                                JSONObject()
-                                    .put("sourceBlobSha", row.sourceBlobSha)
-                                    .put("blockId", row.blockId)
-                                    .put("startOffset", row.startOffset)
-                                    .put("endOffset", row.endOffset)
-                                    .put("exactText", row.exactText),
+                                Passage(row.sourceBlobSha, row.blockId, row.startOffset, row.endOffset, row.exactText)
+                                    .anchorJson(),
                             )
                     val created =
                         try {
@@ -640,10 +631,10 @@ class Sync(
         }
 
     /**
-     * Online only: places an acknowledged highlight on a selection the user made. A 409 ANNOTATION_CONFLICT means
+     * Online only: places an acknowledged highlight on a [passage] the user selected. A 409 ANNOTATION_CONFLICT means
      * another change landed first; nothing local changes.
      */
-    suspend fun reattachAnnotation(row: AnnotationRow, selection: JSONObject): AnnotationRow = oneSyncAtATime.withLock {
+    suspend fun reattachAnnotation(row: AnnotationRow, passage: Passage): AnnotationRow = oneSyncAtATime.withLock {
         val serverId =
             checkNotNull(row.serverId) {
                 "Only acknowledged highlights can be reattached; ${row.mutationId} is pending"
@@ -652,7 +643,7 @@ class Sync(
             annotationRow(
                 api.post(
                     "/api/annotations/$serverId/reattach",
-                    JSONObject().put("expectedVersion", row.version).put("anchor", selection),
+                    JSONObject().put("expectedVersion", row.version).put("anchor", passage.anchorJson()),
                 )
             )
         dao.saveAnnotation(updated)

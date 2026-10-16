@@ -15,6 +15,15 @@ import org.json.JSONObject
 
 internal fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else getString(name)
 
+/** A passage as the server's annotation anchor. */
+internal fun Passage.anchorJson(): JSONObject =
+    JSONObject()
+        .put("sourceBlobSha", blobSha)
+        .put("blockId", blockId)
+        .put("startOffset", startOffset)
+        .put("endOffset", endOffset)
+        .put("exactText", exactText)
+
 internal fun reviewRow(json: JSONObject) = contract {
     val grade = json.getInt("grade")
     if (grade !in 0..5) throw JSONException("Invalid review grade $grade")

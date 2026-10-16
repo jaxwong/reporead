@@ -29,6 +29,7 @@ import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
+import com.reporead.android.data.Passage
 import com.reporead.android.data.PracticePage
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.reader.BankAnswer
@@ -50,7 +51,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 internal data class PracticeQuestion(
     val documentId: Long,
@@ -161,14 +161,8 @@ internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: Pra
         return "Not saved: this question's bank changed since it was asked. Save all notes in Library, then practise it again."
     }
     val answer = question.question.answer
-    val selection =
-        JSONObject()
-            .put("sourceBlobSha", question.blobSha)
-            .put("blockId", answer.blockId)
-            .put("startOffset", 0)
-            .put("endOffset", answer.text.length)
-            .put("exactText", answer.text)
-    val card = sync.createAnnotation(selection, question.documentId, null, question.question.prompt)
+    val passage = Passage(question.blobSha, answer.blockId, 0, answer.text.length, answer.text)
+    val card = sync.createAnnotation(passage, question.documentId, null, question.question.prompt)
     val graded =
         sync.recordReview(
             ReviewRow(UUID.randomUUID().toString(), card, grade, System.currentTimeMillis(), question.blobSha, true)

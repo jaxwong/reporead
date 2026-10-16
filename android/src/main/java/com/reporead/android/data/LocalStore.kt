@@ -20,6 +20,7 @@ import androidx.room.Transaction
 import androidx.room.migration.AutoMigrationSpec
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import java.io.Serializable
 import kotlinx.coroutines.flow.Flow
 
 /*
@@ -159,14 +160,17 @@ data class BookmarkRow(
     val changedAt: Long,
 )
 
-/** A passage in one source version of a note, as UTF-16 offsets into a block's canonical text. */
+/**
+ * A passage in one source version of a note, as UTF-16 offsets into a block's canonical text. Serializable so a screen
+ * can keep one across activity recreation.
+ */
 data class Passage(
     val blobSha: String,
     val blockId: String,
     val startOffset: Int,
     val endOffset: Int,
     val exactText: String,
-)
+) : Serializable
 
 /** Where a highlight or card stands with the server. */
 enum class AnnotationState {
