@@ -194,6 +194,34 @@ class ReaderLifecycleTest {
         assertTrue(evaluate("return {text: window.reporead.codeText('b5')};").isNull("text"))
     }
 
+    /**
+     * A link to a heading that is gone opens the note where it was last read, as an ordinary open does, instead of at
+     * the top, which the save after opening would have made the reader's place.
+     */
+    @Test
+    fun aLinkToAMissingHeadingOpensWhereTheNoteWasLastRead() {
+        evaluate("window.reporead.showBlock('b12'); return {};")
+        awaitSaved(12)
+        var previous: WebView? = null
+        scenario.onActivity {
+            previous = findWebView(it.window.decorView)
+            screenUnderTest.value = Screen.Reader(1, title, OpenAt.Heading("Test-only heading that is gone"))
+        }
+        // The previous page is still at block 12 until it is released, so wait for the new one before reading it.
+        runBlocking {
+            withTimeout(10_000) {
+                while (true) {
+                    var shown: WebView? = null
+                    scenario.onActivity { shown = findWebView(it.window.decorView) }
+                    if (shown != null && shown !== previous) break
+                    delay(20)
+                }
+            }
+        }
+        awaitReader(12)
+        awaitSaved(12)
+    }
+
     @Test
     fun ordinaryReadingSurvivesActivityRecreationTwiceAndSavesInRoom() {
         val position = evaluate("window.reporead.showBlock('b12'); return window.reporead.position();")

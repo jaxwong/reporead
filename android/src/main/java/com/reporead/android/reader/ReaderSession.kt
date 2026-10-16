@@ -284,19 +284,23 @@ internal class ReaderSession(
         val highlights = dao.annotations(note.documentId)
         // Drawn before opening, so that a highlight to open at is on the page.
         drawHighlights(view, highlights.first())
+        // A link whose target is gone opens the note where it was last read, as an ordinary open does, so the save
+        // below keeps the reader's place instead of replacing it with the top of the page.
+        suspend fun missing(what: String) = listOfNotNull(what, restoreSaved(view)).joinToString(" ")
         restoreNotice =
             when (openAt) {
                 null -> restoreSaved(view)
                 is OpenAt.Heading -> {
                     val found = view.evaluate("window.reporead.showHeading(${JSONObject.quote(openAt.text)})") == true
                     Log.i("RepoRead", "Reader opened at a linked heading; documentId=${note.documentId} found=$found")
-                    if (found) null else "No heading “${openAt.text}” in this note; showing the top."
+                    if (found) null else missing("No heading “${openAt.text}” in this note.")
                 }
                 is OpenAt.Highlight -> {
                     val found = view.evaluate("window.reporead.reveal(${JSONObject.quote(openAt.mutationId)})") == true
                     Log.i("RepoRead", "Reader opened at a highlight; documentId=${note.documentId} found=$found")
                     if (found) null
-                    else "That passage isn't marked in this version of the note; Highlights and notes says why."
+                    else
+                        missing("That passage isn't marked in this version of the note; Highlights and notes says why.")
                 }
             }
         if (openAt != null) onOpenedAtTarget()
