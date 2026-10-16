@@ -1,7 +1,11 @@
-# Backend CI/CD; Markdown-only changes do not run it. Pull requests: backend tests only, no secrets. Pushes to main:
-# the same tests, then deploy the jar to the hosted VM (backend/README.md, Hosted VM). The deploy key can only run
+# Backend CI/CD; Markdown-only changes do not run it. Pull requests: formatting, tests and the jar, no secrets. Pushes to
+# main: the same, then deploy the jar to the hosted VM (backend/README.md, Hosted VM). The deploy key can only run
 # /usr/local/sbin/reporead-deploy (backend/deploy/reporead-deploy), which fails the run if the new jar is not healthy
 # and leaves going back to a person (backend/README.md).
+# The key is only ever on a runner that runs no third-party code. The tests (which run every test dependency) and the
+# build each have a job of their own without secrets, so code that ran there can change files only on that runner:
+# never the jar a test ran beside, and never the deploy's runner, which only checks out this repository, downloads the
+# jar and runs ssh.
 # This repository is public, so its logs are too: nothing here prints backend logs or secrets.
 name: Backend
 
@@ -22,7 +26,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  test-and-deploy:
+  test:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -39,13 +43,47 @@ jobs:
       - name: Check backend formatting
         run: ./gradlew :backend:spotlessCheck --no-daemon
 
-      # PostgreSQL for the tests comes from Testcontainers on the runner's Docker. The jar records the commit it was
-      # built from, served by /actuator/info on the VM's loopback management port.
-      - name: Test and build the backend
-        run: ./gradlew :backend:test :backend:bootJar --no-daemon
+      # PostgreSQL for the tests comes from Testcontainers on the runner's Docker.
+      - name: Test the backend
+        run: ./gradlew :backend:test --no-daemon
+
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      # The jar records the commit it was built from, served by /actuator/info on the VM's loopback management port.
+      - name: Build the jar
+        run: ./gradlew :backend:bootJar --no-daemon
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-jar
+          path: backend/build/libs/backend.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    needs: [test, build]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # For backend/deploy, which the drift check below compares with the VM's copies.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: backend-jar
+          path: backend/build/libs
 
       - name: Deploy to the VM
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           # The VM's SSH host key, pinned so a deploy can never go to another machine. Not a secret.
