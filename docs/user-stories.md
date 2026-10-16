@@ -140,7 +140,7 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 
 ## Post-MVP stories
 
-Added after the MVP with the user's approval (see the [feature list](feature-list.md#after-the-mvp)).
+Added after the MVP (see the [feature list](feature-list.md#after-the-mvp)).
 
 ### US-12 — Read long and wide notes comfortably
 

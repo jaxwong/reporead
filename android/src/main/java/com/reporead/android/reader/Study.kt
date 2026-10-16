@@ -7,7 +7,10 @@ import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
 
-/** P3's measured LeetCode headings. The reader's Study view collapses them; nothing else is recognized there. */
+/**
+ * The headings of a LeetCode solution note, as measured over the real notes (ADR-20). The reader's Study view collapses
+ * them; nothing else is recognized there.
+ */
 private val COLLAPSED_HEADINGS =
     setOf("approach", "brute force approach", "optimized approach", "complexities", "mistakes")
 private val NUMBERED = Regex("""^\d+\.\s+""")

@@ -60,7 +60,10 @@ public class AnnotationService {
 
     record CardFingerprint(long documentId, Selection anchor, String note, Annotations.Type type, String question) {}
 
-    /** SHA-256 of the request content a mutation id is bound to; highlights keep their pre-P4 fingerprint shape. */
+    /**
+     * SHA-256 of the request content a mutation id is bound to. Highlights keep the shape they had before cards
+     * existed, so their stored hashes still match a replay.
+     */
     static byte[] fingerprint(long documentId, Selection anchor, String note, Annotations.Type type, String question) {
         return Hashes.sha256(FINGERPRINT_JSON.writeValueAsBytes(
                 type == Annotations.Type.CARD
