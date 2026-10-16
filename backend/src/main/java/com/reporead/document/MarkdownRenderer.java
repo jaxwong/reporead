@@ -153,9 +153,26 @@ public final class MarkdownRenderer {
 
     /**
      * {@code documentPath} is the note's repository path: shown as its source label and used to resolve relative
-     * images.
+     * images. The phases run in this order; each leaves canonical block text as the next one expects (ADR-05).
      */
     public static RenderedNote render(String markdown, String sourceBlobSha, String documentPath) {
+        checkInput(markdown, sourceBlobSha, documentPath);
+        var parsed = PARSER.parse(markdown);
+        var headingLines = headingLines(parsed);
+        var clean = sanitize(parsed);
+        int images = rewriteImages(clean, documentPath);
+        linkNotes(clean, documentPath, images);
+        markFootnotes(clean);
+        tidyBlocks(clean);
+        var numbered = numberBlocks(clean, headingLines);
+        return new RenderedNote(
+                page(clean, numbered.blocks().isEmpty(), sourceBlobSha, documentPath),
+                numbered.blocks(),
+                numbered.diagrams(),
+                numbered.headings());
+    }
+
+    private static void checkInput(String markdown, String sourceBlobSha, String documentPath) {
         Objects.requireNonNull(markdown, "MarkdownRenderer markdown");
         Objects.requireNonNull(documentPath, "MarkdownRenderer document path");
         if (!Hashes.isGitSha(sourceBlobSha)) {
@@ -166,8 +183,10 @@ public final class MarkdownRenderer {
             throw new ContentRejected("Markdown exceeds the " + MAX_NOTE_MIB + " MiB reader limit");
         if (!Hashes.gitBlobSha(bytes).equals(sourceBlobSha))
             throw new ContentRejected("Markdown bytes do not match sourceBlobSha");
+    }
 
-        var parsed = PARSER.parse(markdown);
+    /** The 0-based source line of each heading, in document order, for sourceLines-based change summaries. */
+    private static List<Integer> headingLines(org.commonmark.node.Node parsed) {
         var headingLines = new ArrayList<Integer>();
         parsed.accept(new AbstractVisitor() {
             @Override
@@ -176,9 +195,21 @@ public final class MarkdownRenderer {
                 visitChildren(heading);
             }
         });
+        return headingLines;
+    }
+
+    /** CommonMark's HTML (raw HTML escaped, URLs sanitized) through the jsoup safelist. */
+    private static Document sanitize(org.commonmark.node.Node parsed) {
         var dirty = Jsoup.parseBodyFragment(HTML.render(parsed), ORIGIN);
         dirty.outputSettings().prettyPrint(false);
-        var clean = CLEANER.clean(dirty);
+        return CLEANER.clean(dirty);
+    }
+
+    /**
+     * Remote images are blocked; a relative or root-relative one becomes a same-origin repository image, up to
+     * MAX_IMAGES. Returns the image count.
+     */
+    private static int rewriteImages(Document clean, String documentPath) {
         int images = 0;
         for (var image : clean.select("img")) {
             String alt = image.attr("alt");
@@ -198,16 +229,29 @@ public final class MarkdownRenderer {
                         .attr("loading", "eager");
             }
         }
-        images = linkNotes(clean, documentPath, images);
-        markFootnotes(clean);
+        return images;
+    }
+
+    /**
+     * Task-list checkboxes are display only. CommonMark already emits a newline after each br, so a hard break keeps
+     * that newline as its text instead of a second visual break.
+     */
+    private static void tidyBlocks(Document clean) {
         for (var input : clean.select("input")) {
             if (!input.attr("type").equals("checkbox"))
                 throw new IllegalStateException("Parser emitted a non-checkbox input");
             input.attr("disabled", "");
         }
-        // CommonMark already emits a newline after each br; keep that text, not a second visual break.
         for (var lineBreak : clean.select("br")) lineBreak.remove();
+    }
 
+    private record Numbered(List<Block> blocks, List<Heading> headings, int diagrams) {}
+
+    /**
+     * Gives each anchorable block (one with no nested candidate block) its id, canonical text and heading path, and
+     * marks Mermaid diagrams within their bounds. Heading blocks are paired, in order, with the parser's heading lines.
+     */
+    private static Numbered numberBlocks(Document clean, List<Integer> headingLines) {
         String[] headings = new String[6];
         var blocks = new ArrayList<Block>();
         var headingBlocks = new ArrayList<Heading>();
@@ -250,7 +294,11 @@ public final class MarkdownRenderer {
             throw new IllegalStateException("Rendered " + headingBlocks.size() + " heading blocks for "
                     + headingLines.size() + " parsed headings");
         }
+        return new Numbered(List.copyOf(blocks), List.copyOf(headingBlocks), diagrams);
+    }
 
+    /** The reader page around the note: CSP, the bundled script and style, and the limits the page enforces. */
+    private static String page(Document clean, boolean empty, String sourceBlobSha, String documentPath) {
         var document = Document.createShell(ORIGIN);
         document.outputSettings().prettyPrint(false).charset(StandardCharsets.UTF_8);
         document.head().appendElement("meta").attr("charset", "utf-8");
@@ -276,9 +324,8 @@ public final class MarkdownRenderer {
                 .appendElement("main")
                 .id("note")
                 .html(clean.body().html());
-        if (blocks.isEmpty()) note.appendElement("p").text("This note is empty.");
-        return new RenderedNote(
-                "<!doctype html>\n" + document.outerHtml(), List.copyOf(blocks), diagrams, List.copyOf(headingBlocks));
+        if (empty) note.appendElement("p").text("This note is empty.");
+        return "<!doctype html>\n" + document.outerHtml();
     }
 
     /**
