@@ -1,5 +1,6 @@
 package com.reporead.android.reader
 
+import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -218,7 +219,10 @@ internal class ReaderSession(
      * Saves the position and reports the section once scrolling settles, and moves the bars with the reader's swipes:
      * by each swipe's net scroll when the finger lifts, and back on reaching the top.
      */
-    private fun trackScrolling(webView: WebView) {
+    // The touch listener only watches: it returns false, so the page still handles every touch, clicks and
+    // accessibility actions included.
+    @SuppressLint("ClickableViewAccessibility")
+    private fun trackScrolling(webView: ReaderWebView) {
         val barsThreshold = (BARS_SCROLL_DP * webView.resources.displayMetrics.density).toInt()
         webView.setOnTouchListener { view, event ->
             when (event.actionMasked) {

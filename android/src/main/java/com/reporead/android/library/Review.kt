@@ -302,34 +302,30 @@ private fun ColumnScope.FixCard(
             var confirming by remember(row.mutationId) { mutableStateOf(false) }
             var problem by remember(row.mutationId) { mutableStateOf<String?>(null) }
             val scope = rememberCoroutineScope()
+            fun confirm() {
+                confirming = true
+                scope.launch {
+                    try {
+                        sync.checkCard(row, current)
+                        onConfirmed()
+                    } catch (error: ApiException) {
+                        Log.w(
+                            "RepoRead",
+                            "Card not confirmed from review; mutationId=${row.mutationId} code=${error.code}",
+                        )
+                        problem = "Not confirmed: ${error.describe()} Confirming needs the server."
+                    } finally {
+                        confirming = false
+                    }
+                }
+            }
             Text("The note changed since this card was checked. Is this still its answer?")
             problem?.let { StatusLine(it) }
             val answer = rememberRevealed(item, dao)
             if (answer == null) Text("The saved page cannot show this answer in context. Open the note to check it.")
             else CardAnswer(item, answer, sync, dao, push)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    enabled = !confirming,
-                    onClick = {
-                        confirming = true
-                        scope.launch {
-                            try {
-                                sync.checkCard(row, current)
-                                onConfirmed()
-                            } catch (error: ApiException) {
-                                Log.w(
-                                    "RepoRead",
-                                    "Card not confirmed from review; mutationId=${row.mutationId} code=${error.code}",
-                                )
-                                problem = "Not confirmed: ${error.describe()} Confirming needs the server."
-                            } finally {
-                                confirming = false
-                            }
-                        }
-                    },
-                ) {
-                    Text("Answer is still right")
-                }
+                Button(enabled = !confirming, onClick = ::confirm) { Text("Answer is still right") }
                 openNote("Open note")
             }
         }
@@ -459,37 +455,39 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(id))) }) {
                 Text("Open in note")
             }
-            // Each saved grade is one immutable local mutation; the background sync sends it.
-            val step = scheduleReviews(row, log, ZoneId.systemDefault()).step
-            if (answer != null)
-                GradeBar(enabled = !saving, gaps = if (again) null else gaps(step)) { grade ->
-                    if (again) next(afterGrade(ids, grade))
-                    else {
-                        saving = true
-                        val review =
-                            ReviewRow(
-                                mutationId = UUID.randomUUID().toString(),
-                                cardMutationId = id,
-                                grade = grade,
-                                reviewedAt = System.currentTimeMillis(),
-                                blobSha = row.drawn.blobSha,
-                                pending = true,
-                            )
-                        scope.launch {
-                            try {
-                                val saved = withContext(NonCancellable) { sync.recordReview(review) }
-                                if (saved) next(afterGrade(ids, grade))
-                                else {
-                                    notice =
-                                        "Card changed while answering; grade not saved. Open it to check the answer."
-                                    next(ids.drop(1))
-                                }
-                            } finally {
-                                saving = false
-                            }
+            // Each saved grade is one immutable local mutation; the background sync sends it. A card asked again only
+            // decides whether it comes back in this session.
+            fun saveGrade(grade: Int) {
+                if (again) {
+                    next(afterGrade(ids, grade))
+                    return
+                }
+                saving = true
+                val review =
+                    ReviewRow(
+                        mutationId = UUID.randomUUID().toString(),
+                        cardMutationId = id,
+                        grade = grade,
+                        reviewedAt = System.currentTimeMillis(),
+                        blobSha = row.drawn.blobSha,
+                        pending = true,
+                    )
+                scope.launch {
+                    try {
+                        val saved = withContext(NonCancellable) { sync.recordReview(review) }
+                        if (saved) next(afterGrade(ids, grade))
+                        else {
+                            notice = "Card changed while answering; grade not saved. Open it to check the answer."
+                            next(ids.drop(1))
                         }
+                    } finally {
+                        saving = false
                     }
                 }
+            }
+            val step = scheduleReviews(row, log, ZoneId.systemDefault()).step
+            if (answer != null)
+                GradeBar(enabled = !saving, gaps = if (again) null else gaps(step), onGrade = ::saveGrade)
         }
     }
 }

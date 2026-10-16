@@ -539,46 +539,49 @@ class Sync(
             val deleting = row.state == AnnotationState.DELETING
             check(row.serverId == null || deleting) { "Unsent ${row.mutationId} has a server id" }
             // A deletion whose creation the server has not acknowledged replays the creation first, to learn its id.
-            val acknowledged =
-                if (row.serverId != null) row
-                else {
-                    val body =
-                        JSONObject()
-                            .put("mutationId", row.mutationId)
-                            .put("type", row.type.name)
-                            .put("question", row.question ?: JSONObject.NULL)
-                            .put("note", row.note ?: JSONObject.NULL)
-                            .put(
-                                "anchor",
-                                Passage(row.sourceBlobSha, row.blockId, row.startOffset, row.endOffset, row.exactText)
-                                    .anchorJson(),
-                            )
-                    val created =
-                        try {
-                            api.post("/api/documents/${row.documentId}/annotations", body)
-                        } catch (error: ApiException) {
-                            when {
-                                error.code == "ANNOTATION_DELETED" || (deleting && error.refusesItem()) ->
-                                    dao.removeAnnotation(row.mutationId)
-                                error.refusesItem() -> dao.rejectAnnotation(row.mutationId, error.describe())
-                                else -> {
-                                    Log.w(
-                                        "RepoRead",
-                                        "Highlight creations stopped; documentId=${row.documentId} code=${error.code}",
-                                    )
-                                    throw error
-                                }
-                            }
-                            Log.w(
-                                "RepoRead",
-                                "Highlight creation refused; documentId=${row.documentId} code=${error.code} deleting=$deleting",
-                            )
-                            continue
-                        }
-                    annotationRow(created).also { dao.saveServerAnnotation(it) }
-                }
+            val acknowledged = if (row.serverId != null) row else sendCreation(row, deleting) ?: continue
             if (deleting) sendDeletion(acknowledged)
         }
+    }
+
+    /**
+     * Sends [row]'s creation and saves and returns the server's copy. Null when the server refused this one item: it is
+     * then removed (deleted already, or being [deleting]) or kept as refused. Any other failure stops the run.
+     */
+    private suspend fun sendCreation(row: AnnotationRow, deleting: Boolean): AnnotationRow? {
+        val body =
+            JSONObject()
+                .put("mutationId", row.mutationId)
+                .put("type", row.type.name)
+                .put("question", row.question ?: JSONObject.NULL)
+                .put("note", row.note ?: JSONObject.NULL)
+                .put(
+                    "anchor",
+                    Passage(row.sourceBlobSha, row.blockId, row.startOffset, row.endOffset, row.exactText).anchorJson(),
+                )
+        val created =
+            try {
+                api.post("/api/documents/${row.documentId}/annotations", body)
+            } catch (error: ApiException) {
+                when {
+                    error.code == "ANNOTATION_DELETED" || (deleting && error.refusesItem()) ->
+                        dao.removeAnnotation(row.mutationId)
+                    error.refusesItem() -> dao.rejectAnnotation(row.mutationId, error.describe())
+                    else -> {
+                        Log.w(
+                            "RepoRead",
+                            "Highlight creations stopped; documentId=${row.documentId} code=${error.code}",
+                        )
+                        throw error
+                    }
+                }
+                Log.w(
+                    "RepoRead",
+                    "Highlight creation refused; documentId=${row.documentId} code=${error.code} deleting=$deleting",
+                )
+                return null
+            }
+        return annotationRow(created).also { dao.saveServerAnnotation(it) }
     }
 
     /**
