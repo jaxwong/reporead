@@ -2,7 +2,6 @@ package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
-import com.reporead.repository.RepositoryConnections;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -27,20 +26,13 @@ public class Reviews {
     /** One repeatable, read-only database snapshot: a concurrent delete cannot split cards from their logs. */
     private final TransactionTemplate snapshot;
 
-    private final RepositoryConnections connections;
-
-    public Reviews(
-            JdbcClient db,
-            Annotations annotations,
-            TransactionTemplate transaction,
-            RepositoryConnections connections) {
+    public Reviews(JdbcClient db, Annotations annotations, TransactionTemplate transaction) {
         this.db = db;
         this.annotations = annotations;
         this.transaction = transaction;
         this.snapshot = new TransactionTemplate(transaction.getTransactionManager());
         snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         snapshot.setReadOnly(true);
-        this.connections = connections;
     }
 
     record Review(String mutationId, String cardMutationId, int grade, Instant reviewedAt, String blobSha) {}
@@ -67,14 +59,7 @@ public class Reviews {
     Review grade(long userId, long cardId, UUID mutation, int grade, Instant reviewedAt, String blobSha) {
         return transaction.execute(tx -> {
             // Same lock order as repository refresh/disconnect: connection first, then annotations.
-            long documentId = db.sql(
-                            "select document_id from annotations where id = :id and user_id = :userId and type = 'CARD'")
-                    .param("id", cardId)
-                    .param("userId", userId)
-                    .query(Long.class)
-                    .optional()
-                    .orElseThrow(ApiFailure::notFound);
-            connections.lockForDocumentWrite(userId, documentId);
+            annotations.lockForWrite(userId, cardId);
             var current = db.sql("""
                     select a.checked_blob_sha, d.current_blob_sha, d.deleted_at is not null as deleted, a.status
                     from annotations a join documents d on d.id = a.document_id

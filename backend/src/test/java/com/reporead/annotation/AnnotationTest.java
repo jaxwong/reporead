@@ -698,13 +698,15 @@ class AnnotationTest extends SharedSpringTest {
         assertEquals(1, count("review_log"));
     }
 
-    @Test
-    void aCreationRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
-        expectSource(ExpectedCount.once());
+    /**
+     * Sends {@code write} while a disconnect of the note's repository holds its lock, as
+     * DataControlController.disconnect does, and returns the write's status after the disconnect commits. Fails unless
+     * the write waited for it.
+     */
+    private int statusDuringDisconnect(Callable<ResultActions> write) throws Exception {
         var locked = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // Holds the connection's lock as DataControlController.disconnect does while the creation arrives.
             var disconnect = executor.submit(() -> transaction.execute(status -> {
                 connections.lockForSync(1, 1);
                 locked.countDown();
@@ -716,17 +718,22 @@ class AnnotationTest extends SharedSpringTest {
                 return data.delete(1);
             }));
             assertTrue(locked.await(10, TimeUnit.SECONDS));
-            var creating = executor.submit(
-                    () -> create(alice, note, body(UUID.randomUUID().toString(), "b2", START, EXACT, null))
-                            .andReturn()
-                            .getResponse()
-                            .getStatus());
+            var writing = executor.submit(write);
             TestEnvironment.awaitLockWait(db);
-            assertFalse(creating.isDone(), "the creation must wait for the disconnect");
+            assertFalse(writing.isDone(), "the write must wait for the disconnect");
             release.countDown();
             disconnect.get(10, TimeUnit.SECONDS);
-            assertEquals(404, creating.get(10, TimeUnit.SECONDS));
+            return writing.get(10, TimeUnit.SECONDS).andReturn().getResponse().getStatus();
         }
+    }
+
+    @Test
+    void aCreationRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
+        expectSource(ExpectedCount.once());
+        assertEquals(
+                404,
+                statusDuringDisconnect(
+                        () -> create(alice, note, body(UUID.randomUUID().toString(), "b2", START, EXACT, null))));
         assertEquals(0, count("annotations"));
     }
 
@@ -735,33 +742,38 @@ class AnnotationTest extends SharedSpringTest {
         moveNoteTo(OLD_SHA);
         expectSource(ExpectedCount.once());
         long id = createdId(cardBody());
-        var locked = new CountDownLatch(1);
-        var release = new CountDownLatch(1);
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // Holds the connection's lock as DataControlController.disconnect does while the grade arrives.
-            var disconnect = executor.submit(() -> transaction.execute(status -> {
-                connections.lockForSync(1, 1);
-                locked.countDown();
-                try {
-                    assertTrue(release.await(10, TimeUnit.SECONDS));
-                } catch (InterruptedException interrupted) {
-                    throw new IllegalStateException("Interrupted while holding the test disconnect", interrupted);
-                }
-                return data.delete(1);
-            }));
-            assertTrue(locked.await(10, TimeUnit.SECONDS));
-            var grading =
-                    executor.submit(() -> grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA)
-                            .andReturn()
-                            .getResponse()
-                            .getStatus());
-            TestEnvironment.awaitLockWait(db);
-            assertFalse(grading.isDone(), "the grade must wait for the disconnect");
-            release.countDown();
-            disconnect.get(10, TimeUnit.SECONDS);
-            assertEquals(404, grading.get(10, TimeUnit.SECONDS));
-        }
+        assertEquals(
+                404,
+                statusDuringDisconnect(() -> grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA)));
         assertEquals(0, count("review_log"));
+    }
+
+    @Test
+    void anEditRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
+        expectSource(ExpectedCount.once());
+        long highlight = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
+        assertEquals(404, statusDuringDisconnect(() -> edit(alice, highlight, "late", 1)));
+        assertEquals(0, count("annotations"));
+    }
+
+    @Test
+    void aCardConfirmationRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long card = createdId(cardBody());
+        assertEquals(
+                404,
+                statusDuringDisconnect(() -> mvc.perform(post("/api/annotations/" + card + "/check")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":1,\"blobSha\":\"" + OLD_SHA + "\"}"))));
+    }
+
+    @Test
+    void aReattachmentRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
+        expectSource(ExpectedCount.times(2));
+        long highlight = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
+        assertEquals(404, statusDuringDisconnect(() -> reattach(alice, highlight, 1, OLD_SHA, "b2", 0, "By default")));
     }
 
     @Test
