@@ -35,7 +35,9 @@ import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequest
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.endpoint.DefaultMapOAuth2AccessTokenResponseConverter;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -195,13 +197,24 @@ public class GitHubSecurity {
         return refresh;
     }
 
-    /** GitHub's OAuth token endpoint, for both the sign-in code exchange and refreshes. */
+    /**
+     * GitHub's OAuth token endpoint, for both the sign-in code exchange and refreshes. GitHub answers a refusal with
+     * HTTP 200 and an error body, which is read as that error, so the caller sees GitHub's code (bad_refresh_token,
+     * incorrect_client_credentials) instead of an unreadable token response.
+     */
     static RestClient tokenApi(RestClient.Builder builder, MeterRegistry meters) {
+        var tokens = new OAuth2AccessTokenResponseHttpMessageConverter();
+        var standard = new DefaultMapOAuth2AccessTokenResponseConverter();
+        tokens.setAccessTokenResponseConverter(answer -> {
+            if (answer.get("error") instanceof String code)
+                throw new OAuth2AuthorizationException(new OAuth2Error(code));
+            return standard.convert(answer);
+        });
         return builder.requestInterceptor(GitHubHttp.boundedResponse(GitHubHttp.MAX_RESPONSE_BYTES, meters))
                 .configureMessageConverters(converters -> converters
                         .disableDefaults()
                         .addCustomConverter(new FormHttpMessageConverter())
-                        .addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter()))
+                        .addCustomConverter(tokens))
                 .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler())
                 .build();
     }

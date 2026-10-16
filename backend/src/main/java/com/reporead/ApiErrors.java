@@ -28,13 +28,20 @@ class ApiErrors {
         return ResponseEntity.status(failure.code.status).body(new Body(failure.code, failure.getMessage()));
     }
 
-    /** A body, parameter, or path value the route cannot read is the client's error, typed like every other failure. */
+    /**
+     * A body, parameter, or path value the route cannot read is the client's error, typed like every other failure.
+     * Spring also matches these as the cause of another exception, such as a GitHub answer the server could not read;
+     * that is the server's failure, so it is rethrown to Spring's default handling, a 500.
+     */
     @ExceptionHandler({
         HttpMessageNotReadableException.class,
         MissingServletRequestParameterException.class,
         MethodArgumentTypeMismatchException.class
     })
-    ResponseEntity<Body> unreadable(Exception error, HttpServletRequest request) {
+    ResponseEntity<Body> unreadable(Exception error, HttpServletRequest request) throws Exception {
+        if (!(error instanceof HttpMessageNotReadableException
+                || error instanceof MissingServletRequestParameterException
+                || error instanceof MethodArgumentTypeMismatchException)) throw error;
         LOG.warn(
                 "API request unreadable; method={} path={} error={}",
                 request.getMethod(),

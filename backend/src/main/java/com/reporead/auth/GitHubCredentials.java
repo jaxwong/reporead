@@ -5,6 +5,7 @@ import com.reporead.ApiFailure.Code;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +39,8 @@ public class GitHubCredentials {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubCredentials.class);
     private static final String REGISTRATION = "github";
     private static final MediaType GITHUB_JSON = MediaType.parseMediaType("application/vnd.github+json");
+    /** GitHub's answer, and OAuth's, when the refresh token itself is no longer valid. */
+    private static final Set<String> REFUSED_REFRESH_TOKEN = Set.of("bad_refresh_token", "invalid_grant");
 
     private final OAuth2AuthorizedClientService githubTokens;
     private final OAuth2AuthorizedClientManager manager;
@@ -98,13 +101,19 @@ public class GitHubCredentials {
                     throw new ApiFailure(
                             Code.GITHUB_UNAVAILABLE, "GitHub could not renew your sign-in; nothing was changed.");
                 }
+                String refusal = githubError(error);
+                // Any other refusal (incorrect_client_credentials) is this server's configuration, and the user's
+                // refresh token works again once it is fixed.
+                if (!REFUSED_REFRESH_TOKEN.contains(refusal)) {
+                    throw new IllegalStateException(
+                            "GitHub refused to renew the token of githubUserId=" + githubUserId + " with " + refusal
+                                    + ", not as an invalid refresh token; the token is kept",
+                            error);
+                }
                 // A refused refresh token stays refused; dropping it makes later requests ask for sign-in without a
                 // call.
                 forget(githubUserId);
-                LOG.warn(
-                        "GitHub refused the token refresh; githubUserId={} error={}",
-                        githubUserId,
-                        error.getError().getErrorCode());
+                LOG.warn("GitHub refused the token refresh; githubUserId={} error={}", githubUserId, refusal);
                 throw new ApiFailure(Code.SIGN_IN_REQUIRED, "GitHub refused to renew your sign-in; sign in again.");
             }
         }
@@ -130,6 +139,16 @@ public class GitHubCredentials {
                             || response.getStatusCode().is5xxServerError())) return cause;
         }
         return null;
+    }
+
+    /** GitHub's error code; Spring nests the one read from a token response under its own invalid_token_response. */
+    private static String githubError(OAuth2AuthorizationException error) {
+        String code = error.getError().getErrorCode();
+        for (Throwable cause = error.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof OAuth2AuthorizationException answered)
+                code = answered.getError().getErrorCode();
+        }
+        return code;
     }
 
     /**
