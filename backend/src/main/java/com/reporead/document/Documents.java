@@ -72,13 +72,17 @@ public class Documents {
                     unmatched.fresh().stream().anyMatch(file -> file.path().equals(move.toPath()));
             if (documentStillVanished && targetStillFresh) moves.add(move);
         }
-        for (var move : moves) {
-            db.sql("update documents set path = :path, title = :title where id = :id")
-                    .param("path", move.toPath())
-                    .param("title", title(move.toPath()))
-                    .param("id", move.documentId())
-                    .update();
-        }
+        // One statement for every move, as for the paths below; a move's target is a path no document holds.
+        db.sql("""
+                update documents set path = move.path, title = move.title
+                from unnest(:ids::bigint[], :paths::text[], :titles::text[]) as move (id, path, title)
+                where documents.id = move.id""")
+                .param("ids", moves.stream().mapToLong(Move::documentId).boxed().toArray(Long[]::new))
+                .param("paths", moves.stream().map(Move::toPath).toArray(String[]::new))
+                .param(
+                        "titles",
+                        moves.stream().map(move -> title(move.toPath())).toArray(String[]::new))
+                .update();
         String[] paths = files.stream().map(SourceFile::path).toArray(String[]::new);
         String[] titles = files.stream().map(file -> title(file.path())).toArray(String[]::new);
         String[] blobs = files.stream().map(SourceFile::blobSha).toArray(String[]::new);
