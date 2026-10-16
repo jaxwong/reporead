@@ -25,9 +25,11 @@ final class BearerAuthentication extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith(PREFIX)) {
-            sessions.authenticate(header.substring(PREFIX.length())).ifPresent(user -> {
+            String token = header.substring(PREFIX.length());
+            sessions.authenticate(token).ifPresent(user -> {
                 var context = SecurityContextHolder.createEmptyContext();
-                context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(user, null, List.of()));
+                // The token is the credentials, so signing out revokes exactly this session without parsing again.
+                context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(user, token, List.of()));
                 SecurityContextHolder.setContext(context);
             });
         }

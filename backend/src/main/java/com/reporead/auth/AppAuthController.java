@@ -3,19 +3,17 @@ package com.reporead.auth;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.Set;
 import org.apache.catalina.session.TooManyActiveSessionsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,14 +27,6 @@ import org.springframework.web.servlet.view.RedirectView;
 @RestController
 public class AppAuthController {
     private static final Logger LOG = LoggerFactory.getLogger(AppAuthController.class);
-    static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
-    static final String SCHEME_ATTRIBUTE = "reporead.appScheme";
-    /**
-     * The schemes the apps register for the sign-in redirect: the release app's, and the debug app's, installed beside
-     * it as a separate app. Only these, so a sign-in code is never handed to whatever else registered a scheme.
-     */
-    static final Set<String> APP_SCHEMES = Set.of("reporead", "reporead-dev");
-
     private final AppSessions sessions;
     private final GitHubCredentials credentials;
 
@@ -54,16 +44,18 @@ public class AppAuthController {
             throw new ApiFailure(
                     Code.INVALID_CODE_CHALLENGE, "code_challenge must be a 43-character S256 PKCE challenge.");
         }
-        if (!APP_SCHEMES.contains(scheme)) {
+        if (!PendingAppSignIn.APP_SCHEMES.contains(scheme)) {
             throw new ApiFailure(
                     Code.INVALID_REQUEST,
                     "scheme must be one of the RepoRead apps' schemes: "
-                            + String.join(", ", APP_SCHEMES.stream().sorted().toList()) + ".");
+                            + String.join(
+                                    ", ",
+                                    PendingAppSignIn.APP_SCHEMES.stream()
+                                            .sorted()
+                                            .toList()) + ".");
         }
         try {
-            var session = request.getSession(true);
-            session.setAttribute(CHALLENGE_ATTRIBUTE, codeChallenge);
-            session.setAttribute(SCHEME_ATTRIBUTE, scheme);
+            PendingAppSignIn.start(request, codeChallenge, scheme);
         } catch (TooManyActiveSessionsException full) {
             LOG.warn("Sign-in refused: too many sign-ins in progress; limit={}", full.getMaxActiveSessions());
             throw new ApiFailure(Code.SIGN_IN_BUSY, "Too many sign-ins are in progress; try again in a few minutes.");
@@ -87,9 +79,9 @@ public class AppAuthController {
 
     @DeleteMapping("/api/app-auth/session")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void signOut(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorization, @AuthenticationPrincipal AppUser user) {
-        int remaining = sessions.revoke(authorization.substring("Bearer ".length()), user.id());
+    void signOut(Authentication authentication, @AuthenticationPrincipal AppUser user) {
+        // BearerAuthentication, the API's only authenticator, keeps the session token as the credentials.
+        int remaining = sessions.revoke((String) authentication.getCredentials(), user.id());
         // The stored GitHub token belongs to the GitHub user and serves all their devices. It goes with the last
         // session, revoked on GitHub and deleted here, so a signed-out user leaves no working credential without
         // signing their other devices out of GitHub. A device signing in at the same moment can lose its new token;

@@ -147,12 +147,12 @@ public class GitHubSecurity {
         return new OAuth2AuthorizationRequestResolver() {
             @Override
             public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
-                return hasAppChallenge(request) ? resolver.resolve(request) : null;
+                return PendingAppSignIn.isPending(request) ? resolver.resolve(request) : null;
             }
 
             @Override
             public OAuth2AuthorizationRequest resolve(HttpServletRequest request, String registrationId) {
-                return hasAppChallenge(request) ? resolver.resolve(request, registrationId) : null;
+                return PendingAppSignIn.isPending(request) ? resolver.resolve(request, registrationId) : null;
             }
         };
     }
@@ -167,11 +167,6 @@ public class GitHubSecurity {
         LOG.warn("GitHub sign-in refused: not an allowed user; githubUserId={}", id);
         throw new OAuth2AuthenticationException(
                 new OAuth2Error("access_denied"), "This GitHub account may not use this RepoRead server.");
-    }
-
-    private static boolean hasAppChallenge(HttpServletRequest request) {
-        var session = request.getSession(false);
-        return session != null && session.getAttribute(AppAuthController.CHALLENGE_ATTRIBUTE) instanceof String;
     }
 
     @Bean
