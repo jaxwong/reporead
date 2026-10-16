@@ -3,11 +3,8 @@ package com.reporead.annotation;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
+import com.reporead.annotation.AnnotationService.Selection;
 import com.reporead.auth.AppUser;
-import com.reporead.document.Documents;
-import com.reporead.document.MarkdownRenderer;
-import com.reporead.document.NoteVersions;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -24,100 +21,31 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Highlights and cards with optional notes. External-call ceilings: create and reattach 1 GitHub request (the selected
- * version's blob, to verify the anchor), or 0 when replaying a known mutation id; list 0 when every highlight is
- * resolved against the note's current version, else 1 (the current version); edit, delete, and card confirmation 0.
- * Source Markdown is never written.
+ * Highlights and cards with optional notes. External-call ceilings are AnnotationService's for list, create and
+ * reattach; edit, delete, and card confirmation make none. Source Markdown is never written.
  */
 @RestController
 public class AnnotationController {
     private static final Logger LOG = LoggerFactory.getLogger(AnnotationController.class);
-    /**
-     * Metrics: anchored annotations created (not replays); re-anchoring outcomes (method or ORPHANED) and the time each
-     * resolution took.
-     */
-    static final String CREATED = "reporead.annotations.created";
-
-    static final String REANCHOR = "reporead.annotation.reanchor";
-    static final String REANCHOR_DURATION = "reporead.annotation.reanchor.duration";
     static final int MAX_TEXT_CHARS = 10_000;
+    private final AnnotationService service;
     private final Annotations annotations;
-    private final Documents documents;
-    private final NoteVersions noteVersions;
-    private final MeterRegistry meters;
-    /**
-     * Serializes mutation fingerprints. Its own mapper, not the application's: a change to the shared JSON settings
-     * would change every hash, and offline replays of already-recorded mutations would then be refused as reused.
-     */
-    private static final JsonMapper FINGERPRINT_JSON = JsonMapper.builder().build();
 
-    public AnnotationController(
-            Annotations annotations, Documents documents, NoteVersions noteVersions, MeterRegistry meters) {
+    public AnnotationController(AnnotationService service, Annotations annotations) {
+        this.service = service;
         this.annotations = annotations;
-        this.documents = documents;
-        this.noteVersions = noteVersions;
-        this.meters = meters;
     }
 
     record AnnotationList(List<Annotations.Annotation> annotations) {}
 
     @GetMapping("/api/documents/{id}/annotations")
     AnnotationList list(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        var document = documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
-        var all = annotations.list(user.id(), id);
-        // A deleted note has no current version; its highlights keep their last resolution.
-        if (!document.deleted() && bringUpToDate(user, document, all)) all = annotations.list(user.id(), id);
-        return new AnnotationList(all);
+        return new AnnotationList(service.list(user, id));
     }
-
-    /** Resolves every highlight against the note's current version. Returns whether anything needed resolving. */
-    private boolean bringUpToDate(AppUser user, Documents.Located document, List<Annotations.Annotation> all) {
-        String current = document.blobSha();
-        var stale = all.stream()
-                .filter(annotation -> !annotation.resolvedBlobSha().equals(current))
-                .toList();
-        if (stale.isEmpty()) return false;
-        var currentBlocks = noteVersions.render(user, document, current).note().blocks();
-        for (var annotation : stale) {
-            var from = annotation.location();
-            var resolved =
-                    meters.timer(REANCHOR_DURATION).record(() -> Anchoring.resolve(from, current, currentBlocks));
-            boolean applied = annotations.resolved(annotation, current, resolved.map(Anchoring.Resolved::location));
-            String outcome = resolved.map(found -> found.method().name()).orElse("ORPHANED");
-            // Counted once per applied resolution; a concurrent listing that lost the race changed nothing.
-            if (applied) meters.counter(REANCHOR, "outcome", outcome).increment();
-            LOG.info(
-                    "Highlight resolved; userId={} documentId={} annotationId={} from={} to={} outcome={} applied={}",
-                    user.id(),
-                    document.id(),
-                    annotation.id(),
-                    from.passage().sourceBlobSha(),
-                    current,
-                    outcome,
-                    applied);
-        }
-        return true;
-    }
-
-    /** What the client selected; the server verifies it and derives everything else from the canonical text. */
-    record Selection(String sourceBlobSha, String blockId, Integer startOffset, Integer endOffset, String exactText) {}
 
     record CreateRequest(String mutationId, Selection anchor, String note, String type, String question) {}
-    /** The content a mutation id is bound to. */
-    record Fingerprint(long documentId, Selection anchor, String note) {}
-
-    record CardFingerprint(long documentId, Selection anchor, String note, String type, String question) {}
-
-    /** SHA-256 of the request content a mutation id is bound to; highlights keep their pre-P4 fingerprint shape. */
-    static byte[] fingerprint(long documentId, Selection anchor, String note, String type, String question) {
-        return Hashes.sha256(FINGERPRINT_JSON.writeValueAsBytes(
-                type.equals("CARD")
-                        ? new CardFingerprint(documentId, anchor, note, type, question)
-                        : new Fingerprint(documentId, anchor, note)));
-    }
 
     @PostMapping("/api/documents/{id}/annotations")
     ResponseEntity<Annotations.Annotation> create(
@@ -137,27 +65,7 @@ public class AnnotationController {
                             + MAX_TEXT_CHARS + " characters), an optional note of at most " + MAX_TEXT_CHARS
                             + " characters, and a non-blank question for type CARD.");
         }
-        var document = documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
-        byte[] hash = fingerprint(id, selection, body.note(), type, body.question());
-        var replayed = annotations.replay(user.id(), mutationId, hash);
-        if (replayed.isPresent()) {
-            LOG.info(
-                    "Annotation creation replayed; userId={} annotationId={}",
-                    user.id(),
-                    replayed.get().id());
-            return ResponseEntity.ok(replayed.get());
-        }
-        var location = verifiedLocation(
-                selection,
-                noteVersions.render(user, document, selection.sourceBlobSha()).note());
-        var created = annotations.create(user.id(), id, mutationId, hash, location, body.note(), type, body.question());
-        if (!created.replayed()) meters.counter(CREATED).increment();
-        LOG.info(
-                "Annotation {}; userId={} documentId={} annotationId={}",
-                created.replayed() ? "creation replayed" : "created",
-                user.id(),
-                id,
-                created.annotation().id());
+        var created = service.create(user, id, mutationId, selection, body.note(), type, body.question());
         return ResponseEntity.status(created.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
                 .body(created.annotation());
     }
@@ -174,25 +82,7 @@ public class AnnotationController {
                     "A reattachment needs expectedVersion and a selection: source blob SHA, block id, and a non-empty UTF-16 range matching exactText (at most "
                             + MAX_TEXT_CHARS + " characters).");
         }
-        var annotation = annotations.find(user.id(), id).orElseThrow(ApiFailure::notFound);
-        var document = documents
-                .find(user.id(), annotation.documentId())
-                .orElseThrow(() -> new IllegalStateException("Annotation " + id + " of user " + user.id()
-                        + " references document " + annotation.documentId() + " outside their connections"));
-        var location = verifiedLocation(
-                body.anchor(),
-                noteVersions
-                        .render(user, document, body.anchor().sourceBlobSha())
-                        .note());
-        var reattached = annotations.reattach(user.id(), id, body.expectedVersion(), location);
-        LOG.info(
-                "Highlight reattached; userId={} documentId={} annotationId={} blobSha={} version={}",
-                user.id(),
-                document.id(),
-                id,
-                location.passage().sourceBlobSha(),
-                reattached.version());
-        return reattached;
+        return service.reattach(user, id, body.expectedVersion(), body.anchor());
     }
 
     record CheckRequest(Integer expectedVersion, String blobSha) {}
@@ -228,22 +118,6 @@ public class AnnotationController {
         LOG.info("Annotation deleted; userId={} annotationId={}", user.id(), id);
     }
 
-    /** The selection must name real text in that exact version; context and headings come from the server's render. */
-    static Annotations.Location verifiedLocation(Selection selection, MarkdownRenderer.RenderedNote rendered) {
-        var block = rendered.blocks().stream()
-                .filter(candidate -> candidate.id().equals(selection.blockId()))
-                .findFirst()
-                .orElseThrow(() -> invalidAnchor("Block " + selection.blockId() + " does not exist in that version."));
-        String text = block.text();
-        if (selection.endOffset() > text.length()
-                || !text.substring(selection.startOffset(), selection.endOffset())
-                        .equals(selection.exactText())) {
-            throw invalidAnchor("The selected text does not match that version of the note.");
-        }
-        return Anchoring.anchorAt(
-                selection.sourceBlobSha(), rendered.blocks(), block, selection.startOffset(), selection.endOffset());
-    }
-
     private static UUID mutationId(String value) {
         try {
             return UUID.fromString(value == null ? "" : value);
@@ -268,9 +142,5 @@ public class AnnotationController {
 
     private static boolean validNote(String note) {
         return note == null || note.length() <= MAX_TEXT_CHARS;
-    }
-
-    private static ApiFailure invalidAnchor(String message) {
-        return new ApiFailure(Code.INVALID_ANCHOR, message);
     }
 }
