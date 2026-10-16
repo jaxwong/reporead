@@ -179,6 +179,44 @@ fun ReaderScreen(
         }
     }
 
+    // Resolved against this repository's saved note list, so links work offline too.
+    fun followNoteLink(target: String?, path: String?, heading: String?) {
+        scope.launch {
+            val from = dao.document(screen.documentId)
+            if (from == null) {
+                message =
+                    "This note isn't in a saved note list, so its links can't be followed. Refresh the repository."
+                return@launch
+            }
+            val matches = resolveNoteLink(target, path, from.path, dao.listedDocuments(from.repositoryId))
+            when (matches.size) {
+                0 ->
+                    message =
+                        "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
+                1 -> preview = matches.first() to heading
+                else -> linkChoices = heading to matches
+            }
+        }
+    }
+
+    fun useSelection(selection: Selection, action: SelectionAction) {
+        // The menu was built for the state at the time; Cancel may have ended that mode since.
+        val placing = reattaching
+        when (selection) {
+            Selection.None -> message = "Select some text first."
+            is Selection.Unusable -> message = selection.reason
+            is Selection.InBlock ->
+                when (action) {
+                    SelectionAction.REATTACH ->
+                        if (placing != null) reattach(placing, selection.passage)
+                        else message = "Reattaching was cancelled; choose Reattach again in Notes."
+                    SelectionAction.MAKE_QUESTION -> questionPassage = selection.passage
+                    SelectionAction.ADD_NOTE -> notePassage = selection.passage
+                    SelectionAction.HIGHLIGHT -> save(selection.passage, null, null)
+                }
+        }
+    }
+
     // One session per displayed copy: it owns that page's view and everything the page reports.
     val session =
         remember(page?.opened?.note) {
@@ -197,51 +235,26 @@ fun ReaderScreen(
                     },
                     study = ready.study,
                     studying = { studying },
-                    onNoteLink = { target, path, heading ->
-                        scope.launch {
-                            // Resolved against this repository's saved note list, so links work offline too.
-                            val from = dao.document(opened.note.documentId)
-                            if (from == null) {
-                                message =
-                                    "This note isn't in a saved note list, so its links can't be followed. Refresh the repository."
-                                return@launch
-                            }
-                            val matches =
-                                resolveNoteLink(target, path, from.path, dao.listedDocuments(from.repositoryId))
-                            when (matches.size) {
-                                0 ->
-                                    message =
-                                        "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
-                                1 -> preview = matches.first() to heading
-                                else -> linkChoices = heading to matches
-                            }
-                        }
-                    },
+                    onNoteLink = ::followNoteLink,
                     onFigure = { figure ->
                         push(Screen.Figure(opened.note.documentId, opened.note.blobSha, figure, opened.note.title))
                     },
                     reattaching = { reattaching != null },
                     onMessage = { message = it },
-                    onSelection = { selection, action ->
-                        // The menu was built for the state at the time; Cancel may have ended that mode since.
-                        val placing = reattaching
-                        when (selection) {
-                            Selection.None -> message = "Select some text first."
-                            is Selection.Unusable -> message = selection.reason
-                            is Selection.InBlock ->
-                                when (action) {
-                                    SelectionAction.REATTACH ->
-                                        if (placing != null) reattach(placing, selection.passage)
-                                        else message = "Reattaching was cancelled; choose Reattach again in Notes."
-                                    SelectionAction.MAKE_QUESTION -> questionPassage = selection.passage
-                                    SelectionAction.ADD_NOTE -> notePassage = selection.passage
-                                    SelectionAction.HIGHLIGHT -> save(selection.passage, null, null)
-                                }
-                        }
-                    },
+                    onSelection = ::useSelection,
                 )
             }
         }
+    fun toggleStudy() {
+        studying = !studying
+        session?.setStudy(studying)
+    }
+
+    fun toggleBookmark() {
+        val marked = bookmark?.bookmarked == true
+        appScope.launch { sync.setBookmark(screen.documentId, !marked) }
+    }
+
     val barsShown = session?.barsShown ?: true
     ReadingBars(barsShown)
     val section = session?.let { it.outline?.sectionAt(it.topBlock) }
@@ -259,14 +272,7 @@ fun ReaderScreen(
                     }
                     if (opened != null) {
                         if (page?.study?.recognized == true) {
-                            TextButton(
-                                onClick = {
-                                    studying = !studying
-                                    session?.setStudy(studying)
-                                }
-                            ) {
-                                Text(if (studying) "Read" else "Study")
-                            }
+                            TextButton(onClick = ::toggleStudy) { Text(if (studying) "Read" else "Study") }
                         }
                         IconButton(onClick = { notesOpen = !notesOpen }) {
                             BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
@@ -277,9 +283,7 @@ fun ReaderScreen(
                             }
                         }
                         val marked = bookmark?.bookmarked == true
-                        IconButton(
-                            onClick = { appScope.launch { sync.setBookmark(opened.note.documentId, !marked) } }
-                        ) {
+                        IconButton(onClick = ::toggleBookmark) {
                             AppIcon(
                                 if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border,
                                 if (marked) "Remove bookmark" else "Bookmark",
@@ -392,25 +396,13 @@ fun ReaderScreen(
         )
     }
     linkChoices?.let { (heading, choices) ->
-        AlertDialog(
-            onDismissRequest = { linkChoices = null },
-            title = { Text("Which note?") },
-            text = {
-                Column {
-                    for (choice in choices) {
-                        TextButton(
-                            onClick = {
-                                linkChoices = null
-                                push(Screen.Reader(choice.id, choice.title, heading?.let(OpenAt::Heading)))
-                            }
-                        ) {
-                            Text(choice.path)
-                        }
-                    }
-                }
+        LinkChoicesDialog(
+            choices,
+            onDismiss = { linkChoices = null },
+            onChoose = { choice ->
+                linkChoices = null
+                push(Screen.Reader(choice.id, choice.title, heading?.let(OpenAt::Heading)))
             },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { linkChoices = null }) { Text("Cancel") } },
         )
     }
     questionPassage?.let { passage ->
@@ -456,6 +448,22 @@ private fun ReadingBars(shown: Boolean) {
     LaunchedEffect(shown) {
         if (shown) bars.show(WindowInsets.Type.systemBars()) else bars.hide(WindowInsets.Type.systemBars())
     }
+}
+
+/** Several notes share a link's name: the reader picks one by its path. */
+@Composable
+private fun LinkChoicesDialog(choices: List<DocumentRow>, onDismiss: () -> Unit, onChoose: (DocumentRow) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Which note?") },
+        text = {
+            Column {
+                for (choice in choices) TextButton(onClick = { onChoose(choice) }) { Text(choice.path) }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

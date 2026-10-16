@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -16,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.OpenAt
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.LibraryDao
@@ -137,105 +139,116 @@ internal class ReaderSession(
     private var fingerDown = false
     private var swipeScroll = 0
 
-    fun createView(context: Context): WebView {
-        val assets = readerAssets(context)
-        return ReaderWebView(context, reattaching) { action, finish ->
-                val webView = openedView()
-                if (webView == null) onMessage("The note is still loading; select the text again in a moment.")
-                else
-                    appScope.launch {
-                        val selection = captureSelection(webView)
-                        // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
-                        if (selection is Selection.InBlock) finish()
-                        onSelection(selection, action)
-                    }
-            }
-            .apply {
-                isolateReaderPage()
-                webViewClient =
-                    object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                            // The page itself never navigates away. A tapped link is opened by the app: a note
-                            // link as a new reader screen, a web or email link in another app.
-                            if (!request.hasGesture()) return true
-                            val url = request.url
-                            if (url.host == ASSET_HOST) {
-                                when (url.path) {
-                                    NOTE_LINK -> {
-                                        val link = noteLinkParameters(url.encodedQuery.orEmpty())
-                                        val target = link["target"]
-                                        val path = link["path"]
-                                        val heading = link["heading"]
-                                        if (target != null || path != null) onNoteLink(target, path, heading)
-                                        else if (heading != null)
-                                            appScope.launch {
-                                                if (!showHeading(heading))
-                                                    onMessage("No heading “$heading” in this note.")
-                                            }
-                                    }
-                                    COPY_CODE ->
-                                        url.getQueryParameter("block")?.let { appScope.launch { copyCode(it) } }
-                                    FULL_SCREEN -> url.getQueryParameter("figure")?.let(onFigure)
-                                }
-                                return true
-                            }
-                            if (url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto") {
-                                try {
-                                    view.context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE)
-                                    )
-                                } catch (error: ActivityNotFoundException) {
-                                    Log.w("RepoRead", "No app for an external note link; scheme=${url.scheme}")
-                                    onMessage(
-                                        if (url.scheme == "mailto") "No email app is installed to open this link."
-                                        else "No browser is installed to open this link."
-                                    )
-                                }
-                            }
-                            return true
-                        }
+    fun createView(context: Context): WebView =
+        ReaderWebView(context, reattaching, ::onSelectionAction).apply {
+            isolateReaderPage()
+            webViewClient = PageClient(readerAssets(context))
+            trackScrolling(this)
+            view = this
+            loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
+        }
 
-                        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                            readerResource(assets, sync.images, note, request.url)
+    /** An action chosen in the page's text-selection menu; [finish] closes the menu. */
+    private fun onSelectionAction(action: SelectionAction, finish: () -> Unit) {
+        val webView = openedView()
+        if (webView == null) {
+            onMessage("The note is still loading; select the text again in a moment.")
+            return
+        }
+        appScope.launch {
+            val selection = captureSelection(webView)
+            // A selection that cannot be used stays on screen with its handles, so it can be adjusted.
+            if (selection is Selection.InBlock) finish()
+            onSelection(selection, action)
+        }
+    }
 
-                        override fun onPageFinished(view: WebView, url: String) {
-                            opening?.cancel()
-                            opening = appScope.launch { open(view) }
-                        }
-                    }
-                val barsThreshold = (BARS_SCROLL_DP * context.resources.displayMetrics.density).toInt()
-                setOnTouchListener { view, event ->
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            touched = true
-                            fingerDown = true
-                            swipeScroll = 0
-                        }
-                        MotionEvent.ACTION_UP,
-                        MotionEvent.ACTION_CANCEL -> {
-                            fingerDown = false
-                            when {
-                                view.scrollY <= barsThreshold || swipeScroll < -barsThreshold -> barsShown = true
-                                swipeScroll > barsThreshold -> barsShown = false
-                            }
-                        }
-                    }
-                    false
-                }
-                setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                    main.removeCallbacks(saveAfterScroll)
-                    main.removeCallbacks(sectionAfterScroll)
-                    if (opened) {
-                        main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
-                        main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
-                    }
-                    if (fingerDown) swipeScroll += scrollY - oldScrollY
-                    // A fling that reaches the top brings the bars back; nothing else moves them until a finger lifts.
-                    else if (touched && scrollY <= barsThreshold) barsShown = true
-                }
-                view = this
-                loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
+    /** Serves the page only the reader's own resources, opens it once loaded, and turns tapped links into actions. */
+    private inner class PageClient(private val assets: WebViewAssetLoader) : WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            // The page itself never navigates away; the app opens what was tapped.
+            if (request.hasGesture()) openLink(view, request.url)
+            return true
+        }
+
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+            readerResource(assets, sync.images, note, request.url)
+
+        override fun onPageFinished(view: WebView, url: String) {
+            opening?.cancel()
+            opening = appScope.launch { open(view) }
+        }
+    }
+
+    /** A tapped link: a note link as a new reader screen, a page tool here, a web or email link in another app. */
+    private fun openLink(view: WebView, url: Uri) {
+        if (url.host == ASSET_HOST) {
+            when (url.path) {
+                NOTE_LINK -> openNoteLink(url)
+                COPY_CODE -> url.getQueryParameter("block")?.let { appScope.launch { copyCode(it) } }
+                FULL_SCREEN -> url.getQueryParameter("figure")?.let(onFigure)
             }
+        } else if (url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto") {
+            try {
+                view.context.startActivity(Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE))
+            } catch (error: ActivityNotFoundException) {
+                Log.w("RepoRead", "No app for an external note link; scheme=${url.scheme}")
+                onMessage(
+                    if (url.scheme == "mailto") "No email app is installed to open this link."
+                    else "No browser is installed to open this link."
+                )
+            }
+        }
+    }
+
+    /**
+     * A link to another note goes to the screen, which resolves it; a link to a heading of this note is followed here.
+     */
+    private fun openNoteLink(url: Uri) {
+        val link = noteLinkParameters(url.encodedQuery.orEmpty())
+        val target = link["target"]
+        val path = link["path"]
+        val heading = link["heading"]
+        if (target != null || path != null) onNoteLink(target, path, heading)
+        else if (heading != null)
+            appScope.launch { if (!showHeading(heading)) onMessage("No heading “$heading” in this note.") }
+    }
+
+    /**
+     * Saves the position and reports the section once scrolling settles, and moves the bars with the reader's swipes:
+     * by each swipe's net scroll when the finger lifts, and back on reaching the top.
+     */
+    private fun trackScrolling(webView: WebView) {
+        val barsThreshold = (BARS_SCROLL_DP * webView.resources.displayMetrics.density).toInt()
+        webView.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touched = true
+                    fingerDown = true
+                    swipeScroll = 0
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    fingerDown = false
+                    when {
+                        view.scrollY <= barsThreshold || swipeScroll < -barsThreshold -> barsShown = true
+                        swipeScroll > barsThreshold -> barsShown = false
+                    }
+                }
+            }
+            false
+        }
+        webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            main.removeCallbacks(saveAfterScroll)
+            main.removeCallbacks(sectionAfterScroll)
+            if (opened) {
+                main.postDelayed(saveAfterScroll, SAVE_AFTER_SCROLL_MS)
+                main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
+            }
+            if (fingerDown) swipeScroll += scrollY - oldScrollY
+            // A fling that reaches the top brings the bars back; nothing else moves them until a finger lifts.
+            else if (touched && scrollY <= barsThreshold) barsShown = true
+        }
     }
 
     private fun openedView(): WebView? = view?.takeIf { opened }
