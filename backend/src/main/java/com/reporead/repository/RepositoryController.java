@@ -2,7 +2,6 @@ package com.reporead.repository;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.AppUser;
 import com.reporead.github.GitHubApi;
 import java.util.ArrayList;
@@ -11,7 +10,6 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,18 +25,10 @@ public class RepositoryController {
     private static final Logger LOG = LoggerFactory.getLogger(RepositoryController.class);
     private final GitHubApi github;
     private final RepositoryConnections connections;
-    private final TransactionTemplate transaction;
-    private final AppSessions sessions;
 
-    public RepositoryController(
-            GitHubApi github,
-            RepositoryConnections connections,
-            TransactionTemplate transaction,
-            AppSessions sessions) {
+    public RepositoryController(GitHubApi github, RepositoryConnections connections) {
         this.github = github;
         this.connections = connections;
-        this.transaction = transaction;
-        this.sessions = sessions;
     }
 
     record Connected(List<RepositoryConnections.Connection> repositories) {}
@@ -101,17 +91,7 @@ public class RepositoryController {
                 .orElseThrow(() -> new ApiFailure(
                         Code.REPOSITORY_NOT_AUTHORIZED,
                         "This repository is not available to you through the RepoRead GitHub App installation."));
-        var connection = transaction.execute(status -> {
-            // Account deletion locks the user before listing connections to delete, so this connection is either listed
-            // and deleted with the rest, or added after the account is gone, which is refused here.
-            if (!sessions.lockUserForWrite(user.id())) {
-                throw new ApiFailure(Code.SIGN_IN_REQUIRED, "This RepoRead account was deleted; sign in again.");
-            }
-            // Read under the same lock, so a deletion cannot remove the connection before it is returned.
-            return connections
-                    .find(user.id(), connections.connect(user.id(), repository))
-                    .orElseThrow();
-        });
+        var connection = connections.connect(user.id(), repository);
         LOG.info(
                 "Repository connected; userId={} connectionId={} githubRepositoryId={}",
                 user.id(),

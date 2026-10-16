@@ -6,11 +6,9 @@ import com.reporead.ClientClock;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.document.MarkdownRenderer;
-import com.reporead.repository.RepositoryConnections;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -29,13 +27,9 @@ public class ReadingController {
 
     private static final int MAX_BLOCK_INDEX = MarkdownRenderer.MAX_BLOCKS - 1;
     private final ReadingStates states;
-    private final RepositoryConnections connections;
-    private final TransactionTemplate transaction;
 
-    public ReadingController(ReadingStates states, RepositoryConnections connections, TransactionTemplate transaction) {
+    public ReadingController(ReadingStates states) {
         this.states = states;
-        this.connections = connections;
-        this.transaction = transaction;
     }
 
     record ReadingStateList(List<ReadingStates.State> readingStates) {}
@@ -52,11 +46,8 @@ public class ReadingController {
     ReadingStates.State save(
             @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SaveRequest body) {
         validate(body);
-        return transaction.execute(status -> {
-            connections.lockForDocumentWrite(user.id(), id);
-            return states.save(
-                    user.id(), id, body.lastReadBlobSha(), body.progressPercent(), body.anchor(), body.lastReadAt());
-        });
+        return states.save(
+                user.id(), id, body.lastReadBlobSha(), body.progressPercent(), body.anchor(), body.lastReadAt());
     }
 
     private static void validate(SaveRequest body) {
