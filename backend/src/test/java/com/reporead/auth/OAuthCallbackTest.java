@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 
 /**
- * The OAuth callback and the app scheme are fixed by reporead.public-url: the Mac's adb-reverse loopback address or an
- * HTTPS origin.
+ * The OAuth callback and the app's redirect are fixed by reporead.public-url: the Mac's adb-reverse loopback address or
+ * an HTTPS origin.
  */
 class OAuthCallbackTest {
     @Test
@@ -25,8 +25,10 @@ class OAuthCallbackTest {
 
     @Test
     void eachServerSignsInOnlyTheAppThatUsesIt() {
-        assertEquals("reporead", PendingAppSignIn.appScheme("https://reporead.duckdns.org"));
-        assertEquals("reporead-dev", PendingAppSignIn.appScheme("http://127.0.0.1:8081"));
+        assertEquals(
+                "https://reporead.duckdns.org/app/signed-in",
+                PendingAppSignIn.appRedirect("https://reporead.duckdns.org"));
+        assertEquals("reporead-dev://auth", PendingAppSignIn.appRedirect("http://127.0.0.1:8081"));
     }
 
     @Test

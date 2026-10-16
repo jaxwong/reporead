@@ -88,7 +88,7 @@ class AppSignInTest extends SharedSpringTest {
         if (challenge != null) session.setAttribute(PendingAppSignIn.CHALLENGE_ATTRIBUTE, challenge);
         request.setSession(session);
         var response = new MockHttpServletResponse();
-        new AppSignInSuccess(sessions, "reporead-dev")
+        new AppSignInSuccess(sessions, "reporead-dev://auth")
                 .onAuthenticationSuccess(request, response, github(githubUserId, login));
         assertTrue(session.isInvalid(), "browser session must end once the app code is issued");
         return response.getRedirectedUrl();
@@ -125,32 +125,18 @@ class AppSignInTest extends SharedSpringTest {
     }
 
     @Test
-    void signInStartStoresAValidChallengeForThisServersAppAndRejectsOthers() throws Exception {
+    void signInStartStoresAValidChallengeAndRefusesOthers() throws Exception {
         String challenge = TestSessions.challenge(TestSessions.verifier());
-        var result = mvc.perform(
-                        get("/app/sign-in").param("code_challenge", challenge).param("scheme", "reporead-dev"))
+        var result = mvc.perform(get("/app/sign-in").param("code_challenge", challenge))
                 .andExpect(status().isFound())
                 .andExpect(redirectedUrl("/oauth2/authorization/github"))
                 .andReturn();
         assertEquals(challenge, result.getRequest().getSession().getAttribute(PendingAppSignIn.CHALLENGE_ATTRIBUTE));
-        mvc.perform(get("/app/sign-in").param("code_challenge", "too-short").param("scheme", "reporead-dev"))
+        var refused = mvc.perform(get("/app/sign-in").param("code_challenge", "too-short"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_CODE_CHALLENGE"));
-        // Only the scheme of the app this loopback server serves: the release app's, too, is one any app can register
-        // on
-        // a phone that has only the other installed, and the code would go to it.
-        for (String scheme : List.of("reporead", "https", "javascript", "reporead-other", "")) {
-            var refused = mvc.perform(get("/app/sign-in")
-                            .param("code_challenge", challenge)
-                            .param("scheme", scheme))
-                    .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                    .andReturn();
-            assertNull(refused.getRequest().getSession(false), scheme);
-        }
-        mvc.perform(get("/app/sign-in").param("code_challenge", challenge))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+                .andExpect(jsonPath("$.code").value("INVALID_CODE_CHALLENGE"))
+                .andReturn();
+        assertNull(refused.getRequest().getSession(false));
         mvc.perform(get("/app/sign-in")).andExpect(status().isBadRequest());
     }
 
@@ -185,7 +171,7 @@ class AppSignInTest extends SharedSpringTest {
         request.setSession(new MockHttpSession());
         assertThrows(
                 IllegalStateException.class,
-                () -> new AppSignInSuccess(sessions, "reporead-dev")
+                () -> new AppSignInSuccess(sessions, "reporead-dev://auth")
                         .onAuthenticationSuccess(
                                 request, new MockHttpServletResponse(), github(42, "test-only-alice")));
         assertEquals(

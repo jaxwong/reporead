@@ -81,7 +81,7 @@ flowchart TB
 ```
 
 - Only 22, 80 and 443 are open on the VM; PostgreSQL, the API port and Actuator listen on loopback ([ADR-14](adrs.md#adr-14--hosted-backend-on-an-oracle-cloud-always-free-vm-debug-builds-stay-on-the-mac)).
-- Every build is signed with one personal key, so each release installs over the last and keeps the phone's data; the debug build is a separate app beside it, with its own data and sign-in scheme ([ADR-12](adrs.md#adr-12--personal-distribution-one-signing-key-backend-over-adb-reverse), [ADR-15](adrs.md#adr-15--app-releases-through-github-releases-installed-by-obtainium)).
+- Every build is signed with one personal key, so each release installs over the last and keeps the phone's data; the debug build is a separate app beside it, with its own data and sign-in redirect ([ADR-12](adrs.md#adr-12--personal-distribution-one-signing-key-backend-over-adb-reverse), [ADR-15](adrs.md#adr-15--app-releases-through-github-releases-installed-by-obtainium)).
 - Restarts and deploys keep GitHub sign-ins: tokens are stored encrypted in PostgreSQL under a key file kept on the host, outside the database ([ADR-03](adrs.md#adr-03--github-user-tokens-stay-on-the-server-encrypted-at-rest)).
 
 ## 3. Backend
@@ -260,7 +260,7 @@ One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), with its own back
 
 ```mermaid
 flowchart TB
-    Main["MainActivity<br/>receives &lt;scheme&gt;://auth"]
+    Main["MainActivity<br/>receives the sign-in redirect"]
     App["RepoReadApp<br/>back stack of Screen"]
     Main --> App
 
@@ -351,14 +351,14 @@ sequenceDiagram
 
     App->>App: create PKCE verifier + S256 challenge
     App->>Tab: open /app/sign-in?code_challenge=…
-    Tab->>API: GET /app/sign-in (challenge, app scheme)
+    Tab->>API: GET /app/sign-in (challenge)
     API->>GH: OAuth authorize (Spring Security: state, PKCE)
     GH-->>Tab: redirect to /login/oauth2/code/github
     Tab->>API: callback with code
     API->>GH: exchange code → user token + refresh token
     API->>API: store tokens encrypted (github_tokens), upsert user,<br/>issue single-use 60 s code bound to challenge,<br/>end the browser session
-    API-->>Tab: redirect reporead://auth?code=… (reporead-dev:// for the debug app)
-    Tab-->>App: deep link to MainActivity
+    API-->>Tab: redirect https://…/app/signed-in?code=… (a verified App Link;<br/>reporead-dev://auth for the debug app)
+    Tab-->>App: Android opens the link in MainActivity
     App->>API: POST /api/app-auth/token {code, codeVerifier, expectedUserId?}
     API-->>App: {accessToken, expiresAt, user} (30 days)
     App->>App: encrypt token with Keystore key

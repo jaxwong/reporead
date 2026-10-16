@@ -12,18 +12,18 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 
 /**
  * Completes the browser half of app sign-in: saves the user, issues a single-use code bound to the app's PKCE
- * challenge, ends the browser session, and redirects to this server's app by its scheme (PendingAppSignIn.appScheme). A
- * login can only start from /app/sign-in (GitHubSecurity.startedByTheApp), so the pending sign-in is always in the
- * session that reaches this callback (PendingAppSignIn).
+ * challenge, ends the browser session, and redirects to this server's app (PendingAppSignIn.appRedirect). A login can
+ * only start from /app/sign-in (GitHubSecurity.startedByTheApp), so the pending sign-in is always in the session that
+ * reaches this callback (PendingAppSignIn).
  */
 final class AppSignInSuccess implements AuthenticationSuccessHandler {
     private static final Logger LOG = LoggerFactory.getLogger(AppSignInSuccess.class);
     private final AppSessions sessions;
-    private final String appScheme;
+    private final String appRedirect;
 
-    AppSignInSuccess(AppSessions sessions, String appScheme) {
+    AppSignInSuccess(AppSessions sessions, String appRedirect) {
         this.sessions = sessions;
-        this.appScheme = appScheme;
+        this.appRedirect = appRedirect;
     }
 
     @Override
@@ -44,7 +44,7 @@ final class AppSignInSuccess implements AuthenticationSuccessHandler {
         }
         long userId = sessions.saveUser(number.longValue(), name);
         String code = sessions.issueSignInCode(userId, codeChallenge);
-        LOG.info("GitHub sign-in completed; userId={} app code issued; scheme={}", userId, appScheme);
-        response.sendRedirect(appScheme + "://auth?code=" + code);
+        LOG.info("GitHub sign-in completed; userId={} app code issued; redirect={}", userId, appRedirect);
+        response.sendRedirect(appRedirect + "?code=" + code);
     }
 }

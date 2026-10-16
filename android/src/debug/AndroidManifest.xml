@@ -1,5 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity android:name=".MainActivity" android:exported="true">
+            <!-- Sign-in handoff on the debug app's own scheme: its backend, on the Mac's loopback address, has no domain
+                 to verify, and sends codes only to this scheme. A code works only with this app's PKCE verifier. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${signInScheme}" android:host="auth" />
+            </intent-filter>
+        </activity>
         <activity android:name=".reader.ReaderTestActivity" android:exported="false" />
     </application>
 </manifest>

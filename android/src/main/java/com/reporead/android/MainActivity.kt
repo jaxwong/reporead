@@ -16,7 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 
 class MainActivity : ComponentActivity() {
-    /** The code from this build's sign-in redirect (<SIGN_IN_SCHEME>://auth), consumed once by the app. */
+    /** The code from this build's sign-in redirect ([BuildConfig.SIGN_IN_REDIRECT]), consumed once by the app. */
     private val signInCode = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
 
     private fun receive(intent: Intent) {
         val uri = intent.data ?: return
-        if (uri.scheme == BuildConfig.SIGN_IN_SCHEME && uri.host == "auth")
+        if (uri.buildUpon().clearQuery().build().toString() == BuildConfig.SIGN_IN_REDIRECT)
             signInCode.value = uri.getQueryParameter("code")
     }
 }
