@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
@@ -75,6 +76,17 @@ public class GitHubHttp {
         return rest;
     }
 
+    /** Counts and logs a GitHub request that got no usable answer: unreachable, timed out, or too large. */
+    private static IOException failed(HttpRequest request, IOException error, MeterRegistry meters) {
+        meters.counter(GITHUB_REQUESTS, "outcome", error instanceof ResponseTooLarge ? "too_large" : "failed")
+                .increment();
+        LOG.warn(
+                "GitHub request failed; endpoint={} failureType={}",
+                request.getURI().getPath(),
+                error.getClass().getSimpleName());
+        return error;
+    }
+
     public static final class ResponseTooLarge extends IOException {
         ResponseTooLarge(String endpoint, int maxBytes) {
             super("GitHub response exceeds " + maxBytes + " bytes at " + endpoint);
@@ -92,8 +104,7 @@ public class GitHubHttp {
             try {
                 response = execution.execute(request, body);
             } catch (IOException error) {
-                meters.counter(GITHUB_REQUESTS, "outcome", "failed").increment();
-                throw error;
+                throw failed(request, error, meters);
             }
             byte[] bytes;
             try {
@@ -103,13 +114,7 @@ public class GitHubHttp {
                 }
             } catch (IOException error) {
                 response.close();
-                meters.counter(GITHUB_REQUESTS, "outcome", error instanceof ResponseTooLarge ? "too_large" : "failed")
-                        .increment();
-                LOG.warn(
-                        "GitHub response failed; endpoint={} failureType={}",
-                        request.getURI().getPath(),
-                        error.getClass().getSimpleName());
-                throw error;
+                throw failed(request, error, meters);
             }
             meters.counter(GITHUB_REQUESTS, "outcome", (response.getStatusCode().value() / 100) + "xx")
                     .increment();

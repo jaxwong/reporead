@@ -119,9 +119,13 @@ public class GitHubSecurity {
                         .successHandler(
                                 new AppSignInSuccess(sessions, PendingAppSignIn.appRedirect(properties.publicUrl())))
                         .failureHandler((request, response, error) -> {
+                            // The OAuth error code says which step failed (state, code exchange, user, allow-list).
                             LOG.warn(
-                                    "GitHub sign-in rejected; failureType={}",
-                                    error.getClass().getSimpleName());
+                                    "GitHub sign-in rejected; failureType={} error={}",
+                                    error.getClass().getSimpleName(),
+                                    error instanceof OAuth2AuthenticationException rejected
+                                            ? rejected.getError().getErrorCode()
+                                            : null);
                             response.sendRedirect("/auth/failed");
                         }));
         return http.build();
