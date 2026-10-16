@@ -81,22 +81,15 @@ public class GitHubSecurity {
             HttpSecurity http,
             ClientRegistrationRepository registrations,
             OAuth2AuthorizedClientService clients,
-            JdkClientHttpRequestFactory githubRequestFactory,
+            RestClientAuthorizationCodeTokenResponseClient githubCodeExchange,
+            DefaultOAuth2UserService githubUserInfo,
             AppSessions sessions,
             AllowedUsers allowed,
-            RepoReadProperties properties,
-            MeterRegistry meters)
+            RepoReadProperties properties)
             throws Exception {
         var pkce = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
         pkce.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
         var resolver = startedByTheApp(pkce);
-
-        var tokenClient = new RestClientAuthorizationCodeTokenResponseClient();
-        tokenClient.setRestClient(tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
-        var userHttp = GitHubHttp.bounded(githubRequestFactory, GitHubHttp.MAX_RESPONSE_BYTES, meters);
-        userHttp.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
-        var userService = new DefaultOAuth2UserService();
-        userService.setRestOperations(userHttp);
 
         http.authorizeHttpRequests(auth -> auth.requestMatchers("/app/sign-in", "/auth/failed", "/error")
                         .permitAll()
@@ -108,9 +101,9 @@ public class GitHubSecurity {
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(new HttpStatusEntryPoint(UNAUTHORIZED)))
                 .oauth2Login(oauth -> oauth.authorizedClientService(clients)
                         .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(resolver))
-                        .tokenEndpoint(endpoint -> endpoint.accessTokenResponseClient(tokenClient))
+                        .tokenEndpoint(endpoint -> endpoint.accessTokenResponseClient(githubCodeExchange))
                         .userInfoEndpoint(endpoint ->
-                                endpoint.userService(request -> allowedOnly(userService.loadUser(request), allowed)))
+                                endpoint.userService(request -> allowedOnly(githubUserInfo.loadUser(request), allowed)))
                         .successHandler(
                                 new AppSignInSuccess(sessions, PendingAppSignIn.appScheme(properties.publicUrl())))
                         .failureHandler((request, response, error) -> {
@@ -169,6 +162,24 @@ public class GitHubSecurity {
         LOG.warn("GitHub sign-in refused: not an allowed user; githubUserId={}", id);
         throw new OAuth2AuthenticationException(
                 new OAuth2Error("access_denied"), "This GitHub account may not use this RepoRead server.");
+    }
+
+    @Bean
+    RestClientAuthorizationCodeTokenResponseClient githubCodeExchange(
+            JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
+        var exchange = new RestClientAuthorizationCodeTokenResponseClient();
+        exchange.setRestClient(tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
+        return exchange;
+    }
+
+    /** Reads the signed-in GitHub user, whose id allowedOnly checks before Spring stores the token. */
+    @Bean
+    DefaultOAuth2UserService githubUserInfo(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
+        var http = GitHubHttp.bounded(githubRequestFactory, GitHubHttp.MAX_RESPONSE_BYTES, meters);
+        http.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
+        var users = new DefaultOAuth2UserService();
+        users.setRestOperations(http);
+        return users;
     }
 
     @Bean

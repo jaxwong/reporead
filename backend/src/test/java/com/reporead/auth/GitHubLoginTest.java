@@ -1,10 +1,15 @@
 package com.reporead.auth;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.reporead.SharedSpringTest;
+import com.reporead.TestEnvironment;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -14,19 +19,43 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
+import org.springframework.security.oauth2.client.endpoint.RestClientAuthorizationCodeTokenResponseClient;
+import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
+import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.test.web.client.match.MockRestRequestMatchers;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 
-// Loud test-only credentials; no GitHub requests or successful OAuth exchange are claimed here.
+// Loud test-only credentials; GitHub is faked at HTTP, and nothing here reaches it.
 class GitHubLoginTest extends SharedSpringTest {
     @Autowired
     MockMvc mvc;
+
+    @Autowired
+    RestClientAuthorizationCodeTokenResponseClient githubCodeExchange;
+
+    @Autowired
+    DefaultOAuth2UserService githubUserInfo;
+
+    @Autowired
+    MeterRegistry meters;
+
+    @Autowired
+    JdbcClient db;
 
     /** A browser session that the app's /app/sign-in began, holding its PKCE challenge. */
     private MockHttpSession appSignIn() throws Exception {
@@ -120,6 +149,77 @@ class GitHubLoginTest extends SharedSpringTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Sign-in failed")));
         mvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * The whole browser half through the real filter chain: the code exchange, GitHub's user, then the allow-list
+     * (ADR-16), which admits 42 and 84 here.
+     */
+    @Test
+    void anAllowedGitHubUserSignsInAndTheirTokenIsStored() throws Exception {
+        TestEnvironment.reset(db);
+        String redirect = signInAsGitHubUser(42)
+                .andExpect(status().isFound())
+                .andReturn()
+                .getResponse()
+                .getRedirectedUrl();
+        assertTrue(redirect.startsWith("reporead-dev://auth?code="), redirect);
+        assertEquals(1, count("github_tokens where github_user_id = 42"));
+        assertEquals(1, count("users where github_user_id = 42"));
+        assertEquals(1, count("app_sign_in_codes"));
+    }
+
+    /** The allow-list refuses while GitHub's answer is still being checked, before Spring stores the token. */
+    @Test
+    void aGitHubUserOffTheAllowListIsRefusedBeforeAnythingIsStored() throws Exception {
+        TestEnvironment.reset(db);
+        signInAsGitHubUser(99).andExpect(status().isFound()).andExpect(redirectedUrl("/auth/failed"));
+        assertEquals(0, count("github_tokens"));
+        assertEquals(0, count("users"));
+        assertEquals(0, count("app_sign_in_codes"));
+    }
+
+    /** Starts the app's sign-in and returns GitHub's callback for {@code githubUserId}, GitHub answering from fakes. */
+    private ResultActions signInAsGitHubUser(long githubUserId) throws Exception {
+        var tokens = RestClient.builder();
+        var tokenEndpoint = MockRestServiceServer.bindTo(tokens).build();
+        githubCodeExchange.setRestClient(GitHubSecurity.tokenApi(tokens, meters));
+        tokenEndpoint
+                .expect(requestTo("https://github.com/login/oauth/access_token"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(
+                        "{\"access_token\":\"TEST_ONLY_TOKEN\",\"expires_in\":28800,"
+                                + "\"refresh_token\":\"TEST_ONLY_REFRESH\",\"refresh_token_expires_in\":15724800,"
+                                + "\"token_type\":\"bearer\",\"scope\":\"\"}",
+                        MediaType.APPLICATION_JSON));
+        var users = new RestTemplate();
+        users.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
+        var userEndpoint = MockRestServiceServer.bindTo(users).build();
+        githubUserInfo.setRestOperations(users);
+        userEndpoint
+                .expect(requestTo("https://api.github.com/user"))
+                .andExpect(MockRestRequestMatchers.header(HttpHeaders.AUTHORIZATION, "Bearer TEST_ONLY_TOKEN"))
+                .andRespond(withSuccess(
+                        "{\"id\":" + githubUserId + ",\"login\":\"test-only-user\"}", MediaType.APPLICATION_JSON));
+        var session = appSignIn();
+        URI authorize =
+                URI.create(mvc.perform(get("/oauth2/authorization/github").session(session))
+                        .andReturn()
+                        .getResponse()
+                        .getHeader("Location"));
+        var callback = mvc.perform(get("/login/oauth2/code/github")
+                .session(session)
+                .param("code", "TEST_ONLY_CODE")
+                .param("state", query(authorize).get("state")));
+        tokenEndpoint.verify();
+        userEndpoint.verify();
+        return callback;
+    }
+
+    private int count(String tableAndCondition) {
+        return db.sql("select count(*) from " + tableAndCondition)
+                .query(Integer.class)
+                .single();
     }
 
     @Test
