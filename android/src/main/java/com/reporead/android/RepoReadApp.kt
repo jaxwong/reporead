@@ -17,7 +17,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -154,7 +153,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val signedIn by remember { store.signedIn() }.collectAsState(remember { store.accessToken() != null })
     var signInMessage by remember { mutableStateOf<String?>(null) }
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
-    val scope = rememberCoroutineScope()
     // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a
     // summary starts from) while covered, as they do across recreation; it is dropped once the entry leaves the stack.
     val screenStates = rememberSaveableStateHolder()
@@ -171,9 +169,9 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
         stack = listOf(Screen.Repositories)
     }
     // Revokes the session on the server when it can, then deletes this phone's copy of private notes, unsynced
-    // changes included.
+    // changes included. In the app's scope: a rotation must not stop it between the two.
     val signOut: () -> Unit = {
-        scope.launch {
+        app.scope.launch {
             val message =
                 try {
                     api.delete("/api/app-auth/session")
@@ -238,6 +236,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                     LibraryScreen(
                         sync,
                         dao,
+                        app.scope,
                         signedIn,
                         push,
                         onSignIn = signIn,
