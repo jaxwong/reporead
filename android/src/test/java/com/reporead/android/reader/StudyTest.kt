@@ -167,6 +167,25 @@ class StudyTest {
     }
 
     @Test
+    fun aCanonicalLineThatMakesNoQuestionIsListedToo() {
+        val html =
+            page(
+                heading(0, "Applied questions") +
+                    // Under no question heading.
+                    answer(1, "Canonical answer", "target=x" to "X") +
+                    // Questions written as H4s under one H3: which line answers the H3 is unknown.
+                    heading(2, "Transactions", 3) +
+                    heading(3, "1. Why?", 4) +
+                    answer(4, "Canonical answer", "target=a" to "A") +
+                    heading(5, "2. How?", 4) +
+                    answer(6, "Canonical answer", "target=b" to "B")
+            )
+        val bank = interviewBank(html, bank)
+        assertEquals(emptyList<StudyQuestion>(), bank.questions)
+        assertEquals(listOf("Canonical answer: X", "Transactions"), bank.unrecognized)
+    }
+
+    @Test
     fun anAnswerLineWithoutALinkStillMakesAQuestion() {
         val question =
             interviewBank(page(heading(0, "1. Why?", 3) + block(1, "Canonical answer: see the note", "p")), bank)
