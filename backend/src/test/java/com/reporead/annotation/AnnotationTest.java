@@ -214,7 +214,7 @@ class AnnotationTest {
     @Test
     void replayAfterALostAcknowledgementReturnsTheOriginalWithoutGitHub() throws Exception {
         expectSource(ExpectedCount.once());
-        double created = total(AnnotationController.CREATED);
+        double created = total(AnnotationService.CREATED);
         String json = body(UUID.randomUUID().toString(), "b2", START, EXACT, null);
         String first = create(alice, note, json)
                 .andExpect(status().isCreated())
@@ -228,7 +228,7 @@ class AnnotationTest {
                 .getContentAsString();
         assertEquals(first, second);
         assertEquals(1, count("annotations"));
-        assertEquals(created + 1, total(AnnotationController.CREATED), "a replay is not counted as a new highlight");
+        assertEquals(created + 1, total(AnnotationService.CREATED), "a replay is not counted as a new highlight");
     }
 
     @Test
@@ -447,7 +447,7 @@ class AnnotationTest {
         next();
         moveNoteTo(REWRITTEN_SHA);
         expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
-        double orphaned = meters.counter(AnnotationController.REANCHOR, "outcome", "ORPHANED")
+        double orphaned = meters.counter(AnnotationService.REANCHOR, "outcome", "ORPHANED")
                 .count();
         list(alice)
                 .andExpect(jsonPath("$.annotations[0].status").value("ORPHANED"))
@@ -458,7 +458,7 @@ class AnnotationTest {
                 .andExpect(jsonPath("$.annotations[0].note").value("about proxies"));
         assertEquals(
                 orphaned + 1,
-                meters.counter(AnnotationController.REANCHOR, "outcome", "ORPHANED")
+                meters.counter(AnnotationService.REANCHOR, "outcome", "ORPHANED")
                         .count());
         next();
 
@@ -531,14 +531,14 @@ class AnnotationTest {
         createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
         next();
         expectVersion(ExpectedCount.between(1, 4), CURRENT_SHA, CURRENT);
-        double resolutions = total(AnnotationController.REANCHOR);
+        double resolutions = total(AnnotationService.REANCHOR);
         Callable<Integer> listing = () -> list(alice).andReturn().getResponse().getStatus();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             for (var result : executor.invokeAll(List.of(listing, listing, listing, listing)))
                 assertEquals(200, result.get());
         }
         assertEquals(1, count("annotation_locations"));
-        assertEquals(resolutions + 1, total(AnnotationController.REANCHOR), "only the applied resolution is counted");
+        assertEquals(resolutions + 1, total(AnnotationService.REANCHOR), "only the applied resolution is counted");
         assertEquals(
                 List.of("REANCHORED", CURRENT_SHA),
                 db.sql("select status, resolved_blob_sha from annotations")
