@@ -172,16 +172,12 @@ class Sync(
      * The saved copy is the current version of [document], a listed note: same blob and same path (the page shows the
      * path and resolves relative images against it).
      */
-    private fun sameVersion(cached: NoteRow?, document: DocumentRow?) =
-        cached != null &&
-            document != null &&
-            !document.deleted &&
-            cached.blobSha == document.blobSha &&
-            cached.path == document.path
+    private fun sameVersion(cached: NoteRow, document: DocumentRow?) =
+        document != null && !document.deleted && cached.blobSha == document.blobSha && cached.path == document.path
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
-    private fun upToDate(cached: NoteRow?, document: DocumentRow?) =
-        sameVersion(cached, document) && cached!!.renderFormat >= RENDER_FORMAT
+    private fun upToDate(cached: NoteRow, document: DocumentRow?) =
+        sameVersion(cached, document) && cached.renderFormat >= RENDER_FORMAT
 
     /**
      * A cached copy of the document's current version and path opens without a network call. Otherwise the current
@@ -192,7 +188,7 @@ class Sync(
     suspend fun openNote(documentId: Long): Opened {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
-        if (upToDate(cached, current)) return Opened(cached!!, null)
+        if (cached != null && upToDate(cached, current)) return Opened(cached, null)
         return try {
             Opened(oneSyncAtATime.withLock { fetchNote(documentId) }, null)
         } catch (error: ApiException) {
@@ -242,7 +238,10 @@ class Sync(
     suspend fun saveAllNotes(repositoryId: Long, onProgress: (done: Int, toFetch: Int) -> Unit): SavedAll {
         refreshDocuments(repositoryId)
         val documents = dao.listedDocuments(repositoryId)
-        val missing = documents.filter { !upToDate(dao.note(it.id), it) }
+        val missing = documents.filter { document ->
+            val saved = dao.note(document.id)
+            saved == null || !upToDate(saved, document)
+        }
         Log.i(
             "RepoRead",
             "Saving all notes; repositoryId=$repositoryId documents=${documents.size} toFetch=${missing.size}",
@@ -707,8 +706,10 @@ class Sync(
 
     private suspend fun sendReviews() {
         for (row in dao.pendingReviews()) {
-            val card = dao.annotation(row.cardMutationId)
-            if (card == null) error("Review ${row.mutationId} references missing local card ${row.cardMutationId}")
+            val card =
+                checkNotNull(dao.annotation(row.cardMutationId)) {
+                    "Review ${row.mutationId} references missing local card ${row.cardMutationId}"
+                }
             if (card.state == AnnotationState.REFUSED) {
                 dao.rejectReview(row.mutationId, "Card creation was refused: ${card.rejection}")
                 continue

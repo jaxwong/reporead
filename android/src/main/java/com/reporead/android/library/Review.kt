@@ -585,12 +585,12 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                         saving = true
                         val review =
                             ReviewRow(
-                                UUID.randomUUID().toString(),
-                                id,
-                                grade,
-                                System.currentTimeMillis(),
-                                row.drawn.blobSha,
-                                true,
+                                mutationId = UUID.randomUUID().toString(),
+                                cardMutationId = id,
+                                grade = grade,
+                                reviewedAt = System.currentTimeMillis(),
+                                blobSha = row.drawn.blobSha,
+                                pending = true,
                             )
                         scope.launch {
                             try {

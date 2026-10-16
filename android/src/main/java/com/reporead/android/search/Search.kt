@@ -48,11 +48,14 @@ internal fun snippet(text: String, query: String): String {
 
 internal data class SearchResult(val documentId: Long, val title: String, val path: String, val detail: String)
 
+/** The matches listed for a query; [truncated] when either kind reached [SEARCH_LIMIT], so more exist. */
+internal data class SearchResults(val matches: List<SearchResult>, val truncated: Boolean)
+
 /**
  * Searches only what is saved on this phone, which belongs to the signed-in account: note titles and paths in the saved
  * lists, the text of saved notes, and highlights with their notes.
  */
-internal suspend fun search(dao: LibraryDao, query: String): Pair<List<SearchResult>, Boolean> {
+internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
     val pattern = likePattern(query)
     val notes = dao.searchNotes(pattern, SEARCH_LIMIT)
     val highlights = dao.searchHighlights(pattern, SEARCH_LIMIT)
@@ -81,13 +84,13 @@ internal suspend fun search(dao: LibraryDao, query: String): Pair<List<SearchRes
                     else "Your note: ${snippet(highlight.note!!, query)}",
                 )
             }
-    return results to (notes.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT)
+    return SearchResults(results, truncated = notes.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT)
 }
 
 @Composable
 fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    var results by remember { mutableStateOf<Pair<List<SearchResult>, Boolean>?>(null) }
+    var results by remember { mutableStateOf<SearchResults?>(null) }
     var counts by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     LaunchedEffect(Unit) { counts = dao.savedListCount() to dao.searchableNoteCount() }
     LaunchedEffect(query) {
@@ -118,7 +121,7 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
                         } ?: ""
                     )
                 found == null -> Unit
-                found.first.isEmpty() ->
+                found.matches.isEmpty() ->
                     EmptyState(
                         "No saved note matches “${query.trim()}”." +
                             counts
@@ -131,14 +134,14 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
                     )
                 else ->
                     LazyColumn {
-                        if (found.second)
+                        if (found.truncated)
                             item {
                                 Text(
                                     "Showing the first $SEARCH_LIMIT matches; refine the search to see others.",
                                     Modifier.padding(16.dp),
                                 )
                             }
-                        itemsIndexed(found.first) { _, result ->
+                        itemsIndexed(found.matches) { _, result ->
                             EntryRow(
                                 result.title,
                                 result.detail,

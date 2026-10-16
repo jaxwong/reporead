@@ -299,6 +299,9 @@ data class NotebookItem(
     val savedBlobSha: String?,
 )
 
+/** Ids bound in one statement, so it stays under SQLite's limit on bound variables. */
+private const val IDS_PER_STATEMENT = 500
+
 @Dao
 interface LibraryDao {
     @Query("select * from repositories order by fullName") fun repositories(): Flow<List<RepositoryRow>>
@@ -373,8 +376,7 @@ interface LibraryDao {
      */
     @Transaction
     suspend fun forgetRepository(repositoryId: Long, documentIds: List<Long>) {
-        // Bounded so each statement stays under SQLite's limit on bound variables.
-        for (chunk in documentIds.chunked(500)) {
+        for (chunk in documentIds.chunked(IDS_PER_STATEMENT)) {
             deleteNotes(chunk)
             deleteReading(chunk)
             deleteBookmarks(chunk)
@@ -442,7 +444,7 @@ interface LibraryDao {
     @Transaction
     suspend fun forgetUnreferencedNotes(): List<Long> {
         val ids = unreferencedNoteIds()
-        for (chunk in ids.chunked(500)) deleteNotes(chunk)
+        for (chunk in ids.chunked(IDS_PER_STATEMENT)) deleteNotes(chunk)
         return ids
     }
 
