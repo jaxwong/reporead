@@ -190,7 +190,7 @@ public class DocumentController {
         try {
             old = noteVersions.render(user, document, since);
         } catch (ApiFailure failure) {
-            if (failure.code != Code.SOURCE_NOT_FOUND && failure.code != Code.UNSUPPORTED_CONTENT) throw failure;
+            if (!NoteVersions.versionUnavailable(failure)) throw failure;
             return Changes.sinceUnavailable(document.id(), since, to, failure.getMessage());
         }
         var current = noteVersions.render(user, document, to);

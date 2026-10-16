@@ -72,7 +72,13 @@ public class GitHubApi {
     /** Installation IDs of this GitHub App that the user can access; a complete list of at most 10. */
     public List<Long> installations(String token) {
         var page = object(
-                get(githubUserApi, uri("/user/installations?per_page=100"), token, JSON, GitHubApi::accessDenied),
+                get(
+                        githubUserApi,
+                        uri("/user/installations?per_page=100"),
+                        token,
+                        JSON,
+                        GitHubApi::accessDenied,
+                        GitHubApi::responseLimit),
                 "installation");
         var items = completeList(
                 page,
@@ -98,7 +104,8 @@ public class GitHubApi {
                         uri("/user/installations/" + installationId + "/repositories?per_page=" + MAX_REPOSITORIES),
                         token,
                         JSON,
-                        GitHubApi::accessDenied),
+                        GitHubApi::accessDenied,
+                        GitHubApi::responseLimit),
                 "repository");
         var items = completeList(
                 page,
@@ -134,7 +141,8 @@ public class GitHubApi {
                         JSON,
                         () -> new ApiFailure(
                                 Code.DEFAULT_BRANCH_NOT_FOUND,
-                                "The default branch was not found: the repository may be empty or no longer accessible, or its default branch was renamed (then tap Update on it under Add repository).")),
+                                "The default branch was not found: the repository may be empty or no longer accessible, or its default branch was renamed (then tap Update on it under Add repository)."),
+                        GitHubApi::responseLimit),
                 "branch");
         var commit = body.get("commit");
         String commitSha = string(commit, "sha", "branch commit");
@@ -153,7 +161,8 @@ public class GitHubApi {
                         uri("/repos/{owner}/{name}/git/trees/{sha}?recursive=1", owner, name, treeSha),
                         token,
                         JSON,
-                        GitHubApi::accessDenied),
+                        GitHubApi::accessDenied,
+                        GitHubApi::responseLimit),
                 "tree");
         var truncated = body.get("truncated");
         var entries = body.get("tree");
@@ -181,21 +190,16 @@ public class GitHubApi {
 
     /** Raw blob bytes, bounded by the shared 1 MiB response ceiling, which equals the reader's note limit. */
     public byte[] blob(String token, String owner, String name, String sha) {
-        byte[] bytes;
-        try {
-            bytes = get(
-                    githubUserApi,
-                    uri("/repos/{owner}/{name}/git/blobs/{sha}", owner, name, sha),
-                    token,
-                    RAW,
-                    () -> new ApiFailure(
-                            Code.SOURCE_NOT_FOUND, "GitHub no longer has this note version; refresh the repository."));
-        } catch (ApiFailure failure) {
-            if (failure.code != Code.GITHUB_RESPONSE_LIMIT) throw failure;
-            throw new ApiFailure(
-                    Code.UNSUPPORTED_CONTENT,
-                    "This note exceeds the " + GitHubHttp.MAX_RESPONSE_BYTES / 1_048_576 + " MiB reader limit.");
-        }
+        byte[] bytes = get(
+                githubUserApi,
+                uri("/repos/{owner}/{name}/git/blobs/{sha}", owner, name, sha),
+                token,
+                RAW,
+                () -> new ApiFailure(
+                        Code.SOURCE_NOT_FOUND, "GitHub no longer has this note version; refresh the repository."),
+                () -> new ApiFailure(
+                        Code.UNSUPPORTED_CONTENT,
+                        "This note exceeds the " + GitHubHttp.MAX_RESPONSE_BYTES / 1_048_576 + " MiB reader limit."));
         LOG.info("GitHub blob read; bytes={}", bytes.length);
         return bytes;
     }
@@ -216,19 +220,13 @@ public class GitHubApi {
                 + "/"
                 + UriUtils.encodePathSegment(name, StandardCharsets.UTF_8) + "/contents/" + String.join("/", segments)
                 + "?ref=" + UriUtils.encodeQueryParam(commitSha, StandardCharsets.UTF_8));
-        byte[] bytes;
-        try {
-            bytes = get(
-                    githubImageApi,
-                    uri,
-                    token,
-                    RAW,
-                    () -> new ApiFailure(
-                            Code.IMAGE_NOT_FOUND, "This image is not in the repository at the note's commit."));
-        } catch (ApiFailure failure) {
-            if (failure.code != Code.GITHUB_RESPONSE_LIMIT) throw failure;
-            throw new ApiFailure(Code.UNSUPPORTED_CONTENT, "This image exceeds the 5 MiB reader limit.");
-        }
+        byte[] bytes = get(
+                githubImageApi,
+                uri,
+                token,
+                RAW,
+                () -> new ApiFailure(Code.IMAGE_NOT_FOUND, "This image is not in the repository at the note's commit."),
+                () -> new ApiFailure(Code.UNSUPPORTED_CONTENT, "This image exceeds the 5 MiB reader limit."));
         LOG.info("GitHub image read; bytes={}", bytes.length);
         return bytes;
     }
@@ -241,7 +239,17 @@ public class GitHubApi {
                 .toUri();
     }
 
-    private byte[] get(RestTemplate api, URI uri, String token, MediaType accept, Supplier<ApiFailure> notFound) {
+    /**
+     * One GET. {@code notFound} is what a 404 means for this resource, and {@code tooLarge} what a response over the
+     * client's size ceiling means.
+     */
+    private byte[] get(
+            RestTemplate api,
+            URI uri,
+            String token,
+            MediaType accept,
+            Supplier<ApiFailure> notFound,
+            Supplier<ApiFailure> tooLarge) {
         var request = RequestEntity.get(uri)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .accept(accept)
@@ -267,10 +275,7 @@ public class GitHubApi {
             if (status == 403) throw accessDenied();
             throw invalid("GitHub returned an unexpected HTTP status.");
         } catch (ResourceAccessException error) {
-            if (error.getCause() instanceof GitHubHttp.ResponseTooLarge) {
-                throw new ApiFailure(
-                        Code.GITHUB_RESPONSE_LIMIT, "GitHub exceeded the response-size limit; nothing was changed.");
-            }
+            if (error.getCause() instanceof GitHubHttp.ResponseTooLarge) throw tooLarge.get();
             throw new ApiFailure(
                     Code.GITHUB_UNAVAILABLE, "The GitHub request failed or timed out; nothing was changed.");
         }
@@ -329,6 +334,11 @@ public class GitHubApi {
             throw invalid("GitHub " + what + " metadata requires " + field + ".");
         }
         return value.stringValue();
+    }
+
+    private static ApiFailure responseLimit() {
+        return new ApiFailure(
+                Code.GITHUB_RESPONSE_LIMIT, "GitHub exceeded the response-size limit; nothing was changed.");
     }
 
     private static ApiFailure accessDenied() {
