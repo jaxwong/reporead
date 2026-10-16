@@ -189,7 +189,7 @@ class PracticeSessionTest {
             // A new session asks only questions without a card.
             ActivityScenario.launch(ReaderTestActivity::class.java).use {
                 awaitText(
-                    "No new questions here: each saved question already has a card. They come back under Review when due."
+                    "No new questions here: each question in its up-to-date banks already has a card. They come back under Review when due."
                 )
             }
         }

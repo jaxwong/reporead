@@ -99,13 +99,14 @@ interface LibraryDao {
     @Query("select * from notes where documentId = :documentId") suspend fun note(documentId: Long): NoteRow?
 
     /**
-     * The listed notes in a folder named `interview`, with their saved pages. Only banks: loading every saved note's
-     * page to find them exhausted the 256 MB heap on the Pixel (OutOfMemoryError in this query, 2026-10-14). The match
-     * is a superset of isInterviewBank (LIKE ignores ASCII case), which still decides.
+     * The listed notes in a folder named `interview`, each with its saved page only when that page is the listed
+     * version: an older copy reads as unsaved, so Practice never asks a question whose grade would be refused. Only
+     * banks: loading every saved page to find them exhausts the 256 MB heap (invariants, Bounded memory). The match is
+     * a superset of isInterviewBank (LIKE ignores ASCII case), which still decides.
      */
     @Query(
         """select d.id as documentId, d.title, d.path, n.html, n.blobSha
-              from documents d left join notes n on n.documentId = d.id
+              from documents d left join notes n on n.documentId = d.id and n.blobSha = d.blobSha
               where not d.deleted and ('/' || d.path) like '%/interview/%' order by d.id"""
     )
     fun bankPages(): Flow<List<PracticePage>>
