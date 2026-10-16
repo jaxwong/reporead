@@ -186,7 +186,7 @@ public class RepositorySync {
                     .note()
                     .blocks()));
         } catch (ApiFailure failure) {
-            if (failure.code != Code.SOURCE_NOT_FOUND && failure.code != Code.UNSUPPORTED_CONTENT) throw failure;
+            if (!NoteVersions.versionUnavailable(failure)) throw failure;
             LOG.info(
                     "Content move candidate skipped; connectionId={} path={} blobSha={} code={}",
                     connection.id(),

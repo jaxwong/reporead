@@ -335,6 +335,29 @@ class DocumentContentTest {
     }
 
     @Test
+    void anOldVersionThatIsNoLongerAReadableNoteIsUnavailable() throws Exception {
+        String current = Hashes.gitBlobSha(CURRENT);
+        long id = document("a.md", current, false);
+        byte[] latin1 = "caf\u00e9".getBytes(StandardCharsets.ISO_8859_1);
+        String old = Hashes.gitBlobSha(latin1);
+        expectBlob(old, withSuccess(latin1, MediaType.APPLICATION_OCTET_STREAM));
+        changes(alice, id, old, current)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SINCE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.reason").value("This note is not valid UTF-8 text."));
+    }
+
+    @Test
+    void anOutageReadingTheOldVersionFailsTheComparisonInsteadOfCallingItUnavailable() throws Exception {
+        String current = Hashes.gitBlobSha(CURRENT);
+        long id = document("a.md", current, false);
+        expectBlob("e".repeat(40), withServiceUnavailable());
+        changes(alice, id, "e".repeat(40), current)
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("GITHUB_UNAVAILABLE"));
+    }
+
+    @Test
     void anEditTooLargeToSummarizeSaysSoInsteadOfAPartialList() throws Exception {
         var before = new StringBuilder("# Big\n");
         var after = new StringBuilder("# Big\n");

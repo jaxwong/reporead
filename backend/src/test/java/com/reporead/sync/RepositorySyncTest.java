@@ -807,6 +807,29 @@ class RepositorySyncTest {
     }
 
     @Test
+    void anOldVersionThatIsNoLongerAReadableNoteOnlyExcludesThatCandidate() throws Exception {
+        // GitHub still has the old version, but it is not UTF-8, so it cannot be compared as a note.
+        byte[] before = "# ingest\n\ncaf\u00e9 notes".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] after = note("ingest", "reads");
+        expectSync(
+                COMMIT_B,
+                TREE_B,
+                withSuccess(
+                        tree(
+                                false,
+                                entry("pipelines/ingest.md", "100644", "blob", sha(after)),
+                                entry("other.md", "100644", "blob", BLOB_2)),
+                        MediaType.APPLICATION_JSON));
+        expectBlob(before);
+        expectBlob(after);
+        sync(alice, connection).andExpect(status().isOk());
+        assertNotEquals(id, documentId("pipelines/ingest.md"));
+        assertEquals(COMMIT_B, checkpoint());
+    }
+
+    @Test
     void anOutageWhileComparingFailsTheSyncWithoutChanges() throws Exception {
         byte[] before = note("ingest", "reads");
         long id = syncedNote("backend/ingest.md", before);

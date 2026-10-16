@@ -27,6 +27,14 @@ public class NoteVersions {
 
     public record Rendered(MarkdownRenderer.RenderedNote note, int bytes, String markdown) {}
 
+    /**
+     * A version GitHub no longer has (rewritten history), or one that is not a note RepoRead can read: what callers
+     * comparing versions treat as unavailable rather than as a failure. Anything else fails the request.
+     */
+    public static boolean versionUnavailable(ApiFailure failure) {
+        return failure.code == Code.SOURCE_NOT_FOUND || failure.code == Code.UNSUPPORTED_CONTENT;
+    }
+
     public Rendered render(AppUser user, Documents.Located document, String blobSha) {
         return render(user, document.owner(), document.repositoryName(), document.path(), blobSha);
     }
