@@ -509,6 +509,41 @@ class RepositorySyncTest extends SharedSpringTest {
     }
 
     @Test
+    void contentAnotherNoteStillHasIsNoEvidenceOfAMove() throws Exception {
+        expectSync(
+                COMMIT_A,
+                TREE_A,
+                withSuccess(
+                        tree(
+                                false,
+                                entry("kept.md", "100644", "blob", BLOB_1),
+                                entry("old.md", "100644", "blob", BLOB_1)),
+                        MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        long old = documentId("old.md");
+
+        next();
+        // Untouched copies of one template: deleting one and creating another is not a move of the deleted one.
+        expectSync(
+                COMMIT_B,
+                TREE_B,
+                withSuccess(
+                        tree(
+                                false,
+                                entry("kept.md", "100644", "blob", BLOB_1),
+                                entry("new.md", "100644", "blob", BLOB_1)),
+                        MediaType.APPLICATION_JSON));
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(List.of("kept.md", "new.md"), activePaths());
+        assertNotEquals(old, documentId("new.md"));
+        assertEquals(
+                old,
+                db.sql("select id from documents where deleted_at is not null")
+                        .query(Long.class)
+                        .single());
+    }
+
+    @Test
     void aPathThatOnceHadADocumentResumesItInsteadOfReceivingAMove() throws Exception {
         expectSync(
                 COMMIT_A,
