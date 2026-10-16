@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.MotionEvent
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -116,6 +117,10 @@ internal class ReaderSession(
     var barsShown by mutableStateOf(true)
         private set
 
+    /** The page's renderer is gone (it crashed, or the system reclaimed it), so the screen no longer shows the page. */
+    var stopped by mutableStateOf(false)
+        private set
+
     private val main = Handler(Looper.getMainLooper())
     private var view: WebView? = null
     /**
@@ -178,6 +183,19 @@ internal class ReaderSession(
         override fun onPageFinished(view: WebView, url: String) {
             opening?.cancel()
             opening = appScope.launch { open(view) }
+        }
+
+        // Returning false would end the app with the renderer. This page is lost and can run nothing more, so it saves
+        // nothing; the position saved last stands.
+        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            Log.w("RepoRead", "Reader page stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
+            main.removeCallbacksAndMessages(null)
+            opening?.cancel()
+            opened = false
+            this@ReaderSession.view = null
+            stopped = true
+            onMessage("This page stopped: Android ended the process that draws it. Go back and open the note again.")
+            return true
         }
     }
 

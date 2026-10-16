@@ -145,3 +145,4 @@ These are facts of the platform, not decisions, but breaking them breaks the rea
 - In the app's WebView, `100vh`, `100dvh` and `100svh` measure 0. Size page elements in percent of the viewport. Headless Chrome resolves them normally, so check sizing on the phone.
 - `scrollIntoView` does nothing for a Mermaid source collapsed under its diagram; measure and scroll through the rendered diagram.
 - Showing or hiding bars while a finger is on the page moves the WebView under it and reads as a scroll the other way; change bars only when the finger lifts.
+- A WebView's renderer can die (a crash, or Android reclaiming it). Unless the WebView's client handles `onRenderProcessGone` (returns true and takes the WebView out of the layout), the app dies with it. `chrome://crash` triggers it for a test.

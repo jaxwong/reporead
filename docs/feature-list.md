@@ -141,6 +141,7 @@ Covered by automated tests only, or not at all:
 - Sign-ins surviving a deploy, and GitHub revocation on the last sign-out, with the real phone and hosted backend.
 - Practice and Review with real grades (fixture tests only), a successful **Answer is still right** against the real server, and the Practice tab's due badge.
 - Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
+- A WebView renderer that stops for real: tested with `chrome://crash` only.
 - The deploy script's dump before the restart and its failed-deploy path on the VM: checked in a container with stubbed services; the VM's copy changes only by hand.
 
 ## Personal-project definition of done

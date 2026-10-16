@@ -154,25 +154,28 @@ private fun ColumnScope.AnswerSection(
                 return
             }
             var notice by remember(saved.blobSha, link) { mutableStateOf<String?>(null) }
+            var failed by remember(saved.blobSha, link) { mutableStateOf(false) }
             if (saved.blobSha != note.document.blobSha)
                 Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
             notice?.let { Text(it) }
-            AndroidView(
-                factory = { context ->
-                    sectionView(
-                        context,
-                        sync,
-                        saved,
-                        link.heading,
-                        onProblem = { notice = it },
-                        onFigure = { figure ->
-                            push(Screen.Figure(saved.documentId, saved.blobSha, figure, saved.title))
-                        },
-                    )
-                },
-                onRelease = { it.destroy() },
-                modifier = Modifier.fillMaxWidth().weight(1f),
-            )
+            if (!failed)
+                AndroidView(
+                    factory = { context ->
+                        sectionView(
+                            context,
+                            sync,
+                            saved,
+                            link.heading,
+                            onProblem = { notice = it },
+                            onFailed = { failed = true },
+                            onFigure = { figure ->
+                                push(Screen.Figure(saved.documentId, saved.blobSha, figure, saved.title))
+                            },
+                        )
+                    },
+                    onRelease = { it.destroy() },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
         }
     }
 }
@@ -190,6 +193,7 @@ private fun sectionView(
     note: NoteRow,
     heading: String?,
     onProblem: (String) -> Unit,
+    onFailed: () -> Unit,
     onFigure: (String) -> Unit,
 ): WebView =
     WebView(context).apply {
@@ -199,7 +203,10 @@ private fun sectionView(
             "Answer section",
             "window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})",
             onFullScreen = onFigure,
-            onFailed = { onProblem("${note.title} could not be shown.") },
+            onFailed = {
+                onProblem("${note.title} could not be shown.")
+                onFailed()
+            },
         ) { found ->
             if (!found) {
                 Log.w(
