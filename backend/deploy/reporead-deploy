@@ -30,6 +30,14 @@ unzip -tq "$incoming" >/dev/null 2>&1 || not_a_jar
 entries=$(unzip -Z1 "$incoming")
 grep -qx 'BOOT-INF/classes/com/reporead/RepoReadApplication.class' <<<"$entries" || not_a_jar
 
+# The VM's copies of backend/deploy change only by hand; their SHA-256s let CI fail the run when one differs from
+# the repository's (.github/workflows/backend.yml). Printed before this deploy changes anything. A missing file prints
+# nothing, which CI reports as missing.
+shopt -s nullglob
+for installed in /usr/local/sbin/reporead-* /etc/systemd/system/reporead-backup.*; do
+  echo "reporead-deploy: installed $(basename "$installed") $(sha256sum "$installed" | cut -d' ' -f1)"
+done
+
 healthy() {
   local deadline=$((SECONDS + HEALTH_WAIT_SECONDS))
   until curl -sf -m 5 "$HEALTH" >/dev/null; do
