@@ -10,15 +10,19 @@ import jakarta.servlet.http.HttpServletRequest;
 final class PendingAppSignIn {
     static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
 
+    /** The release app's sign-in link on the hosted origin, which assetlinks.json lets only that app open. */
+    static final String SIGNED_IN = "/app/signed-in";
+
     private PendingAppSignIn() {}
 
     /**
-     * The sign-in scheme of the one app that uses this server: the release app's on an HTTPS origin, the debug app's on
-     * the Mac's loopback address (GitHubSecurity.callbackUri allows only those two). A server never sends a code to the
-     * other app's scheme, which any app could register on a phone without that app.
+     * Where the one app that uses this server receives its code. On an HTTPS origin, the release app's verified App
+     * Link: Android hands it only to the app signed with the key static/.well-known/assetlinks.json names, so no other
+     * app can claim it. On the Mac's loopback address (GitHubSecurity.callbackUri allows only those two), the debug
+     * app's own scheme, as a loopback address has no domain to verify.
      */
-    static String appScheme(String publicUrl) {
-        return publicUrl.startsWith("https://") ? "reporead" : "reporead-dev";
+    static String appRedirect(String publicUrl) {
+        return publicUrl.startsWith("https://") ? publicUrl + SIGNED_IN : "reporead-dev://auth";
     }
 
     /**

@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".MainActivity" android:exported="true">
+            <!-- Sign-in handoff: the hosted backend ends sign-in at this link, and Android verifies that its domain lets
+                 only this app, signed with the key its .well-known/assetlinks.json names, open it. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${hostedBackend}" android:path="/app/signed-in" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

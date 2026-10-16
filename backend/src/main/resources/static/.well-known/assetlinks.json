@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.reporead.android",
+      "sha256_cert_fingerprints": [
+        "20:49:29:9F:C6:E4:0D:C6:66:FB:2A:7A:40:7F:51:05:9B:FB:3C:C3:E9:A3:2E:9C:C3:8D:91:A1:E1:53:29:3F"
+      ]
+    }
+  }
+]

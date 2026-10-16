@@ -59,9 +59,8 @@ class GitHubLoginTest extends SharedSpringTest {
 
     /** A browser session that the app's /app/sign-in began, holding its PKCE challenge. */
     private MockHttpSession appSignIn() throws Exception {
-        return (MockHttpSession) mvc.perform(get("/app/sign-in")
-                        .param("code_challenge", TestSessions.challenge(TestSessions.verifier()))
-                        .param("scheme", "reporead-dev"))
+        return (MockHttpSession) mvc.perform(
+                        get("/app/sign-in").param("code_challenge", TestSessions.challenge(TestSessions.verifier())))
                 .andExpect(status().isFound())
                 .andReturn()
                 .getRequest()
@@ -113,9 +112,7 @@ class GitHubLoginTest extends SharedSpringTest {
                     mvc.perform(get(path)).andExpect(status().isUnauthorized()).andReturn();
             assertNull(refused.getRequest().getSession(false), path);
         }
-        var malformed = mvc.perform(get("/app/sign-in")
-                        .param("code_challenge", "test-only-short")
-                        .param("scheme", "reporead-dev"))
+        var malformed = mvc.perform(get("/app/sign-in").param("code_challenge", "test-only-short"))
                 .andExpect(status().isBadRequest())
                 .andReturn();
         assertNull(malformed.getRequest().getSession(false));

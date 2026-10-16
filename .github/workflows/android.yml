@@ -89,11 +89,13 @@ jobs:
 
       - name: Check the APK is signed with the personal key
         run: |
-          # SHA-256 of the personal signing certificate (android/README.md). An APK signed by any other key could not
-          # update the installed app, so a wrong secret must fail here rather than publish.
+          # SHA-256 of the personal signing certificate (android/README.md), read from the hosted server's
+          # .well-known/assetlinks.json: the key that statement lets open the sign-in link is the key the APK must have.
+          # An APK signed by any other key could not update the installed app, so a wrong secret must fail here.
           # The digest is computed from the PEM certificate, not parsed from apksigner's prose, whose wording changed
           # between build-tools 36 ("Signer #1 certificate …") and 37 ("V2 Signer: certificate …").
-          expected=2049299fc6e40dc666fb2a7a407f51059bfb3cc3e9a32e9cc38d91a1e153293f
+          expected=$(jq -r '.[0].target.sha256_cert_fingerprints[0]' backend/src/main/resources/static/.well-known/assetlinks.json \
+            | tr -d ':' | tr 'A-F' 'a-f')
           apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
           certs=$("$apksigner" verify --print-certs-pem android/build/outputs/apk/release/app-release.apk)
           count=$(grep -c 'BEGIN CERTIFICATE' <<<"$certs" || true)

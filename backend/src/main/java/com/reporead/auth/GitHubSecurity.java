@@ -91,7 +91,12 @@ public class GitHubSecurity {
         pkce.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
         var resolver = startedByTheApp(pkce);
 
-        http.authorizeHttpRequests(auth -> auth.requestMatchers("/app/sign-in", "/auth/failed", "/error")
+        http.authorizeHttpRequests(auth -> auth.requestMatchers(
+                                "/app/sign-in",
+                                PendingAppSignIn.SIGNED_IN,
+                                "/.well-known/assetlinks.json",
+                                "/auth/failed",
+                                "/error")
                         .permitAll()
                         .anyRequest()
                         .denyAll())
@@ -105,7 +110,7 @@ public class GitHubSecurity {
                         .userInfoEndpoint(endpoint ->
                                 endpoint.userService(request -> allowedOnly(githubUserInfo.loadUser(request), allowed)))
                         .successHandler(
-                                new AppSignInSuccess(sessions, PendingAppSignIn.appScheme(properties.publicUrl())))
+                                new AppSignInSuccess(sessions, PendingAppSignIn.appRedirect(properties.publicUrl())))
                         .failureHandler((request, response, error) -> {
                             LOG.warn(
                                     "GitHub sign-in rejected; failureType={}",

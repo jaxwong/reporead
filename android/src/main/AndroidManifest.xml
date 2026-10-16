@@ -21,14 +21,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Sign-in handoff on this build's own scheme: the server it uses sends codes only to this scheme, and a
-                 code works only with this app's PKCE verifier. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="${signInScheme}" android:host="auth" />
-            </intent-filter>
+            <!-- Sign-in handoff: each build type's manifest (src/debug, src/release) declares where it receives the
+                 code. -->
         </activity>
     </application>
 </manifest>

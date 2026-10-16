@@ -21,7 +21,8 @@ private fun base64Url(bytes: ByteArray) =
 
 /**
  * Opens GitHub sign-in in a Custom Tab, bound to a fresh PKCE verifier that never leaves this device. The server sends
- * the code back on this build's own scheme, so the release and debug apps installed side by side each get their own.
+ * the code to this build's own redirect ([BuildConfig.SIGN_IN_REDIRECT]): the release app's verified App Link, or the
+ * debug app's scheme on the Mac's backend.
  */
 fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
     val verifier = base64Url(ByteArray(32).also(RANDOM::nextBytes))
@@ -31,7 +32,7 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
         .build()
         .launchUrl(
             context,
-            Uri.parse("$baseUrl/app/sign-in?code_challenge=$challenge&scheme=${BuildConfig.SIGN_IN_SCHEME}"),
+            Uri.parse("$baseUrl/app/sign-in?code_challenge=$challenge"),
         )
 }
 

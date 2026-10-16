@@ -64,23 +64,23 @@ android {
             signingConfigs.findByName("personal")?.let { signingConfig = it }
             // Development backend on the Mac, reached through `adb reverse tcp:8081 tcp:8081`; see backend/README.md.
             buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8081\"")
-            // A separate app beside the release one (ADR-12): its own id, name, data and sign-in scheme, so testing on
-            // the phone never replaces the app in use. Each server accepts only its own app's scheme, this one on the Mac's
-            // loopback backend (PendingAppSignIn.appScheme).
+            // A separate app beside the release one (ADR-12): its own id, name, data and sign-in redirect, so testing on
+            // the phone never replaces the app in use. A loopback backend has no domain to verify, so the debug app
+            // keeps its own scheme (src/debug/AndroidManifest.xml; PendingAppSignIn.appRedirect).
             applicationIdSuffix = ".dev"
             val signInScheme = "reporead-dev"
             manifestPlaceholders["appLabel"] = "RepoRead Dev"
             manifestPlaceholders["signInScheme"] = signInScheme
-            buildConfigField("String", "SIGN_IN_SCHEME", "\"$signInScheme\"")
+            buildConfigField("String", "SIGN_IN_REDIRECT", "\"$signInScheme://auth\"")
         }
         release {
             signingConfigs.findByName("personal")?.let { signingConfig = it }
-            val signInScheme = "reporead"
             manifestPlaceholders["appLabel"] = "RepoRead"
-            manifestPlaceholders["signInScheme"] = signInScheme
-            buildConfigField("String", "SIGN_IN_SCHEME", "\"$signInScheme\"")
-            // Hosted backend (ADR-14); HTTPS only.
-            buildConfigField("String", "API_BASE_URL", "\"https://reporead.duckdns.org\"")
+            // Hosted backend (ADR-14); HTTPS only. Sign-in ends at its verified App Link (src/release/AndroidManifest.xml).
+            val hostedBackend = "reporead.duckdns.org"
+            manifestPlaceholders["hostedBackend"] = hostedBackend
+            buildConfigField("String", "API_BASE_URL", "\"https://$hostedBackend\"")
+            buildConfigField("String", "SIGN_IN_REDIRECT", "\"https://$hostedBackend/app/signed-in\"")
             // Not minified: Room, Compose, and the reader bridge-free WebView are verified unshrunk only.
             isMinifyEnabled = false
         }
