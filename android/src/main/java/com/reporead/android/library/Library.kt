@@ -54,6 +54,7 @@ import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
 import com.reporead.android.ui.folderOf
 import com.reporead.android.ui.sectionTitle
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /** When a refresh found the note changed; RepoRead does not know the commit time. */
@@ -97,6 +98,7 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 fun LibraryScreen(
     sync: Sync,
     dao: LibraryDao,
+    appScope: CoroutineScope,
     signedIn: Boolean,
     push: (Screen) -> Unit,
     onSignIn: () -> Unit,
@@ -131,7 +133,8 @@ fun LibraryScreen(
     val deleteAccount = {
         confirmDeleteAccount = false
         status = "Deleting account…"
-        scope.launch {
+        // A rotation must not stop it between the server's deletion and clearing this phone.
+        appScope.launch {
             try {
                 sync.deleteAccount()
                 onAccountDeleted()
