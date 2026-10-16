@@ -52,9 +52,10 @@ public class AnnotationController {
             @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CreateRequest body) {
         UUID mutationId = mutationId(body.mutationId());
         var selection = body.anchor();
-        String type = body.type() == null ? "HIGHLIGHT" : body.type();
-        if (!(type.equals("HIGHLIGHT") || type.equals("CARD"))
-                || (type.equals("CARD")
+        String requested = body.type() == null ? "HIGHLIGHT" : body.type();
+        boolean card = requested.equals("CARD");
+        if (!(requested.equals("HIGHLIGHT") || card)
+                || (card
                         ? body.question() == null || body.question().isBlank() || !validNote(body.question())
                         : body.question() != null)
                 || !validSelection(selection)
@@ -65,6 +66,7 @@ public class AnnotationController {
                             + MAX_TEXT_CHARS + " characters), an optional note of at most " + MAX_TEXT_CHARS
                             + " characters, and a non-blank question for type CARD.");
         }
+        var type = card ? Annotations.Type.CARD : Annotations.Type.HIGHLIGHT;
         var created = service.create(user, id, mutationId, selection, body.note(), type, body.question());
         return ResponseEntity.status(created.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
                 .body(created.annotation());

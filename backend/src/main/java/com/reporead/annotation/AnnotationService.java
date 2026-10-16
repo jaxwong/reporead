@@ -58,12 +58,12 @@ public class AnnotationService {
     /** The content a mutation id is bound to. */
     record Fingerprint(long documentId, Selection anchor, String note) {}
 
-    record CardFingerprint(long documentId, Selection anchor, String note, String type, String question) {}
+    record CardFingerprint(long documentId, Selection anchor, String note, Annotations.Type type, String question) {}
 
     /** SHA-256 of the request content a mutation id is bound to; highlights keep their pre-P4 fingerprint shape. */
-    static byte[] fingerprint(long documentId, Selection anchor, String note, String type, String question) {
+    static byte[] fingerprint(long documentId, Selection anchor, String note, Annotations.Type type, String question) {
         return Hashes.sha256(FINGERPRINT_JSON.writeValueAsBytes(
-                type.equals("CARD")
+                type == Annotations.Type.CARD
                         ? new CardFingerprint(documentId, anchor, note, type, question)
                         : new Fingerprint(documentId, anchor, note)));
     }
@@ -90,7 +90,7 @@ public class AnnotationService {
             var resolved =
                     meters.timer(REANCHOR_DURATION).record(() -> Anchoring.resolve(from, current, currentBlocks));
             boolean applied = annotations.resolved(annotation, current, resolved.map(Anchoring.Resolved::location));
-            String outcome = resolved.map(found -> found.method().name()).orElse("ORPHANED");
+            String outcome = resolved.map(found -> found.method().name()).orElse(Annotations.Status.ORPHANED.name());
             // Counted once per applied resolution; a concurrent listing that lost the race changed nothing.
             if (applied) meters.counter(REANCHOR, "outcome", outcome).increment();
             LOG.info(
@@ -117,7 +117,7 @@ public class AnnotationService {
             UUID mutationId,
             Selection selection,
             String note,
-            String type,
+            Annotations.Type type,
             String question) {
         var document = documents.find(user.id(), documentId).orElseThrow(ApiFailure::notFound);
         byte[] hash = fingerprint(documentId, selection, note, type, question);

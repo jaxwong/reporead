@@ -791,7 +791,7 @@ class AnnotationTest {
                 annotations.resolved(readByListing, CURRENT_SHA, Optional.empty()),
                 "the listing's stale resolution must not apply");
         var kept = annotations.find(1, id).orElseThrow();
-        assertEquals("REANCHORED", kept.status());
+        assertEquals(Annotations.Status.REANCHORED, kept.status());
         assertEquals("By default", kept.location().passage().exactText());
     }
 
