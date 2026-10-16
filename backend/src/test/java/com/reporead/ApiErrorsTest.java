@@ -4,10 +4,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
+import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -92,6 +96,39 @@ class ApiErrorsTest {
         for (int i = 0; i < answers.length; i++) {
             assertEquals(statuses[i], answers[i].status(), answers[i].body().toString());
             assertFalse(answers[i].body().has("code"), "no RepoRead code: " + answers[i].body());
+        }
+    }
+
+    /**
+     * A body is read up to the limit before anything parses it, signed in or not (the sign-in token route needs no
+     * session), whether its length is declared or it is sent in chunks.
+     */
+    @Test
+    void aBodyOverTheLimitIsRefusedBeforeItIsParsed() throws Exception {
+        // The largest valid body: a card's three texts at the 10,000-unit limit, each unit as a 6-byte JSON escape.
+        String text = "\\u0001".repeat(10_000);
+        String card = "{\"mutationId\":\"" + UUID.randomUUID() + "\",\"type\":\"CARD\",\"question\":\"" + text
+                + "\",\"note\":\"" + text + "\",\"anchor\":{\"sourceBlobSha\":\"" + "a".repeat(40)
+                + "\",\"blockId\":\"b1\",\"startOffset\":0,\"endOffset\":10000,\"exactText\":\"" + text + "\"}}";
+        // Read and validated: the test-only note does not exist.
+        assertEquals(
+                404,
+                send("POST", "/api/documents/1/annotations", "application/json", card, true)
+                        .status());
+        String over = "{\"code\":\"" + "x".repeat(RequestBodyLimit.MAX_BYTES) + "\"}";
+        var chunked = http.send(
+                HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/app-auth/token"))
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofInputStream(
+                                () -> new ByteArrayInputStream(over.getBytes(StandardCharsets.UTF_8))))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        for (var answer : List.of(
+                send("POST", "/api/app-auth/token", "application/json", over, false),
+                new Answer(chunked.statusCode(), json.readTree(chunked.body())))) {
+            assertEquals(413, answer.status(), answer.body().toString());
+            assertEquals("REQUEST_TOO_LARGE", answer.body().get("code").asString());
         }
     }
 
