@@ -79,9 +79,9 @@ internal fun NotesPanel(
 ) {
     var editing by remember { mutableStateOf<AnnotationRow?>(null) }
     var conflict by remember { mutableStateOf<Conflict?>(null) }
-    /** The highlight or card the user asked to delete, until they confirm. */
+    // The highlight or card the user asked to delete, until they confirm.
     var deleting by remember { mutableStateOf<AnnotationRow?>(null) }
-    /** Whether this note left its repository, which a card's status names. */
+    // Whether this note left its repository, which a card's status names.
     val removed by produceState(false, documentId) { value = dao.document(documentId)?.deleted == true }
     // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
     val backlinks by
@@ -320,8 +320,7 @@ internal fun NoteDialog(
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                 )
-                // No length cap here: the server owns it (AnnotationController.MAX_TEXT_CHARS) and its refusal is
-                // shown.
+                // No length cap here: the server owns it (AnnotationController.MAX_TEXT_CHARS); its refusal is shown.
                 OutlinedTextField(
                     text,
                     { text = it },

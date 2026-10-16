@@ -257,9 +257,9 @@ private fun TopicRow(topic: String?, banks: Banks, scheduled: Set<String>, push:
 internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (Screen) -> Unit, onBack: () -> Unit) {
     val banks = rememberBanks(dao)
     val cards by dao.notebook().collectAsState(null)
-    /** The keys still to ask, chosen once from the topic's questions without a card; the front one is shown. */
+    // The keys still to ask, chosen once from the topic's questions without a card; the front one is shown.
     var queue by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
-    /** The questions the session started with. The cards made since, not a counter, say how many were graded. */
+    // The questions the session started with. The cards made since, not a counter, say how many were graded.
     var started by rememberSaveable { mutableStateOf<ArrayList<String>>(arrayListOf()) }
     var revealed by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }

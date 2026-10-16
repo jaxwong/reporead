@@ -462,7 +462,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
     val items by dao.notebook().collectAsState(null)
     val reviews by dao.reviews().collectAsState(null)
     val limit by dao.reviewLimit().collectAsState(null)
-    /** The cards still to show, chosen once from the due cards when the session starts; the front one is shown. */
+    // The cards still to show, chosen once from the due cards when the session starts; the front one is shown.
     var queue by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
     var started by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var startedAt by rememberSaveable { mutableLongStateOf(0L) }
@@ -502,8 +502,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             val refused = log.filter { it.rejection != null }
             if (refused.isNotEmpty())
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // A refused grade never reached the server and is not part of the schedule; dismissing only forgets
-                    // it.
+                    // A refused grade never reached the server and is not in the schedule; dismissing only forgets it.
                     Text(
                         "${counted(refused.size, "grade")} not accepted by the server, so not counted: ${refused.last().rejection}",
                         modifier = Modifier.weight(1f),

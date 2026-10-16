@@ -12,8 +12,7 @@ import java.time.Instant
 import org.json.JSONException
 import org.json.JSONObject
 
-// RepoRead's server responses as Room rows. A missing or mistyped field breaks the contract (ApiException), never a
-// crash.
+// RepoRead's server responses as Room rows. A missing or mistyped field breaks the contract (ApiException); no crash.
 
 internal fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else getString(name)
 
