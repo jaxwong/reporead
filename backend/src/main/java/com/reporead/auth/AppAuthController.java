@@ -2,7 +2,6 @@ package com.reporead.auth;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
-import com.reporead.github.GitHubApi;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Set;
 import org.apache.catalina.session.TooManyActiveSessionsException;
@@ -12,7 +11,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,13 +38,11 @@ public class AppAuthController {
     static final Set<String> APP_SCHEMES = Set.of("reporead", "reporead-dev");
 
     private final AppSessions sessions;
-    private final OAuth2AuthorizedClientService clients;
-    private final GitHubApi github;
+    private final GitHubCredentials credentials;
 
-    public AppAuthController(AppSessions sessions, OAuth2AuthorizedClientService clients, GitHubApi github) {
+    public AppAuthController(AppSessions sessions, GitHubCredentials credentials) {
         this.sessions = sessions;
-        this.clients = clients;
-        this.github = github;
+        this.credentials = credentials;
     }
 
     @GetMapping("/app/sign-in")
@@ -98,11 +94,7 @@ public class AppAuthController {
         // session, revoked on GitHub and deleted here, so a signed-out user leaves no working credential without
         // signing their other devices out of GitHub. A device signing in at the same moment can lose its new token;
         // its next GitHub request then asks for sign-in.
-        if (remaining == 0) {
-            github.tokenToRevoke(user.githubUserId())
-                    .ifPresent(token -> github.revokeAuthorization(user.githubUserId(), token));
-            clients.removeAuthorizedClient("github", Long.toString(user.githubUserId()));
-        }
+        if (remaining == 0) credentials.revokeAndForget(user.githubUserId());
         LOG.info(
                 "App session revoked; userId={} otherSessions={} githubTokenRemoved={}",
                 user.id(),

@@ -4,6 +4,7 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
+import com.reporead.auth.GitHubCredentials;
 import com.reporead.github.GitHubApi;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -17,9 +18,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class NoteVersions {
     private final GitHubApi github;
+    private final GitHubCredentials credentials;
 
-    public NoteVersions(GitHubApi github) {
+    public NoteVersions(GitHubApi github, GitHubCredentials credentials) {
         this.github = github;
+        this.credentials = credentials;
     }
 
     public record Rendered(MarkdownRenderer.RenderedNote note, int bytes, String markdown) {}
@@ -32,7 +35,7 @@ public class NoteVersions {
      * The same for a repository path that may not have a document yet, such as a path in a snapshot being reconciled.
      */
     public Rendered render(AppUser user, String owner, String repositoryName, String path, String blobSha) {
-        String token = github.userToken(user.githubUserId());
+        String token = credentials.githubUserToken(user.githubUserId());
         byte[] bytes = github.blob(token, owner, repositoryName, blobSha);
         if (!Hashes.gitBlobSha(bytes).equals(blobSha)) {
             throw new ApiFailure(

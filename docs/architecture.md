@@ -101,7 +101,7 @@ flowchart TB
         SyncC["SyncController"]
         DocC["DocumentController"]
         ReadC["ReadingController"]
-        AnnC["AnnotationController<br/>BookmarkController<br/>Reviews"]
+        AnnC["AnnotationController<br/>BookmarkController<br/>ReviewController"]
         DataC["DataControlController"]
     end
 
@@ -112,7 +112,7 @@ flowchart TB
     document["document<br/>MarkdownRenderer, NoteVersions,<br/>NoteChanges, Attachments"]
     repository["repository<br/>connections, per-connection lock"]
     auth["auth<br/>sign-in, app sessions,<br/>bearer auth, GitHub token renewal"]
-    github["github<br/>GitHubApi: every GitHub call<br/>GitHubHttp: timeouts, size limits"]
+    github["github<br/>GitHubApi: every GitHub read<br/>GitHubHttp: timeouts, size limits"]
 
     AuthC --> auth
     RepoC --> repository
@@ -146,14 +146,14 @@ flowchart TB
 
 | Package | Owns | Key classes |
 | --- | --- | --- |
-| `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token with its renewal and revocation | `GitHubSecurity`, `GitHubTokens`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication` |
-| `github` | The only HTTP client to GitHub: user token, 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttp` |
+| `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token (`GitHubTokens`) and its renewal and revocation (`GitHubCredentials`) | `GitHubSecurity`, `GitHubTokens`, `GitHubCredentials`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication` |
+| `github` | Every GitHub REST read, with the user's token; the HTTP clients every GitHub call goes through: 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttp` |
 | `repository` | Which repositories a user has connected; the connection row lock every write shares | `RepositoryConnections` |
 | `sync` | Publishing a complete tree snapshot of the default branch; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySync`, `ContentMoves` |
 | `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; changes since last read ([ADR-09](adrs.md#adr-09--changed-since-last-read-compares-the-version-actually-read-by-source-lines)); images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `NoteChanges`, `Attachments` |
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `Anchoring`, `Bookmarks`, `Reviews` |
-| `datacontrol` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionData`, `DataControlController` |
+| `datacontrol` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionData`, `AccountDeletion`, `DataControlController` |
 | root | Error responses (`{code, message}`), client clock bounds | `ApiErrors`, `ApiFailure`, `ClientClock` |
 
 ### Data model (PostgreSQL)
