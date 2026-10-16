@@ -377,6 +377,24 @@ class DataControlTest {
         assertEquals(0, count("select count(*) from users where id = 1"));
     }
 
+    /**
+     * Outside a transaction a row lock is released by the statement that takes it, so a caller that forgot the
+     * transaction would be protected by nothing. Each lock refuses to run there instead.
+     */
+    @Test
+    void locksRefuseToRunOutsideATransaction() {
+        var outside = List.<Runnable>of(
+                () -> connections.lockForSync(1, notes),
+                () -> connections.lockForDocumentWrite(1, active),
+                () -> sessions.lockUserForDeletion(1),
+                () -> sessions.lockUserForWrite(1));
+        for (var lock : outside) {
+            var refused = assertThrows(IllegalStateException.class, lock::run);
+            assertTrue(refused.getMessage().contains("outside a transaction"), refused.getMessage());
+        }
+        transaction.executeWithoutResult(status -> outside.forEach(Runnable::run));
+    }
+
     @Test
     void anotherUsersRepositoryCannotBeInspectedOrDisconnected() throws Exception {
         mvc.perform(get("/api/repositories/" + notes + "/stored-data")
