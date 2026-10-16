@@ -52,7 +52,7 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
     }
 
     static SecretKey readKey(Path file) throws IOException {
-        String hex = GitHubSecurity.readSecret(file);
+        String hex = SecretFiles.read(file);
         if (!hex.matches("[0-9a-f]{64}")) {
             throw new IOException(
                     "GitHub token key file must hold 64 lowercase hex characters (openssl rand -hex 32): " + file);
