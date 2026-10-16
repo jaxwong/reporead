@@ -6,13 +6,15 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.format.DateTimeParseException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 
 /** A failed RepoRead request. [status] 0 means the backend was not reached. [code] is the backend's error code. */
-class ApiException(val status: Int, val code: String, override val message: String) : Exception(message)
+class ApiException(val status: Int, val code: String, override val message: String, cause: Throwable? = null) :
+    Exception(message, cause)
 
 private const val MAX_JSON_BYTES = 8 * 1024 * 1024
 /** The backend's own image ceiling is 5 MiB; anything larger here is a contract violation. */
@@ -115,13 +117,22 @@ class Api(
     }
 }
 
-/** Reads a successful response; a missing or mistyped field is a contract violation, not a crash. */
+/**
+ * Reads a successful response; a missing or mistyped field, or a malformed time, is a contract violation, not a crash.
+ * The cause is kept but not logged: its message can quote the response, and so a note's text.
+ */
 inline fun <T> contract(read: () -> T): T =
     try {
         read()
     } catch (error: JSONException) {
-        throw ApiException(200, "INVALID_RESPONSE", "RepoRead's server response did not match the app's contract.")
+        throw contractBroken(error)
+    } catch (error: DateTimeParseException) {
+        throw contractBroken(error)
     }
+
+@PublishedApi
+internal fun contractBroken(cause: Exception) =
+    ApiException(200, "INVALID_RESPONSE", "RepoRead's server response did not match the app's contract.", cause)
 
 /** A short, user-facing explanation of a failure, distinguishing the states the reader must show explicitly. */
 fun ApiException.describe(): String =
