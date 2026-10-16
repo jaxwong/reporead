@@ -14,6 +14,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.Screen
 import com.reporead.android.core.network.Api
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
@@ -149,7 +150,7 @@ class PracticeSessionTest {
                         while (dao.waitingAnnotations().isEmpty() || dao.pendingReviews().isEmpty()) delay(20)
                         dao.waitingAnnotations().single()
                     }
-                assertEquals("CARD", missed.type)
+                assertEquals(AnnotationType.CARD, missed.type)
                 assertEquals("An identical question?", missed.question)
                 assertEquals("Canonical answer: $first", missed.exactText)
                 assertEquals(if (first == "First answer") "b3" else "b5", missed.blockId)

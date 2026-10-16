@@ -187,13 +187,29 @@ enum class AnnotationState {
     ACKNOWLEDGED,
 }
 
+/** A highlight marks a passage; a card also asks a question that the passage answers. */
+enum class AnnotationType {
+    HIGHLIGHT,
+    CARD,
+}
+
+/** What the server's location for a highlight means in the version it names ([AnnotationRow.resolvedBlobSha]). */
+enum class AnchorStatus {
+    /** The original selection, in that version. */
+    ANCHORED,
+    /** Found again in that version, by the server or by the user. */
+    REANCHORED,
+    /** Not found reliably; shown with its original context until it is reattached. */
+    ORPHANED,
+}
+
 /**
  * A highlight, keyed by the client mutation id that created it (the server returns it for every highlight). [state]
  * says where it stands with the server; the row is the local annotation and its unsent mutation in one write.
  * [rejection] is set only when [state] is REFUSED. The source/block/offset/exact fields and [prefixText]/[suffixText]
  * are the original selection. [location], [status] and [resolvedBlobSha] are the server's: where the highlight is now
- * and what that means for that version (ANCHORED, REANCHORED, ORPHANED). A pending creation has none of them and is
- * drawn where it was made.
+ * and what that means for that version ([AnchorStatus]). A pending creation has none of them and is drawn where it was
+ * made.
  */
 @Entity(tableName = "annotations", indices = [Index("documentId")])
 data class AnnotationRow(
@@ -212,10 +228,10 @@ data class AnnotationRow(
     val rejection: String? = null,
     @ColumnInfo(defaultValue = "") val prefixText: String = "",
     @ColumnInfo(defaultValue = "") val suffixText: String = "",
-    val status: String? = null,
+    val status: AnchorStatus? = null,
     val resolvedBlobSha: String? = null,
     @Embedded(prefix = "location") val location: Passage? = null,
-    @ColumnInfo(defaultValue = "'HIGHLIGHT'") val type: String = "HIGHLIGHT",
+    @ColumnInfo(defaultValue = "'HIGHLIGHT'") val type: AnnotationType = AnnotationType.HIGHLIGHT,
     val question: String? = null,
     val checkedBlobSha: String? = null,
 ) {
@@ -224,7 +240,7 @@ data class AnnotationRow(
         get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
     /** The server could not find it reliably in [blobSha]. */
-    fun orphanedIn(blobSha: String) = status == "ORPHANED" && resolvedBlobSha == blobSha
+    fun orphanedIn(blobSha: String) = status == AnchorStatus.ORPHANED && resolvedBlobSha == blobSha
 
     /**
      * Why this card cannot be graded when its note is [deleted] from the repository or at [currentBlobSha] (null:
@@ -234,7 +250,7 @@ data class AnnotationRow(
         when {
             state == AnnotationState.REFUSED -> CardBlock.NOT_SYNCED
             deleted -> CardBlock.REMOVED
-            status == "ORPHANED" -> CardBlock.ORPHANED
+            status == AnchorStatus.ORPHANED -> CardBlock.ORPHANED
             checkedBlobSha == null || checkedBlobSha != currentBlobSha || drawn.blobSha != currentBlobSha ->
                 CardBlock.UNCONFIRMED
             savedBlobSha != currentBlobSha -> CardBlock.NOT_SAVED
@@ -633,7 +649,7 @@ interface LibraryDao {
         val card = annotation(row.cardMutationId) ?: return false
         val document = document(card.documentId) ?: return false
         if (
-            card.type != "CARD" ||
+            card.type != AnnotationType.CARD ||
                 card.state == AnnotationState.DELETING ||
                 row.blobSha != document.blobSha ||
                 card.cardBlock(document.deleted, row.blobSha, note(card.documentId)?.blobSha) != null

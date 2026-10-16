@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.data.AnchorStatus
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.sync.exportDirectory
@@ -88,7 +90,7 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
     val filtered = items.filter {
         inPracticeFolder(it.path, folder) &&
             (document.isEmpty() || it.annotation.documentId.toString() == document) &&
-            (!orphaned || it.annotation.status == "ORPHANED")
+            (!orphaned || it.annotation.status == AnchorStatus.ORPHANED)
     }
     Scaffold(topBar = { AppBar("Notebook", onBack = onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -161,11 +163,11 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
                             Text(item.annotation.drawn.exactText)
                             item.annotation.note?.let { Text(it) }
                             val reason =
-                                if (item.annotation.type == "CARD")
+                                if (item.annotation.type == AnnotationType.CARD)
                                     item.annotation
                                         .cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
                                         ?.reason
-                                else if (item.annotation.status == "ORPHANED") "Orphaned passage" else null
+                                else if (item.annotation.status == AnchorStatus.ORPHANED) "Orphaned passage" else null
                             StatusLine(
                                 listOfNotNull(reason, item.annotation.rejection).joinToString(": ").ifEmpty { null }
                             )
@@ -200,6 +202,6 @@ internal fun notebookMarkdown(items: List<NotebookItem>): String = buildString {
         row.question?.let { append("Question:\n\n").append(it).append("\n\n") }
         append(row.drawn.exactText.split('\n').joinToString("\n") { "> $it" }).append("\n\n")
         row.note?.let { append("Note:\n\n").append(it).append("\n\n") }
-        if (row.status == "ORPHANED") append("Status: orphaned\n\n")
+        if (row.status == AnchorStatus.ORPHANED) append("Status: orphaned\n\n")
     }
 }

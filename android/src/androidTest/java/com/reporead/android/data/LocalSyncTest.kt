@@ -145,7 +145,7 @@ class LocalSyncTest {
                 1,
                 1,
                 state = AnnotationState.UNSENT,
-                type = "CARD",
+                type = AnnotationType.CARD,
                 question = "Test-only question?",
                 checkedBlobSha = sha,
             )

@@ -28,6 +28,7 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.CardBlock
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
@@ -135,14 +136,15 @@ internal fun NotesPanel(
             items(annotations, key = { it.mutationId }) { row ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
-                        "“${if (row.type == "CARD") row.drawn.exactText else row.exactText}”",
+                        "“${if (row.type == AnnotationType.CARD) row.drawn.exactText else row.exactText}”",
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                     )
                     row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
                     val block =
-                        if (row.type == "CARD") row.cardBlock(removed, displayedBlobSha, displayedBlobSha) else null
+                        if (row.type == AnnotationType.CARD) row.cardBlock(removed, displayedBlobSha, displayedBlobSha)
+                        else null
                     block?.let { Text(it.reason, style = MaterialTheme.typography.labelLarge) }
                     row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
                     status(row, displayedBlobSha, notShown)?.let {
@@ -151,7 +153,7 @@ internal fun NotesPanel(
                     val shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown
                     Row {
                         if (shown) TextButton(onClick = { onReveal(row) }) { Text("Show") }
-                        if (shown && row.type == "HIGHLIGHT")
+                        if (shown && row.type == AnnotationType.HIGHLIGHT)
                             TextButton(onClick = { onMakeQuestion(row) }) { Text("Make a question") }
                         if (shown && block == CardBlock.UNCONFIRMED && row.serverId != null) {
                             TextButton(
@@ -233,12 +235,12 @@ internal fun NotesPanel(
     deleting?.let { row ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text(if (row.type == "CARD") "Delete this card?" else "Delete this highlight?") },
+            title = { Text(if (row.type == AnnotationType.CARD) "Delete this card?" else "Delete this highlight?") },
             text = {
                 Text(
                     "“${row.drawn.exactText}”" +
                         when {
-                            row.type == "CARD" ->
+                            row.type == AnnotationType.CARD ->
                                 "\n\nIts question and its review history are deleted too. This cannot be undone."
                             row.note != null -> "\n\nIts note is deleted too. This cannot be undone."
                             else -> "\n\nThis cannot be undone."

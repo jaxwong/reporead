@@ -35,7 +35,7 @@ class AnnotationRowTest {
             unsent.copy(
                 serverId = 3,
                 state = AnnotationState.ACKNOWLEDGED,
-                status = "REANCHORED",
+                status = AnchorStatus.REANCHORED,
                 resolvedBlobSha = "c".repeat(40),
                 location = Passage("c".repeat(40), "b3", 12, 29, "declarative transaction"),
             )
@@ -50,9 +50,9 @@ class AnnotationRowTest {
             unsent.copy(
                 serverId = 3,
                 state = AnnotationState.ACKNOWLEDGED,
-                type = "CARD",
+                type = AnnotationType.CARD,
                 question = "Test-only question?",
-                status = "ANCHORED",
+                status = AnchorStatus.ANCHORED,
                 resolvedBlobSha = current,
                 location = Passage(current, "b2", 12, 30, "declarative transactions"),
                 checkedBlobSha = current,
@@ -62,7 +62,7 @@ class AnnotationRowTest {
         for ((block, changed) in
             listOf(
                 CardBlock.NOT_SYNCED to card.copy(state = AnnotationState.REFUSED, rejection = "Test-only refusal"),
-                CardBlock.ORPHANED to card.copy(status = "ORPHANED"),
+                CardBlock.ORPHANED to card.copy(status = AnchorStatus.ORPHANED),
                 CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = null),
                 CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = "a".repeat(40)),
                 CardBlock.UNCONFIRMED to
@@ -79,7 +79,7 @@ class AnnotationRowTest {
             unsent.copy(
                 serverId = 3,
                 state = AnnotationState.ACKNOWLEDGED,
-                status = "ORPHANED",
+                status = AnchorStatus.ORPHANED,
                 resolvedBlobSha = "d".repeat(40),
                 location = Passage("a".repeat(40), "b2", 12, 30, "declarative transactions"),
             )

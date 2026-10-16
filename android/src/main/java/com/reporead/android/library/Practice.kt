@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
 import com.reporead.android.Screen
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
@@ -108,7 +109,7 @@ internal fun <T> interleaveByNote(items: List<T>, seed: Int, note: (T) -> Long):
 internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<NotebookItem>): Set<String> {
     val made =
         cards
-            .filter { it.annotation.type == "CARD" }
+            .filter { it.annotation.type == AnnotationType.CARD }
             .map { Triple(it.annotation.documentId, it.annotation.question, it.annotation.drawn.exactText) }
             .toSet()
     return questions

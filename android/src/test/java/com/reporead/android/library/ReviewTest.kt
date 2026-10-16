@@ -1,7 +1,9 @@
 package com.reporead.android.library
 
+import com.reporead.android.data.AnchorStatus
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
@@ -45,7 +47,7 @@ class ReviewTest {
                 0,
                 AnnotationState.ACKNOWLEDGED,
                 null,
-                type = "CARD",
+                type = AnnotationType.CARD,
                 question = "Why?",
                 checkedBlobSha = "sha",
             ),
@@ -139,7 +141,7 @@ class ReviewTest {
                 ready.copy(currentBlobSha = "new"),
                 ready.copy(savedBlobSha = null),
                 ready.copy(annotation = ready.annotation.copy(checkedBlobSha = null)),
-                ready.copy(annotation = ready.annotation.copy(status = "ORPHANED")),
+                ready.copy(annotation = ready.annotation.copy(status = AnchorStatus.ORPHANED)),
             )) {
             assertNotNull(changed.annotation.cardBlock(changed.deleted, changed.currentBlobSha, changed.savedBlobSha))
             assertEquals(listOf(changed), dueSession(listOf(changed), emptyList(), 0, 40, 1))

@@ -365,7 +365,7 @@ class LocalStoreTest {
         dao.saveAnnotation(annotation("refused", null, null, AnnotationState.REFUSED, "Refused").copy(documentId = 1))
         dao.saveAnnotation(
             annotation("card", 9, null, AnnotationState.ACKNOWLEDGED)
-                .copy(documentId = 1, type = "CARD", question = "Why?")
+                .copy(documentId = 1, type = AnnotationType.CARD, question = "Why?")
         )
         dao.saveReview(ReviewRow("grade", "card", 4, 1, "a".repeat(40), true))
         dao.saveAnnotation(annotation("elsewhere", null, null, AnnotationState.UNSENT).copy(documentId = 3))
@@ -443,7 +443,8 @@ class LocalStoreTest {
     fun aCreationDeletedBeforeItsAcknowledgementStaysDeletedThroughServerLists() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.saveAnnotation(
-            annotation("deleted", null, null, AnnotationState.UNSENT).copy(type = "CARD", question = "Why?")
+            annotation("deleted", null, null, AnnotationState.UNSENT)
+                .copy(type = AnnotationType.CARD, question = "Why?")
         )
         dao.saveReview(ReviewRow("grade", "deleted", 4, 1, "a".repeat(40), pending = true))
         dao.markDeleting("deleted")
@@ -517,7 +518,7 @@ class LocalStoreTest {
         dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
         val card =
             annotation("card", null, null, AnnotationState.UNSENT)
-                .copy(type = "CARD", question = "Why?", checkedBlobSha = sha)
+                .copy(type = AnnotationType.CARD, question = "Why?", checkedBlobSha = sha)
         dao.saveAnnotation(card)
         val grades = (1..10).map { ReviewRow("g$it", "card", 4, it.toLong(), sha, true) }
         grades.forEach { assertTrue(dao.recordReview(it)) }
@@ -554,7 +555,7 @@ class LocalStoreTest {
         for (id in listOf(1L, 2L)) {
             dao.saveAnnotation(
                 annotation("card$id", id, null, AnnotationState.ACKNOWLEDGED)
-                    .copy(documentId = id, type = "CARD", question = "Why?")
+                    .copy(documentId = id, type = AnnotationType.CARD, question = "Why?")
             )
             dao.saveReview(ReviewRow("grade$id", "card$id", 4, id, "a".repeat(40), true))
         }

@@ -9,6 +9,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
@@ -84,7 +85,7 @@ class ReviewLifecycleTest {
                     1,
                     0,
                     state = AnnotationState.ACKNOWLEDGED,
-                    type = "CARD",
+                    type = AnnotationType.CARD,
                     question = "Test-only question $i?",
                     checkedBlobSha = checkedBlobSha,
                 )

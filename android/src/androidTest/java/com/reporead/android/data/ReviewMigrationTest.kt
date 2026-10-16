@@ -29,7 +29,7 @@ class ReviewMigrationTest {
         ) { dao ->
             assertEquals("<html/>", dao.note(1)!!.html)
             val highlight = checkNotNull(dao.annotation("offline"))
-            assertEquals("HIGHLIGHT", highlight.type)
+            assertEquals(AnnotationType.HIGHLIGHT, highlight.type)
             assertEquals("mine", highlight.note)
             assertEquals(AnnotationState.UNSENT, highlight.state)
             assertNull(highlight.question)
