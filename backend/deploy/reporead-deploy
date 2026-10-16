@@ -1,9 +1,8 @@
 #!/bin/bash
 # Installs a RepoRead backend jar read from stdin on the hosted VM, after a dump of the database, restarts the service,
-# and fails if it is not healthy. It never puts the previous jar back itself: the new jar may already have migrated the
-# schema, which the previous one cannot run on (V13 and V14 dropped columns). Installed as
-# /usr/local/sbin/reporead-deploy (root 0755); runs as root through sudo, either from the deploy user's forced SSH
-# command (GitHub Actions) or by hand:
+# and fails if it is not healthy. It never puts the previous jar back itself: going back is a person's call (ADR-24).
+# Installed as /usr/local/sbin/reporead-deploy (root 0755); runs as root through sudo, either from the deploy user's
+# forced SSH command (GitHub Actions) or by hand:
 #   ssh opc@<vm> 'sudo /usr/local/sbin/reporead-deploy' < backend/build/libs/backend.jar
 # Prints only outcomes and the jar's SHA-256, never backend logs: the CI log is public and those logs name note paths.
 set -euo pipefail

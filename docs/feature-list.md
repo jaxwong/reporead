@@ -142,7 +142,7 @@ Covered by automated tests only, or not at all:
 - Practice and Review with real grades (fixture tests only), a successful **Answer is still right** against the real server, and the Practice tab's due badge.
 - Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
-- The deploy script's dump before the restart and its failed-deploy path on the VM: checked in a container with stubbed services; the VM's copy changes only by hand.
+- A deploy that fails on the VM: the deploy and backup scripts were installed there on 2026-10-17 and the deploy dump ran there, but a failing deploy was only checked in a container with stubbed services.
 
 ## Personal-project definition of done
 
