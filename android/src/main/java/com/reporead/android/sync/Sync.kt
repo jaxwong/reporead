@@ -132,8 +132,7 @@ class Sync(
                 )
             }
         }
-        // A repository missing from the server's complete list was disconnected: here with its answer lost, or
-        // elsewhere.
+        // Not in the server's complete list: disconnected on another device, or here with the answer lost.
         images.delete(dao.replaceRepositories(rows))
         for (row in rows) loadDocuments(row.id)
     }

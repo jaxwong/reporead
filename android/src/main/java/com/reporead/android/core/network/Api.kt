@@ -73,8 +73,7 @@ class Api(
             if (status == 204) return null
             if (status in 200..299) return connection.inputStream.use { readBounded(it, maxBytes) }
             if (status == 401) onUnauthorized(token)
-            // A body that is not RepoRead's {code, message} leaves the code HTTP_<status>, which nothing treats as
-            // RepoRead's answer.
+            // A body that is not RepoRead's {code, message} gets code HTTP_<status>, never read as RepoRead's answer.
             val error =
                 connection.errorStream
                     ?.use { readBounded(it, MAX_JSON_BYTES) }

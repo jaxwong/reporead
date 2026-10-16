@@ -50,8 +50,7 @@ fun FigureScreen(sync: Sync, dao: LibraryDao, screen: Screen.Figure, onBack: () 
         bars.hide(WindowInsets.Type.systemBars())
         onDispose {
             bars.show(WindowInsets.Type.systemBars())
-            // Rotating recreates the activity, which keeps the requested orientation; only leaving the figure resets
-            // it.
+            // Rotating recreates the activity, which keeps the requested orientation; only leaving resets it.
             if (!activity.isChangingConfigurations)
                 activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }

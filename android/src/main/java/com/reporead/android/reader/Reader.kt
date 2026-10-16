@@ -100,11 +100,9 @@ fun ReaderScreen(
     push: (Screen) -> Unit,
 ) {
     var reload by remember { mutableIntStateOf(0) }
-    /*
-     * The version whose changes the summary starts from (null: never read): the oldest version read whose changes have
-     * not been shown yet, else the version last read. Captured once, before the reader saves the displayed version as
-     * read, and kept across activity recreation; reopening the note captures it again.
-     */
+    // “Changed since you last read” compares the version on screen with this one: the oldest version whose changes were
+    // never shown, else the version last read; null when the note was never read. It is read once per opening, before
+    // the reader marks the version on screen as read, and kept across rotation.
     var since by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var sinceCaptured by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     val load by
@@ -119,15 +117,13 @@ fun ReaderScreen(
     val page = (load as? Load.Ready)?.value
     val displayed = page?.opened?.note?.blobSha
     var studying by rememberSaveable(screen.documentId) { mutableStateOf(false) }
-    /*
-     * The screen's one-shot target — a linked heading or a notebook passage — has been shown. Saved,
-     * so rotating or returning to this screen restores the reading position instead of jumping back to the target.
-     */
+    // True once the screen's one-time target (a linked heading or a notebook passage) has been opened. Saved, so
+    // rotating or coming back to this screen restores the reading position instead of jumping to the target again.
     var targetShown by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var changesReload by remember { mutableIntStateOf(0) }
     var changesExpanded by rememberSaveable(screen.documentId) { mutableStateOf(true) }
-    // Null when there is nothing to compare: never read, or reading the same version again. The baseline is used up
-    // only once the server's answer is on screen; offline or failing, it is kept for the next opening.
+    // Null when there is nothing to compare: never read, or reading the same version again. The baseline is cleared
+    // only after the server's comparison is shown; offline or failing, it stays for the next opening.
     val changes by
         produceState<Load<Changes>?>(null, since, displayed, signedIn, changesReload) {
             val from = since
@@ -154,17 +150,15 @@ fun ReaderScreen(
     val annotations by dao.annotations(screen.documentId).collectAsState(emptyList())
     var message by remember { mutableStateOf<String?>(null) }
     var notesOpen by remember { mutableStateOf(false) }
-    /** The passage a new question is being written for. */
+    // The passage a new question is being written for.
     var questionPassage by rememberSaveable(screen.documentId) { mutableStateOf<Passage?>(null) }
-    /** The passage a new note is being written for. */
+    // The passage a new note is being written for.
     var notePassage by remember { mutableStateOf<Passage?>(null) }
-    /**
-     * The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here.
-     */
+    // The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here.
     var reattaching by remember { mutableStateOf<AnnotationRow?>(null) }
-    /** A tapped link to one note and its heading, previewed before opening. */
+    // A tapped link to one note and its heading, previewed before opening.
     var preview by remember { mutableStateOf<Pair<DocumentRow, String?>?>(null) }
-    /** Notes sharing the linked name, for the reader to pick one. */
+    // Notes sharing the linked name, for the reader to pick one.
     var linkChoices by remember { mutableStateOf<Pair<String?, List<DocumentRow>>?>(null) }
     val scope = rememberCoroutineScope()
     var outlineOpen by remember { mutableStateOf(false) }
@@ -215,7 +209,7 @@ fun ReaderScreen(
         }
     }
 
-    /** One session per displayed copy: it owns that page's view and everything the page reports. */
+    // One session per displayed copy: it owns that page's view and everything the page reports.
     val session =
         remember(page?.opened?.note) {
             page?.let { ready ->
@@ -235,8 +229,7 @@ fun ReaderScreen(
                     studying = { studying },
                     onNoteLink = { target, path, heading ->
                         scope.launch {
-                            // Resolved against the saved note list of this note's repository, so links work offline
-                            // too.
+                            // Resolved against this repository's saved note list, so links work offline too.
                             val from = dao.document(opened.note.documentId)
                             if (from == null) {
                                 message =
@@ -691,8 +684,7 @@ private class ReaderSession(
                         main.postDelayed(sectionAfterScroll, SECTION_AFTER_SCROLL_MS)
                     }
                     if (fingerDown) swipeScroll += scrollY - oldScrollY
-                    // A fling that reaches the top brings the bars back; nothing else changes them without a finger
-                    // lifting.
+                    // A fling that reaches the top brings the bars back; nothing else moves them until a finger lifts.
                     else if (touched && scrollY <= barsThreshold) barsShown = true
                 }
                 view = this

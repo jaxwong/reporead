@@ -162,7 +162,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val savedRepositories by dao.repositories().collectAsState(null)
 
     val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
-    /** Back to the first screen signed out, once this phone's copy is gone; [message] says why. */
+    // Back to the first screen signed out, once this phone's copy is gone; [message] says why.
     val endSession = { message: String? ->
         store.clear()
         store.dataOwner = null
@@ -235,8 +235,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                                         else
                                             "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
                                     }
-                                // Explicit sign-out removes this phone's copy of private notes, including unsynced
-                                // changes.
+                                // Signing out deletes this phone's copy of private notes, unsynced changes included.
                                 sync.clearAll()
                                 endSession(message)
                             }

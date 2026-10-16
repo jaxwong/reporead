@@ -125,7 +125,7 @@ fun LibraryScreen(
 ) {
     var tab by rememberSaveable { mutableStateOf(LibraryTab.READING) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
-    /** Changes the server has not acknowledged, counted for the sign-out confirmation; non-null while it is shown. */
+    // Changes the server has not acknowledged, counted for the sign-out confirmation; non-null while it is shown.
     var confirmSignOut by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
@@ -135,8 +135,7 @@ fun LibraryScreen(
     val waiting by dao.waitingCount().collectAsState(0)
     val outlook = rememberReviewOutlook(dao)
     if (signedIn) {
-        // Pushes pending changes, then pulls the server's view. The background sync sends changes without this
-        // (ADR-08).
+        // Pushes pending changes, then pulls the server's view; the background sync sends changes without it (ADR-08).
         RefreshOnEntry(refresh, { refreshing = it }, { status = it }) {
             val synced = sync.syncLocalChanges()
             listOfNotNull(
@@ -248,8 +247,7 @@ fun LibraryScreen(
                     } catch (failure: ApiException) {
                         status =
                             if (failure.status == 401) {
-                                // A lost answer to an earlier deletion also ends the session, so this cannot tell the
-                                // two apart.
+                                // A lost answer to an earlier deletion also ends the session; the two look the same.
                                 "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
                                     "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
                             } else "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
@@ -512,12 +510,12 @@ fun FolderScreen(
     onDisconnected: () -> Unit,
 ) {
     var status by remember { mutableStateOf<String?>(null) }
-    /** What disconnecting would delete, fetched for the confirmation; non-null while it is shown. */
+    // What disconnecting would delete, fetched for the confirmation; non-null while it is shown.
     var confirmDisconnect by remember { mutableStateOf<Sync.DisconnectPreview?>(null) }
     var disconnecting by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var listed by remember { mutableStateOf(false) }
-    /** Notes fetched so far and to fetch, while saving every note; null otherwise. Leaving the screen stops it. */
+    // Notes fetched so far and to fetch, while saving every note; null otherwise. Leaving the screen stops it.
     var saving by remember { mutableStateOf<SaveProgress?>(null) }
     val scope = rememberCoroutineScope()
     val documents by dao.documents(screen.repositoryId).collectAsState(null)
