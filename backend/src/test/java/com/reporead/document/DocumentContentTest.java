@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.reporead.Hashes;
+import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
@@ -20,15 +21,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.test.web.servlet.MockMvc;
@@ -36,18 +33,11 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest
-@AutoConfigureMockMvc
-class DocumentContentTest {
+class DocumentContentTest extends SharedSpringTest {
     // Test-only note content, tokens, and repository; no live GitHub call is made or claimed.
     private static final String TOKEN = "TEST_ONLY_ALICE_USER_TOKEN";
     private static final byte[] NOTE = "# Spring\n\nA **transaction** groups work.\n\n<script>alert(1)</script>\n"
             .getBytes(StandardCharsets.UTF_8);
-
-    @DynamicPropertySource
-    static void environment(DynamicPropertyRegistry properties) {
-        TestEnvironment.register(properties);
-    }
 
     @Autowired
     MockMvc mvc;

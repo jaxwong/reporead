@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
@@ -28,8 +29,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -37,8 +36,6 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.test.web.servlet.MockMvc;
@@ -46,9 +43,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
-@SpringBootTest
-@AutoConfigureMockMvc
-class AvailableRepositoriesTest {
+class AvailableRepositoriesTest extends SharedSpringTest {
     // All identities, repositories, and bearer values below are test-only, never a live integration fallback.
     private static final String ROUTE = "/api/repositories/available";
     private static final String INSTALLATIONS = "https://api.github.com/user/installations?per_page=100";
@@ -59,11 +54,6 @@ class AvailableRepositoriesTest {
             "{\"id\":11,\"full_name\":\"test-only/notes\",\"private\":true,\"default_branch\":\"main\",\"temp_clone_token\":\"TEST_ONLY_MUST_NOT_LEAK\"}";
     private static final String PAGE = "{\"total_count\":1,\"repositories\":[" + REPOSITORY + "]}";
     private static final String EMPTY = "{\"total_count\":0,\"repositories\":[]}";
-
-    @DynamicPropertySource
-    static void environment(DynamicPropertyRegistry properties) {
-        TestEnvironment.register(properties);
-    }
 
     @Autowired
     MockMvc mvc;

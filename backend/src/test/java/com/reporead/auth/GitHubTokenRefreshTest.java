@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.net.SocketTimeoutException;
@@ -27,8 +28,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -38,8 +37,6 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.endpoint.RestClientRefreshTokenTokenResponseClient;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
@@ -52,20 +49,13 @@ import org.springframework.web.client.RestTemplate;
 /**
  * Renewing an expired GitHub App user token. Every token and response is test-only, shaped like GitHub's; no live call.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class GitHubTokenRefreshTest {
+class GitHubTokenRefreshTest extends SharedSpringTest {
     private static final String TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token";
     private static final String INSTALLATIONS = "https://api.github.com/user/installations?per_page=100";
     private static final String NO_INSTALLATIONS = "{\"total_count\":0,\"installations\":[]}";
     // GitHub answers a refused refresh with HTTP 200 and an error body (checked against github.com on 2026-10-13).
     private static final String REFUSED =
             "{\"error\":\"bad_refresh_token\",\"error_description\":\"The refresh token passed is incorrect or expired.\"}";
-
-    @DynamicPropertySource
-    static void environment(DynamicPropertyRegistry properties) {
-        TestEnvironment.register(properties);
-    }
 
     @Autowired
     MockMvc mvc;

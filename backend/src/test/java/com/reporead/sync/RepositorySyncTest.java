@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.jayway.jsonpath.JsonPath;
+import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
@@ -24,15 +25,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
@@ -40,9 +37,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestTemplate;
 
-@SpringBootTest
-@AutoConfigureMockMvc
-class RepositorySyncTest {
+class RepositorySyncTest extends SharedSpringTest {
     // Test-only repository, SHAs, and tokens; no live GitHub call is made or claimed.
     private static final String TOKEN = "TEST_ONLY_ALICE_USER_TOKEN";
     private static final String BRANCH = "https://api.github.com/repos/test-only/notes/branches/main";
@@ -52,11 +47,6 @@ class RepositorySyncTest {
     private static final String TREE_B = "2".repeat(40);
     private static final String BLOB_1 = "3".repeat(40);
     private static final String BLOB_2 = "4".repeat(40);
-
-    @DynamicPropertySource
-    static void environment(DynamicPropertyRegistry properties) {
-        TestEnvironment.register(properties);
-    }
 
     @Autowired
     MockMvc mvc;

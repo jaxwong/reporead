@@ -3,6 +3,7 @@ package com.reporead.auth;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.reporead.RepoReadProperties;
+import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -11,22 +12,13 @@ import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 /** Stored GitHub tokens. Every token and key here is test-only; no GitHub call. */
-@SpringBootTest
-class GitHubTokensTest {
-    @DynamicPropertySource
-    static void environment(DynamicPropertyRegistry properties) {
-        TestEnvironment.register(properties);
-    }
-
+class GitHubTokensTest extends SharedSpringTest {
     @Autowired
     OAuth2AuthorizedClientService clients;
 
