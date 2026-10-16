@@ -2,6 +2,8 @@ package com.reporead.document;
 
 import com.reporead.Hashes;
 import com.reporead.github.GitHubHttp;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -19,6 +21,7 @@ import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.ext.task.list.items.TaskListItemsExtension;
 import org.commonmark.node.AbstractVisitor;
+import org.commonmark.node.LinkReferenceDefinition;
 import org.commonmark.parser.IncludeSourceSpans;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
@@ -84,6 +87,7 @@ public final class MarkdownRenderer {
 
     private static final String BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,pre,td,th,li";
     private static final String ORIGIN = "https://appassets.androidplatform.net";
+    private static final String APP_HOST = URI.create(ORIGIN).getHost();
     private static final List<Extension> EXTENSIONS =
             List.of(TablesExtension.create(), StrikethroughExtension.create(), TaskListItemsExtension.create());
     private static final Parser PARSER = Parser.builder()
@@ -157,7 +161,7 @@ public final class MarkdownRenderer {
      */
     public static RenderedNote render(String markdown, String sourceBlobSha, String documentPath) {
         checkInput(markdown, sourceBlobSha, documentPath);
-        var parsed = PARSER.parse(markdown);
+        var parsed = parse(markdown);
         var headingLines = headingLines(parsed);
         var clean = sanitize(parsed);
         int images = rewriteImages(clean, documentPath);
@@ -183,6 +187,31 @@ public final class MarkdownRenderer {
             throw new ContentRejected("Markdown exceeds the " + MAX_NOTE_MIB + " MiB reader limit");
         if (!Hashes.gitBlobSha(bytes).equals(sourceBlobSha))
             throw new ContentRejected("Markdown bytes do not match sourceBlobSha");
+    }
+
+    /**
+     * The note as CommonMark should read it, on the same lines. A leading byte order mark is dropped: it would make the
+     * first line text, losing a first heading. A footnote definition CommonMark took for a link reference definition
+     * (its text is just a URL) is escaped and the note read again: as one, it would render nothing and make each
+     * {@code [^label]} a link, while every other definition is paragraph text that markFootnotes marks.
+     */
+    private static org.commonmark.node.Node parse(String markdown) {
+        String source = markdown.startsWith("\uFEFF") ? markdown.substring(1) : markdown;
+        var parsed = PARSER.parse(source);
+        var definitions = new ArrayList<Integer>();
+        parsed.accept(new AbstractVisitor() {
+            @Override
+            public void visit(LinkReferenceDefinition definition) {
+                if (definition.getLabel().startsWith("^")) {
+                    definitions.add(source.indexOf(
+                            '[', definition.getSourceSpans().getFirst().getInputIndex()));
+                }
+            }
+        });
+        if (definitions.isEmpty()) return parsed;
+        var escaped = new StringBuilder(source);
+        for (int at : definitions.reversed()) escaped.insert(at, '\\');
+        return PARSER.parse(escaped.toString());
     }
 
     /** The 0-based source line of each heading, in document order, for sourceLines-based change summaries. */
@@ -349,18 +378,23 @@ public final class MarkdownRenderer {
     /**
      * Obsidian {@code [[links]]} and {@code ![[embeds]]} outside code, and relative links to {@code .md} files, become
      * note links and attachment images. The original text stays in the page — what is not shown is in hidden spans — so
-     * canonical block text, and every anchor into it, is unchanged. Returns the image count including embeds.
+     * canonical block text, and every anchor into it, is unchanged. Only links made here reach the app's own origin,
+     * whose paths it acts on (NOTE_LINK, the reader's tools): any other authored link there, such as a path that is not
+     * a note, opens nothing. Returns the image count including embeds.
      */
     private static int linkNotes(Document clean, String documentPath, int images) {
         for (var link : clean.select("a[href]")) {
             String href = link.attr("href");
-            if (href.startsWith("//")
-                    || href.startsWith("#")
-                    || SCHEME.matcher(href).matches()) continue;
+            boolean absolute = href.startsWith("//") || SCHEME.matcher(href).matches();
+            if (href.startsWith("#") || (absolute && leavesTheApp(href))) continue;
             String[] parts = href.split("#", 2);
-            if (!parts[0].toLowerCase(Locale.ROOT).endsWith(".md")) continue;
-            var path = repositoryPath(documentPath, parts[0]);
-            if (path.isEmpty()) continue;
+            var path = !absolute && parts[0].toLowerCase(Locale.ROOT).endsWith(".md")
+                    ? repositoryPath(documentPath, parts[0])
+                    : Optional.<String>empty();
+            if (path.isEmpty()) {
+                link.removeAttr("href");
+                continue;
+            }
             String heading = null;
             if (parts.length == 2 && !parts[1].isEmpty()) {
                 try {
@@ -539,6 +573,16 @@ public final class MarkdownRenderer {
         if (key != null) query.add(key + "=" + UriUtils.encodeQueryParam(value, StandardCharsets.UTF_8));
         if (heading != null) query.add("heading=" + UriUtils.encodeQueryParam(heading, StandardCharsets.UTF_8));
         return NOTE_LINK + "?" + String.join("&", query);
+    }
+
+    /** Whether an absolute link opens outside the app: a web or email address whose host is not the reader's. */
+    private static boolean leavesTheApp(String href) {
+        try {
+            String host = new URI(href).getHost();
+            return host == null || !host.equalsIgnoreCase(APP_HOST);
+        } catch (URISyntaxException malformed) {
+            return false;
+        }
     }
 
     private static Element blockedImage(String reason, String alt) {

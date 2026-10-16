@@ -192,8 +192,49 @@ class MarkdownRendererTest {
         assertEquals(
                 java.util.List.of(
                         "/note-link?path=notes/queues/fifo%20list.md&heading=Enqueue",
-                        "/note-link?path=top.md", "../../../x.md", "https://example.com/a.md"),
-                html.select("#note a").eachAttr("href"));
+                        "/note-link?path=top.md", "https://example.com/a.md"),
+                html.select("#note a[href]").eachAttr("href"));
+        assertEquals(
+                "out", html.selectFirst("#note a:not([href])").text(), "a link out of the repository opens nothing");
+    }
+
+    @Test
+    void anAuthoredLinkToTheAppsOwnPagesIsANoteOrNothing() {
+        // The app decodes every /note-link it is tapped or shown, and "%" alone is not a valid escape.
+        var html = Jsoup.parse(
+                render("[a](/note-link?target=50%) [b](https://appassets.androidplatform.net/note-link?target=%zz) "
+                                + "[c](scripts/run.py) [d](next.md) [e](https://example.com/x) [f](#Heading)")
+                        .html());
+        assertEquals(
+                java.util.List.of("/note-link?path=notes/backend/next.md", "https://example.com/x", "#Heading"),
+                html.select("#note a[href]").eachAttr("href"));
+        assertEquals(
+                java.util.List.of("a", "b", "c", "d", "e", "f"),
+                html.select("#note a").eachText());
+    }
+
+    @Test
+    void aFootnoteWhoseTextIsOnlyAUrlIsStillAFootnote() {
+        // CommonMark reads "[^1]: <url>" as a link reference definition: it renders nothing and makes [^1] a link.
+        var result = render("See the paper[^1].\n\n[^1]: https://arxiv.org/abs/1706.03762\n");
+        assertEquals(
+                java.util.List.of("See the paper[^1].", "[^1]: https://arxiv.org/abs/1706.03762"),
+                result.blocks().stream().map(MarkdownRenderer.Block::text).toList());
+        var html = Jsoup.parse(result.html());
+        assertEquals(java.util.List.of("1"), html.select(".fn-ref").eachAttr("data-label"));
+        assertEquals(java.util.List.of("1"), html.select(".fn-def").eachAttr("data-label"));
+        assertTrue(html.select("#note a").isEmpty());
+    }
+
+    @Test
+    void aByteOrderMarkDoesNotHideTheFirstHeading() {
+        var result = render("\uFEFF# Title\n\nBody\n");
+        assertEquals(
+                java.util.List.of(new MarkdownRenderer.Heading("b0", 0, java.util.List.of("Title"))),
+                result.headings());
+        assertEquals(
+                java.util.List.of("Title", "Body"),
+                result.blocks().stream().map(MarkdownRenderer.Block::text).toList());
     }
 
     @Test
