@@ -3,8 +3,6 @@ package com.reporead.annotation;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.repository.RepositoryConnections;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -54,7 +52,7 @@ public class Reviews {
                 annotations.notebook(userId),
                 db.sql(SELECT + " order by r.reviewed_at, r.mutation_id")
                         .param("userId", userId)
-                        .query(Reviews::review)
+                        .query(Review.class)
                         .list(),
                 SESSION_LIMIT));
     }
@@ -83,11 +81,7 @@ public class Reviews {
                     where a.id = :id and a.user_id = :userId and a.type = 'CARD' for update of a""")
                     .param("id", cardId)
                     .param("userId", userId)
-                    .query((row, n) -> new Current(
-                            row.getString("checked_blob_sha"),
-                            row.getString("current_blob_sha"),
-                            row.getBoolean("deleted"),
-                            Annotations.Status.valueOf(row.getString("status"))))
+                    .query(Current.class)
                     .optional()
                     .orElseThrow(ApiFailure::notFound);
             int inserted = db.sql("""
@@ -104,43 +98,30 @@ public class Reviews {
                             "select annotation_id, grade, reviewed_at, blob_sha from review_log where user_id = :userId and mutation_id = :mutation")
                     .param("userId", userId)
                     .param("mutation", mutation)
-                    .query((row, n) -> new Stored(
-                            row.getLong("annotation_id"),
-                            row.getInt("grade"),
-                            row.getTimestamp("reviewed_at").toInstant(),
-                            row.getString("blob_sha")))
+                    .query(Stored.class)
                     .single();
-            if (stored.id() != cardId
+            if (stored.annotationId() != cardId
                     || stored.grade() != grade
-                    || !stored.at().equals(reviewedAt)
-                    || !stored.sha().equals(blobSha)) {
+                    || !stored.reviewedAt().equals(reviewedAt)
+                    || !stored.blobSha().equals(blobSha)) {
                 throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
             }
             if (inserted != 0
                     && (current.deleted()
                             || current.status() == Annotations.Status.ORPHANED
-                            || !blobSha.equals(current.checked())
-                            || !blobSha.equals(current.sha()))) {
+                            || !blobSha.equals(current.checkedBlobSha())
+                            || !blobSha.equals(current.currentBlobSha()))) {
                 throw new ApiFailure(Code.CARD_CHANGED, "Check this card in the current note before reviewing it.");
             }
             return db.sql(SELECT + " and r.mutation_id = :mutation")
                     .param("userId", userId)
                     .param("mutation", mutation)
-                    .query(Reviews::review)
+                    .query(Review.class)
                     .single();
         });
     }
 
-    private record Current(String checked, String sha, boolean deleted, Annotations.Status status) {}
+    private record Current(String checkedBlobSha, String currentBlobSha, boolean deleted, Annotations.Status status) {}
 
-    private record Stored(long id, int grade, Instant at, String sha) {}
-
-    private static Review review(ResultSet row, int n) throws SQLException {
-        return new Review(
-                row.getString("mutation_id"),
-                row.getString("card_mutation_id"),
-                row.getInt("grade"),
-                row.getTimestamp("reviewed_at").toInstant(),
-                row.getString("blob_sha"));
-    }
+    private record Stored(long annotationId, int grade, Instant reviewedAt, String blobSha) {}
 }

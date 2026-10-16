@@ -5,8 +5,6 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppSessions;
 import com.reporead.github.GitHubApi;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,7 +49,7 @@ public class RepositoryConnections {
     public List<Connection> list(long userId) {
         return db.sql(SELECT + " where c.user_id = :userId order by c.owner, c.name")
                 .param("userId", userId)
-                .query(RepositoryConnections::connection)
+                .query(Connection.class)
                 .list();
     }
 
@@ -59,7 +57,7 @@ public class RepositoryConnections {
         return db.sql(SELECT + " where c.user_id = :userId and c.id = :id")
                 .param("userId", userId)
                 .param("id", connectionId)
-                .query(RepositoryConnections::connection)
+                .query(Connection.class)
                 .optional();
     }
 
@@ -115,10 +113,10 @@ public class RepositoryConnections {
                     + ") ran outside a transaction, where its row lock is released as soon as it is taken");
         }
         return db.sql(
-                        "select last_synced_commit_sha from repository_connections where id = :id and user_id = :userId for update")
+                        "select last_synced_commit_sha as commit_sha from repository_connections where id = :id and user_id = :userId for update")
                 .param("id", connectionId)
                 .param("userId", userId)
-                .query((row, n) -> new Checkpoint(row.getString("last_synced_commit_sha")))
+                .query(Checkpoint.class)
                 .optional()
                 .orElseThrow(ApiFailure::notFound);
     }
@@ -156,16 +154,5 @@ public class RepositoryConnections {
                 .param("commitSha", commitSha)
                 .param("id", connectionId)
                 .update();
-    }
-
-    private static Connection connection(ResultSet row, int n) throws SQLException {
-        return new Connection(
-                row.getLong("id"),
-                row.getLong("github_repository_id"),
-                row.getString("owner"),
-                row.getString("name"),
-                row.getString("default_branch"),
-                row.getString("last_synced_commit_sha"),
-                row.getInt("document_count"));
     }
 }

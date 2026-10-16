@@ -65,18 +65,16 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
     public <T extends OAuth2AuthorizedClient> T loadAuthorizedClient(
             String clientRegistrationId, String principalName) {
         long githubUserId = githubUserId(clientRegistrationId, principalName);
-        record Row(byte[] access, Instant accessIssued, Instant accessExpires, byte[] refresh, Instant refreshIssued) {}
-        var row = db.sql("""
+        record Row(
+                byte[] accessToken,
+                Instant accessTokenIssuedAt,
+                Instant accessTokenExpiresAt,
+                byte[] refreshToken,
+                Instant refreshTokenIssuedAt) {}
+        var row =
+                db.sql("""
                 select access_token, access_token_issued_at, access_token_expires_at, refresh_token, refresh_token_issued_at
-                from github_tokens where github_user_id = :githubUserId""")
-                .param("githubUserId", githubUserId)
-                .query((rs, n) -> new Row(
-                        rs.getBytes("access_token"),
-                        instant(rs.getTimestamp("access_token_issued_at")),
-                        instant(rs.getTimestamp("access_token_expires_at")),
-                        rs.getBytes("refresh_token"),
-                        instant(rs.getTimestamp("refresh_token_issued_at"))))
-                .optional();
+                from github_tokens where github_user_id = :githubUserId""").param("githubUserId", githubUserId).query(Row.class).optional();
         if (row.isEmpty()) return null;
         OAuth2AccessToken access;
         OAuth2RefreshToken refresh;
@@ -84,14 +82,14 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
             // GitHub App user tokens carry no scopes.
             access = new OAuth2AccessToken(
                     OAuth2AccessToken.TokenType.BEARER,
-                    decrypt(row.get().access(), githubUserId, "access"),
-                    row.get().accessIssued(),
-                    row.get().accessExpires());
-            refresh = row.get().refresh() == null
+                    decrypt(row.get().accessToken(), githubUserId, "access"),
+                    row.get().accessTokenIssuedAt(),
+                    row.get().accessTokenExpiresAt());
+            refresh = row.get().refreshToken() == null
                     ? null
                     : new OAuth2RefreshToken(
-                            decrypt(row.get().refresh(), githubUserId, "refresh"),
-                            row.get().refreshIssued());
+                            decrypt(row.get().refreshToken(), githubUserId, "refresh"),
+                            row.get().refreshTokenIssuedAt());
         } catch (AEADBadTagException error) {
             // Kept: a key file named by mistake must not destroy every token; the next sign-in overwrites the row.
             LOG.warn(
@@ -194,9 +192,5 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
 
     private static Timestamp timestamp(Instant instant) {
         return instant == null ? null : Timestamp.from(instant);
-    }
-
-    private static Instant instant(Timestamp timestamp) {
-        return timestamp == null ? null : timestamp.toInstant();
     }
 }
