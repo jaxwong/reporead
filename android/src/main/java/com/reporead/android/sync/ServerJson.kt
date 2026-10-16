@@ -1,6 +1,7 @@
 package com.reporead.android.sync
 
 import com.reporead.android.core.network.contract
+import com.reporead.android.core.network.string
 import com.reporead.android.data.AnchorStatus
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
@@ -14,11 +15,11 @@ import org.json.JSONObject
 
 // RepoRead's server responses as Room rows. A missing or mistyped field breaks the contract (ApiException); no crash.
 
-internal fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else getString(name)
+internal fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else string(name)
 
 /** The constant of [E] that the field [name] names; any other value breaks the contract. */
 internal inline fun <reified E : Enum<E>> JSONObject.enumValue(name: String): E {
-    val value = getString(name)
+    val value = string(name)
     return enumValues<E>().firstOrNull { it.name == value } ?: throw JSONException("Unknown $name $value")
 }
 
@@ -35,11 +36,11 @@ internal fun reviewRow(json: JSONObject) = contract {
     val grade = json.getInt("grade")
     if (grade !in 0..5) throw JSONException("Invalid review grade $grade")
     ReviewRow(
-        json.getString("mutationId"),
-        json.getString("cardMutationId"),
+        json.string("mutationId"),
+        json.string("cardMutationId"),
         grade,
-        Instant.parse(json.getString("reviewedAt")).toEpochMilli(),
-        json.getString("blobSha"),
+        Instant.parse(json.string("reviewedAt")).toEpochMilli(),
+        json.string("blobSha"),
         pending = false,
     )
 }
@@ -48,29 +49,29 @@ internal fun annotationRow(json: JSONObject) = contract {
     val anchor = json.getJSONObject("anchor")
     val location = json.getJSONObject("location")
     AnnotationRow(
-        json.getString("mutationId"),
+        json.string("mutationId"),
         json.getLong("id"),
         json.getLong("documentId"),
-        anchor.getString("sourceBlobSha"),
-        anchor.getString("blockId"),
+        anchor.string("sourceBlobSha"),
+        anchor.string("blockId"),
         anchor.getInt("startOffset"),
         anchor.getInt("endOffset"),
-        anchor.getString("exactText"),
+        anchor.string("exactText"),
         json.nullableString("note"),
         json.getInt("version"),
-        Instant.parse(json.getString("createdAt")).toEpochMilli(),
+        Instant.parse(json.string("createdAt")).toEpochMilli(),
         state = AnnotationState.ACKNOWLEDGED,
-        prefixText = anchor.getString("prefixText"),
-        suffixText = anchor.getString("suffixText"),
+        prefixText = anchor.string("prefixText"),
+        suffixText = anchor.string("suffixText"),
         status = json.enumValue<AnchorStatus>("status"),
-        resolvedBlobSha = json.getString("resolvedBlobSha"),
+        resolvedBlobSha = json.string("resolvedBlobSha"),
         location =
             Passage(
-                location.getString("sourceBlobSha"),
-                location.getString("blockId"),
+                location.string("sourceBlobSha"),
+                location.string("blockId"),
                 location.getInt("startOffset"),
                 location.getInt("endOffset"),
-                location.getString("exactText"),
+                location.string("exactText"),
             ),
         type = json.enumValue<AnnotationType>("type"),
         question = json.nullableString("question"),
@@ -81,10 +82,10 @@ internal fun annotationRow(json: JSONObject) = contract {
 internal fun readingRow(json: JSONObject) = contract {
     ReadingRow(
         json.getLong("documentId"),
-        json.getString("lastReadBlobSha"),
+        json.string("lastReadBlobSha"),
         json.getInt("progressPercent"),
         json.getJSONObject("anchor").toString(),
-        Instant.parse(json.getString("lastReadAt")).toEpochMilli(),
+        Instant.parse(json.string("lastReadAt")).toEpochMilli(),
         pending = false,
     )
 }
