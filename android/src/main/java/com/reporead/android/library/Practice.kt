@@ -159,7 +159,7 @@ internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: Pra
         dao.note(question.documentId)?.blobSha != question.blobSha ||
             dao.document(question.documentId)?.blobSha != question.blobSha
     ) {
-        return "Not saved: this question's bank changed since it was asked. Save all notes in Library, then practise it again."
+        return "Not saved: this question's bank changed since it was asked. Open the bank while online, or use Save all notes on this phone in its repository's menu, then practise it again."
     }
     val answer = question.question.answer
     val passage = Passage(question.blobSha, answer.blockId, 0, answer.text.length, answer.text)
@@ -233,7 +233,7 @@ private fun TopicRow(topic: String?, banks: Banks, scheduled: Set<String>, push:
     Column {
         EntryRow(
             topicName(topic),
-            "$new new · ${questions.size - new} on your schedule · ${pages.count { it.html != null }}/${pages.size} banks saved",
+            "$new new · ${questions.size - new} on your schedule · ${pages.count { it.html != null }}/${pages.size} banks up to date",
             if (topic == null) R.drawable.ic_notes else R.drawable.ic_folder,
         ) {
             push(Screen.Practice(topic))
@@ -301,7 +301,7 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             if (key == null) {
                 Text(
                     if (started.isEmpty())
-                        "No new questions here: each saved question already has a card. They come back under Review when due."
+                        "No new questions here: each question in its up-to-date banks already has a card. They come back under Review when due."
                     else
                         "Session complete: ${counted(started.count { it in scheduled }, "question")} graded. They come back under Review when due."
                 )
@@ -322,7 +322,7 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             }
             if (question == null) {
                 Text(
-                    "This question's bank was saved again since the session started, so it is skipped. Start a new session for the new version."
+                    "This question's bank changed since the session started, so it is skipped. Start a new session for the new version."
                 )
                 return@Column
             }

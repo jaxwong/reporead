@@ -142,6 +142,10 @@ class LocalStoreTest {
         assertEquals("a".repeat(40), partial.first().blobSha)
         assertNull(partial.last().blobSha)
         assertEquals(1, partial.count { it.html != null })
+        // A copy older than the listed version reads as unsaved: grading its questions would be refused.
+        dao.saveNote(NoteRow(2, "c".repeat(40), "interview/b.md", "b", "<main>older</main>", 0))
+        assertEquals(1, dao.bankPages().first().count { it.html != null })
+        assertNull(dao.bankPages().first().last().blobSha)
         dao.saveNote(NoteRow(2, "b".repeat(40), "interview/b.md", "b", "<main>complete</main>", 0))
         assertEquals(2, dao.bankPages().first().count { it.html != null })
         dao.replaceDocuments(7, listOf(DocumentRow(2, 7, "interview/b.md", "b", "b".repeat(40))))
