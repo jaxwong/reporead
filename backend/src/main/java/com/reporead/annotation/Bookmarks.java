@@ -3,8 +3,6 @@ package com.reporead.annotation;
 import com.reporead.ApiFailure;
 import com.reporead.document.Documents;
 import com.reporead.repository.RepositoryConnections;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -53,7 +51,7 @@ public class Bookmarks {
             return db.sql(SELECT + " and a.document_id = :documentId")
                     .param("userId", userId)
                     .param("documentId", documentId)
-                    .query(Bookmarks::bookmark)
+                    .query(Bookmark.class)
                     .single();
         });
     }
@@ -73,12 +71,7 @@ public class Bookmarks {
     List<Bookmark> list(long userId) {
         return db.sql(SELECT + " order by a.created_at desc")
                 .param("userId", userId)
-                .query(Bookmarks::bookmark)
+                .query(Bookmark.class)
                 .list();
-    }
-
-    private static Bookmark bookmark(ResultSet row, int n) throws SQLException {
-        return new Bookmark(
-                row.getLong("document_id"), row.getTimestamp("created_at").toInstant());
     }
 }

@@ -162,14 +162,10 @@ public class Documents {
 
     public List<Existing> existing(long connectionId) {
         return db.sql("""
-                select id, path, current_blob_sha, deleted_at is not null as deleted from documents
+                select id, path, current_blob_sha as blob_sha, deleted_at is not null as deleted from documents
                 where repository_connection_id = :connectionId""")
                 .param("connectionId", connectionId)
-                .query((row, n) -> new Existing(
-                        row.getLong("id"),
-                        row.getString("path"),
-                        row.getString("current_blob_sha"),
-                        row.getBoolean("deleted")))
+                .query(Existing.class)
                 .list();
     }
 
@@ -191,41 +187,23 @@ public class Documents {
     /** Every document of the connection, deleted ones too. */
     public List<Summary> list(long connectionId) {
         return db.sql("""
-                select id, path, title, current_blob_sha, content_changed_at, deleted_at is not null as deleted from documents
-                where repository_connection_id = :connectionId order by path""")
+                select id, path, title, current_blob_sha as blob_sha, content_changed_at, deleted_at is not null as deleted
+                from documents where repository_connection_id = :connectionId order by path""")
                 .param("connectionId", connectionId)
-                .query((row, n) -> {
-                    var changedAt = row.getTimestamp("content_changed_at");
-                    return new Summary(
-                            row.getLong("id"),
-                            row.getString("path"),
-                            row.getString("title"),
-                            row.getString("current_blob_sha"),
-                            changedAt == null ? null : changedAt.toInstant(),
-                            row.getBoolean("deleted"));
-                })
+                .query(Summary.class)
                 .list();
     }
 
     /** Finds a document only if it belongs to one of this user's connections. */
     public Optional<Located> find(long userId, long documentId) {
         return db.sql("""
-                select d.id, d.path, d.title, d.current_blob_sha, c.last_synced_commit_sha, d.deleted_at is not null as deleted, c.owner,
-                       c.name as repository_name, c.id as connection_id
+                select d.id, d.path, d.title, d.current_blob_sha as blob_sha, c.last_synced_commit_sha as commit_sha,
+                       d.deleted_at is not null as deleted, c.owner, c.name as repository_name, c.id as connection_id
                 from documents d join repository_connections c on c.id = d.repository_connection_id
                 where d.id = :id and c.user_id = :userId""")
                 .param("id", documentId)
                 .param("userId", userId)
-                .query((row, n) -> new Located(
-                        row.getLong("id"),
-                        row.getString("path"),
-                        row.getString("title"),
-                        row.getString("current_blob_sha"),
-                        row.getString("last_synced_commit_sha"),
-                        row.getBoolean("deleted"),
-                        row.getString("owner"),
-                        row.getString("repository_name"),
-                        row.getLong("connection_id")))
+                .query(Located.class)
                 .optional();
     }
 

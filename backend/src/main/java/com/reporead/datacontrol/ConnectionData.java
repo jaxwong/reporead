@@ -59,15 +59,7 @@ public class ConnectionData {
                        (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'HIGHLIGHT')
                            as highlights,
                        (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'CARD')
-                           as cards""")
-                .param("id", connectionId)
-                .query((row, n) -> new Counts(
-                        row.getInt("documents"),
-                        row.getInt("reading_states"),
-                        row.getInt("bookmarks"),
-                        row.getInt("highlights"),
-                        row.getInt("cards")))
-                .single();
+                           as cards""").param("id", connectionId).query(Counts.class).single();
     }
 
     /**
