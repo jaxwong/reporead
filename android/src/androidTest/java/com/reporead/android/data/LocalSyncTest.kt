@@ -418,24 +418,21 @@ class LocalSyncTest {
         }
     }
 
+    /**
+     * A reading pause asks for a background run, so it sends only what waits. Each send saves the server's answer, and
+     * the screens pull the lists.
+     */
     @Test
-    fun theBackgroundSyncSendsWhatWaits() = runBlocking {
+    fun aBackgroundRunSendsWhatWaitsAndPullsNothing() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", sha)))
         dao.saveReading(reading(1))
         LoopbackServer(emptyLists + mapOf("PUT /api/documents/1/reading-state" to (200 to serverReading))).use { server
             ->
             assertEquals(Result.success(), backgroundSync(sync(server.url), 0))
-            assertEquals(
-                listOf(
-                    "PUT /api/documents/1/reading-state",
-                    "GET /api/repositories",
-                    "GET /api/reading-states",
-                    "GET /api/bookmarks",
-                    "GET /api/notebook",
-                ),
-                server.requests,
-            )
-            assertTrue(dao.pendingReading().isEmpty())
+            assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
         }
+        assertTrue(dao.pendingReading().isEmpty())
+        assertEquals("the lists are left as they were", 1, dao.documents(7).first().size)
     }
 
     @Test

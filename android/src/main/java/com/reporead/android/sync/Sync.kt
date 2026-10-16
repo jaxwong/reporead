@@ -319,7 +319,7 @@ class Sync(
      * phone's copies are then removed by reconciling with the server's list.
      */
     suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = oneSyncAtATime.withLock {
-        val synced = sendAndReplace()
+        val synced = sendPending().also { replaceFromServer() }
         val json =
             try {
                 api.get("/api/repositories/$repositoryId/stored-data")
@@ -392,28 +392,30 @@ class Sync(
     suspend fun recordReview(row: ReviewRow): Boolean = dao.recordReview(row).also { if (it) onPendingChange() }
 
     /**
-     * The sync of local changes, run by library open, pull to refresh, Sync now, and the background sync: sends pending
-     * work, then loads the server's complete lists: repositories and every repository's notes (one request each), then
-     * reading, bookmark, and notebook rows, which replace the acknowledged local ones. Highlight and card creations
-     * need GitHub; when GitHub, or access to it, fails they wait, and the database-only work still runs (ADR-03). A
-     * refused item is marked and the run goes on; any other failure ends the run with unacknowledged changes still
-     * pending. The notebook, which grows without paging, is read last so its failure cannot hold back the rest.
+     * The sync run by library open, pull to refresh and Sync now: sends what waits ([sendPending]), then loads the
+     * server's complete lists ([replaceFromServer]).
      */
-    suspend fun syncLocalChanges(): LocalSync = oneSyncAtATime.withLock { sendAndReplace() }
+    suspend fun syncLocalChanges(): LocalSync = oneSyncAtATime.withLock { sendPending().also { replaceFromServer() } }
 
     /**
-     * The background sync's run: [syncLocalChanges], but only when changes wait to be sent; null when none did. Checked
-     * under the lock, so after sign-out has cleared the phone it makes no request and writes nothing.
+     * The background sync's run: sends what waits, and nothing when nothing does (null); each send saves the server's
+     * answer, so the lists are left to the screens. Checked under the lock, so after sign-out has cleared the phone it
+     * makes no request and writes nothing.
      */
     suspend fun syncWaitingChanges(): LocalSync? = oneSyncAtATime.withLock {
-        if (dao.waitingCount().first() == 0) null else sendAndReplace()
+        if (dao.waitingCount().first() == 0) null else sendPending()
     }
 
     /** A note named in a message: its title, or what it is when no saved list has it (the server no longer does). */
     private suspend fun noteName(documentId: Long) =
         dao.document(documentId)?.let { "“${it.title}”" } ?: "a note no longer in your lists"
 
-    private suspend fun sendAndReplace(): LocalSync {
+    /**
+     * Sends what waits, each saved as the server answers it. Highlight and card creations need GitHub; when GitHub, or
+     * access to it, fails they wait, and the database-only work still runs (ADR-03). A refused item is marked and the
+     * run goes on; any other failure ends the run with unacknowledged changes still pending.
+     */
+    private suspend fun sendPending(): LocalSync {
         // The one push step whose failure does not end the run: creations need GitHub, so when it fails they wait and
         // the database-only work below still runs (ADR-03).
         val notSent =
@@ -441,8 +443,8 @@ class Sync(
                     if (!error.refusesItem()) throw error
                     Log.w("RepoRead", "Reading state refused; documentId=${row.documentId} code=${error.code}")
                     // Not this user's note on the server any more: the position goes with it when the lists are
-                    // replaced below. Any other refusal keeps the position on this phone, pending, and offers it
-                    // again at the next sync.
+                    // next replaced. Any other refusal keeps the position on this phone, pending, and offers it again
+                    // at the next sync.
                     if (error.status == 404) dao.acknowledgeReading(row.documentId, row.lastReadAt)
                     refused += "Your place in ${noteName(row.documentId)} (${error.describe()})"
                     continue
@@ -466,6 +468,15 @@ class Sync(
                 refused += "The bookmark on ${noteName(row.documentId)} (${error.describe()})"
             }
         }
+        return LocalSync(refused, notSent)
+    }
+
+    /**
+     * Loads the server's complete lists: repositories and every repository's notes (one request each), then reading,
+     * bookmark, and notebook rows, which replace the acknowledged local ones. The notebook, which grows without paging,
+     * is read last so its failure cannot hold back the rest.
+     */
+    private suspend fun replaceFromServer() {
         loadRepositories()
         val states = api.get("/api/reading-states")
         val remoteReading = contract {
@@ -493,7 +504,6 @@ class Sync(
         refreshNotebook()
         // Last, once every list is the server's complete one: copies nothing refers to any more.
         images.delete(dao.forgetUnreferencedNotes())
-        return LocalSync(refused, notSent)
     }
 
     /**
