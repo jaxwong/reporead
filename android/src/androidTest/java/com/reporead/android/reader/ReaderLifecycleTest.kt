@@ -23,11 +23,13 @@ import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -270,6 +272,26 @@ class ReaderLifecycleTest {
             withTimeout(10_000) { while (evaluate("return {n: window.drawn};").getInt("n") == 0) delay(50) }
             delay(500)
             assertEquals(1, evaluate("return {n: window.drawn};").getInt("n"))
+        }
+
+    /** A page script that throws is raised with the page's own error and the expression, never read as a null. */
+    @Test
+    fun aPageScriptThatThrowsIsRaisedWithThePagesError() =
+        runBlocking<Unit> {
+            var page: WebView? = null
+            scenario.onActivity { page = findWebView(it.window.decorView) }
+            val view = checkNotNull(page)
+            assertEquals(
+                0,
+                withContext(Dispatchers.Main) { view.evaluate("window.reporead.position().anchor.blockIndex") },
+            )
+            val failure =
+                withContext(Dispatchers.Main) {
+                    runCatching { view.evaluate("window.reporead.configureStudy({collapsedHeadings: ['b999']})") }
+                        .exceptionOrNull()
+                }
+            assertTrue("$failure", failure is IllegalStateException)
+            assertTrue("$failure", failure!!.message!!.contains("Study heading b999 missing"))
         }
 
     /** A renderer can crash or be reclaimed by the system; the reader then says so instead of ending the app. */

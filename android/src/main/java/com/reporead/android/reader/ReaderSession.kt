@@ -37,7 +37,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONObject
-import org.json.JSONTokener
 
 private const val NOTE_LINK = "/note-link"
 /** The reader page's Copy link on a code block (reader.js addCodeTools); the text is then read with codeText(). */
@@ -57,14 +56,6 @@ internal sealed interface Selection {
     data class Unusable(val reason: String) : Selection
 
     data class InBlock(val passage: Passage) : Selection
-}
-
-/**
- * Runs [script] in the page and returns its result as JSONTokener decodes it: a String, Int, Boolean, JSONObject.NULL,
- * and so on.
- */
-private suspend fun WebView.evaluate(script: String): Any? = suspendCancellableCoroutine { result ->
-    evaluateJavascript(script) { encoded -> result.resume(JSONTokener(encoded).nextValue()) }
 }
 
 /**
@@ -296,7 +287,7 @@ internal class ReaderSession(
         }
         val configured =
             view.evaluate(
-                "window.reporead.configureStudy(${study.json()}); window.reporead.setStudy(${studying()}); true"
+                "(window.reporead.configureStudy(${study.json()}), window.reporead.setStudy(${studying()}), true)"
             )
         check(configured == true) { "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}" }
         Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height}")
@@ -451,7 +442,7 @@ internal class ReaderSession(
     fun reveal(key: String) {
         val webView = openedView() ?: return
         touched = false
-        webView.evaluateJavascript("window.reporead.reveal(${JSONObject.quote(key)})", null)
+        webView.evaluate("window.reporead.reveal(${JSONObject.quote(key)})") {}
     }
 
     fun setStudy(enabled: Boolean) {
@@ -479,20 +470,11 @@ internal class ReaderSession(
     }
 
     /**
-     * The page's selection. A broken canonical mapping is an invariant failure, raised here, never an approximate
-     * anchor.
+     * The page's selection. A broken canonical mapping is an invariant failure, which capture() throws and evaluate
+     * raises, never an approximate anchor.
      */
     private suspend fun captureSelection(view: WebView): Selection {
-        val encoded =
-            view.evaluate(
-                "(() => { try { return JSON.stringify({selection: window.reporead.capture()}); } " +
-                    "catch (error) { return JSON.stringify({invariant: error.message}); } })()"
-            ) as String
-        val result = JSONObject(encoded)
-        check(!result.has("invariant")) {
-            "Selection capture failed; documentId=${note.documentId}: ${result.getString("invariant")}"
-        }
-        val selection = result.optJSONObject("selection") ?: return Selection.None
+        val selection = view.evaluate("window.reporead.capture()") as? JSONObject ?: return Selection.None
         if (selection.has("error")) return Selection.Unusable(selection.getString("error"))
         return Selection.InBlock(
             Passage(
