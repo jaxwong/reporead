@@ -12,16 +12,18 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 
 /**
  * Completes the browser half of app sign-in: saves the user, issues a single-use code bound to the app's PKCE
- * challenge, ends the browser session, and redirects to the app that started it, by its scheme. A login can only start
- * from /app/sign-in (GitHubSecurity.startedByTheApp), so the pending sign-in is always in the session that reaches this
- * callback (PendingAppSignIn).
+ * challenge, ends the browser session, and redirects to this server's app by its scheme (PendingAppSignIn.appScheme). A
+ * login can only start from /app/sign-in (GitHubSecurity.startedByTheApp), so the pending sign-in is always in the
+ * session that reaches this callback (PendingAppSignIn).
  */
 final class AppSignInSuccess implements AuthenticationSuccessHandler {
     private static final Logger LOG = LoggerFactory.getLogger(AppSignInSuccess.class);
     private final AppSessions sessions;
+    private final String appScheme;
 
-    AppSignInSuccess(AppSessions sessions) {
+    AppSignInSuccess(AppSessions sessions, String appScheme) {
         this.sessions = sessions;
+        this.appScheme = appScheme;
     }
 
     @Override
@@ -29,7 +31,7 @@ final class AppSignInSuccess implements AuthenticationSuccessHandler {
             HttpServletRequest request, HttpServletResponse response, Authentication authentication)
             throws IOException {
         SecurityContextHolder.clearContext();
-        var started = PendingAppSignIn.finish(request);
+        String codeChallenge = PendingAppSignIn.finish(request);
         var user = (OAuth2User) authentication.getPrincipal();
         Object id = user.getAttribute("id");
         Object login = user.getAttribute("login");
@@ -41,8 +43,8 @@ final class AppSignInSuccess implements AuthenticationSuccessHandler {
                     "GitHub identity requires a positive numeric id and nonblank login in the OAuth callback");
         }
         long userId = sessions.saveUser(number.longValue(), name);
-        String code = sessions.issueSignInCode(userId, started.codeChallenge());
-        LOG.info("GitHub sign-in completed; userId={} app code issued; scheme={}", userId, started.appScheme());
-        response.sendRedirect(started.appScheme() + "://auth?code=" + code);
+        String code = sessions.issueSignInCode(userId, codeChallenge);
+        LOG.info("GitHub sign-in completed; userId={} app code issued; scheme={}", userId, appScheme);
+        response.sendRedirect(appScheme + "://auth?code=" + code);
     }
 }

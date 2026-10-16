@@ -125,6 +125,7 @@ Noticed and deliberately not changed:
 - `android/reader-web/check-restore.mjs` keeps its own copies of reader functions.
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
+- Sign-in hands the app its code through a custom scheme, which a second app could also register; Android then asks which app opens it. Verified App Links would remove that ([backend README](../backend/README.md#sign-in-contract-android)).
 
 The ADRs record further limits: anchors (ADR-05), the unbumped page format (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
 

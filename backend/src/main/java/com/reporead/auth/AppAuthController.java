@@ -2,6 +2,7 @@ package com.reporead.auth;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
+import com.reporead.RepoReadProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.catalina.session.TooManyActiveSessionsException;
 import org.slf4j.Logger;
@@ -29,10 +30,12 @@ public class AppAuthController {
     private static final Logger LOG = LoggerFactory.getLogger(AppAuthController.class);
     private final AppSessions sessions;
     private final GitHubCredentials credentials;
+    private final String appScheme;
 
-    public AppAuthController(AppSessions sessions, GitHubCredentials credentials) {
+    public AppAuthController(AppSessions sessions, GitHubCredentials credentials, RepoReadProperties properties) {
         this.sessions = sessions;
         this.credentials = credentials;
+        this.appScheme = PendingAppSignIn.appScheme(properties.publicUrl());
     }
 
     @GetMapping("/app/sign-in")
@@ -44,18 +47,13 @@ public class AppAuthController {
             throw new ApiFailure(
                     Code.INVALID_CODE_CHALLENGE, "code_challenge must be a 43-character S256 PKCE challenge.");
         }
-        if (!PendingAppSignIn.APP_SCHEMES.contains(scheme)) {
+        if (!scheme.equals(appScheme)) {
             throw new ApiFailure(
                     Code.INVALID_REQUEST,
-                    "scheme must be one of the RepoRead apps' schemes: "
-                            + String.join(
-                                    ", ",
-                                    PendingAppSignIn.APP_SCHEMES.stream()
-                                            .sorted()
-                                            .toList()) + ".");
+                    "scheme must be " + appScheme + ", the scheme of the app this server signs in.");
         }
         try {
-            PendingAppSignIn.start(request, codeChallenge, scheme);
+            PendingAppSignIn.start(request, codeChallenge);
         } catch (TooManyActiveSessionsException full) {
             LOG.warn("Sign-in refused: too many sign-ins in progress; limit={}", full.getMaxActiveSessions());
             throw new ApiFailure(Code.SIGN_IN_BUSY, "Too many sign-ins are in progress; try again in a few minutes.");
