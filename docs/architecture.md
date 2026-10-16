@@ -250,7 +250,7 @@ erDiagram
     }
 ```
 
-Concurrency: syncs, disconnects and every write that adds rows for a document take the same `repository_connections` row lock (`RepositoryConnections.lockForSync` and its siblings), so a write never lands half-way through a sync or a disconnect.
+Concurrency: syncs, disconnects and every write that adds rows for a document take the same `repository_connections` row lock (`RepositoryConnections.lockForSync` and its siblings), so a write never lands half-way through a sync or a disconnect. Each table's owner takes the lock inside its own transaction, and the lock methods refuse to run outside one.
 
 ## 4. Android app
 
