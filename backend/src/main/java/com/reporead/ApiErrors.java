@@ -19,12 +19,14 @@ class ApiErrors {
 
     @ExceptionHandler(ApiFailure.class)
     ResponseEntity<Body> failure(ApiFailure failure, HttpServletRequest request) {
+        // The message says which limit or check failed; ApiFailure messages hold no credentials or note content.
         LOG.warn(
-                "API request failed; method={} path={} status={} code={}",
+                "API request failed; method={} path={} status={} code={} message={}",
                 request.getMethod(),
                 request.getRequestURI(),
                 failure.code.status,
-                failure.code);
+                failure.code,
+                failure.getMessage());
         return ResponseEntity.status(failure.code.status).body(new Body(failure.code, failure.getMessage()));
     }
 
