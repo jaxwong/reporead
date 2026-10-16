@@ -25,12 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.completeSignIn
 import com.reporead.android.auth.startSignIn
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
-import com.reporead.android.data.LocalStore
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
@@ -40,8 +38,6 @@ import com.reporead.android.library.ReviewScreen
 import com.reporead.android.reader.FigureScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
-import com.reporead.android.sync.appApi
-import com.reporead.android.sync.appSync
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -137,11 +133,11 @@ private val ROOT_STATE = entryKey(0, Screen.Repositories)
 @Composable
 fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val context = LocalContext.current
-    val store = remember { SessionStore(context.applicationContext) }
-    val api = remember { appApi(context) }
-    val local = remember { LocalStore.get(context) }
-    val sync = remember { appSync(context) }
-    val dao = remember { local.library() }
+    val app = context.applicationContext as RepoReadApplication
+    val store = app.sessionStore
+    val api = app.api
+    val sync = app.sync
+    val dao = app.localStore.library()
     // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
     val signedIn by remember { store.signedIn() }.collectAsState(remember { store.accessToken() != null })
     var signInMessage by remember { mutableStateOf<String?>(null) }
@@ -252,7 +248,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                         onBack = pop,
                         onDisconnected = { stack = listOf(Screen.Repositories) },
                     )
-                is Screen.Reader -> ReaderScreen(sync, dao, scope, signedIn, screen, onBack = pop, push = push)
+                is Screen.Reader -> ReaderScreen(sync, dao, app.scope, signedIn, screen, onBack = pop, push = push)
                 is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
                 Screen.Notebook -> NotebookScreen(dao, push, onBack = pop)
                 Screen.Review -> ReviewScreen(dao, sync, push, onBack = pop)

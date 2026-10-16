@@ -6,7 +6,6 @@ import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -21,7 +20,9 @@ import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -47,6 +48,8 @@ class ReaderLifecycleTest {
     /** The screen shown; a new one is a new reader screen, as when the app navigates. */
     private val screenUnderTest = mutableStateOf(Screen.Reader(1, title))
     private var readerReady = false
+    /** Like RepoReadApplication.scope, it outlives activity recreation. */
+    private val appScope = MainScope()
 
     @Before
     fun open() = runBlocking {
@@ -80,13 +83,12 @@ class ReaderLifecycleTest {
         val sync = Sync(api, store, files) {}
         ReaderTestActivity.content = {
             MaterialTheme {
-                val activityScope = rememberCoroutineScope()
                 if (showingReader.value)
                     key(screenUnderTest.value) {
                         ReaderScreen(
                             sync,
                             dao,
-                            activityScope,
+                            appScope,
                             signedIn = false,
                             screen = screenUnderTest.value,
                             onBack = {},
@@ -105,8 +107,8 @@ class ReaderLifecycleTest {
     fun close() = runBlocking {
         if (readerReady) {
             val lastSavedAt = checkNotNull(store.library().reading(1)).lastReadAt
-            // ActivityScenario.close does not await WebView callbacks or Room writes. Dispose the reader first,
-            // while its Activity scope is alive, and observe the final save before closing the database.
+            // ActivityScenario.close does not await WebView callbacks or Room writes. Dispose the reader first and
+            // observe its final save before closing the database.
             scenario.onActivity { showingReader.value = false }
             try {
                 withTimeout(5_000) {
@@ -122,6 +124,7 @@ class ReaderLifecycleTest {
         if (::scenario.isInitialized) scenario.close()
         instrumentation.waitForIdleSync()
         ReaderTestActivity.content = null
+        appScope.cancel()
         if (::store.isInitialized) store.close()
         if (::files.isInitialized) check(files.deleteRecursively()) { "Cannot delete test-only directory $files" }
     }

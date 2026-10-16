@@ -69,14 +69,6 @@ private val REFUSAL_STATUSES = setOf(400, 404, 409, 410, 422)
 internal fun ApiException.refusesItem() = status in REFUSAL_STATUSES && !code.startsWith("HTTP_")
 
 /**
- * Every Sync operation that writes the server's answers into Room, and clearing the phone, run under this lock, so
- * nothing fetched before sign-out or an account switch is written after it (ADR-22). Not reentrant: locked operations
- * call only private helpers. Local saves and the reader's image fetches ([NoteImages]) do not wait; a late image is
- * removed at the next clear.
- */
-private val oneSyncAtATime = Mutex()
-
-/**
  * What one sync could not do. [refused]: reading positions and bookmark changes the server refused; a refused position
  * stays on this phone only, a refused bookmark change is undone. [notSent]: why pending highlights and cards were not
  * sent this time; they wait for the next sync.
@@ -95,6 +87,16 @@ class Sync(
     private val onPendingChange: () -> Unit,
 ) {
     private val dao = store.library()
+
+    /**
+     * Every operation that writes the server's answers into Room, and clearing the phone, run under this lock, so
+     * nothing fetched before sign-out or an account switch is written after it (ADR-22). The app has one Sync
+     * (RepoReadApplication), so the screens and the background sync share it. Not reentrant: locked operations call
+     * only private helpers. Local saves and the reader's image fetches ([NoteImages]) do not wait; a late image is
+     * removed at the next clear.
+     */
+    private val oneSyncAtATime = Mutex()
+
     /** Saved notes' images; deleted here whenever their notes go. */
     val images = NoteImages(api, filesDir)
     private val exportRoot = exportDirectory(filesDir)
