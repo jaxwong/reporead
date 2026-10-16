@@ -315,9 +315,12 @@ final class Anchoring {
         };
     }
 
-    /** 1 - edit distance / longer length; two empty strings are identical. */
+    /**
+     * 1 - edit distance / longer length. Identical strings, empty ones included, are 1 without the quadratic table:
+     * resolving compares identical text often, and two 10,000-unit strings took 175 ms.
+     */
     static double similarity(String a, String b) {
-        if (a.isEmpty() && b.isEmpty()) return 1.0;
+        if (a.equals(b)) return 1.0;
         int[] previous = new int[b.length() + 1];
         int[] current = new int[b.length() + 1];
         for (int j = 0; j <= b.length(); j++) previous[j] = j;
