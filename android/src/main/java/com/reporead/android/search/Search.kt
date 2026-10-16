@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -87,6 +87,24 @@ internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
     return SearchResults(results, truncated = notes.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT)
 }
 
+/** What a search covers: the [texts] of the [listed] notes saved with their text are searched by it, all by name. */
+private fun searchScope(listed: Int, texts: Int): String =
+    "Searching $texts of $listed notes by their text, all $listed by title and path, and your highlights." +
+        if (texts < listed)
+            " Notes not saved here are found by title and path only; a repository's menu has Save all notes on this phone."
+        else ""
+
+/** No match for [query]; when not every note is saved, says that the others were searched by name only. */
+private fun noMatches(query: String, counts: Pair<Int, Int>?): String =
+    "No saved note matches “$query”." +
+        counts
+            ?.let { (listed, texts) ->
+                if (texts < listed)
+                    " Only $texts of $listed notes are saved on this phone, so only those are searched by their text."
+                else null
+            }
+            .orEmpty()
+
 @Composable
 fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -111,27 +129,9 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
             )
             val found = results
             when {
-                query.isBlank() ->
-                    EmptyState(
-                        counts?.let { (listed, texts) ->
-                            "Searching $texts of $listed notes by their text, all $listed by title and path, and your highlights." +
-                                if (texts < listed)
-                                    " Notes not saved here are found by title and path only; a repository's menu has Save all notes on this phone."
-                                else ""
-                        } ?: ""
-                    )
+                query.isBlank() -> EmptyState(counts?.let { (listed, texts) -> searchScope(listed, texts) }.orEmpty())
                 found == null -> Unit
-                found.matches.isEmpty() ->
-                    EmptyState(
-                        "No saved note matches “${query.trim()}”." +
-                            counts
-                                ?.let { (listed, texts) ->
-                                    if (texts < listed)
-                                        " Only $texts of $listed notes are saved on this phone, so only those are searched by their text."
-                                    else null
-                                }
-                                .orEmpty()
-                    )
+                found.matches.isEmpty() -> EmptyState(noMatches(query.trim(), counts))
                 else ->
                     LazyColumn {
                         if (found.truncated)
@@ -141,7 +141,7 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
                                     Modifier.padding(16.dp),
                                 )
                             }
-                        itemsIndexed(found.matches) { _, result ->
+                        items(found.matches) { result ->
                             EntryRow(
                                 result.title,
                                 result.detail,

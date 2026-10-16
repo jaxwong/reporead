@@ -40,6 +40,28 @@ private fun label(section: ChangedSection): String {
 private fun parents(section: ChangedSection) =
     section.headingPath.dropLast(1).takeIf { it.isNotEmpty() }?.joinToString(" › ", prefix = "in ")
 
+/** The panel's one line on what changed, or why it is not known yet. */
+private fun summary(changes: Load<Changes>): String =
+    when (changes) {
+        Load.Loading -> "Changed since you last read — comparing…"
+        is Load.Failed -> "Changed since you last read. Couldn't compare: ${changes.error.describe()}"
+        is Load.Ready -> {
+            val comparison = changes.value
+            when (comparison.status) {
+                ChangeStatus.CHANGED ->
+                    if (comparison.sections.isEmpty()) "Changed since you last read: only line endings differ."
+                    else
+                        "Changed since you last read: ${comparison.sections.size} sections, " +
+                            lines(comparison.addedLines, comparison.removedLines)
+                ChangeStatus.SINCE_UNAVAILABLE ->
+                    "Changed since you last read, but that version can't be compared. ${comparison.reason}"
+                ChangeStatus.TOO_LARGE ->
+                    "Changed since you last read, too much to list by section. Read the full note."
+                ChangeStatus.UNCHANGED -> "Unchanged since you last read."
+            }
+        }
+    }
+
 /**
  * What changed between the version last read and the one on screen. Tapping a current section scrolls the note to it;
  * removed sections are listed where they used to be, without a target.
@@ -57,26 +79,7 @@ internal fun ChangesPanel(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val summary =
-                when (changes) {
-                    Load.Loading -> "Changed since you last read — comparing…"
-                    is Load.Failed -> "Changed since you last read. Couldn't compare: ${changes.error.describe()}"
-                    is Load.Ready ->
-                        when (changes.value.status) {
-                            ChangeStatus.CHANGED ->
-                                if (changes.value.sections.isEmpty())
-                                    "Changed since you last read: only line endings differ."
-                                else
-                                    "Changed since you last read: ${changes.value.sections.size} sections, " +
-                                        lines(changes.value.addedLines, changes.value.removedLines)
-                            ChangeStatus.SINCE_UNAVAILABLE ->
-                                "Changed since you last read, but that version can't be compared. ${changes.value.reason}"
-                            ChangeStatus.TOO_LARGE ->
-                                "Changed since you last read, too much to list by section. Read the full note."
-                            ChangeStatus.UNCHANGED -> "Unchanged since you last read."
-                        }
-                }
-            Text(summary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(summary(changes), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             when {
                 changes is Load.Failed -> TextButton(onClick = onRetry) { Text("Try again") }
                 changes is Load.Ready && changes.value.sections.isNotEmpty() ->
