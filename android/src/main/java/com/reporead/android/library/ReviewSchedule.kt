@@ -64,13 +64,19 @@ internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: Zo
 private fun reviewable(item: NotebookItem) =
     item.annotation.type == AnnotationType.CARD && item.annotation.state != AnnotationState.REFUSED && !item.deleted
 
-/** When each reviewable card is next due. */
+/**
+ * When each reviewable card is next due. The log is grouped by card once: each card's own grades, not the whole log.
+ */
 private fun dueTimes(
     items: List<NotebookItem>,
     reviews: List<ReviewRow>,
     zone: ZoneId,
-): List<Pair<NotebookItem, Long>> =
-    items.filter(::reviewable).map { it to scheduleReviews(it.annotation, reviews, zone).dueAt }
+): List<Pair<NotebookItem, Long>> {
+    val byCard = reviews.groupBy { it.cardMutationId }
+    return items.filter(::reviewable).map {
+        it to scheduleReviews(it.annotation, byCard[it.annotation.mutationId].orEmpty(), zone).dueAt
+    }
+}
 
 /** Due cards, interleaving shuffled note groups; the cap comes only from the server's notebook response. */
 internal fun dueSession(
