@@ -117,7 +117,13 @@ public class AnnotationController {
 
     @DeleteMapping("/api/annotations/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void delete(@AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestParam int expectedVersion) {
+    void delete(
+            @AuthenticationPrincipal AppUser user,
+            @PathVariable long id,
+            @RequestParam(required = false) Integer expectedVersion) {
+        if (expectedVersion == null || expectedVersion < 1) {
+            throw new ApiFailure(Code.INVALID_ANNOTATION, "A deletion needs expectedVersion.");
+        }
         annotations.delete(user.id(), id, expectedVersion);
         LOG.info("Annotation deleted; userId={} annotationId={}", user.id(), id);
     }

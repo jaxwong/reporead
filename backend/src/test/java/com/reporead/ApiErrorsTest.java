@@ -108,7 +108,7 @@ class ApiErrorsTest {
         assertCode(send("GET", "/api/documents/999999/content", null, null, true), 404, "NOT_FOUND");
         assertCode(
                 send("PUT", "/api/documents/1/reading-state", "application/json", "{", true), 400, "INVALID_REQUEST");
-        assertCode(send("DELETE", "/api/annotations/1", null, null, true), 400, "INVALID_REQUEST");
+        assertCode(send("DELETE", "/api/annotations/1?expectedVersion=one", null, null, true), 400, "INVALID_REQUEST");
         assertCode(send("PUT", "/api/documents/abc/bookmark", null, null, true), 400, "INVALID_REQUEST");
     }
 
