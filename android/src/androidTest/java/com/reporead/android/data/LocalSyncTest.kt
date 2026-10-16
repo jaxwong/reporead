@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.ListenableWorker.Result
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.backgroundSync
 import java.io.File
@@ -485,6 +486,44 @@ class LocalSyncTest {
             .use { server ->
                 assertEquals(Result.failure(), backgroundSync(sync(server.url), 0))
                 assertEquals(1, dao.waitingAnnotations().size)
+            }
+    }
+
+    /** Save all fetches a listed note unless its saved copy is its listed version and path, in this page format. */
+    @Test
+    fun saveAllFetchesOnlyTheNotesNotSavedAsListed() = runBlocking {
+        val old = "b".repeat(40)
+        fun document(id: Int, deleted: Boolean = false) =
+            """{"id":$id,"path":"n$id.md","title":"n$id","blobSha":"$sha","contentChangedAt":null,"deleted":$deleted}"""
+        fun content(id: Int) =
+            200 to
+                """{"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
+                "renderFormat":$RENDER_FORMAT}"""
+        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, "", RENDER_FORMAT))
+        dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", RENDER_FORMAT))
+        dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", RENDER_FORMAT - 1))
+        LoopbackServer(
+                mapOf(
+                    "GET /api/repositories/7/documents" to
+                        (200 to
+                            """{"repositoryId":7,"lastSyncedCommitSha":"$sha","documents":[${document(1)},${document(2)},
+                            ${document(3)},${document(4)},${document(5, deleted = true)}]}"""),
+                    "GET /api/documents/2/content" to content(2),
+                    "GET /api/documents/3/content" to content(3),
+                    "GET /api/documents/4/content" to content(4),
+                )
+            )
+            .use { server ->
+                assertEquals(Sync.SavedAll(3, 1, emptyList()), sync(server.url).saveAllNotes(7) { _, _ -> })
+                assertEquals(
+                    listOf(
+                        "GET /api/repositories/7/documents",
+                        "GET /api/documents/2/content",
+                        "GET /api/documents/3/content",
+                        "GET /api/documents/4/content",
+                    ),
+                    server.requests,
+                )
             }
     }
 

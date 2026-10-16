@@ -16,6 +16,7 @@ import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.data.SavedCopy
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -171,11 +172,11 @@ class Sync(
      * The saved copy is the current version of [document], a listed note: same blob and same path (the page shows the
      * path and resolves relative images against it).
      */
-    private fun sameVersion(cached: NoteRow, document: DocumentRow?) =
+    private fun sameVersion(cached: SavedCopy, document: DocumentRow?) =
         document != null && !document.deleted && cached.blobSha == document.blobSha && cached.path == document.path
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
-    private fun upToDate(cached: NoteRow, document: DocumentRow?) =
+    private fun upToDate(cached: SavedCopy, document: DocumentRow?) =
         sameVersion(cached, document) && cached.renderFormat >= RENDER_FORMAT
 
     /**
@@ -237,10 +238,8 @@ class Sync(
     suspend fun saveAllNotes(repositoryId: Long, onProgress: (done: Int, toFetch: Int) -> Unit): SavedAll {
         refreshDocuments(repositoryId)
         val documents = dao.listedDocuments(repositoryId)
-        val missing = documents.filter { document ->
-            val saved = dao.note(document.id)
-            saved == null || !upToDate(saved, document)
-        }
+        val saved = dao.savedVersions(repositoryId).associateBy { it.documentId }
+        val missing = documents.filter { document -> saved[document.id]?.let { upToDate(it, document) } != true }
         Log.i(
             "RepoRead",
             "Saving all notes; repositoryId=$repositoryId documents=${documents.size} toFetch=${missing.size}",

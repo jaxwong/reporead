@@ -98,6 +98,13 @@ interface LibraryDao {
 
     @Query("select * from notes where documentId = :documentId") suspend fun note(documentId: Long): NoteRow?
 
+    /** The saved pages of [repositoryId]'s notes, without their HTML, which Save all compares but does not need. */
+    @Query(
+        """select documentId, blobSha, path, renderFormat from notes
+           where documentId in (select id from documents where repositoryId = :repositoryId)"""
+    )
+    suspend fun savedVersions(repositoryId: Long): List<SavedVersion>
+
     /**
      * The listed notes in a folder named `interview`, each with its saved page only when that page is the listed
      * version: an older copy reads as unsaved, so Practice never asks a question whose grade would be refused. Only
