@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
@@ -174,7 +175,7 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
                                         Screen.Reader(
                                             item.annotation.documentId,
                                             item.title,
-                                            annotation = item.annotation.mutationId,
+                                            OpenAt.Highlight(item.annotation.mutationId),
                                         )
                                     )
                                 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
@@ -139,7 +140,11 @@ private fun ColumnScope.AnswerSection(
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { push(Screen.Reader(note.document.id, note.document.title, link.heading)) }) {
+                TextButton(
+                    onClick = {
+                        push(Screen.Reader(note.document.id, note.document.title, link.heading?.let(OpenAt::Heading)))
+                    }
+                ) {
                     Text("Open note")
                 }
             }

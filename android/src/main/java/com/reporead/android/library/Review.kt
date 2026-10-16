@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
@@ -384,7 +385,9 @@ private fun ColumnScope.FixCard(
     val current = item.currentBlobSha
     val openNote =
         @Composable { label: String ->
-            TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, annotation = row.mutationId)) }) {
+            TextButton(
+                onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(row.mutationId))) }
+            ) {
                 Text(label)
             }
         }
@@ -568,7 +571,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             val answer = rememberRevealed(item, dao)
             if (answer == null) Text("The saved page cannot verify this answer in context. Open the note to check it.")
             else CardAnswer(item, answer, sync, dao, push)
-            TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, annotation = id)) }) {
+            TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(id))) }) {
                 Text("Open in note")
             }
             // Each saved grade is one immutable local mutation; the background sync sends it.
