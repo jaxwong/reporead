@@ -9,28 +9,18 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.Set;
 import org.apache.catalina.session.StandardManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.actuate.autoconfigure.web.server.ManagementServerProperties;
 import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.boot.web.server.autoconfigure.ServerProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.http.converter.FormHttpMessageConverter;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.endpoint.RestClientAuthorizationCodeTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.RestClientRefreshTokenTokenResponseClient;
@@ -50,10 +40,13 @@ import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequ
 import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.web.client.RestClient;
 
+/**
+ * GitHub sign-in in the browser, for the app's Custom Tab: the App's OAuth registration, the browser filter chain, and
+ * the token endpoint's clients. The app's own API and the management port are AppSecurity.
+ */
 @Configuration
 public class GitHubSecurity {
     /** Browser sessions that can exist at once (see boundedSignInSessions). */
@@ -64,16 +57,10 @@ public class GitHubSecurity {
     @Bean
     ClientRegistrationRepository registrations(RepoReadProperties properties, ServerProperties server)
             throws IOException {
-        // Only loopback clients reach the server: the phone through `adb reverse` on the Mac, or the hosted HTTPS
-        // proxy.
-        var address = server.getAddress();
-        if (address == null || !address.getHostAddress().equals("127.0.0.1")) {
-            throw new IllegalArgumentException("RepoRead must bind to 127.0.0.1, not " + address);
-        }
         String callback = callbackUri(properties.publicUrl(), server.getPort());
         var registration = ClientRegistration.withRegistrationId("github")
                 .clientId(properties.github().clientId())
-                .clientSecret(readSecret(properties.github().clientSecretFile()))
+                .clientSecret(SecretFiles.read(properties.github().clientSecretFile()))
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST)
                 .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
                 .redirectUri(callback)
@@ -85,38 +72,6 @@ public class GitHubSecurity {
                 .build();
         LOG.info("GitHub user sign-in configured; callback={}", callback);
         return new InMemoryClientRegistrationRepository(registration);
-    }
-
-    /**
-     * The management server (loopback only, a port adb reverse does not forward) exposes only health, metrics and info,
-     * which hold counts and the build's commit, never repository content or credentials.
-     */
-    @Bean
-    @Order(0)
-    SecurityFilterChain management(HttpSecurity http, ManagementServerProperties management) throws Exception {
-        int managementPort = management.getPort();
-        http.securityMatcher(request -> request.getLocalPort() == managementPort)
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .csrf(csrf -> csrf.disable());
-        return http.build();
-    }
-
-    /** /api is bearer-only and stateless: no session cookie can authenticate it, so CSRF does not apply. */
-    @Bean
-    @Order(1)
-    SecurityFilterChain api(HttpSecurity http, AppSessions sessions) throws Exception {
-        http.securityMatcher("/api/**")
-                .authorizeHttpRequests(auth -> auth.requestMatchers(HttpMethod.POST, "/api/app-auth/token")
-                        .permitAll()
-                        .anyRequest()
-                        .authenticated())
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .csrf(csrf -> csrf.disable())
-                .requestCache(cache -> cache.disable())
-                .exceptionHandling(errors -> errors.authenticationEntryPoint(new HttpStatusEntryPoint(UNAUTHORIZED)))
-                .addFilterBefore(new BearerAuthentication(sessions), AnonymousAuthenticationFilter.class);
-        return http.build();
     }
 
     /** Browser-only GitHub OAuth for the app's Custom Tab. Its session lives only until the app code is issued. */
@@ -262,30 +217,5 @@ public class GitHubSecurity {
                     + " (adb reverse) or an https:// origin without a path, not: " + publicUrl);
         }
         return publicUrl + "/login/oauth2/code/github";
-    }
-
-    /** One token from a 0600 file: the GitHub client secret, and the GitHub token key (GitHubTokens). */
-    static String readSecret(Path file) throws IOException {
-        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("Secret file must be a regular non-symlink file: " + file);
-        }
-        var permissions = Files.getPosixFilePermissions(file);
-        if (!permissions.equals(Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE))) {
-            throw new IOException("Secret file must have permissions 0600: " + file);
-        }
-        byte[] bytes;
-        try (var stream = Files.newInputStream(file)) {
-            bytes = stream.readNBytes(4097);
-        }
-        if (bytes.length > 4096) throw new IOException("Secret file exceeds 4096 bytes: " + file);
-        String secret = StandardCharsets.UTF_8
-                .newDecoder()
-                .decode(ByteBuffer.wrap(bytes))
-                .toString()
-                .strip();
-        if (!secret.matches("[A-Za-z0-9_]+")) {
-            throw new IOException("Secret file must contain one nonblank token, not Markdown prose: " + file);
-        }
-        return secret;
     }
 }

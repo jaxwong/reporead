@@ -146,7 +146,7 @@ flowchart TB
 
 | Package | Owns | Key classes |
 | --- | --- | --- |
-| `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token (`GitHubTokens`) and its renewal and revocation (`GitHubCredentials`) | `GitHubSecurity`, `GitHubTokens`, `GitHubCredentials`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication` |
+| `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token (`GitHubTokens`) and its renewal and revocation (`GitHubCredentials`) | `AppSecurity` (loopback only, the API and management chains), `GitHubSecurity` (browser sign-in), `GitHubTokens`, `GitHubCredentials`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication` |
 | `github` | Every GitHub REST read, with the user's token; the HTTP clients every GitHub call goes through: 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttp` |
 | `repository` | Which repositories a user has connected; the connection row lock every write shares | `RepositoryConnections` |
 | `sync` | Publishing a complete tree snapshot of the default branch; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySync`, `ContentMoves` |

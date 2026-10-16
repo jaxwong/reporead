@@ -9,7 +9,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class GitHubSecurityTest {
+class SecretFilesTest {
     @TempDir
     Path temp;
 
@@ -22,24 +22,23 @@ class GitHubSecurityTest {
 
     @Test
     void privateSingleTokenIsReadWithoutMarkdownSyntax() throws IOException {
-        assertEquals("TEST_ONLY_SECRET", GitHubSecurity.readSecret(secret("TEST_ONLY_SECRET\n", "rw-------")));
+        assertEquals("TEST_ONLY_SECRET", SecretFiles.read(secret("TEST_ONLY_SECRET\n", "rw-------")));
     }
 
     @Test
     void missingAndUnsafePermissionsAreRejected() throws IOException {
-        assertThrows(IOException.class, () -> GitHubSecurity.readSecret(temp.resolve("missing")));
-        assertThrows(IOException.class, () -> GitHubSecurity.readSecret(secret("TEST_ONLY_SECRET", "rw-r--r--")));
+        assertThrows(IOException.class, () -> SecretFiles.read(temp.resolve("missing")));
+        assertThrows(IOException.class, () -> SecretFiles.read(secret("TEST_ONLY_SECRET", "rw-r--r--")));
     }
 
     @Test
     void emptyMultipleTokensOversizeAndSymlinksAreRejected() throws IOException {
-        assertThrows(IOException.class, () -> GitHubSecurity.readSecret(secret("", "rw-------")));
-        assertThrows(
-                IOException.class, () -> GitHubSecurity.readSecret(secret("secret: TEST_ONLY_SECRET", "rw-------")));
-        assertThrows(IOException.class, () -> GitHubSecurity.readSecret(secret("x".repeat(4097), "rw-------")));
+        assertThrows(IOException.class, () -> SecretFiles.read(secret("", "rw-------")));
+        assertThrows(IOException.class, () -> SecretFiles.read(secret("secret: TEST_ONLY_SECRET", "rw-------")));
+        assertThrows(IOException.class, () -> SecretFiles.read(secret("x".repeat(4097), "rw-------")));
         var file = secret("TEST_ONLY_SECRET", "rw-------");
         var link = temp.resolve("link");
         Files.createSymbolicLink(link, file);
-        assertThrows(IOException.class, () -> GitHubSecurity.readSecret(link));
+        assertThrows(IOException.class, () -> SecretFiles.read(link));
     }
 }
