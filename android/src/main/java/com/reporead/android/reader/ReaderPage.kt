@@ -15,6 +15,8 @@ import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.NoteImages
 import java.io.ByteArrayInputStream
+import kotlinx.coroutines.suspendCancellableCoroutine
+import org.json.JSONObject
 import org.json.JSONTokener
 
 /*
@@ -103,14 +105,41 @@ internal fun readerResource(
     )
 }
 
+/*
+ * The one boundary for the page's scripts. Each runs as {value} or {error}, because WebView turns a script that throws
+ * into null, which a cast or a comparison then misreads (a ClassCastException, or "not in this version"). A script that
+ * throws is a broken invariant, raised with the page's own error and the expression.
+ */
+private fun pageScript(expression: String) =
+    "(() => { try { return JSON.stringify({value: ($expression)}); } " +
+        "catch (error) { return JSON.stringify({error: String(error?.stack ?? error)}); } })()"
+
+private fun pageValue(expression: String, encoded: String): Any? {
+    val reply = JSONTokener(encoded).nextValue() as? String ?: error("Page script did not run: $expression")
+    val result = JSONObject(reply)
+    check(!result.has("error")) { "Page script failed: $expression: ${result.getString("error")}" }
+    return result.opt("value")
+}
+
+/**
+ * Passes the value of the page expression [expression] to [then] as JSONTokener decodes it: a String, Int, Boolean,
+ * JSONObject, JSONArray, JSONObject.NULL, or null when undefined.
+ */
+internal fun WebView.evaluate(expression: String, then: (Any?) -> Unit) =
+    evaluateJavascript(pageScript(expression)) { then(pageValue(expression, it)) }
+
+internal suspend fun WebView.evaluate(expression: String): Any? = suspendCancellableCoroutine { result ->
+    evaluateJavascript(pageScript(expression)) { result.resumeWith(runCatching { pageValue(expression, it) }) }
+}
+
 /**
  * Waits for the page's rendering (diagrams change the layout) and passes "ready", "failed", or "timeout" to [then],
  * with the number of polls it took.
  */
 internal fun awaitRendered(view: WebView, main: Handler, then: (state: String, attempts: Int) -> Unit) {
     fun poll(attempt: Int) {
-        view.evaluateJavascript("document.body.dataset.state || ''") { encoded ->
-            when (val state = JSONTokener(encoded).nextValue()) {
+        view.evaluate("document.body.dataset.state || ''") { state ->
+            when (state) {
                 "ready",
                 "failed" -> then(state as String, attempt)
                 else ->
@@ -162,10 +191,7 @@ internal fun WebView.showIsolatedPage(
                             onFailed()
                         }
                         script == null -> if (reveal(true)) view.alpha = 1f
-                        else ->
-                            view.evaluateJavascript(script) { encoded ->
-                                if (reveal(JSONTokener(encoded).nextValue() == true)) view.alpha = 1f
-                            }
+                        else -> view.evaluate(script) { found -> if (reveal(found == true)) view.alpha = 1f }
                     }
                 }
 
