@@ -97,8 +97,8 @@ class AppSignInTest {
             throws Exception {
         var request = new MockHttpServletRequest();
         var session = new MockHttpSession();
-        if (challenge != null) session.setAttribute(AppAuthController.CHALLENGE_ATTRIBUTE, challenge);
-        if (scheme != null) session.setAttribute(AppAuthController.SCHEME_ATTRIBUTE, scheme);
+        if (challenge != null) session.setAttribute(PendingAppSignIn.CHALLENGE_ATTRIBUTE, challenge);
+        if (scheme != null) session.setAttribute(PendingAppSignIn.SCHEME_ATTRIBUTE, scheme);
         request.setSession(session);
         var response = new MockHttpServletResponse();
         new AppSignInSuccess(sessions).onAuthenticationSuccess(request, response, github(githubUserId, login));
@@ -151,8 +151,8 @@ class AppSignInTest {
                     .andExpect(redirectedUrl("/oauth2/authorization/github"))
                     .andReturn();
             assertEquals(
-                    challenge, result.getRequest().getSession().getAttribute(AppAuthController.CHALLENGE_ATTRIBUTE));
-            assertEquals(scheme, result.getRequest().getSession().getAttribute(AppAuthController.SCHEME_ATTRIBUTE));
+                    challenge, result.getRequest().getSession().getAttribute(PendingAppSignIn.CHALLENGE_ATTRIBUTE));
+            assertEquals(scheme, result.getRequest().getSession().getAttribute(PendingAppSignIn.SCHEME_ATTRIBUTE));
         }
         mvc.perform(get("/app/sign-in").param("code_challenge", "too-short").param("scheme", "reporead"))
                 .andExpect(status().isBadRequest())
