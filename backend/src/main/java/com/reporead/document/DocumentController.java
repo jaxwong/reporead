@@ -204,9 +204,10 @@ public class DocumentController {
     }
 
     /**
-     * A repository image referenced by an owned note, fetched at the note's current commit: by {@code path}, or by an
-     * Obsidian {@code embed} name resolved against the latest snapshot's image files (no GitHub call when it is missing
-     * or ambiguous). Not cached on the server.
+     * An image in an owned note's repository, fetched at the note's current commit: by {@code path}, or by an Obsidian
+     * {@code embed} name resolved against the latest snapshot's image files (no GitHub call when it is missing or
+     * ambiguous). Access is per repository, not per reference: the note need not name the image, as the user's own
+     * GitHub token reads the whole repository anyway. Not cached on the server.
      */
     @GetMapping("/api/documents/{id}/image")
     ResponseEntity<byte[]> image(
