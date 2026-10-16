@@ -21,8 +21,8 @@ private const val WORK_NAME = "sync-local-changes"
 private val SETTLE: Duration = Duration.ofSeconds(5)
 
 /**
- * Doubling from 30 s, ten attempts span about 8.5 hours of server or GitHub failure; time without a network does not
- * count.
+ * Ten attempts have nine waits, doubling from 30 s: 30 s × (2⁹ − 1), about 4 hours 15 minutes of server or GitHub
+ * failure. Time without a network does not count.
  */
 private val FIRST_BACKOFF: Duration = Duration.ofSeconds(30)
 private const val MAX_ATTEMPTS = 10
