@@ -1,20 +1,26 @@
 #!/bin/bash
-# Dumps the RepoRead database into /var/lib/reporead-backups (root only) and keeps the newest 14 nightly dumps; dumps
-# taken by hand there (reporead-*.dump, before migrations) are never removed. Installed as
-# /usr/local/sbin/reporead-backup (root 0755) and run nightly by reporead-backup.timer. A dump pg_restore cannot list
-# is not kept. The GitHub token key (/etc/reporead/github-token-key) is not in the dump, so a dump alone holds no usable
+# Dumps the RepoRead database into /var/lib/reporead-backups (root only) as a nightly or a deploy dump, and keeps the
+# newest 14 of that kind; dumps taken by hand there (reporead-*.dump, before migrations) are never removed. Installed as
+# /usr/local/sbin/reporead-backup (root 0755); run nightly by reporead-backup.timer, and by reporead-deploy before each
+# restart as `reporead-backup deploy`, so deploys never push nightly dumps out. A dump pg_restore cannot list is not
+# kept. The GitHub token key (/etc/reporead/github-token-key) is not in the dump, so a dump alone holds no usable
 # credential; restoring without the key works, and every user signs in again.
 set -euo pipefail
 
 DIR=/var/lib/reporead-backups
 KEEP=14
+KIND=${1:-nightly}
+if [[ $KIND != nightly && $KIND != deploy ]]; then
+  echo "reporead-backup: the kind of dump must be nightly or deploy, not $KIND" >&2
+  exit 64
+fi
 
 umask 077
-dump="$DIR/nightly-$(date -u +%Y-%m-%dT%H%M%SZ).dump"
+dump="$DIR/$KIND-$(date -u +%Y-%m-%dT%H%M%SZ).dump"
 partial="$dump.partial"
 trap 'rm -f "$partial"' EXIT
 podman exec reporead-postgres pg_dump --username=reporead --dbname=reporead --format=custom > "$partial"
 podman exec -i reporead-postgres pg_restore --list < "$partial" > /dev/null
 mv "$partial" "$dump"
 echo "reporead-backup: wrote $(basename "$dump"), $(stat -c %s "$dump") bytes"
-ls -1 "$DIR"/nightly-*.dump | sort -r | tail -n +$((KEEP + 1)) | xargs -r rm --
+ls -1 "$DIR"/"$KIND"-*.dump | sort -r | tail -n +$((KEEP + 1)) | xargs -r rm --

@@ -1,7 +1,9 @@
 #!/bin/bash
-# Installs a RepoRead backend jar read from stdin on the hosted VM, restarts the service, and restores the previous
-# jar if the new one is not healthy. Installed as /usr/local/sbin/reporead-deploy (root 0755); runs as root through
-# sudo, either from the deploy user's forced SSH command (GitHub Actions) or by hand:
+# Installs a RepoRead backend jar read from stdin on the hosted VM, after a dump of the database, restarts the service,
+# and fails if it is not healthy. It never puts the previous jar back itself: the new jar may already have migrated the
+# schema, which the previous one cannot run on (V13 and V14 dropped columns). Installed as
+# /usr/local/sbin/reporead-deploy (root 0755); runs as root through sudo, either from the deploy user's forced SSH
+# command (GitHub Actions) or by hand:
 #   ssh opc@<vm> 'sudo /usr/local/sbin/reporead-deploy' < backend/build/libs/backend.jar
 # Prints only outcomes and the jar's SHA-256, never backend logs: the CI log is public and those logs name note paths.
 set -euo pipefail
@@ -37,6 +39,7 @@ healthy() {
   done
 }
 
+/usr/local/sbin/reporead-backup deploy
 echo "reporead-deploy: installing jar sha256 $(sha256sum "$incoming" | cut -d' ' -f1)"
 cp -p "$JAR" "$PREVIOUS"
 install -m 0644 -o root -g root "$incoming" "$JAR"
@@ -46,12 +49,6 @@ if healthy; then
   exit 0
 fi
 
-echo "reporead-deploy: not healthy within ${HEALTH_WAIT_SECONDS}s; restoring the previous jar" >&2
-install -m 0644 -o root -g root "$PREVIOUS" "$JAR"
-systemctl restart reporead-backend
-if healthy; then
-  echo "reporead-deploy: previous jar restored and healthy; see 'journalctl -u reporead-backend' on the VM" >&2
-else
-  echo "reporead-deploy: previous jar is NOT healthy either; see 'journalctl -u reporead-backend' on the VM" >&2
-fi
+echo "reporead-deploy: not healthy within ${HEALTH_WAIT_SECONDS}s; the previous jar is $PREVIOUS and the deploy" \
+  "dump above is the database before this deploy (backend/README.md); see 'journalctl -u reporead-backend'" >&2
 exit 1

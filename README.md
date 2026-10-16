@@ -38,5 +38,6 @@ Device tests (Room on the phone) run with `adb shell am instrument`, never `conn
 | Edit makes a highlight's place uncertain | `ORPHANED` with its original context; reattach it by selecting the passage |
 | Old version gone from GitHub, or a huge edit | The change summary says so; no partial or invented summary |
 | Oversized or unsafe note content | A visible error or blocked element; never executed |
+| A backend deploy is not healthy | The CI run fails and the new jar stays; nothing is restored automatically, because the new jar may have migrated the schema. A dump taken just before the restart is on the VM |
 
 No fixture or demo mode exists yet; every screen shows real GitHub data. A clearly labelled fixture demo is deferred until after two weeks of real use (Stage 6).
