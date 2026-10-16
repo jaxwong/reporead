@@ -329,11 +329,12 @@ public class Annotations {
 
     Annotation checkCard(long userId, long id, int expectedVersion, String blobSha) {
         int updated = db.sql("""
-                update annotations a set checked_blob_sha = :sha, version = version + 1, updated_at = now()
+                update annotations a set checked_blob_sha = :sha, version = version + 1, updated_at = :now
                 from documents d where a.document_id = d.id and a.id = :id and a.user_id = :userId and a.type = 'CARD'
                 and a.version = :expected and a.resolved_blob_sha = :sha and a.status <> 'ORPHANED'
                 and d.current_blob_sha = :sha and d.deleted_at is null""")
                 .param("sha", blobSha)
+                .param("now", Timestamp.from(Instant.now()))
                 .param("id", id)
                 .param("userId", userId)
                 .param("expected", expectedVersion)
