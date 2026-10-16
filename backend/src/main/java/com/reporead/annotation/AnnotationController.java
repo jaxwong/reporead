@@ -64,7 +64,8 @@ public class AnnotationController {
                     Code.INVALID_ANNOTATION,
                     "An annotation needs a source blob SHA, a block id, a non-empty UTF-16 range matching exactText (at most "
                             + MAX_TEXT_CHARS + " characters), an optional note of at most " + MAX_TEXT_CHARS
-                            + " characters, and a non-blank question for type CARD.");
+                            + " characters, and a non-blank question for type CARD; a note or question cannot contain"
+                            + " NUL or an unpaired surrogate.");
         }
         var type = card ? Annotations.Type.CARD : Annotations.Type.HIGHLIGHT;
         var created = service.create(user, id, mutationId, selection, body.note(), type, body.question());
@@ -108,7 +109,8 @@ public class AnnotationController {
         if (body.expectedVersion() == null || body.expectedVersion() < 1 || !validNote(body.note())) {
             throw new ApiFailure(
                     Code.INVALID_ANNOTATION,
-                    "An edit needs expectedVersion and a note of at most " + MAX_TEXT_CHARS + " characters (or null).");
+                    "An edit needs expectedVersion and a note of at most " + MAX_TEXT_CHARS
+                            + " characters with no NUL or unpaired surrogate (or null).");
         }
         return annotations.updateNote(user.id(), id, body.expectedVersion(), body.note());
     }
@@ -142,7 +144,13 @@ public class AnnotationController {
                 && selection.exactText().length() <= MAX_TEXT_CHARS;
     }
 
+    /**
+     * A note or question the database stores exactly: PostgreSQL refuses U+0000, and the driver would store an unpaired
+     * surrogate as '?'. Refusing them here makes them this item's fault, which the phone marks instead of resending.
+     */
     private static boolean validNote(String note) {
-        return note == null || note.length() <= MAX_TEXT_CHARS;
+        return note == null
+                || (note.length() <= MAX_TEXT_CHARS
+                        && note.codePoints().noneMatch(c -> c == 0 || Character.getType(c) == Character.SURROGATE));
     }
 }

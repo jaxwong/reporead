@@ -302,6 +302,35 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
+    void textTheDatabaseCannotStoreExactlyIsRefusedAsTheItemsFault() throws Exception {
+        // PostgreSQL refuses U+0000, which was a code-less 500 that the phone retries forever, holding back every later
+        // creation; the driver stores an unpaired surrogate as '?', which changed the note without saying so.
+        var unstorable = List.of("a\\u0000b", "a\\ud83cb", "a\\udf4eb");
+        for (String text : unstorable) {
+            create(alice, note, body(UUID.randomUUID().toString(), "b2", START, EXACT, text))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_ANNOTATION"));
+            create(alice, note, cardBody().replace("How are transactions implemented?", text))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_ANNOTATION"));
+        }
+        assertEquals(0, count("annotation_mutations"));
+        expectSource(ExpectedCount.once());
+        long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, "kept"));
+        for (String text : unstorable) {
+            edit(alice, id, text, 1)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_ANNOTATION"));
+        }
+        assertEquals(
+                List.of("kept"),
+                db.sql("select note from annotations where id = :id")
+                        .param("id", id)
+                        .query(String.class)
+                        .list());
+    }
+
+    @Test
     void gitHubFailureStoresNothingAndTheSameMutationSucceedsLater() throws Exception {
         github.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + OLD_SHA))
                 .andRespond(withServiceUnavailable());
