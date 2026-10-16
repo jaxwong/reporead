@@ -60,6 +60,7 @@ internal fun LinkPreviewSheet(
             value = dao.note(target.id)?.let { Saved.Copy(it) } ?: Saved.Missing
         }
     var notice by remember(target.id) { mutableStateOf<String?>(null) }
+    var failed by remember(target.id) { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -88,11 +89,16 @@ internal fun LinkPreviewSheet(
                         if (copy.note.blobSha != target.blobSha) "The saved copy is an older version of this note."
                         else null
                     for (line in listOfNotNull(older, notice)) Text(line, style = MaterialTheme.typography.bodySmall)
-                    AndroidView(
-                        factory = { context -> previewView(context, sync, copy.note, heading) { notice = it } },
-                        onRelease = { it.destroy() },
-                        modifier = Modifier.fillMaxWidth().height(320.dp),
-                    )
+                    if (!failed)
+                        AndroidView(
+                            factory = { context ->
+                                previewView(context, sync, copy.note, heading, onNotice = { notice = it }) {
+                                    failed = true
+                                }
+                            },
+                            onRelease = { it.destroy() },
+                            modifier = Modifier.fillMaxWidth().height(320.dp),
+                        )
                 }
             }
             Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.End) {
@@ -109,6 +115,7 @@ private fun previewView(
     note: NoteRow,
     heading: String?,
     onNotice: (String) -> Unit,
+    onFailed: () -> Unit,
 ): WebView =
     WebView(context).apply {
         showIsolatedPage(
@@ -117,7 +124,10 @@ private fun previewView(
             "Link preview",
             heading?.let { "window.reporead.showHeading(${JSONObject.quote(it)})" },
             onFullScreen = null,
-            onFailed = { onNotice("This note could not be previewed.") },
+            onFailed = {
+                onNotice("This note could not be previewed.")
+                onFailed()
+            },
         ) { found ->
             if (!found) onNotice("No heading “$heading” in the saved copy; showing the start.")
             true

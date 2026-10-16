@@ -339,11 +339,12 @@ fun ReaderScreen(
                     },
                 )
             }
-            AndroidView(
-                factory = { context -> session.createView(context) },
-                onRelease = { view -> session.release(view) },
-                modifier = Modifier.fillMaxWidth().weight(1f),
-            )
+            if (!session.stopped)
+                AndroidView(
+                    factory = { context -> session.createView(context) },
+                    onRelease = { view -> session.release(view) },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
             if (notesOpen) {
                 NotesPanel(
                     opened.note.documentId,

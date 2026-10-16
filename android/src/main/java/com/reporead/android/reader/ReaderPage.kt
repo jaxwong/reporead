@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -125,8 +126,8 @@ internal fun awaitRendered(view: WebView, main: Handler, then: (state: String, a
  * Shows the saved [note] in this WebView as a page beside the reader: the full-screen figure, a link preview, or a bank
  * answer. It stays hidden while it renders; then [script] (null: none) keeps the part to show, and [reveal] receives
  * whether that part is in this version and returns whether to show the page. [onFailed] runs when the page does not
- * render; [name] says which page in the log. Nothing navigates; a tapped Full screen link passes its figure id to
- * [onFullScreen], when given.
+ * render or its renderer stops, and the host then removes it; [name] says which page in the log. Nothing navigates; a
+ * tapped Full screen link passes its figure id to [onFullScreen], when given.
  */
 internal fun WebView.showIsolatedPage(
     images: NoteImages,
@@ -167,6 +168,14 @@ internal fun WebView.showIsolatedPage(
                             }
                     }
                 }
+
+            // Returning false would end the app with the page's renderer (a crash, or the system reclaiming it).
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                Log.w("RepoRead", "$name stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
+                main.removeCallbacksAndMessages(null)
+                onFailed()
+                return true
+            }
         }
     loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
 }

@@ -222,6 +222,29 @@ class ReaderLifecycleTest {
         awaitSaved(12)
     }
 
+    /** A renderer can crash or be reclaimed by the system; the reader then says so instead of ending the app. */
+    @Test
+    fun aPageWhoseRendererStopsIsReplacedAndSavesNothing() {
+        evaluate("window.reporead.showBlock('b12'); return {};")
+        awaitSaved(12)
+        scenario.onActivity { activity ->
+            checkNotNull(findWebView(activity.window.decorView)).loadUrl("chrome://crash")
+        }
+        runBlocking {
+            withTimeout(10_000) {
+                while (true) {
+                    var present = true
+                    scenario.onActivity { activity -> present = findWebView(activity.window.decorView) != null }
+                    if (!present) break
+                    delay(50)
+                }
+            }
+        }
+        assertSavedStays(12)
+        // The page is gone, so there is no final save to wait for at teardown.
+        readerReady = false
+    }
+
     @Test
     fun ordinaryReadingSurvivesActivityRecreationTwiceAndSavesInRoom() {
         val position = evaluate("window.reporead.showBlock('b12'); return window.reporead.position();")
@@ -247,6 +270,18 @@ class ReaderLifecycleTest {
                 }
                 delay(10)
             }
+        }
+    }
+
+    /**
+     * The saved position stays at [block] for a second. A save after opening or leaving lands within a few frames, so
+     * one that should not happen shows well inside that.
+     */
+    private fun assertSavedStays(block: Int) = runBlocking {
+        repeat(20) {
+            val row = checkNotNull(store.library().reading(1))
+            assertEquals("Saved position changed: $row", block, JSONObject(row.anchorJson).getInt("blockIndex"))
+            delay(50)
         }
     }
 
