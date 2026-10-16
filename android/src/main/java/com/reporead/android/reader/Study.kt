@@ -70,8 +70,8 @@ internal data class StudyQuestion(
 }
 
 /**
- * [unrecognized]: the bank's H3s without a Canonical line (or a path without items), which are not questions; listed,
- * never dropped silently.
+ * [unrecognized]: what looks like a question but is not, listed, never dropped silently: an H3 without exactly one
+ * Canonical line (or a path without items), and a Canonical line under no H3.
  */
 internal data class InterviewBank(val questions: List<StudyQuestion>, val unrecognized: List<String>)
 
@@ -89,9 +89,9 @@ internal fun interviewTopic(path: String): String? {
 internal fun isInterviewBank(path: String): Boolean = interviewTopic(path) != null
 
 /**
- * Reads only the renderer's canonical blocks. Each H3 of a bank whose section (up to the next H1–H3) has a Canonical
- * line is a question: "Canonical answer:" makes the heading the question, without a leading "N. "; "Canonical path:"
- * makes each top-level list item under it one, with the heading as its instruction.
+ * Reads only the renderer's canonical blocks. Each H3 of a bank whose section (up to the next H1–H3) has exactly one
+ * Canonical line is a question: "Canonical answer:" makes the heading the question, without a leading "N. "; "Canonical
+ * path:" makes each top-level list item under it one, with the heading as its instruction.
  */
 internal fun interviewBank(html: String, path: String): InterviewBank {
     if (!isInterviewBank(path)) return InterviewBank(emptyList(), emptyList())
@@ -117,7 +117,7 @@ internal fun interviewBank(html: String, path: String): InterviewBank {
             if (depth == 3) group = block
             continue
         }
-        if (group != null) section.add(block)
+        if (group != null) section.add(block) else if (answerLine(block) != null) unrecognized += shownText(block)
     }
     finishGroup()
     return InterviewBank(questions, unrecognized)
@@ -126,14 +126,18 @@ internal fun interviewBank(html: String, path: String): InterviewBank {
 private fun isHeading(block: Element): Boolean =
     block.tagName().let { it.length == 2 && it[0] == 'h' && it[1] in '1'..'6' }
 
-/** The questions under one bank H3, from its [blocks] up to the next H1–H3; none without a Canonical line. */
+/** A paragraph starting "Canonical answer:" or "Canonical path:", and which of the two. */
+private fun answerLine(block: Element): Pair<Element, String>? =
+    ANSWER_LINE.find(block.attr("data-anchor-text"))
+        ?.takeIf { block.tagName() == "p" }
+        ?.let { block to it.groupValues[1] }
+
+/**
+ * The questions under one bank H3, from its [blocks] up to the next H1–H3; none unless exactly one is a Canonical line,
+ * as with several (questions written as H4s) it is unknown which answers the heading.
+ */
 private fun bankQuestions(heading: Element, blocks: List<Element>, level: String?): List<StudyQuestion> {
-    val (line, kind) =
-        blocks.firstNotNullOfOrNull { block ->
-            ANSWER_LINE.find(block.attr("data-anchor-text"))
-                ?.takeIf { block.tagName() == "p" }
-                ?.let { block to it.groupValues[1] }
-        } ?: return emptyList()
+    val (line, kind) = blocks.mapNotNull(::answerLine).singleOrNull() ?: return emptyList()
     val answer = StudyAnswer(line.attr("data-block-id"), line.attr("data-anchor-text"), answerLinks(line))
     val items = candidates(blocks).filter { it.block !== line }
     val title = shownText(heading).replaceFirst(NUMBERED, "")

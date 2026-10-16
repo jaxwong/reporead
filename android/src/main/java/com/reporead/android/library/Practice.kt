@@ -242,7 +242,7 @@ private fun TopicRow(topic: String?, banks: Banks, scheduled: Set<String>, push:
         val problems = if (topic == null) emptyList() else banks.unrecognized.filter { inTopic(it.first) }
         if (problems.isNotEmpty())
             StatusLine(
-                "Not questions (no Canonical answer or path line): " +
+                "Not questions (each needs one Canonical answer or path line under its own ### heading): " +
                     problems.joinToString("; ") { (path, heading) -> "${path.substringAfterLast('/')} › $heading" }
             )
     }
