@@ -18,8 +18,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.reporead.android.core.network.Load
 import com.reporead.android.core.network.describe
+import com.reporead.android.sync.ChangeStatus
 import com.reporead.android.sync.ChangedSection
 import com.reporead.android.sync.Changes
+import com.reporead.android.sync.SectionChange
 
 private fun lines(added: Int, removed: Int) =
     listOfNotNull(if (added > 0) "+$added" else null, if (removed > 0) "−$removed" else null)
@@ -28,9 +30,9 @@ private fun lines(added: Int, removed: Int) =
 private fun label(section: ChangedSection): String {
     val title = section.headingPath.lastOrNull() ?: "Beginning of the note"
     return when (section.change) {
-        "ADDED" -> "New section: $title"
-        "REMOVED" -> "Removed: $title"
-        else -> "$title (${lines(section.addedLines, section.removedLines)})"
+        SectionChange.ADDED -> "New section: $title"
+        SectionChange.REMOVED -> "Removed: $title"
+        SectionChange.CHANGED -> "$title (${lines(section.addedLines, section.removedLines)})"
     }
 }
 
@@ -61,18 +63,17 @@ internal fun ChangesPanel(
                     is Load.Failed -> "Changed since you last read. Couldn't compare: ${changes.error.describe()}"
                     is Load.Ready ->
                         when (changes.value.status) {
-                            "CHANGED" ->
+                            ChangeStatus.CHANGED ->
                                 if (changes.value.sections.isEmpty())
                                     "Changed since you last read: only line endings differ."
                                 else
                                     "Changed since you last read: ${changes.value.sections.size} sections, " +
                                         lines(changes.value.addedLines, changes.value.removedLines)
-                            "SINCE_UNAVAILABLE" ->
+                            ChangeStatus.SINCE_UNAVAILABLE ->
                                 "Changed since you last read, but that version can't be compared. ${changes.value.reason}"
-                            "TOO_LARGE" ->
+                            ChangeStatus.TOO_LARGE ->
                                 "Changed since you last read, too much to list by section. Read the full note."
-                            "UNCHANGED" -> "Unchanged since you last read."
-                            else -> error("Sync.changes admits only known statuses, not ${changes.value.status}")
+                            ChangeStatus.UNCHANGED -> "Unchanged since you last read."
                         }
                 }
             Text(summary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
@@ -86,7 +87,7 @@ internal fun ChangesPanel(
         if (expanded && sections.isNotEmpty()) {
             LazyColumn(Modifier.heightIn(max = 240.dp)) {
                 items(sections) { section ->
-                    val open = section.change != "REMOVED"
+                    val open = section.change != SectionChange.REMOVED
                     Column(
                         Modifier.fillMaxWidth()
                             .let { if (open) it.clickable { onOpen(section) } else it }

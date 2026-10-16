@@ -7,6 +7,7 @@ import com.reporead.android.core.network.contract
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.BookmarkRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
@@ -26,24 +27,35 @@ import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 
-/**
- * A changed section: ADDED, CHANGED, or REMOVED; empty [headingPath] is the beginning of the note; [blockId] is in the
- * newer version.
- */
+/** How a section differs between two versions (the server's NoteChanges.Change). */
+enum class SectionChange {
+    ADDED,
+    CHANGED,
+    REMOVED,
+}
+
+/** A changed section; empty [headingPath] is the beginning of the note; [blockId] is in the newer version. */
 data class ChangedSection(
-    val change: String,
+    val change: SectionChange,
     val headingPath: List<String>,
     val blockId: String?,
     val addedLines: Int,
     val removedLines: Int,
 )
 
-/**
- * The server's comparison: [status] CHANGED (with [sections]), UNCHANGED, SINCE_UNAVAILABLE (with [reason]), or
- * TOO_LARGE.
- */
+/** The server's answer to comparing two versions (DocumentController.ChangeStatus). */
+enum class ChangeStatus {
+    /** With [Changes.sections]. */
+    CHANGED,
+    UNCHANGED,
+    /** The older version can't be read any more; [Changes.reason] says why. */
+    SINCE_UNAVAILABLE,
+    TOO_LARGE,
+}
+
+/** The server's comparison of the version last read with the one on screen. */
 data class Changes(
-    val status: String,
+    val status: ChangeStatus,
     val reason: String?,
     val addedLines: Int,
     val removedLines: Int,
@@ -268,11 +280,8 @@ class Sync(
         val json = api.get("/api/documents/$documentId/changes?since=$since&to=$to")
         return contract {
             val sections = json.getJSONArray("sections")
-            val status = json.getString("status")
-            if (status !in setOf("CHANGED", "UNCHANGED", "SINCE_UNAVAILABLE", "TOO_LARGE"))
-                throw JSONException("Unknown change status $status")
             Changes(
-                status,
+                json.enumValue<ChangeStatus>("status"),
                 json.nullableString("reason"),
                 json.getInt("addedLines"),
                 json.getInt("removedLines"),
@@ -280,7 +289,7 @@ class Sync(
                     val item = sections.getJSONObject(it)
                     val path = item.getJSONArray("headingPath")
                     ChangedSection(
-                        item.getString("change"),
+                        item.enumValue<SectionChange>("change"),
                         List(path.length()) { index -> path.getString(index) },
                         item.nullableString("blockId"),
                         item.getInt("addedLines"),
@@ -511,7 +520,7 @@ class Sync(
                 version = 1,
                 createdAt = System.currentTimeMillis(),
                 state = AnnotationState.UNSENT,
-                type = if (question == null) "HIGHLIGHT" else "CARD",
+                type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
                 question = question,
                 checkedBlobSha = if (question == null) null else passage.blobSha,
             )
@@ -538,7 +547,7 @@ class Sync(
                     val body =
                         JSONObject()
                             .put("mutationId", row.mutationId)
-                            .put("type", row.type)
+                            .put("type", row.type.name)
                             .put("question", row.question ?: JSONObject.NULL)
                             .put("note", row.note ?: JSONObject.NULL)
                             .put(

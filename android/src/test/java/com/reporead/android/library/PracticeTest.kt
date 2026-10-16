@@ -2,6 +2,7 @@ package com.reporead.android.library
 
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.PracticePage
 import com.reporead.android.reader.StudyAnswer
@@ -23,7 +24,13 @@ class PracticeTest {
             StudyQuestion(block, text, StudyAnswer("${block}a", answer, emptyList())),
         )
 
-    private fun card(document: Long, question: String?, answer: String, type: String = "CARD", blobSha: String = sha) =
+    private fun card(
+        document: Long,
+        question: String?,
+        answer: String,
+        type: AnnotationType = AnnotationType.CARD,
+        blobSha: String = sha,
+    ) =
         NotebookItem(
             AnnotationRow(
                 "m$document$question$answer",
@@ -92,7 +99,10 @@ class PracticeTest {
         )
         assertEquals(
             emptySet<String>(),
-            scheduledQuestions(questions, listOf(card(1, "Same?", "Canonical answer: First", type = "HIGHLIGHT"))),
+            scheduledQuestions(
+                questions,
+                listOf(card(1, "Same?", "Canonical answer: First", type = AnnotationType.HIGHLIGHT)),
+            ),
         )
         assertEquals(
             emptySet<String>(),

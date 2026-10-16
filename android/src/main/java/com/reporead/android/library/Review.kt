@@ -40,8 +40,10 @@ import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
+import com.reporead.android.data.AnchorStatus
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
@@ -122,7 +124,7 @@ internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: Zo
  * checking is shown too, to be fixed in place; refused and removed ones are dealt with in Notebook.
  */
 private fun reviewable(item: NotebookItem) =
-    item.annotation.type == "CARD" && item.annotation.state != AnnotationState.REFUSED && !item.deleted
+    item.annotation.type == AnnotationType.CARD && item.annotation.state != AnnotationState.REFUSED && !item.deleted
 
 /** When each reviewable card is next due. */
 private fun dueTimes(
@@ -392,7 +394,7 @@ private fun ColumnScope.FixCard(
             }
         }
     when {
-        row.status == "ORPHANED" -> {
+        row.status == AnchorStatus.ORPHANED -> {
             Text(
                 "Its answer is no longer in the note. Open the note, select the answer, then choose Reattach on this card in Highlights and notes."
             )

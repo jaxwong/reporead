@@ -1,8 +1,10 @@
 package com.reporead.android.sync
 
 import com.reporead.android.core.network.contract
+import com.reporead.android.data.AnchorStatus
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.ReviewRow
@@ -14,6 +16,12 @@ import org.json.JSONObject
 // crash.
 
 internal fun JSONObject.nullableString(name: String): String? = if (isNull(name)) null else getString(name)
+
+/** The constant of [E] that the field [name] names; any other value breaks the contract. */
+internal inline fun <reified E : Enum<E>> JSONObject.enumValue(name: String): E {
+    val value = getString(name)
+    return enumValues<E>().firstOrNull { it.name == value } ?: throw JSONException("Unknown $name $value")
+}
 
 /** A passage as the server's annotation anchor. */
 internal fun Passage.anchorJson(): JSONObject =
@@ -55,7 +63,7 @@ internal fun annotationRow(json: JSONObject) = contract {
         state = AnnotationState.ACKNOWLEDGED,
         prefixText = anchor.getString("prefixText"),
         suffixText = anchor.getString("suffixText"),
-        status = json.getString("status"),
+        status = json.enumValue<AnchorStatus>("status"),
         resolvedBlobSha = json.getString("resolvedBlobSha"),
         location =
             Passage(
@@ -65,7 +73,7 @@ internal fun annotationRow(json: JSONObject) = contract {
                 location.getInt("endOffset"),
                 location.getString("exactText"),
             ),
-        type = json.getString("type"),
+        type = json.enumValue<AnnotationType>("type"),
         question = json.nullableString("question"),
         checkedBlobSha = json.nullableString("checkedBlobSha"),
     )

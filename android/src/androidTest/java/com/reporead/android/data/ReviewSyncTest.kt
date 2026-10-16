@@ -48,7 +48,7 @@ class ReviewSyncTest {
                             0,
                             AnnotationState.ACKNOWLEDGED,
                             null,
-                            type = "CARD",
+                            type = AnnotationType.CARD,
                             question = "Test-only question?",
                             checkedBlobSha = "a".repeat(40),
                         )
