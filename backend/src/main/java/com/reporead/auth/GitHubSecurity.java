@@ -105,6 +105,11 @@ public class GitHubSecurity {
                 // A refused request is not saved for later (that would open a session): sign-in returns to the app,
                 // never here.
                 .requestCache(cache -> cache.disable())
+                // Every route here is a GET, and the only state is a sign-in in progress, so CSRF protection guards no
+                // request; its token would open a session for each refused POST, which counts against
+                // MAX_SIGN_IN_SESSIONS. The session ends when the app's code is issued, so there is no logout either.
+                .csrf(csrf -> csrf.disable())
+                .logout(logout -> logout.disable())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(new HttpStatusEntryPoint(UNAUTHORIZED)))
                 .oauth2Login(oauth -> oauth.authorizedClientService(clients)
                         .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(resolver))
