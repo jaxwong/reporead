@@ -1,7 +1,9 @@
 package com.reporead.android.library
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -92,6 +94,32 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
             (document.isEmpty() || it.annotation.documentId.toString() == document) &&
             (!orphaned || it.annotation.status == AnchorStatus.ORPHANED)
     }
+
+    fun openPassage(item: NotebookItem) =
+        push(Screen.Reader(item.annotation.documentId, item.title, OpenAt.Highlight(item.annotation.mutationId)))
+
+    fun export(entries: List<NotebookItem>) {
+        scope.launch {
+            try {
+                val uri = writeExport(context, entries)
+                val share =
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/markdown"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                context.startActivity(Intent.createChooser(share, "Export notebook"))
+                status = "Sharing ${entries.size} entries as Markdown. GitHub is unchanged."
+            } catch (error: IOException) {
+                status = "Export failed: ${error.message}"
+                Log.w("RepoRead", "Notebook export failed", error)
+            } catch (error: ActivityNotFoundException) {
+                status = "No app is available to share this Markdown file."
+                Log.w("RepoRead", "No notebook share target", error)
+            }
+        }
+    }
+
     Scaffold(topBar = { AppBar("Notebook", onBack = onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             StatusLine(
@@ -106,49 +134,7 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
                 TextButton(onClick = { orphaned = !orphaned }) {
                     Text(if (orphaned) "Orphans only ✓" else "Orphans only")
                 }
-                TextButton(
-                    enabled = filtered.isNotEmpty(),
-                    onClick = {
-                        val snapshot = filtered
-                        scope.launch {
-                            try {
-                                val uri =
-                                    withContext(Dispatchers.IO) {
-                                        val directory = exportDirectory(context.filesDir)
-                                        if (!directory.isDirectory && !directory.mkdirs())
-                                            throw IOException("Cannot create RepoRead export directory")
-                                        val file = File(directory, "notebook-${UUID.randomUUID()}.md")
-                                        val partial = File(directory, "${file.name}.part")
-                                        try {
-                                            // Not Files.writeString: it needs API 36.1 and the app supports 34.
-                                            partial.writeText(notebookMarkdown(snapshot), Charsets.UTF_8)
-                                            Files.move(partial.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
-                                        } finally {
-                                            Files.deleteIfExists(partial.toPath())
-                                        }
-                                        FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
-                                    }
-                                context.startActivity(
-                                    Intent.createChooser(
-                                        Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/markdown"
-                                            putExtra(Intent.EXTRA_STREAM, uri)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        },
-                                        "Export notebook",
-                                    )
-                                )
-                                status = "Sharing ${snapshot.size} entries as Markdown. GitHub is unchanged."
-                            } catch (error: IOException) {
-                                status = "Export failed: ${error.message}"
-                                Log.w("RepoRead", "Notebook export failed", error)
-                            } catch (error: ActivityNotFoundException) {
-                                status = "No app is available to share this Markdown file."
-                                Log.w("RepoRead", "No notebook share target", error)
-                            }
-                        }
-                    },
-                ) {
+                TextButton(enabled = filtered.isNotEmpty(), onClick = { export(filtered) }) {
                     Text("Export Markdown")
                 }
             }
@@ -157,40 +143,54 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
             else
                 LazyColumn {
                     items(filtered, key = { it.annotation.mutationId }) { item ->
-                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                            Text(item.path, style = MaterialTheme.typography.labelMedium)
-                            item.annotation.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                            Text(item.annotation.drawn.exactText)
-                            item.annotation.note?.let { Text(it) }
-                            val reason =
-                                if (item.annotation.type == AnnotationType.CARD)
-                                    item.annotation
-                                        .cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
-                                        ?.reason
-                                else if (item.annotation.status == AnchorStatus.ORPHANED) "Orphaned passage" else null
-                            StatusLine(
-                                listOfNotNull(reason, item.annotation.rejection).joinToString(": ").ifEmpty { null }
-                            )
-                            TextButton(
-                                onClick = {
-                                    push(
-                                        Screen.Reader(
-                                            item.annotation.documentId,
-                                            item.title,
-                                            OpenAt.Highlight(item.annotation.mutationId),
-                                        )
-                                    )
-                                }
-                            ) {
-                                Text("Open passage")
-                            }
-                        }
+                        NotebookEntry(item, onOpen = { openPassage(item) })
                         HorizontalDivider()
                     }
                 }
         }
     }
 }
+
+/** One highlight or card: its note's path, question, passage, own note, and why it needs attention, if it does. */
+@Composable
+private fun NotebookEntry(item: NotebookItem, onOpen: () -> Unit) {
+    val row = item.annotation
+    val reason =
+        when {
+            row.type == AnnotationType.CARD ->
+                row.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)?.reason
+            row.status == AnchorStatus.ORPHANED -> "Orphaned passage"
+            else -> null
+        }
+    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+        Text(item.path, style = MaterialTheme.typography.labelMedium)
+        row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+        Text(row.drawn.exactText)
+        row.note?.let { Text(it) }
+        StatusLine(listOfNotNull(reason, row.rejection).joinToString(": ").ifEmpty { null })
+        TextButton(onClick = onOpen) { Text("Open passage") }
+    }
+}
+
+/**
+ * Writes [items] as Markdown to a new file in the private export directory and returns a URI another app can read it
+ * through. The file is written under a temporary name and moved into place, so a failure never leaves half a file.
+ */
+private suspend fun writeExport(context: Context, items: List<NotebookItem>): Uri =
+    withContext(Dispatchers.IO) {
+        val directory = exportDirectory(context.filesDir)
+        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create RepoRead export directory")
+        val file = File(directory, "notebook-${UUID.randomUUID()}.md")
+        val partial = File(directory, "${file.name}.part")
+        try {
+            // Not Files.writeString: it needs API 36.1 and the app supports 34.
+            partial.writeText(notebookMarkdown(items), Charsets.UTF_8)
+            Files.move(partial.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        } finally {
+            Files.deleteIfExists(partial.toPath())
+        }
+        FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
+    }
 
 /** Prefixing each source line preserves all characters, including blank lines, trailing spaces and CRLF. */
 internal fun notebookMarkdown(items: List<NotebookItem>): String = buildString {

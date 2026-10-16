@@ -127,6 +127,29 @@ internal fun NotesPanel(
         }
     }
 
+    // Online only: the server checks the card's answer against the version on screen.
+    fun confirmCard(row: AnnotationRow) = scope.launch {
+        try {
+            sync.checkCard(row, displayedBlobSha)
+            onMessage("Card confirmed for this version.")
+        } catch (error: ApiException) {
+            onMessage("Card not confirmed. ${error.describe()}")
+        }
+    }
+
+    fun delete(row: AnnotationRow) = scope.launch {
+        try {
+            sync.deleteAnnotation(row)
+            onMessage(null)
+        } catch (error: ApiException) {
+            onMessage(
+                if (error.code == "ANNOTATION_CONFLICT")
+                    "This highlight was changed elsewhere; sync and review it before deleting."
+                else "Not deleted. ${error.describe()}"
+            )
+        }
+    }
+
     Column(modifier) {
         HorizontalDivider()
         if (annotations.isEmpty()) {
@@ -134,52 +157,20 @@ internal fun NotesPanel(
         }
         LazyColumn {
             items(annotations, key = { it.mutationId }) { row ->
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text(
-                        "“${if (row.type == AnnotationType.CARD) row.drawn.exactText else row.exactText}”",
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                    val block =
+                AnnotationItem(
+                    row,
+                    shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown,
+                    status = status(row, displayedBlobSha, notShown),
+                    block =
                         if (row.type == AnnotationType.CARD) row.cardBlock(removed, displayedBlobSha, displayedBlobSha)
-                        else null
-                    block?.let { Text(it.reason, style = MaterialTheme.typography.labelLarge) }
-                    row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
-                    status(row, displayedBlobSha, notShown)?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall)
-                    }
-                    val shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown
-                    Row {
-                        if (shown) TextButton(onClick = { onReveal(row) }) { Text("Show") }
-                        if (shown && row.type == AnnotationType.HIGHLIGHT)
-                            TextButton(onClick = { onMakeQuestion(row) }) { Text("Make a question") }
-                        if (shown && block == CardBlock.UNCONFIRMED && row.serverId != null) {
-                            TextButton(
-                                onClick = {
-                                    scope.launch {
-                                        try {
-                                            sync.checkCard(row, displayedBlobSha)
-                                            onMessage("Card confirmed for this version.")
-                                        } catch (error: ApiException) {
-                                            onMessage("Card not confirmed. ${error.describe()}")
-                                        }
-                                    }
-                                }
-                            ) {
-                                Text("Answer is correct")
-                            }
-                        }
-                    }
-                    Row {
-                        // Online: the server verifies the new selection against the version it was made on.
-                        if (row.serverId != null && !shown)
-                            TextButton(onClick = { onReattach(row) }) { Text("Reattach") }
-                        if (row.serverId != null) TextButton(onClick = { editing = row }) { Text("Edit note") }
-                        TextButton(onClick = { deleting = row }) { Text("Delete") }
-                    }
-                }
+                        else null,
+                    onReveal = { onReveal(row) },
+                    onMakeQuestion = { onMakeQuestion(row) },
+                    onConfirmCard = { confirmCard(row) },
+                    onReattach = { onReattach(row) },
+                    onEdit = { editing = row },
+                    onDelete = { deleting = row },
+                )
                 HorizontalDivider()
             }
             item {
@@ -188,23 +179,7 @@ internal fun NotesPanel(
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp),
                 )
-                val found = backlinks
-                val summary =
-                    when {
-                        found == null -> "Finding notes that link here…"
-                        found.listed == 0 ->
-                            "This note isn't in a saved note list, so links to it can't be found. Refresh the repository."
-                        else ->
-                            listOfNotNull(
-                                    if (found.notes.isEmpty()) "No saved note links here." else null,
-                                    if (found.saved < found.listed)
-                                        "Searched the ${found.saved} of ${found.listed} notes saved on this phone."
-                                    else null,
-                                )
-                                .joinToString(" ")
-                                .ifEmpty { null }
-                    }
-                summary?.let {
+                linkedFromSummary(backlinks)?.let {
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
@@ -233,44 +208,13 @@ internal fun NotesPanel(
         )
     }
     deleting?.let { row ->
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text(if (row.type == AnnotationType.CARD) "Delete this card?" else "Delete this highlight?") },
-            text = {
-                Text(
-                    "“${row.drawn.exactText}”" +
-                        when {
-                            row.type == AnnotationType.CARD ->
-                                "\n\nIts question and its review history are deleted too. This cannot be undone."
-                            row.note != null -> "\n\nIts note is deleted too. This cannot be undone."
-                            else -> "\n\nThis cannot be undone."
-                        },
-                    maxLines = 8,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        DeleteDialog(
+            row,
+            onDismiss = { deleting = null },
+            onConfirm = {
+                deleting = null
+                delete(row)
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        deleting = null
-                        scope.launch {
-                            try {
-                                sync.deleteAnnotation(row)
-                                onMessage(null)
-                            } catch (error: ApiException) {
-                                onMessage(
-                                    if (error.code == "ANNOTATION_CONFLICT")
-                                        "This highlight was changed elsewhere; sync and review it before deleting."
-                                    else "Not deleted. ${error.describe()}"
-                                )
-                            }
-                        }
-                    }
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
     conflict?.let { (current, mine) ->
@@ -296,6 +240,93 @@ internal fun NotesPanel(
             dismissButton = { TextButton(onClick = { conflict = null }) { Text("Keep current") } },
         )
     }
+}
+
+/**
+ * One highlight or card with what can be done with it. [shown]: drawn in the version on screen; [status] says where it
+ * stands when that needs saying; [block] is why a card cannot be reviewed yet.
+ */
+@Composable
+private fun AnnotationItem(
+    row: AnnotationRow,
+    shown: Boolean,
+    status: String?,
+    block: CardBlock?,
+    onReveal: () -> Unit,
+    onMakeQuestion: () -> Unit,
+    onConfirmCard: () -> Unit,
+    onReattach: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            "“${if (row.type == AnnotationType.CARD) row.drawn.exactText else row.exactText}”",
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+        row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+        block?.let { Text(it.reason, style = MaterialTheme.typography.labelLarge) }
+        row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Row {
+            if (shown) TextButton(onClick = onReveal) { Text("Show") }
+            if (shown && row.type == AnnotationType.HIGHLIGHT)
+                TextButton(onClick = onMakeQuestion) { Text("Make a question") }
+            if (shown && block == CardBlock.UNCONFIRMED && row.serverId != null)
+                TextButton(onClick = onConfirmCard) { Text("Answer is correct") }
+        }
+        Row {
+            // Online: the server verifies the new selection against the version it was made on.
+            if (row.serverId != null && !shown) TextButton(onClick = onReattach) { Text("Reattach") }
+            if (row.serverId != null) TextButton(onClick = onEdit) { Text("Edit note") }
+            TextButton(onClick = onDelete) { Text("Delete") }
+        }
+    }
+}
+
+/** What the Linked from list covers, when that needs saying; null when it is complete and not empty. */
+private fun linkedFromSummary(found: Backlinks?): String? =
+    when {
+        found == null -> "Finding notes that link here…"
+        found.listed == 0 ->
+            "This note isn't in a saved note list, so links to it can't be found. Refresh the repository."
+        else ->
+            listOfNotNull(
+                    if (found.notes.isEmpty()) "No saved note links here." else null,
+                    if (found.saved < found.listed)
+                        "Searched the ${found.saved} of ${found.listed} notes saved on this phone."
+                    else null,
+                )
+                .joinToString(" ")
+                .ifEmpty { null }
+    }
+
+/** Asks before deleting [row], saying what goes with it. */
+@Composable
+private fun DeleteDialog(row: AnnotationRow, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    val goesWithIt =
+        when {
+            row.type == AnnotationType.CARD -> "Its question and its review history are deleted too. "
+            row.note != null -> "Its note is deleted too. "
+            else -> ""
+        }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (row.type == AnnotationType.CARD) "Delete this card?" else "Delete this highlight?") },
+        text = {
+            Text(
+                "“${row.drawn.exactText}”\n\n${goesWithIt}This cannot be undone.",
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
