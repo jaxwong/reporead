@@ -70,7 +70,7 @@ internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
 }
 
 private fun afterFailure(error: ApiException, attempt: Int): Result {
-    val passing = error.code == "BACKEND_UNAVAILABLE" || error.status >= 500
+    val passing = error.unreachable || error.status >= 500
     val retry = passing && attempt + 1 < MAX_ATTEMPTS
     Log.w("RepoRead", "Background sync failed; attempt=$attempt status=${error.status} code=${error.code} retry=$retry")
     return if (retry) Result.retry() else Result.failure()

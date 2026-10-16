@@ -13,9 +13,16 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
-/** A failed RepoRead request. [status] 0 means the backend was not reached. [code] is the backend's error code. */
+/**
+ * A failed RepoRead request. [status] is the HTTP status of the server's answer, or 0 when there was none: it was not
+ * reached, or nothing was sent. [code] is the backend's error code.
+ */
 class ApiException(val status: Int, val code: String, override val message: String, cause: Throwable? = null) :
-    Exception(message, cause)
+    Exception(message, cause) {
+    /** The server did not answer, so no other request can reach it now either; a later try may. */
+    val unreachable: Boolean
+        get() = code == "BACKEND_UNAVAILABLE"
+}
 
 private const val MAX_JSON_BYTES = 8 * 1024 * 1024
 /** The backend's own image ceiling is 5 MiB; anything larger here is a contract violation. */
@@ -74,12 +81,12 @@ class Api(
             }
             val status = connection.responseCode
             if (status == 204) return null
-            if (status in 200..299) return connection.inputStream.use { readBounded(it, maxBytes) }
+            if (status in 200..299) return connection.inputStream.use { readBounded(it, maxBytes, status) }
             if (status == 401) onUnauthorized(token)
             // A body that is not RepoRead's {code, message} gets code HTTP_<status>, never read as RepoRead's answer.
             val error =
                 connection.errorStream
-                    ?.use { readBounded(it, MAX_JSON_BYTES) }
+                    ?.use { readBounded(it, MAX_JSON_BYTES, status) }
                     ?.let { bytes ->
                         try {
                             JSONObject(bytes.toString(Charsets.UTF_8))
@@ -110,10 +117,10 @@ class Api(
     private fun unexpected(status: Int) =
         ApiException(status, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
 
-    private fun readBounded(stream: InputStream, maxBytes: Int): ByteArray {
+    private fun readBounded(stream: InputStream, maxBytes: Int, status: Int): ByteArray {
         val bytes = stream.readNBytes(maxBytes + 1)
         if (bytes.size > maxBytes)
-            throw ApiException(0, "INVALID_RESPONSE", "RepoRead's server response exceeded $maxBytes bytes.")
+            throw ApiException(status, "INVALID_RESPONSE", "RepoRead's server response exceeded $maxBytes bytes.")
         return bytes
     }
 }
