@@ -435,8 +435,7 @@ public final class MarkdownRenderer {
             }
             if (replacement.isEmpty()) continue;
             if (last < whole.length()) replacement.add(new TextNode(whole.substring(last)));
-            for (var node : replacement) text.before(node);
-            text.remove();
+            replace(text, replacement);
         }
         return images;
     }
@@ -506,9 +505,17 @@ public final class MarkdownRenderer {
         }
         if (marked.isEmpty()) return marked;
         if (last < whole.length()) replacement.add(new TextNode(whole.substring(last)));
-        for (var node : replacement) text.before(node);
-        text.remove();
+        replace(text, replacement);
         return marked;
+    }
+
+    /**
+     * Puts [nodes] where [text] was, in one insertion: jsoup renumbers every following sibling on each insert, so one
+     * node at a time made a note of many links or footnotes quadratic (128 KiB of [[a]] took about a second).
+     */
+    private static void replace(TextNode text, List<Node> nodes) {
+        ((Element) text.parentNode()).insertChildren(text.siblingIndex(), nodes);
+        text.remove();
     }
 
     /**
