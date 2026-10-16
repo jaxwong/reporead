@@ -19,7 +19,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -42,6 +45,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 
 // Loud test-only credentials; GitHub is faked at HTTP, and nothing here reaches it.
+@ExtendWith(OutputCaptureExtension.class)
 class GitHubLoginTest extends SharedSpringTest {
     @Autowired
     MockMvc mvc;
@@ -142,12 +146,17 @@ class GitHubLoginTest extends SharedSpringTest {
     }
 
     @Test
-    void invalidCallbackHasAnExplicitFailureAndDoesNotAuthenticate() throws Exception {
+    void invalidCallbackHasAnExplicitFailureAndDoesNotAuthenticate(CapturedOutput log) throws Exception {
         mvc.perform(get("/login/oauth2/code/github")
                         .param("code", "test-only-invalid-code")
                         .param("state", "not-issued"))
                 .andExpect(status().isFound())
                 .andExpect(redirectedUrl("/auth/failed"));
+        // The log names the step that failed: here, no sign-in issued that state.
+        assertTrue(
+                log.getOut()
+                        .contains(
+                                "GitHub sign-in rejected; failureType=OAuth2AuthenticationException error=authorization_request_not_found"));
         mvc.perform(get("/auth/failed"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Sign-in failed")));

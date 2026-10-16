@@ -27,10 +27,13 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -52,6 +55,7 @@ import org.springframework.web.client.RestTemplate;
 /**
  * Renewing an expired GitHub App user token. Every token and response is test-only, shaped like GitHub's; no live call.
  */
+@ExtendWith(OutputCaptureExtension.class)
 class GitHubTokenRefreshTest extends SharedSpringTest {
     private static final String TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token";
     private static final String INSTALLATIONS = "https://api.github.com/user/installations?per_page=100";
@@ -246,7 +250,7 @@ class GitHubTokenRefreshTest extends SharedSpringTest {
     }
 
     @Test
-    void renewalTimeoutKeepsTheRefreshTokenForTheNextRequest() throws Exception {
+    void renewalTimeoutKeepsTheRefreshTokenForTheNextRequest(CapturedOutput log) throws Exception {
         expectRefresh(
                 ExpectedCount.once(),
                 "TEST_ONLY_REFRESH_1",
@@ -254,6 +258,10 @@ class GitHubTokenRefreshTest extends SharedSpringTest {
         available()
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("GITHUB_UNAVAILABLE"));
+        assertTrue(
+                log.getOut()
+                        .contains(
+                                "GitHub request failed; endpoint=/login/oauth/access_token failureType=SocketTimeoutException"));
         next();
         expectRefresh(
                 ExpectedCount.once(),
