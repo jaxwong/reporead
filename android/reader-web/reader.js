@@ -1,4 +1,3 @@
-import mermaid from 'mermaid';
 import hljs from 'highlight.js/lib/common';
 import './reader.css';
 
@@ -16,12 +15,16 @@ async function render() {
   for (const block of blocks) {
     if (block.textContent !== block.dataset.anchorText) throw new Error(`Highlighting changed canonical text in ${block.dataset.blockId}`);
   }
-  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  mermaid.initialize({startOnLoad: false, securityLevel: 'strict', htmlLabels: false, theme: dark ? 'dark' : 'default',
-    maxTextSize: Number(document.body.dataset.maxDiagramChars), maxEdges: Number(document.body.dataset.maxEdges),
-    suppressErrorRendering: true,
-    secure: ['securityLevel', 'startOnLoad', 'htmlLabels', 'maxTextSize', 'maxEdges', 'flowchart']});
-  for (const source of document.querySelectorAll('pre[data-mermaid]')) {
+  const diagrams = [...document.querySelectorAll('pre[data-mermaid]')];
+  const mermaid = diagrams.length > 0 ? await loadMermaid() : null;
+  if (mermaid) {
+    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    mermaid.initialize({startOnLoad: false, securityLevel: 'strict', htmlLabels: false, theme: dark ? 'dark' : 'default',
+      maxTextSize: Number(document.body.dataset.maxDiagramChars), maxEdges: Number(document.body.dataset.maxEdges),
+      suppressErrorRendering: true,
+      secure: ['securityLevel', 'startOnLoad', 'htmlLabels', 'maxTextSize', 'maxEdges', 'flowchart']});
+  }
+  for (const source of diagrams) {
     const diagram = document.createElement('div');
     diagram.className = 'diagram';
     source.before(diagram);
@@ -50,6 +53,17 @@ async function render() {
   // The status line is for problems only; a note that rendered fully shows nothing here.
   document.getElementById('render-status').textContent = status.diagramErrors === 0 ? ''
     : `${status.diagramErrors} of ${status.diagrams + status.diagramErrors} diagrams could not be rendered; their sources are shown.`;
+}
+
+/** Loads diagrams.js, Mermaid's own script (see there); a page that cannot load it fails to render, as any page can. */
+function loadMermaid() {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = '/assets/diagrams.js';
+    script.onload = () => resolve(window.reporeadMermaid);
+    script.onerror = () => reject(new Error('The diagram renderer did not load'));
+    document.head.append(script);
+  });
 }
 
 /*
