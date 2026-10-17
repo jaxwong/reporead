@@ -24,14 +24,15 @@ class ApiTest {
         LoopbackServer(
                 mapOf(
                     "GET /api/auth/me" to failure(401, "HTTP_401"),
-                    "GET /api/repositories" to failure(401, "SIGN_IN_REQUIRED"),
-                    "GET /api/bookmarks" to failure(503, "GITHUB_UNAVAILABLE"),
-                    "GET /api/notebook" to failure(404, "NOT_FOUND"),
+                    "GET /api/library" to failure(401, "SIGN_IN_REQUIRED"),
+                    "GET /api/repositories/available" to failure(503, "GITHUB_UNAVAILABLE"),
+                    "GET /api/documents/1/content" to failure(404, "NOT_FOUND"),
                 )
             )
             .use { server ->
                 val api = Api(server.url, { "TEST_ONLY_SESSION" }) { refused += it }
-                for (path in listOf("/api/auth/me", "/api/repositories", "/api/bookmarks", "/api/notebook")) {
+                for (path in
+                    listOf("/api/auth/me", "/api/library", "/api/repositories/available", "/api/documents/1/content")) {
                     try {
                         api.get(path)
                         fail("$path must fail")

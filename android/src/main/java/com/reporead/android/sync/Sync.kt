@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -126,54 +127,73 @@ class Sync(
     private val exportRoot = exportDirectory(filesDir)
 
     /**
-     * The server's complete repository list, then each repository's complete note list (one request each, no GitHub
-     * call): the documents table names every note the reading, bookmark and annotation rows refer to.
+     * Loads the server's whole library in one request, no GitHub call (GET /api/library): the repositories with every
+     * note, which name every note the other rows refer to, the reading states, the bookmarks, and the notebook, all
+     * read from one database snapshot (ADR-08). It replaces the acknowledged rows, never pending work, in one Room
+     * transaction; a failed request or an answer that breaks the contract writes nothing. Images of the notes it
+     * forgets — in a repository no longer listed (disconnected on another device, or here with the answer lost), or
+     * referred to by nothing — are deleted after the commit.
      */
-    private suspend fun loadRepositories() {
-        val json = api.get("/api/repositories")
-        val rows = contract {
+    private suspend fun loadLibrary() {
+        val json = api.get("/api/library")
+        val library = contract {
             val array = json.getJSONArray("repositories")
             List(array.length()) {
-                val item = array.getJSONObject(it)
-                RepositoryRow(
-                    item.getLong("id"),
-                    item.string("fullName"),
-                    item.getInt("documentCount"),
-                    item.nullableString("lastSyncedCommitSha"),
-                )
+                    val item = array.getJSONObject(it)
+                    val id = item.getLong("id")
+                    RepositoryRow(
+                        id,
+                        item.string("fullName"),
+                        item.getInt("documentCount"),
+                        item.nullableString("lastSyncedCommitSha"),
+                    ) to documentRows(id, item.getJSONArray("documents"))
+                }
+                .toMap()
+        }
+        val reading = contract {
+            json.getJSONArray("readingStates").let { array ->
+                List(array.length()) { readingRow(array.getJSONObject(it)) }
             }
         }
-        // Not in the server's complete list: disconnected on another device, or here with the answer lost.
-        images.delete(dao.replaceRepositories(rows))
-        for (row in rows) loadDocuments(row.id)
-    }
-
-    suspend fun refreshDocuments(repositoryId: Long) = locked { loadDocuments(repositoryId) }
-
-    private suspend fun loadDocuments(repositoryId: Long) {
-        val json = api.get("/api/repositories/$repositoryId/documents")
-        val rows = contract {
-            val array = json.getJSONArray("documents")
-            List(array.length()) {
-                val item = array.getJSONObject(it)
-                DocumentRow(
-                    item.getLong("id"),
-                    repositoryId,
-                    item.string("path"),
-                    item.string("title"),
-                    item.string("blobSha"),
-                    item.nullableString("contentChangedAt")?.let { Instant.parse(it).toEpochMilli() },
-                    item.getBoolean("deleted"),
-                )
+        val bookmarks = contract {
+            json.getJSONArray("bookmarks").let { array ->
+                List(array.length()) {
+                    val item = array.getJSONObject(it)
+                    BookmarkRow(
+                        item.getLong("documentId"),
+                        bookmarked = true,
+                        pending = false,
+                        Instant.parse(item.string("createdAt")).toEpochMilli(),
+                    )
+                }
             }
         }
-        dao.replaceDocuments(repositoryId, rows)
+        val (annotations, reviews, limit) = notebookRows(contract { json.getJSONObject("notebook") })
+        images.delete(dao.replaceFromServer(library, reading, bookmarks, annotations, reviews, limit))
     }
 
-    /** Asks the backend to reconcile with GitHub, then reloads the now-current lists. */
+    private fun documentRows(repositoryId: Long, array: JSONArray) = contract {
+        List(array.length()) {
+            val item = array.getJSONObject(it)
+            DocumentRow(
+                item.getLong("id"),
+                repositoryId,
+                item.string("path"),
+                item.string("title"),
+                item.string("blobSha"),
+                item.nullableString("contentChangedAt")?.let { Instant.parse(it).toEpochMilli() },
+                item.getBoolean("deleted"),
+            )
+        }
+    }
+
+    /** Reloads the server's whole library (one request, no GitHub call); pending changes wait for a sync. */
+    suspend fun refreshLibrary() = locked { loadLibrary() }
+
+    /** Asks the backend to reconcile with GitHub, then reloads the now-current library. */
     suspend fun refreshFromGitHub(repositoryId: Long) = locked {
         api.post("/api/repositories/$repositoryId/sync")
-        loadRepositories()
+        loadLibrary()
     }
 
     data class Opened(val note: NoteRow, val staleReason: String?)
@@ -239,14 +259,14 @@ class Sync(
     data class SavedAll(val fetched: Int, val alreadySaved: Int, val cannotShow: List<String>)
 
     /**
-     * Saves every note of [repositoryId] on the phone: refreshes the note list from the server (no GitHub call), then
+     * Saves every note of [repositoryId] on the phone: reloads the library from the server ([refreshLibrary]), then
      * fetches each note whose saved copy is not [upToDate], one at a time. A note the server refuses to render
      * (UNSUPPORTED_CONTENT) is listed and skipped; any other failure ends the run, keeping the copies already saved.
      * Cancelling (leaving the screen) also keeps them, so running again continues where it stopped. Images are not
      * fetched; they are saved when a note is read online.
      */
     suspend fun saveAllNotes(repositoryId: Long, onProgress: (done: Int, toFetch: Int) -> Unit): SavedAll {
-        refreshDocuments(repositoryId)
+        refreshLibrary()
         val documents = dao.listedDocuments(repositoryId)
         val saved = dao.savedVersions(repositoryId).associateBy { it.documentId }
         val missing = documents.filter { document -> saved[document.id]?.let { upToDate(it, document) } != true }
@@ -325,17 +345,17 @@ class Sync(
     /**
      * Sends pending work, then counts what disconnecting [repositoryId] would delete, for the confirmation. Null when
      * the server no longer has the repository (an earlier disconnect whose answer was lost, or another device): this
-     * phone's copies are then removed by reconciling with the server's list.
+     * phone's copies are then removed by reloading the server's library.
      */
     suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = locked {
-        val synced = sendPending().also { replaceFromServer() }
+        val synced = sendPending().also { loadLibrary() }
         val json =
             try {
                 api.get("/api/repositories/$repositoryId/stored-data")
             } catch (error: ApiException) {
                 if (error.code != "NOT_FOUND") throw error
                 Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
-                loadRepositories()
+                loadLibrary()
                 return@locked null
             }
         val stored = contract {
@@ -353,7 +373,7 @@ class Sync(
     /**
      * Online only: the server deletes the connection and everything stored for it, then this phone deletes its copies,
      * including unsynced changes for those notes. A failure changes nothing on the phone. When the server no longer has
-     * the repository (an earlier answer was lost), the phone reconciles with the server's complete list instead.
+     * the repository (an earlier answer was lost), the phone reloads the server's library instead.
      */
     suspend fun disconnect(repositoryId: Long) = locked {
         val json =
@@ -363,7 +383,7 @@ class Sync(
             } catch (error: ApiException) {
                 if (error.code != "NOT_FOUND") throw error
                 Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
-                loadRepositories()
+                loadLibrary()
                 return@locked
             }
         val documentIds = contract {
@@ -402,9 +422,9 @@ class Sync(
 
     /**
      * The sync run by library open, pull to refresh and Sync now: sends what waits ([sendPending]), then loads the
-     * server's complete lists ([replaceFromServer]).
+     * server's library ([loadLibrary]).
      */
-    suspend fun syncLocalChanges(): LocalSync = locked { sendPending().also { replaceFromServer() } }
+    suspend fun syncLocalChanges(): LocalSync = locked { sendPending().also { loadLibrary() } }
 
     /**
      * The background sync's run: sends what waits, and nothing when nothing does (null); each send saves the server's
@@ -475,41 +495,6 @@ class Sync(
             }
         }
         return LocalSync(refused, notSent)
-    }
-
-    /**
-     * Loads the server's complete lists: repositories and every repository's notes (one request each), then reading,
-     * bookmark, and notebook rows, which replace the acknowledged local ones. The notebook, which grows without paging,
-     * is read last so its failure cannot hold back the rest.
-     */
-    private suspend fun replaceFromServer() {
-        loadRepositories()
-        val states = api.get("/api/reading-states")
-        val remoteReading = contract {
-            states.getJSONArray("readingStates").let { array ->
-                List(array.length()) { readingRow(array.getJSONObject(it)) }
-            }
-        }
-        dao.replaceRemoteReading(remoteReading)
-        val bookmarks = api.get("/api/bookmarks")
-        dao.replaceRemoteBookmarks(
-            contract {
-                bookmarks.getJSONArray("bookmarks").let { array ->
-                    List(array.length()) {
-                        val item = array.getJSONObject(it)
-                        BookmarkRow(
-                            item.getLong("documentId"),
-                            bookmarked = true,
-                            pending = false,
-                            Instant.parse(item.string("createdAt")).toEpochMilli(),
-                        )
-                    }
-                }
-            }
-        )
-        refreshNotebook()
-        // Last, once every list is the server's complete one: copies nothing refers to any more.
-        images.delete(dao.forgetUnreferencedNotes())
     }
 
     /**
@@ -701,22 +686,19 @@ class Sync(
         }
     }
 
-    /** One database-only read; complete responses replace acknowledged projections, never pending work. */
-    private suspend fun refreshNotebook() {
-        val json = api.get("/api/notebook")
-        val (annotations, reviews, limit) =
-            contract {
-                val annotations = json.getJSONArray("annotations")
-                val reviews = json.getJSONArray("reviews")
-                val limit = json.getInt("sessionLimit")
-                if (limit <= 0) throw JSONException("Expected a positive server sessionLimit, got $limit")
-                Triple(
-                    List(annotations.length()) { annotationRow(annotations.getJSONObject(it)) },
-                    List(reviews.length()) { reviewRow(reviews.getJSONObject(it)) },
-                    limit,
-                )
-            }
-        dao.replaceRemoteNotebook(annotations, reviews, limit)
+    /**
+     * The library's notebook: every acknowledged highlight and card, the review log, and the server's session limit.
+     */
+    private fun notebookRows(json: JSONObject) = contract {
+        val annotations = json.getJSONArray("annotations")
+        val reviews = json.getJSONArray("reviews")
+        val limit = json.getInt("sessionLimit")
+        if (limit <= 0) throw JSONException("Expected a positive server sessionLimit, got $limit")
+        Triple(
+            List(annotations.length()) { annotationRow(annotations.getJSONObject(it)) },
+            List(reviews.length()) { reviewRow(reviews.getJSONObject(it)) },
+            limit,
+        )
     }
 
     private suspend fun sendReviews() {

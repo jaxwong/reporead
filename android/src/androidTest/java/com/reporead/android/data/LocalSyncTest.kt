@@ -64,14 +64,27 @@ class LocalSyncTest {
     private fun failure(status: Int, code: String) =
         status to JSONObject().put("code", code).put("message", "Test-only $code").toString()
 
-    /** The empty complete lists a sync ends with. */
-    private val emptyLists =
-        mapOf(
-            "GET /api/repositories" to (200 to """{"repositories":[]}"""),
-            "GET /api/reading-states" to (200 to """{"readingStates":[]}"""),
-            "GET /api/bookmarks" to (200 to """{"bookmarks":[]}"""),
-            "GET /api/notebook" to (200 to """{"annotations":[],"reviews":[],"sessionLimit":40}"""),
-        )
+    /** The server's library (GET /api/library) holding these lists' items, as JSON. */
+    private fun library(
+        repositories: String = "",
+        readingStates: String = "",
+        bookmarks: String = "",
+        sessionLimit: Int = 40,
+    ) =
+        200 to
+            """{"repositories":[$repositories],"readingStates":[$readingStates],"bookmarks":[$bookmarks],
+            "notebook":{"annotations":[],"reviews":[],"sessionLimit":$sessionLimit}}"""
+
+    /** A library repository [id] with one listed note and these [documents]. */
+    private fun repository(id: Int, documents: String) =
+        """{"id":$id,"fullName":"test-only/r$id","documentCount":1,"lastSyncedCommitSha":"$sha","documents":[$documents]}"""
+
+    /** A library note [id] at version [sha]. */
+    private fun document(id: Int, deleted: Boolean = false) =
+        """{"id":$id,"path":"n$id.md","title":"n$id","blobSha":"$sha","contentChangedAt":null,"deleted":$deleted}"""
+
+    /** The empty library a sync ends with. */
+    private val emptyLibrary = mapOf("GET /api/library" to library())
 
     private fun reading(documentId: Long) =
         ReadingRow(
@@ -99,7 +112,7 @@ class LocalSyncTest {
         dao.saveReading(reading(1))
         dao.saveBookmark(BookmarkRow(2, bookmarked = true, pending = true, changedAt = 5))
         LoopbackServer(
-                emptyLists +
+                emptyLibrary +
                     mapOf(
                         "PUT /api/documents/1/reading-state" to failure(400, "INVALID_READING_STATE"),
                         "PUT /api/documents/2/bookmark" to (200 to """{"documentId":2}"""),
@@ -115,10 +128,7 @@ class LocalSyncTest {
                     listOf(
                         "PUT /api/documents/1/reading-state",
                         "PUT /api/documents/2/bookmark",
-                        "GET /api/repositories",
-                        "GET /api/reading-states",
-                        "GET /api/bookmarks",
-                        "GET /api/notebook",
+                        "GET /api/library",
                     ),
                     server.requests,
                 )
@@ -154,7 +164,7 @@ class LocalSyncTest {
         dao.saveReview(ReviewRow("grade-of-unsent-card", "unsent-card", 4, 2, sha, pending = true))
         dao.saveReading(reading(1))
         LoopbackServer(
-                emptyLists +
+                emptyLibrary +
                     mapOf(
                         "POST /api/documents/1/annotations" to failure(403, "GITHUB_ACCESS_DENIED"),
                         "PUT /api/documents/1/reading-state" to (200 to serverReading),
@@ -169,10 +179,7 @@ class LocalSyncTest {
                     listOf(
                         "POST /api/documents/1/annotations",
                         "PUT /api/documents/1/reading-state",
-                        "GET /api/repositories",
-                        "GET /api/reading-states",
-                        "GET /api/bookmarks",
-                        "GET /api/notebook",
+                        "GET /api/library",
                     ),
                     server.requests,
                 )
@@ -193,7 +200,7 @@ class LocalSyncTest {
         )
         dao.saveReading(reading(1))
         LoopbackServer(
-                emptyLists +
+                emptyLibrary +
                     mapOf(
                         "POST /api/documents/1/annotations" to (201 to """{"id":9}"""),
                         "PUT /api/documents/1/reading-state" to (200 to serverReading),
@@ -206,10 +213,7 @@ class LocalSyncTest {
                     listOf(
                         "POST /api/documents/1/annotations",
                         "PUT /api/documents/1/reading-state",
-                        "GET /api/repositories",
-                        "GET /api/reading-states",
-                        "GET /api/bookmarks",
-                        "GET /api/notebook",
+                        "GET /api/library",
                     ),
                     server.requests,
                 )
@@ -229,7 +233,7 @@ class LocalSyncTest {
             .deleteAnnotation(dao.annotation("deleted")!!)
         assertTrue(dao.annotations(1).first().isEmpty())
         LoopbackServer(
-                emptyLists +
+                emptyLibrary +
                     mapOf(
                         "POST /api/documents/1/annotations" to (200 to serverHighlight("deleted")),
                         "DELETE /api/annotations/9?expectedVersion=1" to (204 to ""),
@@ -242,10 +246,7 @@ class LocalSyncTest {
                     listOf(
                         "POST /api/documents/1/annotations",
                         "DELETE /api/annotations/9?expectedVersion=1",
-                        "GET /api/repositories",
-                        "GET /api/reading-states",
-                        "GET /api/bookmarks",
-                        "GET /api/notebook",
+                        "GET /api/library",
                     ),
                     server.requests,
                 )
@@ -332,10 +333,10 @@ class LocalSyncTest {
         val arrived = CountDownLatch(1)
         val release = CountDownLatch(1)
         LoopbackServer(
-                emptyLists +
+                emptyLibrary +
                     mapOf(
                         "PUT /api/documents/1/reading-state" to (200 to serverReading),
-                        "GET /api/reading-states" to (200 to """{"readingStates":[$serverReading]}"""),
+                        "GET /api/library" to library(readingStates = serverReading),
                     )
             ) { request ->
                 if (request == "PUT /api/documents/1/reading-state") {
@@ -356,7 +357,7 @@ class LocalSyncTest {
                 // The sync wrote the server's reading state, then sign-out cleared it.
                 assertNull(dao.reading(1))
                 assertEquals(Result.success(), backgroundSync(sync, 0))
-                assertEquals(5, server.requests.size)
+                assertEquals(listOf("PUT /api/documents/1/reading-state", "GET /api/library"), server.requests)
             }
     }
 
@@ -427,8 +428,8 @@ class LocalSyncTest {
     fun aBackgroundRunSendsWhatWaitsAndPullsNothing() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", sha)))
         dao.saveReading(reading(1))
-        LoopbackServer(emptyLists + mapOf("PUT /api/documents/1/reading-state" to (200 to serverReading))).use { server
-            ->
+        LoopbackServer(emptyLibrary + mapOf("PUT /api/documents/1/reading-state" to (200 to serverReading))).use {
+            server ->
             assertEquals(Result.success(), backgroundSync(sync(server.url), 0))
             assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
         }
@@ -442,15 +443,15 @@ class LocalSyncTest {
         // Just over Api's 8 MiB limit for a JSON response.
         val oversized = """{"repositories":[],"padding":"${"x".repeat(8 * 1024 * 1024)}"}"""
         val answered =
-            LoopbackServer(mapOf("GET /api/repositories" to (200 to oversized))).use { server ->
-                runCatching { Api(server.url, { null }) {}.get("/api/repositories") }.exceptionOrNull() as ApiException
+            LoopbackServer(mapOf("GET /api/library" to (200 to oversized))).use { server ->
+                runCatching { Api(server.url, { null }) {}.get("/api/library") }.exceptionOrNull() as ApiException
             }
         assertEquals("INVALID_RESPONSE", answered.code)
         assertEquals(200, answered.status)
         assertFalse(answered.unreachable)
         val silent =
-            runCatching { Api("http://127.0.0.1:${closedPort()}", { null }) {}.get("/api/repositories") }
-                .exceptionOrNull() as ApiException
+            runCatching { Api("http://127.0.0.1:${closedPort()}", { null }) {}.get("/api/library") }.exceptionOrNull()
+                as ApiException
         assertEquals(0, silent.status)
         assertTrue(silent.unreachable)
     }
@@ -472,7 +473,7 @@ class LocalSyncTest {
         )
         dao.saveReading(reading(1))
         LoopbackServer(
-                emptyLists +
+                emptyLibrary +
                     mapOf(
                         "POST /api/documents/1/annotations" to failure(503, "GITHUB_UNAVAILABLE"),
                         "PUT /api/documents/1/reading-state" to (200 to serverReading),
@@ -496,7 +497,7 @@ class LocalSyncTest {
             AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
         LoopbackServer(
-                emptyLists +
+                emptyLibrary +
                     mapOf(
                         "POST /api/documents/1/annotations" to failure(403, "GITHUB_ACCESS_DENIED"),
                         "PUT /api/documents/1/reading-state" to (200 to serverReading),
@@ -512,8 +513,6 @@ class LocalSyncTest {
     @Test
     fun saveAllFetchesOnlyTheNotesNotSavedAsListed() = runBlocking {
         val old = "b".repeat(40)
-        fun document(id: Int, deleted: Boolean = false) =
-            """{"id":$id,"path":"n$id.md","title":"n$id","blobSha":"$sha","contentChangedAt":null,"deleted":$deleted}"""
         fun content(id: Int) =
             200 to
                 """{"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
@@ -523,10 +522,13 @@ class LocalSyncTest {
         dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", RENDER_FORMAT - 1))
         LoopbackServer(
                 mapOf(
-                    "GET /api/repositories/7/documents" to
-                        (200 to
-                            """{"repositoryId":7,"lastSyncedCommitSha":"$sha","documents":[${document(1)},${document(2)},
-                            ${document(3)},${document(4)},${document(5, deleted = true)}]}"""),
+                    "GET /api/library" to
+                        library(
+                            repository(
+                                7,
+                                "${document(1)},${document(2)},${document(3)},${document(4)},${document(5, deleted = true)}",
+                            )
+                        ),
                     "GET /api/documents/2/content" to content(2),
                     "GET /api/documents/3/content" to content(3),
                     "GET /api/documents/4/content" to content(4),
@@ -536,7 +538,7 @@ class LocalSyncTest {
                 assertEquals(Sync.SavedAll(3, 1, emptyList()), sync(server.url).saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf(
-                        "GET /api/repositories/7/documents",
+                        "GET /api/library",
                         "GET /api/documents/2/content",
                         "GET /api/documents/3/content",
                         "GET /api/documents/4/content",
@@ -548,39 +550,74 @@ class LocalSyncTest {
 
     @Test
     fun aSyncLoadsEveryRepositorysNotesSoARemovedNoteWithKeptDataIsNamed() = runBlocking {
-        val notes =
-            """{"repositoryId":7,"lastSyncedCommitSha":"$sha","documents":[
-            {"id":1,"path":"kept.md","title":"kept","blobSha":"$sha","contentChangedAt":null,"deleted":false},
-            {"id":2,"path":"gone.md","title":"gone","blobSha":"$sha","contentChangedAt":null,"deleted":true}]}"""
         val readingOfTheRemovedNote = serverReading.replace("\"documentId\":1", "\"documentId\":2")
         LoopbackServer(
-                emptyLists +
-                    mapOf(
-                        "GET /api/repositories" to
-                            (200 to
-                                """{"repositories":[{"id":7,"fullName":"test-only/notes","documentCount":1,"lastSyncedCommitSha":"$sha"}]}"""),
-                        "GET /api/repositories/7/documents" to (200 to notes),
-                        "GET /api/reading-states" to (200 to """{"readingStates":[$readingOfTheRemovedNote]}"""),
-                    )
+                mapOf(
+                    "GET /api/library" to
+                        library(
+                            repository(7, "${document(1)},${document(2, deleted = true)}"),
+                            readingStates = readingOfTheRemovedNote,
+                        )
+                )
             )
             .use { server ->
                 sync(server.url).syncLocalChanges()
-                assertEquals(
-                    listOf(
-                        "GET /api/repositories",
-                        "GET /api/repositories/7/documents",
-                        "GET /api/reading-states",
-                        "GET /api/bookmarks",
-                        "GET /api/notebook",
-                    ),
-                    server.requests,
-                )
+                assertEquals(listOf("GET /api/library"), server.requests)
                 assertEquals(listOf(1L), dao.documents(7).first().map { it.id })
                 assertEquals(
-                    listOf(ReadNote(2, "gone", "gone.md", deleted = true, progressPercent = 50)),
+                    listOf(ReadNote(2, "n2", "n2.md", deleted = true, progressPercent = 50)),
                     dao.recentReading(5).first(),
                 )
             }
+    }
+
+    /**
+     * The saved lists are all from one library answer or all as they were: a library request that fails, or an answer
+     * whose last part breaks the contract, writes none of them and deletes no image.
+     */
+    @Test
+    fun aLibraryRequestThatFailsLeavesEverySavedListAndImageAsItWas() = runBlocking {
+        dao.replaceRepositories(
+            listOf(RepositoryRow(7, "test-only/kept", 1, sha), RepositoryRow(9, "test-only/gone", 1, sha))
+        )
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
+        dao.replaceDocuments(9, listOf(DocumentRow(3, 9, "c.md", "c", sha)))
+        dao.saveNote(NoteRow(3, sha, "c.md", "c", "<html/>", 0, "text"))
+        dao.saveReading(reading(1).copy(pending = false))
+        dao.saveBookmark(BookmarkRow(1, bookmarked = true, pending = false, changedAt = 5))
+        val image = File(directory, "images/3/$sha/test-only").apply { check(parentFile!!.mkdirs()) }
+        image.writeText("test-only image")
+        suspend fun saved() =
+            listOf(
+                dao.repositories().first(),
+                dao.documents(7).first(),
+                dao.documents(9).first(),
+                dao.note(3),
+                dao.reading(1),
+                dao.bookmarks().first(),
+                dao.notebook().first(),
+            )
+        val before = saved()
+        // Repository 9 is gone, 8 is new, and every other list is empty: a complete answer would change every saved
+        // list.
+        val repositories = "${repository(7, document(2))},${repository(8, document(4))}"
+        for ((answer, code) in
+            listOf(
+                failure(500, "TEST_ONLY_FAILURE") to "TEST_ONLY_FAILURE",
+                library(repositories, sessionLimit = 0) to "INVALID_RESPONSE",
+            )) {
+            LoopbackServer(mapOf("GET /api/library" to answer)).use { server ->
+                try {
+                    sync(server.url).syncLocalChanges()
+                    fail("Expected $code to end the sync")
+                } catch (error: ApiException) {
+                    assertEquals(code, error.code)
+                }
+                assertEquals(listOf("GET /api/library"), server.requests)
+            }
+            assertEquals(code, before, saved())
+            assertTrue(code, image.isFile)
+        }
     }
 
     @Test
@@ -588,18 +625,12 @@ class LocalSyncTest {
         dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
         dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
-        LoopbackServer(
-                emptyLists +
-                    mapOf(
-                        "GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"),
-                        "GET /api/repositories" to (200 to """{"repositories":[]}"""),
-                    )
-            )
-            .use { server ->
-                assertNull(Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.disconnectPreview(7))
-                assertTrue(dao.repositoryIds().isEmpty())
-                assertNull(dao.note(1))
-            }
+        LoopbackServer(emptyLibrary + mapOf("GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"))).use {
+            server ->
+            assertNull(Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.disconnectPreview(7))
+            assertTrue(dao.repositoryIds().isEmpty())
+            assertNull(dao.note(1))
+        }
     }
 }
 
