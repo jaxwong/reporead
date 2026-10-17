@@ -33,10 +33,11 @@ class RefusalTest {
                 0 to "BACKEND_UNAVAILABLE",
                 401 to "SIGN_IN_REQUIRED",
                 403 to "GITHUB_ACCESS_DENIED",
+                // Only connecting the repository again fixes it; what waits is still valid.
+                409 to "REPOSITORY_RENAMED",
                 429 to "HTTP_429",
                 500 to "HTTP_500",
                 502 to "GITHUB_INVALID_RESPONSE",
-                502 to "REPOSITORY_RENAMED",
                 503 to "GITHUB_UNAVAILABLE",
                 // Something other than RepoRead answered on the backend's address: not RepoRead's refusal.
                 404 to "HTTP_404",

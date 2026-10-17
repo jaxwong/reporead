@@ -15,6 +15,7 @@ import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.github.GitHubHttp;
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
@@ -904,6 +906,17 @@ class RepositorySyncTest extends SharedSpringTest {
         sync(alice, connection)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DEFAULT_BRANCH_NOT_FOUND"));
+        assertNull(checkpoint());
+    }
+
+    /** GitHub redirects a renamed repository's or branch's old name; only connecting it again can fix that. */
+    @Test
+    void aRedirectedRepositoryIsRenamedAndPublishesNothing() throws Exception {
+        user.expect(requestTo(BRANCH))
+                .andRespond(withStatus(HttpStatus.MOVED_PERMANENTLY).location(URI.create("https://example.invalid")));
+        sync(alice, connection)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("REPOSITORY_RENAMED"));
         assertNull(checkpoint());
     }
 
