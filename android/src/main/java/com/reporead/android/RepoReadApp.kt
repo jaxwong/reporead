@@ -160,16 +160,20 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val savedRepositories by dao.repositories().collectAsState(null)
 
     val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
-    // Back to the first screen signed out, once this phone's copy is gone; [message] says why.
-    val endSession = { message: String? ->
+    // Ends the session here, deletes this phone's copy of private notes, unsynced changes included, and goes back to
+    // the first screen signed out; [message] says why. Ending it before the deletion, which can fail, means a failure
+    // cannot leave the phone signed in; the data's owner is forgotten only once the copy is gone, so until then only
+    // its account can sign in again (completeSignIn). Callers run it in the app's scope: a rotation must not stop it
+    // part-way.
+    val endSession: suspend (String?) -> Unit = { message ->
         store.clear()
+        sync.clearAll()
         store.dataOwner = null
         screenStates.removeState(ROOT_STATE)
         signInMessage = message
         stack = listOf(Screen.Repositories)
     }
-    // Revokes the session on the server when it can, then deletes this phone's copy of private notes, unsynced
-    // changes included. In the app's scope: a rotation must not stop it between the two.
+    // Revokes the session on the server when it can, then ends it on this phone.
     val signOut: () -> Unit = {
         app.scope.launch {
             val message =
@@ -181,7 +185,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                     else
                         "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
                 }
-            sync.clearAll()
             endSession(message)
         }
     }
@@ -242,7 +245,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                         onSignIn = signIn,
                         onSignOut = signOut,
                         onAccountDeleted = {
-                            // The server deleted the account and its sessions, and Sync cleared this phone's copy.
+                            // The server deleted the account and its sessions; this phone's copy goes as at sign-out.
                             endSession(
                                 "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
                             )

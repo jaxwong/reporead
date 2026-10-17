@@ -143,7 +143,10 @@ fun FolderScreen(
                 sync.disconnect(screen.repositoryId)
                 onDisconnected()
             } catch (failure: ApiException) {
-                status = "Not disconnected; nothing was deleted on this phone. ${failure.describe()}"
+                // The server may have disconnected it with the answer lost; trying again then reconciles
+                // (Sync.disconnect).
+                status =
+                    "Couldn't confirm the disconnect, so nothing was deleted on this phone; try again. ${failure.describe()}"
             } finally {
                 disconnecting = false
             }

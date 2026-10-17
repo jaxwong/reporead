@@ -357,8 +357,9 @@ class Sync(
 
     /**
      * Online only: the server deletes the connection and everything stored for it, then this phone deletes its copies,
-     * including unsynced changes for those notes. A failure changes nothing on the phone. When the server no longer has
-     * the repository (an earlier answer was lost), the phone reconciles with the server's complete list instead.
+     * including unsynced changes for those notes. A failed request changes nothing on the phone, but the server may
+     * already have deleted (its answer lost or unreadable). When the server no longer has the repository, disconnecting
+     * again reconciles the phone with the server's complete list instead.
      */
     suspend fun disconnect(repositoryId: Long) = locked {
         val json =
@@ -382,10 +383,12 @@ class Sync(
         Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
     }
 
-    /** Online only: the server deletes the account and everything it stored; then this phone's copy is cleared. */
+    /**
+     * Online only: the server deletes the account and everything it stored. The caller then ends the session here and
+     * clears this phone's copy, in sign-out's order (RepoReadApp).
+     */
     suspend fun deleteAccount() {
         api.delete("/api/account")
-        clearAll()
     }
 
     /** Only the reader calls this, with the version it actually displayed. */

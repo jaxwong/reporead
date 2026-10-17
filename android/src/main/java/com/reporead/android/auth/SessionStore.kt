@@ -57,7 +57,11 @@ class SessionStore(context: Context) {
         prefs.edit().putString("token", encoded).apply()
     }
 
-    fun clear() = prefs.edit().remove("token").apply()
+    /**
+     * Ends the session on this phone, on disk before it returns: sign-out runs it before a deletion that can crash the
+     * app, and apply() writes 100 ms later, so a crash meanwhile would leave the phone signed in.
+     */
+    fun clear() = check(prefs.edit().remove("token").commit()) { "Could not remove the stored session from $PREFS" }
 
     /**
      * The server refused [sent] (a 401): ends the session unless a newer sign-in replaced it while that request ran.

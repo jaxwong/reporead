@@ -103,7 +103,7 @@ fun LibraryScreen(
     push: (Screen) -> Unit,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
-    onAccountDeleted: () -> Unit,
+    onAccountDeleted: suspend () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(LibraryTab.READING) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
@@ -144,7 +144,10 @@ fun LibraryScreen(
                         // A lost answer to an earlier deletion also ends the session; the two look the same.
                         "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
                             "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
-                    } else "Account not deleted; nothing was deleted on this phone. ${failure.describe()}"
+                    } else {
+                        // The server may have deleted it with the answer lost; trying again then gets the 401 above.
+                        "Couldn't confirm the account deletion, so nothing was deleted on this phone; try again. ${failure.describe()}"
+                    }
             }
         }
     }
