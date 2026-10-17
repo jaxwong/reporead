@@ -167,6 +167,8 @@ fun ApiException.describe(): String =
         "DEFAULT_BRANCH_NOT_FOUND" ->
             "The default branch was not found: the repository may be empty or no longer accessible, or its default " +
                 "branch was renamed (then tap Update on it under Add repository)."
+        "REPOSITORY_RENAMED" ->
+            "This repository or its default branch was renamed on GitHub; tap Update on it under Add repository."
         "SYNC_SUPERSEDED" ->
             "This repository changed during the refresh, so nothing was replaced; refresh again to get the latest notes."
         "ANNOTATION_CONFLICT" -> "It was changed elsewhere; sync, reopen the note, and try again."

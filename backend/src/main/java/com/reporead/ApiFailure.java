@@ -36,6 +36,7 @@ public final class ApiFailure extends RuntimeException {
         INVALID_ANCHOR(422),
         UNSUPPORTED_CONTENT(422),
         GITHUB_INVALID_RESPONSE(502),
+        REPOSITORY_RENAMED(502),
         GITHUB_RESPONSE_LIMIT(502),
         GITHUB_TREE_INCOMPLETE(502),
         GITHUB_INSTALLATION_LIMIT(502),

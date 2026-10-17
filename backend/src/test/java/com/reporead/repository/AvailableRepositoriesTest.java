@@ -319,7 +319,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.code").value("GITHUB_RESPONSE_LIMIT"));
     }
 
-    /** GitHub redirects a renamed repository's old name with 301 or 307; the message says how to recover. */
+    /** GitHub redirects a renamed repository's old name with 301 or 307; the code says it was renamed. */
     @ParameterizedTest
     @ValueSource(ints = {301, 302, 307})
     void redirectsAreNotFollowed(int status) throws Exception {
@@ -327,8 +327,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 TOKEN, withStatus(HttpStatus.valueOf(status)).location(java.net.URI.create("https://example.invalid")));
         available(alice)
                 .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"))
-                .andExpect(jsonPath("$.message").value(containsString("connecting the repository again")));
+                .andExpect(jsonPath("$.code").value("REPOSITORY_RENAMED"));
     }
 
     @Test
