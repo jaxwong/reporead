@@ -2,7 +2,7 @@
 
 How RepoRead is built today: the parts, who owns what, and how data moves between them. The *why* behind each decision is in the [ADRs](adrs.md); the exact HTTP contract, limits and error codes are in the [backend README](../backend/README.md); phone behaviour is in the [Android README](../android/README.md). The rules every change keeps are in [invariants](invariants.md). This document links to them instead of repeating them.
 
-As built on `main`, 2026-10-17.
+As built on `main`, 2026-10-18.
 
 ## 1. The system in one picture
 
@@ -59,7 +59,7 @@ flowchart TB
         Caddy["Caddy :443<br/>Let's Encrypt"]
         Svc["reporead-backend.service<br/>127.0.0.1:8081<br/>Actuator 127.0.0.1:8082"]
         VMPG[("reporead-postgres<br/>Podman Quadlet, loopback")]
-        Deploy["reporead-deploy<br/>health-checked, rolls back"]
+        Deploy["reporead-deploy<br/>dumps the database, health-checked,<br/>never puts the previous jar back"]
         Caddy --> Svc --> VMPG
         Deploy -- "replace jar, restart" --> Svc
     end
@@ -130,19 +130,20 @@ flowchart TB
     datacontrol --> document
     datacontrol --> repository
     datacontrol --> auth
-    datacontrol --> github
     library --> annotation
     library --> reading
     library --> document
     library --> repository
     sync --> document
     sync --> repository
+    sync --> auth
     sync --> github
     annotation --> document
     annotation --> repository
     reading --> document
     reading --> repository
     document --> repository
+    document --> auth
     document --> github
     repository --> auth
     repository --> github
@@ -323,10 +324,10 @@ flowchart TB
 
 | Package | Owns |
 | --- | --- |
-| `auth` | PKCE sign-in through a Custom Tab; the encrypted bearer session |
-| `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made |
+| `auth` | PKCE sign-in through a Custom Tab; the encrypted bearer session, deleted only when it can never be read; the pending removal of the phone's copy (`SessionStore`) |
+| `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
-| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion, all under sign-out's lock (ADR-22); `NoteImages`: saved notes' images, fetched for the reader's WebView outside the lock (Sync deletes them with their notes); `ServerJson.kt`: server responses as Room rows; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
+| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect, account deletion, clearing the phone (`clearAll`, which says what it left as a `LocalCleanup`) and the start's deletions; every one that writes the server's answers into Room, and clearing, run under one lock (ADR-22); `NoteImages`: saved notes' images, fetched for the reader's WebView outside the lock (Sync's one sweep deletes those of versions Room holds no page of); `ServerJson.kt`: server responses as Room rows; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
 | `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), both moved by `StudySession.kt`, the folder screen (`Folder.kt`), and Add repository (`Available.kt`) |
 | `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
@@ -339,7 +340,8 @@ Room never decides anything the server owns; it mirrors complete server response
 | Table | Comes from | Pending local changes? |
 | --- | --- | --- |
 | `repositories`, `documents` | Server's complete lists (replaced, never merged), with every other list from one library answer in one transaction | No |
-| `notes` | Latest rendered copy of each opened note, keyed by document and blob SHA, with its canonical text for search | No |
+| `notes` | Latest rendered copy of each opened note, one per document with its blob SHA, with its canonical text for search | No |
+| `note_links` | The note links of each saved page, written and deleted with it, for **Linked from** | No |
 | `reading_states`, `bookmarks` | Server lists, merged with local saves | Yes, last write wins by time |
 | `annotations` | Notebook and per-note listings | Yes: creations (with mutation id) and deletions of unacknowledged creations |
 | `review_log` | Server's durable log | Yes: grades (with mutation id) |
@@ -368,7 +370,7 @@ sequenceDiagram
     Tab->>API: callback with code
     API->>GH: exchange code → user token + refresh token
     API->>API: store tokens encrypted (github_tokens), upsert user,<br/>issue single-use 60 s code bound to challenge,<br/>end the browser session
-    API-->>Tab: redirect https://…/app/signed-in?code=… (a verified App Link;<br/>reporead-dev://auth for the debug app)
+    API-->>Tab: redirect https://…/app/signed-in?code=… (a verified App Link,<br/>reporead-dev://auth for the debug app)
     Tab-->>App: Android opens the link in MainActivity
     App->>API: POST /api/app-auth/token {code, codeVerifier, expectedUserId?}
     API-->>App: {accessToken, expiresAt, user} (30 days)
@@ -405,12 +407,12 @@ sequenceDiagram
         else
             API->>DB: one transaction: upsert documents, mark absent ones deleted,<br/>replace image paths, advance checkpoint
             API-->>App: 200
+            App->>API: GET /api/library
+            API->>DB: one read-only REPEATABLE READ snapshot:<br/>repositories, documents, reading states, bookmarks, notebook
+            API-->>App: every list
+            App->>App: replace Room's lists in one transaction
         end
     end
-    App->>API: GET /api/library
-    API->>DB: one read-only REPEATABLE READ snapshot:<br/>repositories, documents, reading states, bookmarks, notebook
-    API-->>App: every list
-    App->>App: replace Room's lists in one transaction
 ```
 
 ### Opening and displaying a note
@@ -450,7 +452,7 @@ Links the page needs native help with (`/note-link`, `/copy-code`, `/full-screen
 
 ### Highlights, cards and the sync
 
-Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh, **Sync now**, and opening a note also send them, and the first three then load the server's library in one request, which the background sync leaves alone. Every path runs the same `Sync` code under one per-process lock that sign-out also takes, as does every other `Sync` operation that writes the server's answers into Room; the mutation id makes resending safe.
+Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh and **Sync now** also send them, then load the server's library in one request, which the background sync leaves alone; opening a note sends the waiting highlight and card creations. Every path runs the same `Sync` code under one per-process lock that sign-out also takes, as does every other `Sync` operation that writes the server's answers into Room; the mutation id makes resending safe.
 
 ```mermaid
 sequenceDiagram
@@ -475,10 +477,10 @@ sequenceDiagram
     P->>API: 3. pending reading positions
     P->>API: 4. pending bookmark changes
     P->>API: 5. GET /api/library (one snapshot) → replace every list in one Room transaction,<br/>deleting saved notes nothing refers to any more
-    P->>P: 6. delete the forgotten notes' images
+    P->>P: 6. delete the images of every version Room holds no page of
 ```
 
-A refused item (400/404/409/410/422) is marked and the run continues; any other failure ends the run with everything unacknowledged still pending.
+A refused item (400/404/409/410/422 with a RepoRead code, other than 409 `REPOSITORY_RENAMED`) is marked and the run continues. Any other failure leaves the item pending: sending a highlight or card stops the remaining creations but not the database-only work (ADR-03) unless the server is unreachable, and sending a grade, reading position or bookmark ends the run.
 
 ### Re-anchoring
 
