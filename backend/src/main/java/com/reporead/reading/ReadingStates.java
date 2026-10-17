@@ -83,7 +83,7 @@ public class ReadingStates {
     }
 
     /** Most recently read first. Bounded by the user's documents. */
-    List<State> list(long userId) {
+    public List<State> list(long userId) {
         return db.sql(SELECT + " where r.user_id = :userId order by r.last_read_at desc")
                 .param("userId", userId)
                 .query(this::state)

@@ -1,0 +1,177 @@
+package com.reporead.library;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+import com.reporead.SharedSpringTest;
+import com.reporead.TestEnvironment;
+import com.reporead.auth.AppSessions;
+import com.reporead.auth.TestSessions;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.support.TransactionTemplate;
+
+/** GET /api/library: one user's lists, from one database snapshot. Test-only users, repositories and SHAs. */
+class LibraryTest extends SharedSpringTest {
+    private static final String SHA = "a".repeat(40);
+    private static final String ANCHOR = "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}";
+
+    @Autowired
+    MockMvc mvc;
+
+    @Autowired
+    AppSessions sessions;
+
+    @Autowired
+    OAuth2AuthorizedClientService clients;
+
+    @Autowired
+    ClientRegistrationRepository registrations;
+
+    @Autowired
+    JdbcClient db;
+
+    @Autowired
+    TransactionTemplate transaction;
+
+    String alice;
+    long active;
+    long removed;
+
+    @BeforeEach
+    void setup() {
+        TestEnvironment.reset(db);
+        alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
+        db.sql("""
+                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
+                values (1, 11, 'test-only', 'notes', 'main', :sha)""").param("sha", SHA).update();
+        active = document("a.md", false);
+        removed = document("b.md", true);
+    }
+
+    private long document(String path, boolean deleted) {
+        return db.sql("""
+                insert into documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
+                values (1, :path, :path, :sha, case when :deleted then now() end) returning id""")
+                .param("path", path)
+                .param("sha", SHA)
+                .param("deleted", deleted)
+                .query(Long.class)
+                .single();
+    }
+
+    private ResultActions library(String bearer) throws Exception {
+        return mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+    }
+
+    @Test
+    void theLibraryIsTheUsersRepositoriesWithEveryNoteAndTheirReadingBookmarksAndNotebook() throws Exception {
+        mvc.perform(put("/api/documents/" + active + "/reading-state")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lastReadBlobSha\":\"" + SHA + "\",\"progressPercent\":40,\"anchor\":" + ANCHOR
+                                + ",\"lastReadAt\":\"2026-01-01T00:00:00Z\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put("/api/documents/" + removed + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isOk());
+        library(alice)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.repositories.length()").value(1))
+                .andExpect(jsonPath("$.repositories[0].id").value(1))
+                .andExpect(jsonPath("$.repositories[0].fullName").value("test-only/notes"))
+                .andExpect(jsonPath("$.repositories[0].documentCount").value(1))
+                .andExpect(jsonPath("$.repositories[0].lastSyncedCommitSha").value(SHA))
+                // Removed notes are listed too: the one place the phone learns the title of a note it still has data
+                // on.
+                .andExpect(jsonPath("$.repositories[0].documents.length()").value(2))
+                .andExpect(jsonPath("$.repositories[0].documents[0].id").value(active))
+                .andExpect(jsonPath("$.repositories[0].documents[0].blobSha").value(SHA))
+                .andExpect(jsonPath("$.repositories[0].documents[0].deleted").value(false))
+                .andExpect(jsonPath("$.repositories[0].documents[1].id").value(removed))
+                .andExpect(jsonPath("$.repositories[0].documents[1].deleted").value(true))
+                .andExpect(jsonPath("$.readingStates.length()").value(1))
+                .andExpect(jsonPath("$.readingStates[0].documentId").value(active))
+                .andExpect(jsonPath("$.readingStates[0].progressPercent").value(40))
+                .andExpect(jsonPath("$.bookmarks.length()").value(1))
+                .andExpect(jsonPath("$.bookmarks[0].documentId").value(removed))
+                .andExpect(jsonPath("$.notebook.annotations").isEmpty())
+                .andExpect(jsonPath("$.notebook.reviews").isEmpty())
+                // Server-owned: the phone never chooses its own session size.
+                .andExpect(jsonPath("$.notebook.sessionLimit").value(40));
+    }
+
+    @Test
+    void theLibraryIsPrivateToItsUser() throws Exception {
+        mvc.perform(put("/api/documents/" + active + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isOk());
+        String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB");
+        library(bob)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.repositories").isEmpty())
+                .andExpect(jsonPath("$.readingStates").isEmpty())
+                .andExpect(jsonPath("$.bookmarks").isEmpty())
+                .andExpect(jsonPath("$.notebook.annotations").isEmpty())
+                .andExpect(jsonPath("$.notebook.reviews").isEmpty());
+        mvc.perform(get("/api/library")).andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * A write that commits while the library is being read is wholly in the next read and wholly out of this one. The
+     * write holds the reading-state table until it commits, so the read has already listed the repositories and notes
+     * when it waits there; without one snapshot it would then list a reading state of a note it did not list.
+     */
+    @Test
+    void aWriteCommittedDuringTheReadIsWhollyOutOfItAndWhollyInTheNext() throws Exception {
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        long added;
+        ResultActions during;
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var writing = executor.submit(() -> transaction.execute(status -> {
+                long id = document("c.md", false);
+                db.sql("""
+                        insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
+                        values (1, :id, :sha, 10, cast(:anchor as jsonb), now())""")
+                        .param("id", id)
+                        .param("sha", SHA)
+                        .param("anchor", ANCHOR)
+                        .update();
+                db.sql("lock table reading_states in access exclusive mode").update();
+                locked.countDown();
+                try {
+                    assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                    throw new IllegalStateException("Interrupted while holding the test write", interrupted);
+                }
+                return id;
+            }));
+            assertTrue(locked.await(10, TimeUnit.SECONDS));
+            var reading = executor.submit(() -> library(alice));
+            TestEnvironment.awaitLockWait(db);
+            release.countDown();
+            added = writing.get(10, TimeUnit.SECONDS);
+            during = reading.get(10, TimeUnit.SECONDS);
+        }
+        during.andExpect(status().isOk())
+                .andExpect(jsonPath("$.repositories[0].documentCount").value(1))
+                .andExpect(jsonPath("$.repositories[0].documents.length()").value(2))
+                .andExpect(jsonPath("$.readingStates").isEmpty());
+        library(alice)
+                .andExpect(jsonPath("$.repositories[0].documentCount").value(2))
+                .andExpect(jsonPath("$.repositories[0].documents.length()").value(3))
+                .andExpect(jsonPath("$.readingStates[0].documentId").value(added));
+    }
+}

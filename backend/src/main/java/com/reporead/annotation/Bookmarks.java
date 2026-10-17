@@ -68,7 +68,7 @@ public class Bookmarks {
                 .update();
     }
 
-    List<Bookmark> list(long userId) {
+    public List<Bookmark> list(long userId) {
         return db.sql(SELECT + " order by a.created_at desc")
                 .param("userId", userId)
                 .query(Bookmark.class)

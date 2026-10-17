@@ -623,11 +623,11 @@ class AnnotationTest extends SharedSpringTest {
         grade(alice, id, mutation, 4, OLD_SHA).andExpect(status().isOk());
         grade(alice, id, mutation, 5, OLD_SHA).andExpect(status().isConflict());
         assertEquals(10, count("review_log"));
-        mvc.perform(get("/api/notebook").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+        mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sessionLimit").value(40))
-                .andExpect(jsonPath("$.annotations[0].type").value("CARD"))
-                .andExpect(jsonPath("$.reviews.length()").value(10));
+                .andExpect(jsonPath("$.notebook.sessionLimit").value(40))
+                .andExpect(jsonPath("$.notebook.annotations[0].type").value("CARD"))
+                .andExpect(jsonPath("$.notebook.reviews.length()").value(10));
         remove(alice, id, 1).andExpect(status().isNoContent());
         assertEquals(0, count("review_log"));
         grade(alice, id, mutation, 4, OLD_SHA).andExpect(status().isNotFound());
@@ -693,9 +693,9 @@ class AnnotationTest extends SharedSpringTest {
         grade(bob, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isNotFound());
         grade(alice, id, UUID.randomUUID().toString(), 6, OLD_SHA).andExpect(status().isBadRequest());
         grade(alice, id, "bad", 4, OLD_SHA).andExpect(status().isBadRequest());
-        mvc.perform(get("/api/notebook").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob))
-                .andExpect(jsonPath("$.annotations.length()").value(0))
-                .andExpect(jsonPath("$.reviews.length()").value(0));
+        mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob))
+                .andExpect(jsonPath("$.notebook.annotations.length()").value(0))
+                .andExpect(jsonPath("$.notebook.reviews.length()").value(0));
         assertEquals(0, count("review_log"));
     }
 
