@@ -1,6 +1,7 @@
 package com.reporead.android.sync
 
 import android.util.Log
+import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.contract
@@ -135,7 +136,7 @@ class Sync(
      * referred to by nothing — are deleted after the commit.
      */
     private suspend fun loadLibrary() {
-        val json = api.get("/api/library")
+        val json = api.get("/api/library", BuildConfig.LIBRARY_MAX_RESPONSE_BYTES)
         val library = contract {
             val array = json.getJSONArray("repositories")
             List(array.length()) {

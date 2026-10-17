@@ -37,7 +37,9 @@ class Api(
     private val accessToken: () -> String?,
     private val onUnauthorized: (sent: String?) -> Unit,
 ) {
-    suspend fun get(path: String): JSONObject = json("GET", path, null) ?: throw unexpected(200)
+    /** [maxBytes]: the largest answer read; a response that sets its own, such as the library's, passes it. */
+    suspend fun get(path: String, maxBytes: Int = MAX_JSON_BYTES): JSONObject =
+        json("GET", path, null, maxBytes) ?: throw unexpected(200)
 
     suspend fun post(path: String, body: JSONObject? = null): JSONObject =
         json("POST", path, body) ?: throw unexpected(200)
@@ -53,9 +55,14 @@ class Api(
     /** Blocking; for callers already on a background thread, such as WebView request interception. */
     fun bytes(path: String): ByteArray = execute("GET", path, null, MAX_IMAGE_BYTES, "*/*") ?: throw unexpected(204)
 
-    private suspend fun json(method: String, path: String, body: JSONObject?): JSONObject? =
+    private suspend fun json(
+        method: String,
+        path: String,
+        body: JSONObject?,
+        maxBytes: Int = MAX_JSON_BYTES,
+    ): JSONObject? =
         withContext(Dispatchers.IO) {
-            val bytes = execute(method, path, body, MAX_JSON_BYTES, "application/json") ?: return@withContext null
+            val bytes = execute(method, path, body, maxBytes, "application/json") ?: return@withContext null
             try {
                 JSONObject(bytes.toString(Charsets.UTF_8))
             } catch (error: JSONException) {
@@ -175,6 +182,8 @@ fun ApiException.describe(): String =
         "ACCOUNT_MISMATCH" ->
             "This phone holds another account's notes, so it signs in only as that account. Sign in with the GitHub " +
                 "account that saved them, or sign out first to remove them from this phone."
+        "LIBRARY_TOO_LARGE" ->
+            "Your library, with its highlights and review history, is too large to sync in one answer; the lists on this phone were not updated."
         "SIGN_IN_REQUIRED",
         "HTTP_401" -> "Sign in again to refresh from GitHub."
         "NOT_FOUND" -> "Not found."
