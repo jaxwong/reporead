@@ -10,13 +10,12 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-/** The notebook and grading routes. Every route makes zero external calls. */
+/** The grading route. It makes zero external calls; the notebook is read with the library (Library). */
 @RestController
 public class ReviewController {
     private static final Logger LOG = LoggerFactory.getLogger(ReviewController.class);
@@ -24,11 +23,6 @@ public class ReviewController {
 
     public ReviewController(Reviews reviews) {
         this.reviews = reviews;
-    }
-
-    @GetMapping("/api/notebook")
-    Reviews.Notebook notebook(@AuthenticationPrincipal AppUser user) {
-        return reviews.notebook(user.id());
     }
 
     record GradeRequest(String mutationId, Integer grade, Instant reviewedAt, String blobSha) {}

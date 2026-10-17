@@ -14,8 +14,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * External-call ceilings (GitHub user-token requests per operation): GET /api/repositories 0; GET
- * /api/repositories/available 1 + installations (at most 11); POST .../connect 1.
+ * External-call ceilings (GitHub user-token requests per operation): GET /api/repositories/available 1 + installations
+ * (at most 11); POST .../connect 1. The connected repositories are read with the library (Library).
  */
 @RestController
 public class RepositoryController {
@@ -24,13 +24,6 @@ public class RepositoryController {
 
     public RepositoryController(RepositoryConnections connections) {
         this.connections = connections;
-    }
-
-    record Connected(List<RepositoryConnections.Connection> repositories) {}
-
-    @GetMapping("/api/repositories")
-    Connected connected(@AuthenticationPrincipal AppUser user) {
-        return new Connected(connections.list(user.id()));
     }
 
     record AvailableList(List<RepositoryConnections.Available> repositories) {}

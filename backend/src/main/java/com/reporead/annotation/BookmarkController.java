@@ -1,11 +1,9 @@
 package com.reporead.annotation;
 
 import com.reporead.auth.AppUser;
-import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -18,13 +16,6 @@ public class BookmarkController {
 
     public BookmarkController(Bookmarks bookmarks) {
         this.bookmarks = bookmarks;
-    }
-
-    record BookmarkList(List<Bookmarks.Bookmark> bookmarks) {}
-
-    @GetMapping("/api/bookmarks")
-    BookmarkList list(@AuthenticationPrincipal AppUser user) {
-        return new BookmarkList(bookmarks.list(user.id()));
     }
 
     /** A bookmark is of the note, whatever its version, so the request has no body. */

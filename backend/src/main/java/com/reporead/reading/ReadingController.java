@@ -7,9 +7,7 @@ import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.document.MarkdownRenderer;
 import java.time.Instant;
-import java.util.List;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,13 +28,6 @@ public class ReadingController {
 
     public ReadingController(ReadingStates states) {
         this.states = states;
-    }
-
-    record ReadingStateList(List<ReadingStates.State> readingStates) {}
-
-    @GetMapping("/api/reading-states")
-    ReadingStateList list(@AuthenticationPrincipal AppUser user) {
-        return new ReadingStateList(states.list(user.id()));
     }
 
     record SaveRequest(
