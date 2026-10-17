@@ -172,7 +172,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val sync = app.sync
     val dao = app.localStore.library()
     // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
-    val signedIn by remember { store.signedIn() }.collectAsState(remember { store.accessToken() != null })
+    val signedIn by remember { store.signedIn() }.collectAsState(remember { store.hasSession })
     // From before sign-out or account deletion asks the server until this phone's copy is gone; on disk, so a removal
     // cut short is finished at the next start and offered again here until it is.
     val removing by remember { store.removalPendingChanges() }.collectAsState(remember { store.removalPending })

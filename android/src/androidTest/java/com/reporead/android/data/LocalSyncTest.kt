@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.ListenableWorker.Result
+import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.sync.LocalCleanup
@@ -102,7 +103,8 @@ class LocalSyncTest {
         """{"documentId":1,"lastReadBlobSha":"$sha","progressPercent":50,"anchor":{"headingPath":[],"textPrefix":null,"blockIndex":0},
         "lastReadAt":"1970-01-01T00:00:01Z"}"""
 
-    private fun sync(url: String) = Sync(Api(url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}
+    private fun sync(url: String) =
+        Sync(Api(url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
 
     /** A port nothing listens on. */
     private fun closedPort() = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
@@ -120,7 +122,7 @@ class LocalSyncTest {
                     )
             )
             .use { server ->
-                val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
+                val result = sync(server.url).syncLocalChanges()
                 assertEquals(1, result.refused.size)
                 assertTrue(result.refused.single(), result.refused.single().contains("Long heading note"))
                 assertNull(result.notSent)
@@ -172,7 +174,7 @@ class LocalSyncTest {
                     )
             )
             .use { server ->
-                val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
+                val result = sync(server.url).syncLocalChanges()
                 assertEquals("GITHUB_ACCESS_DENIED", result.notSent?.code)
                 // One creation attempt ends the GitHub-backed step; the grade waits for its card; the reading position
                 // is sent.
@@ -208,7 +210,7 @@ class LocalSyncTest {
                     )
             )
             .use { server ->
-                val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
+                val result = sync(server.url).syncLocalChanges()
                 assertEquals("INVALID_RESPONSE", result.notSent?.code)
                 assertEquals(
                     listOf(
@@ -230,8 +232,7 @@ class LocalSyncTest {
         dao.saveAnnotation(
             AnnotationRow("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
-        Sync(Api("http://127.0.0.1:9", { "TEST_ONLY_SESSION" }) {}, store, directory) {}
-            .deleteAnnotation(dao.annotation("deleted")!!)
+        sync("http://127.0.0.1:9").deleteAnnotation(dao.annotation("deleted")!!)
         assertTrue(dao.annotations(1).first().isEmpty())
         LoopbackServer(
                 emptyLibrary +
@@ -241,7 +242,7 @@ class LocalSyncTest {
                     )
             )
             .use { server ->
-                val result = Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
+                val result = sync(server.url).syncLocalChanges()
                 assertNull(result.notSent)
                 assertEquals(
                     listOf(
@@ -308,7 +309,13 @@ class LocalSyncTest {
         var requested = 0
         // Nothing listens on the port: saving a change never waits for the network.
         val sync =
-            Sync(Api("http://127.0.0.1:${closedPort()}", { "TEST_ONLY_SESSION" }) {}, store, directory) { requested++ }
+            Sync(
+                Api("http://127.0.0.1:${closedPort()}", { StoredSession.Readable("TEST_ONLY_SESSION") }) {},
+                store,
+                directory,
+            ) {
+                requested++
+            }
         sync.saveReading(reading(1))
         assertEquals(1, requested)
         sync.setBookmark(1, true)
@@ -445,14 +452,15 @@ class LocalSyncTest {
         val oversized = """{"repositories":[],"padding":"${"x".repeat(8 * 1024 * 1024)}"}"""
         val answered =
             LoopbackServer(mapOf("GET /api/library" to (200 to oversized))).use { server ->
-                runCatching { Api(server.url, { null }) {}.get("/api/library") }.exceptionOrNull() as ApiException
+                runCatching { Api(server.url, { StoredSession.Absent }) {}.get("/api/library") }.exceptionOrNull()
+                    as ApiException
             }
         assertEquals("INVALID_RESPONSE", answered.code)
         assertEquals(200, answered.status)
         assertFalse(answered.unreachable)
         val silent =
-            runCatching { Api("http://127.0.0.1:${closedPort()}", { null }) {}.get("/api/library") }.exceptionOrNull()
-                as ApiException
+            runCatching { Api("http://127.0.0.1:${closedPort()}", { StoredSession.Absent }) {}.get("/api/library") }
+                .exceptionOrNull() as ApiException
         assertEquals(0, silent.status)
         assertTrue(silent.unreachable)
     }
@@ -628,7 +636,10 @@ class LocalSyncTest {
         dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
         LoopbackServer(emptyLibrary + mapOf("GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"))).use {
             server ->
-            assertNull(Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.disconnectPreview(7))
+            assertNull(
+                Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
+                    .disconnectPreview(7)
+            )
             assertTrue(dao.repositoryIds().isEmpty())
             assertNull(dao.note(1))
         }

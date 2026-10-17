@@ -1,6 +1,7 @@
 package com.reporead.android.core.network
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.reporead.android.auth.StoredSession
 import com.reporead.android.data.LoopbackServer
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -30,7 +31,7 @@ class ApiTest {
                 )
             )
             .use { server ->
-                val api = Api(server.url, { "TEST_ONLY_SESSION" }) { refused += it }
+                val api = Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) { refused += it }
                 for (path in
                     listOf("/api/auth/me", "/api/library", "/api/repositories/available", "/api/documents/1/content")) {
                     try {

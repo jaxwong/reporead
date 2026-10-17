@@ -1,5 +1,6 @@
 package com.reporead.android.sync
 
+import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.SavedVersion
 import com.sun.net.httpserver.HttpServer
@@ -29,7 +30,7 @@ class NoteImagesDeletionTest {
     private val readOnly = mutableListOf<File>()
 
     /** Never makes a request: deleting needs no server. */
-    private fun images() = NoteImages(Api("http://test-only.invalid", { null }) {}, temporary.root)
+    private fun images() = NoteImages(Api("http://test-only.invalid", { StoredSession.Absent }) {}, temporary.root)
 
     private fun image(documentId: Long, blobSha: String) =
         File(temporary.root, "images/$documentId/$blobSha/key").also {
@@ -66,7 +67,8 @@ class NoteImagesDeletionTest {
         }
         server.start()
         try {
-            val images = NoteImages(Api("http://127.0.0.1:${server.address.port}", { null }) {}, temporary.root)
+            val images =
+                NoteImages(Api("http://127.0.0.1:${server.address.port}", { StoredSession.Absent }) {}, temporary.root)
             var bytes: ByteArray? = null
             val fetch = thread { bytes = images.image(1, current, "a.png") }
             try {
