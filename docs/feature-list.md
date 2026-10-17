@@ -127,7 +127,7 @@ Noticed and deliberately not changed:
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
 - A reading position the server refuses (for example, with the phone's clock more than 5 minutes ahead) stays pending, counted as waiting, until a newer one replaces it: reading rows have no refusal mark, unlike highlights and grades. Fixing it is a Room migration.
-- A stored session the Keystore fails to decrypt is deleted whatever the failure, so a passing Keystore error means signing in again (saved notes stay). Telling passing failures from permanent ones by exception type could instead keep a session that can never be read.
+- Only `KeyPermanentlyInvalidatedException` and `AEADBadTagException` delete a stored session (ADR-22). A Keystore failure that never passes but is reported as another exception (for example `UnrecoverableKeyException`) keeps the session, and every request fails until the user signs out.
 - A bank question is matched to its card by bank, prompt and answer line, so renaming its heading or editing its Canonical line makes it a new question; grading it then starts a second card on the same answer.
 - Error text has two owners: the app words some codes itself, and some server messages name app controls ("tap Update").
 - Room reads a row through a cursor window of about 2 MB, so a saved page over that (HTML plus search text) would save but not open. Not reproduced; the largest real page is 0.6 MB with 0.4 MB of text.
@@ -147,6 +147,7 @@ Covered by automated tests only, or not at all:
 - Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
 - Signing out or deleting the account while the phone rotates: both now run in the application's scope, checked by reading the code; the root screen uses the app's own session and database, which tests never touch.
+- A sync whose note list or notebook fails, leaving every saved list as it was (`LocalSyncTest`), and the sign-out and account deletion order and Keystore handling of 2026-10-17 (ADR-22): compiled with no phone connected, never run. Keystore's exceptions were read in Android's sources, not provoked.
 - A deploy that fails on the VM: the deploy and backup scripts were installed there on 2026-10-17 and the deploy dump ran there, but a failing deploy was only checked in a container with stubbed services.
 
 ## Personal-project definition of done

@@ -118,6 +118,8 @@ These come from the original implementation spec's engineering invariants and th
 
 **Saved notes stay readable, and local changes queue, when GitHub or the backend is unavailable.** A failed refresh never replaces saved lists or notes.
 
+- Enforced by: `Sync` fetches and checks every list before writing any, then writes them in one Room transaction (`LibraryDao.replaceFromServer`, `replaceLibrary`); images go only after the commit.
+- Checked by: `LocalSyncTest`, where a failed note list or notebook leaves every saved list and image as it was.
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
 
 ### Server-owned limits and no fallback
