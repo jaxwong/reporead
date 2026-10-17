@@ -250,7 +250,7 @@ erDiagram
     }
 ```
 
-Concurrency: syncs, disconnects and every write that adds or changes a document's rows take the same `repository_connections` row lock (`RepositoryConnections.lockForSync` and its siblings), so a write never lands half-way through a sync or a disconnect. Each table's owner takes the lock inside its own transaction, and the lock methods refuse to run outside one.
+Concurrency: syncs, reconnects (whose upsert locks the row), disconnects and every write that adds or changes a document's rows take the same `repository_connections` row lock (`RepositoryConnections.lockForSync` and its siblings), so a write never lands half-way through a sync or a disconnect. Each table's owner takes the lock inside its own transaction, and the lock methods refuse to run outside one.
 
 ## 4. Android app
 
@@ -392,7 +392,7 @@ sequenceDiagram
             API->>API: shingle similarity → moved and edited?
         end
         API->>DB: lock connection row (FOR UPDATE)
-        alt another sync already published a newer commit
+        alt another sync already published a newer commit, or a reconnect changed the default branch
             API-->>App: 409 SYNC_SUPERSEDED
         else
             API->>DB: one transaction: upsert documents, mark absent ones deleted,<br/>replace image paths, advance checkpoint
