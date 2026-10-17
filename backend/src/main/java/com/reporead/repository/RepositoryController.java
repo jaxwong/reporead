@@ -3,10 +3,6 @@ package com.reporead.repository;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
-import com.reporead.auth.GitHubCredentials;
-import com.reporead.github.GitHubApi;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,13 +20,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class RepositoryController {
     private static final Logger LOG = LoggerFactory.getLogger(RepositoryController.class);
-    private final GitHubApi github;
-    private final GitHubCredentials credentials;
     private final RepositoryConnections connections;
 
-    public RepositoryController(GitHubApi github, GitHubCredentials credentials, RepositoryConnections connections) {
-        this.github = github;
-        this.credentials = credentials;
+    public RepositoryController(RepositoryConnections connections) {
         this.connections = connections;
     }
 
@@ -41,38 +33,11 @@ public class RepositoryController {
         return new Connected(connections.list(user.id()));
     }
 
-    record Available(
-            long githubRepositoryId,
-            long installationId,
-            String fullName,
-            boolean privateRepository,
-            String defaultBranch,
-            Long connectionId) {}
-
-    record AvailableList(List<Available> repositories) {}
+    record AvailableList(List<RepositoryConnections.Available> repositories) {}
 
     @GetMapping("/api/repositories/available")
     AvailableList available(@AuthenticationPrincipal AppUser user) {
-        String token = credentials.githubUserToken(user.githubUserId());
-        var connected = connections.connectedIds(user.id());
-        var result = new ArrayList<Available>();
-        var seen = new HashSet<Long>();
-        for (long installationId : github.installations(token)) {
-            for (var repository : github.repositories(token, installationId)) {
-                if (!seen.add(repository.id())) {
-                    throw new ApiFailure(
-                            Code.GITHUB_INVALID_RESPONSE, "GitHub listed one repository in two installations.");
-                }
-                result.add(new Available(
-                        repository.id(),
-                        installationId,
-                        repository.fullName(),
-                        repository.privateRepository(),
-                        repository.defaultBranch(),
-                        connected.get(repository.id())));
-            }
-        }
-        return new AvailableList(List.copyOf(result));
+        return new AvailableList(connections.available(user));
     }
 
     record ConnectRequest(Long installationId) {}
@@ -87,14 +52,7 @@ public class RepositoryController {
             throw new ApiFailure(
                     Code.INVALID_REPOSITORY, "githubRepositoryId and installationId must be positive integers.");
         }
-        String token = credentials.githubUserToken(user.githubUserId());
-        var repository = github.repositories(token, body.installationId()).stream()
-                .filter(candidate -> candidate.id() == githubRepositoryId)
-                .findFirst()
-                .orElseThrow(() -> new ApiFailure(
-                        Code.REPOSITORY_NOT_AUTHORIZED,
-                        "This repository is not available to you through the RepoRead GitHub App installation."));
-        var connection = connections.connect(user.id(), repository);
+        var connection = connections.connect(user, githubRepositoryId, body.installationId());
         LOG.info(
                 "Repository connected; userId={} connectionId={} githubRepositoryId={}",
                 user.id(),
