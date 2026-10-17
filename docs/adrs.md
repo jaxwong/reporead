@@ -41,7 +41,7 @@ The decisions that shape RepoRead, as built. Each says what was decided, why, an
 - blocked navigation, network, file and content access; no JavaScript bridge; no credentials;
 - repository images fetched by native code, which attaches the bearer token itself;
 - a renderer that crashes or that Android reclaims ends only its page: the reader says the page stopped, and the figure, preview and answer pages show their failure text;
-- Mermaid in strict security mode with HTML labels disabled, within the server's diagram bounds. A diagram that fails shows its error and source; no alternate renderer is tried. The rendered SVG is display only: the diagram's source is the anchorable block.
+- Mermaid in strict security mode with HTML labels disabled, within the server's diagram bounds. A diagram that fails shows its error and source; no alternate renderer is tried. The rendered SVG is display only: the diagram's source is the anchorable block. Mermaid, with the KaTeX it brings, is 3.4 of the 3.6 MB of script, so it is a second script that only a page with a diagram loads (2026-10-17): a page without one opens in about 0.1 s instead of 0.2–0.7 s, and a page with one about 0.1–0.2 s later than before.
 
 **Why.** Chosen at Stage 0 (closed 2026-10-06) after a reader spike on the Pixel 8a: a real private note rendered by Java (200 blocks, 4 diagrams) showed 0 diagram errors and matching canonical text in the WebView, and a finger selection returned exactly the expected UTF-16 range. The spike modules were then deleted.
 

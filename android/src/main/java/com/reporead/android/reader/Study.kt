@@ -15,8 +15,8 @@ private val COLLAPSED_HEADINGS =
     setOf("approach", "brute force approach", "optimized approach", "complexities", "mistakes")
 private val NUMBERED = Regex("""^\d+\.\s+""")
 /**
- * The line that makes a bank H3 a question, measured 2026-10-14 over 85 banks: 1,426 "Canonical answer(s):" lines, one
- * per numbered question, and 64 "Canonical path:" lines, one per follow-up group. Section names and numbers only label.
+ * The line that makes a bank H3 a question: "Canonical answer(s):" for one numbered question, "Canonical path:" for a
+ * follow-up group. Section names and numbers only label.
  */
 private val ANSWER_LINE = Regex("""^Canonical (answers?|path):""")
 

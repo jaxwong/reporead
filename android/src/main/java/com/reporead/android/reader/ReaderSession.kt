@@ -133,7 +133,7 @@ internal class ReaderSession(
     /**
      * The bars change only when the finger lifts, by that swipe's net scroll (pixels, positive down). Moving the view
      * under a finger that is still down made the page read the move as more scrolling the other way, so the bars and
-     * the page oscillated during the drag (seen on the Pixel 8a).
+     * the page oscillated during the drag.
      */
     private var fingerDown = false
     private var swipeScroll = 0

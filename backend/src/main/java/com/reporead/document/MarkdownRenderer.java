@@ -545,7 +545,7 @@ public final class MarkdownRenderer {
 
     /**
      * Puts [nodes] where [text] was, in one insertion: jsoup renumbers every following sibling on each insert, so one
-     * node at a time made a note of many links or footnotes quadratic (128 KiB of [[a]] took about a second).
+     * node at a time made a note of many links or footnotes quadratic.
      */
     private static void replace(TextNode text, List<Node> nodes) {
         ((Element) text.parentNode()).insertChildren(text.siblingIndex(), nodes);

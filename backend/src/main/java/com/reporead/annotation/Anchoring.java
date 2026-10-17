@@ -317,7 +317,7 @@ final class Anchoring {
 
     /**
      * 1 - edit distance / longer length. Identical strings, empty ones included, are 1 without the quadratic table:
-     * resolving compares identical text often, and two 10,000-unit strings took 175 ms.
+     * resolving compares identical text often (ADR-06).
      */
     static double similarity(String a, String b) {
         if (a.equals(b)) return 1.0;

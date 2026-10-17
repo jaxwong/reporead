@@ -108,8 +108,8 @@ interface LibraryDao {
     /**
      * The listed notes in a folder named `interview`, each with its saved page only when that page is the listed
      * version: an older copy reads as unsaved, so Practice never asks a question whose grade would be refused. Only
-     * banks: loading every saved page to find them exhausts the 256 MB heap (invariants, Bounded memory). The match is
-     * a superset of isInterviewBank (LIKE ignores ASCII case), which still decides.
+     * banks: loading every saved page to find them exhausts the heap (invariants, Bounded memory). The match is a
+     * superset of isInterviewBank (LIKE ignores ASCII case), which still decides.
      */
     @Query(
         """select d.id as documentId, d.title, d.path, n.html, n.blobSha
