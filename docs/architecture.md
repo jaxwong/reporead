@@ -161,7 +161,7 @@ flowchart TB
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
 | `datacontrol` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionData`, `AccountDeletion`, `DataControlController` |
-| `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook, each from its owner, in one read-only `REPEATABLE READ` transaction ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `Library`, `LibraryController` |
+| `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook, each from its owner, in one read-only `REPEATABLE READ` transaction of a fixed 6 queries, refused over 8 MiB ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `Library`, `LibraryController` |
 | root | Error responses (`{code, message}`), client clock bounds | `ApiErrors`, `ApiFailure`, `ClientClock` |
 
 ### Data model (PostgreSQL)
