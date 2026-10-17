@@ -2,8 +2,8 @@ package com.reporead.auth;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -17,7 +17,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import io.micrometer.core.instrument.MeterRegistry;
-import jakarta.servlet.ServletException;
 import java.net.SocketTimeoutException;
 import java.time.Instant;
 import java.util.Map;
@@ -212,25 +211,20 @@ class GitHubTokenRefreshTest extends SharedSpringTest {
      * is the server's fault: every user's refresh token is still good once it is fixed, so none is forgotten.
      */
     @Test
-    void aRefusalOfTheServersCredentialsKeepsTheUsersRefreshToken() throws Exception {
-        expectRefresh(
-                ExpectedCount.once(),
-                "TEST_ONLY_REFRESH_1",
-                withSuccess(
-                        "{\"error\":\"incorrect_client_credentials\",\"error_description\":\"The client_id and/or client_secret passed are incorrect.\"}",
-                        MediaType.APPLICATION_JSON));
-        var failure = assertThrows(ServletException.class, this::available);
-        assertTrue(
-                failure.getCause() instanceof IllegalStateException
-                        && failure.getCause().getMessage().contains("incorrect_client_credentials"),
-                failure.toString());
+    void aRefusalOfTheServersCredentialsKeepsTheUsersRefreshTokenAndNeverBlocksSignOut() throws Exception {
+        var refusal = withSuccess(
+                "{\"error\":\"incorrect_client_credentials\",\"error_description\":\"The client_id and/or client_secret passed are incorrect.\"}",
+                MediaType.APPLICATION_JSON);
+        expectRefresh(ExpectedCount.once(), "TEST_ONLY_REFRESH_1", refusal);
+        available()
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("GITHUB_UNAVAILABLE"));
+        assertNotNull(clients.loadAuthorizedClient("github", "42"));
         next();
-        expectRefresh(
-                ExpectedCount.once(),
-                "TEST_ONLY_REFRESH_1",
-                renewed("TEST_ONLY_TOKEN_2", "TEST_ONLY_REFRESH_2", 28800));
-        expectListing(ExpectedCount.once(), "TEST_ONLY_TOKEN_2");
-        available().andExpect(status().isOk());
+        expectRefresh(ExpectedCount.once(), "TEST_ONLY_REFRESH_1", refusal);
+        mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isNoContent());
+        assertNull(clients.loadAuthorizedClient("github", "42"));
     }
 
     @ParameterizedTest
