@@ -47,9 +47,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 }
 
 /**
- * One background run: sends what waits and reads the server's lists, as library open does. An unreachable server, a
- * 5xx, or GitHub unavailable is tried again by WorkManager; anything else (signed out, access denied) waits for the
- * next change or library open, which show it. [attempt] counts from 0.
+ * One background run: sends what waits, as library open does, but loads no lists (Sync.syncWaitingChanges). An
+ * unreachable server, a 5xx, or GitHub unavailable is tried again by WorkManager; anything else (signed out, access
+ * denied) waits for the next change or library open, which show it. [attempt] counts from 0.
  */
 internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
     val synced =
