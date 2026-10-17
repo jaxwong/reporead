@@ -39,8 +39,7 @@ class NoteImages(private val api: Api, filesDir: File) {
                 return null
             }
         // A partial file of its own, because two pages can fetch the same image at once. A failed write (a full disk,
-        // or
-        // keepOnly removing the folder meanwhile) leaves the image uncached; the page still gets these bytes.
+        // or keepOnly removing the folder meanwhile) leaves the image uncached; the page still gets these bytes.
         try {
             directory.mkdirs()
             val partial = File.createTempFile(key, ".partial", directory)

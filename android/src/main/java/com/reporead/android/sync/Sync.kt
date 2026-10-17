@@ -424,8 +424,6 @@ class Sync(
      * run goes on; any other failure ends the run with unacknowledged changes still pending.
      */
     private suspend fun sendPending(): LocalSync {
-        // The one push step whose failure does not end the run: creations need GitHub, so when it fails they wait and
-        // the database-only work below still runs (ADR-03).
         val notSent =
             try {
                 sendAnnotations()

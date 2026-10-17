@@ -132,19 +132,16 @@ internal suspend fun WebView.evaluate(expression: String): Any? = suspendCancell
     evaluateJavascript(pageScript(expression)) { result.resumeWith(runCatching { pageValue(expression, it) }) }
 }
 
-/**
- * Waits for the page's rendering (diagrams change the layout) and passes "ready", "failed", or "timeout" to [then],
- * with the number of polls it took.
- */
-internal fun awaitRendered(view: WebView, main: Handler, then: (state: String, attempts: Int) -> Unit) {
+/** Waits for the page's rendering (diagrams change the layout) and passes "ready", "failed", or "timeout" to [then]. */
+internal fun awaitRendered(view: WebView, main: Handler, then: (state: String) -> Unit) {
     fun poll(attempt: Int) {
         view.evaluate("document.body.dataset.state || ''") { state ->
             when (state) {
                 "ready",
-                "failed" -> then(state as String, attempt)
+                "failed" -> then(state as String)
                 else ->
                     if (attempt < READY_POLL_LIMIT) main.postDelayed({ poll(attempt + 1) }, READY_POLL_MS)
-                    else then("timeout", attempt)
+                    else then("timeout")
             }
         }
     }
@@ -184,7 +181,7 @@ internal fun WebView.showIsolatedPage(
                 readerResource(assets, images, note, request.url)
 
             override fun onPageFinished(view: WebView, url: String) =
-                awaitRendered(view, main) { state, _ ->
+                awaitRendered(view, main) { state ->
                     when {
                         state != "ready" -> {
                             Log.w("RepoRead", "$name did not render; documentId=${note.documentId} state=$state")
