@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check reader.js && node --check diagrams.js && node --check build.mjs",
+    "check": "node --check reader.js && node --check diagrams.js && node --check build.mjs && node --check check-restore.mjs",
     "build": "npm run check && node build.mjs"
   },
   "dependencies": {
