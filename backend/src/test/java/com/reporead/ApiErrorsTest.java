@@ -90,9 +90,10 @@ class ApiErrorsTest {
             // Spring matches no trailing slash, so this is an unknown route too, not the document list.
             send("GET", "/api/repositories/1/documents/", null, null, true),
             send("PUT", "/api/bookmarks", "application/json", "{}", true),
-            send("POST", "/api/documents/1/annotations", "text/plain", "{}", true)
+            send("POST", "/api/documents/1/annotations", "text/plain", "{}", true),
+            send("POST", "/api/documents/1/annotations", "multipart/form-data; boundary=x", "--x\r\nunparsed", true)
         };
-        int[] statuses = {404, 404, 405, 415};
+        int[] statuses = {404, 404, 405, 415, 415};
         for (int i = 0; i < answers.length; i++) {
             assertEquals(statuses[i], answers[i].status(), answers[i].body().toString());
             assertFalse(answers[i].body().has("code"), "no RepoRead code: " + answers[i].body());
@@ -134,10 +135,15 @@ class ApiErrorsTest {
 
     @Test
     void anUnknownRouteIsUnauthorizedWithoutASession() throws Exception {
-        // Without a session nothing under /api is reachable, so the answer does not reveal which routes exist.
-        var answer = send("GET", "/api/does-not-exist", null, null, false);
-        assertEquals(401, answer.status());
-        assertFalse(answer.body().has("code"));
+        // Without a session nothing under /api is reachable, so the answer does not reveal which routes exist. No body
+        // is
+        // read first either: no route takes a form, so even an unparseable one gets the same answer.
+        for (var answer : List.of(
+                send("GET", "/api/does-not-exist", null, null, false),
+                send("PUT", "/api/does-not-exist", "application/x-www-form-urlencoded", "a=%zz", false))) {
+            assertEquals(401, answer.status(), answer.body().toString());
+            assertFalse(answer.body().has("code"));
+        }
     }
 
     @Test
