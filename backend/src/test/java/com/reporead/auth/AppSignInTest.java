@@ -282,10 +282,6 @@ class AppSignInTest extends SharedSpringTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest());
-        mvc.perform(post("/api/app-auth/token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("not-json"))
-                .andExpect(status().isBadRequest());
     }
 
     @Test

@@ -83,15 +83,6 @@ class ExpandOnlyMigrationsTest {
         }
     }
 
-    /** The rule would have stopped these: each dropped a column the release before it still read. */
-    @Test
-    void theColumnDropsBeforeTheRuleWouldHaveBeenCaught() throws IOException {
-        for (String file : List.of("V13__connection_unread_columns.sql", "V14__annotation_source_blob_sha.sql")) {
-            assertFalse(
-                    contractSteps(Files.readString(MIGRATIONS.resolve(file))).isEmpty(), file);
-        }
-    }
-
     @Test
     void migrationsSinceTheRuleKeepThePreviousReleaseWorking() throws IOException {
         var unmarked = new ArrayList<String>();

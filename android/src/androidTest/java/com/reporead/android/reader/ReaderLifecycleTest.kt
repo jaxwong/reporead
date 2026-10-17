@@ -365,10 +365,7 @@ class ReaderLifecycleTest {
         awaitReader(12)
     }
 
-    /**
-     * Until the page is ready the controls that use it are not offered: they did nothing, or said the passage was not
-     * in this version.
-     */
+    /** Until the page is ready, the controls that use it are not offered. */
     @Test
     fun aPageThatIsNotReadyOffersNoShow() {
         runBlocking {
