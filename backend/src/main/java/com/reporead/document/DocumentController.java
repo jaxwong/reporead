@@ -4,8 +4,6 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
-import com.reporead.auth.GitHubCredentials;
-import com.reporead.github.GitHubApi;
 import com.reporead.repository.RepositoryConnections;
 import java.util.List;
 import java.util.Locale;
@@ -28,22 +26,16 @@ public class DocumentController {
     private static final Logger LOG = LoggerFactory.getLogger(DocumentController.class);
     private final RepositoryConnections connections;
     private final Documents documents;
-    private final GitHubApi github;
-    private final GitHubCredentials credentials;
     private final NoteVersions noteVersions;
     private final Attachments attachments;
 
     public DocumentController(
             RepositoryConnections connections,
             Documents documents,
-            GitHubApi github,
-            GitHubCredentials credentials,
             NoteVersions noteVersions,
             Attachments attachments) {
         this.connections = connections;
         this.documents = documents;
-        this.github = github;
-        this.credentials = credentials;
         this.noteVersions = noteVersions;
         this.attachments = attachments;
     }
@@ -221,8 +213,7 @@ public class DocumentController {
         }
         var document = present(user, id);
         if (embed != null) path = attachments.resolve(document.connectionId(), document.path(), embed);
-        String token = credentials.githubUserToken(user.githubUserId());
-        byte[] bytes = github.imageFile(token, document.owner(), document.repositoryName(), path, document.commitSha());
+        byte[] bytes = attachments.image(user, document, path);
         String extension = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         LOG.info("Document image served; userId={} documentId={} bytes={}", user.id(), id, bytes.length);
         return ResponseEntity.ok()

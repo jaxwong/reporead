@@ -2,22 +2,39 @@ package com.reporead.document;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
+import com.reporead.auth.AppUser;
+import com.reporead.auth.GitHubCredentials;
+import com.reporead.github.GitHubApi;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
 /**
- * Owns repository_images: the image files of each connection's latest complete snapshot, which Obsidian embeds name
- * without a folder. Resolution follows Obsidian: a name with a folder must match the end of a path; a bare name matches
- * a file name. Of several matches, one in the note's own folder wins; otherwise the embed is ambiguous, never guessed.
+ * Owns a repository's images: repository_images, the image files of each connection's latest complete snapshot, which
+ * Obsidian embeds name without a folder, and fetching one from GitHub. Resolution follows Obsidian: a name with a
+ * folder must match the end of a path; a bare name matches a file name. Of several matches, one in the note's own
+ * folder wins; otherwise the embed is ambiguous, never guessed.
  */
 @Component
 public class Attachments {
     private final JdbcClient db;
+    private final GitHubApi github;
+    private final GitHubCredentials credentials;
 
-    public Attachments(JdbcClient db) {
+    public Attachments(JdbcClient db, GitHubApi github, GitHubCredentials credentials) {
         this.db = db;
+        this.github = github;
+        this.credentials = credentials;
+    }
+
+    /**
+     * The image at the normalized repository {@code path}, at the commit of the owned, listed {@code document}: one
+     * GitHub request with the user's token, which reads the whole repository anyway. Not cached on the server.
+     */
+    public byte[] image(AppUser user, Documents.Located document, String path) {
+        String token = credentials.githubUserToken(user.githubUserId());
+        return github.imageFile(token, document.owner(), document.repositoryName(), path, document.commitSha());
     }
 
     /**
