@@ -17,7 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -46,9 +45,6 @@ import kotlinx.coroutines.withContext
  */
 private data class Backlinks(val notes: List<DocumentRow>, val saved: Int, val listed: Int)
 
-/** An edit the server refused because another edit landed first: the user picks which text to keep. */
-private data class Conflict(val current: AnnotationRow, val mine: String?)
-
 private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<String>): String? =
     when {
         row.state == AnnotationState.REFUSED -> "Not saved to the server: ${row.rejection}"
@@ -74,13 +70,11 @@ internal fun NotesPanel(
     onMessage: (String?) -> Unit,
     onMakeQuestion: (AnnotationRow) -> Unit,
     onReattach: (AnnotationRow) -> Unit,
+    onEdit: (AnnotationRow) -> Unit,
+    onDelete: (AnnotationRow) -> Unit,
     onOpenNote: (DocumentRow) -> Unit,
     modifier: Modifier,
 ) {
-    var editing by remember { mutableStateOf<AnnotationRow?>(null) }
-    var conflict by remember { mutableStateOf<Conflict?>(null) }
-    // The highlight or card the user asked to delete, until they confirm.
-    var deleting by remember { mutableStateOf<AnnotationRow?>(null) }
     // Whether this note left its repository, which a card's status names.
     val removed by produceState(false, documentId) { value = dao.document(documentId)?.deleted == true }
     // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
@@ -105,28 +99,6 @@ internal fun NotesPanel(
             value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
         }
 
-    // Editing and deleting acknowledged highlights need the server; offline they fail visibly and change nothing.
-    fun save(row: AnnotationRow, note: String?, expectedVersion: Int) = scope.launch {
-        try {
-            sync.editAnnotation(row, note, expectedVersion)
-            onMessage(null)
-        } catch (error: ApiException) {
-            if (error.code == "ANNOTATION_CONFLICT") {
-                try {
-                    sync.refreshAnnotations(row.documentId)
-                    dao.annotation(row.mutationId)?.let { conflict = Conflict(it, note) }
-                        ?: onMessage("This highlight was deleted elsewhere.")
-                } catch (refresh: ApiException) {
-                    onMessage(
-                        "This note was changed elsewhere, and the latest version could not be loaded. ${refresh.describe()}"
-                    )
-                }
-            } else {
-                onMessage("Edit not saved. ${error.describe()}")
-            }
-        }
-    }
-
     // Online only: the server checks the card's answer against the version on screen.
     fun confirmCard(row: AnnotationRow) = scope.launch {
         try {
@@ -134,19 +106,6 @@ internal fun NotesPanel(
             onMessage("Card confirmed for this version.")
         } catch (error: ApiException) {
             onMessage("Card not confirmed. ${error.describe()}")
-        }
-    }
-
-    fun delete(row: AnnotationRow) = scope.launch {
-        try {
-            sync.deleteAnnotation(row)
-            onMessage(null)
-        } catch (error: ApiException) {
-            onMessage(
-                if (error.code == "ANNOTATION_CONFLICT")
-                    "This highlight was changed elsewhere; sync and review it before deleting."
-                else "Not deleted. ${error.describe()}"
-            )
         }
     }
 
@@ -168,8 +127,8 @@ internal fun NotesPanel(
                     onMakeQuestion = { onMakeQuestion(row) },
                     onConfirmCard = { confirmCard(row) },
                     onReattach = { onReattach(row) },
-                    onEdit = { editing = row },
-                    onDelete = { deleting = row },
+                    onEdit = { onEdit(row) },
+                    onDelete = { onDelete(row) },
                 )
                 HorizontalDivider()
             }
@@ -193,52 +152,6 @@ internal fun NotesPanel(
                 }
             }
         }
-    }
-
-    editing?.let { row ->
-        NoteDialog(
-            title = "Edit note",
-            quote = row.exactText,
-            initial = row.note ?: "",
-            onDismiss = { editing = null },
-            onSave = { text ->
-                editing = null
-                save(row, text.ifBlank { null }, row.version)
-            },
-        )
-    }
-    deleting?.let { row ->
-        DeleteDialog(
-            row,
-            onDismiss = { deleting = null },
-            onConfirm = {
-                deleting = null
-                delete(row)
-            },
-        )
-    }
-    conflict?.let { (current, mine) ->
-        AlertDialog(
-            onDismissRequest = { conflict = null },
-            title = { Text("Changed elsewhere") },
-            text = {
-                Column {
-                    Text("Current note: ${current.note ?: "(none)"}")
-                    Text("Your edit: ${mine ?: "(none)"}", Modifier.padding(top = 8.dp))
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        conflict = null
-                        save(current, mine, current.version)
-                    }
-                ) {
-                    Text("Keep mine")
-                }
-            },
-            dismissButton = { TextButton(onClick = { conflict = null }) { Text("Keep current") } },
-        )
     }
 }
 
@@ -303,9 +216,26 @@ private fun linkedFromSummary(found: Backlinks?): String? =
                 .ifEmpty { null }
     }
 
+/** An edit the server refused because another edit landed first: the user keeps the [current] note or [mine]. */
+@Composable
+internal fun ConflictDialog(current: AnnotationRow, mine: String?, onKeepMine: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Changed elsewhere") },
+        text = {
+            Column {
+                Text("Current note: ${current.note ?: "(none)"}")
+                Text("Your edit: ${mine ?: "(none)"}", Modifier.padding(top = 8.dp))
+            }
+        },
+        confirmButton = { TextButton(onClick = onKeepMine) { Text("Keep mine") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Keep current") } },
+    )
+}
+
 /** Asks before deleting [row], saying what goes with it. */
 @Composable
-private fun DeleteDialog(row: AnnotationRow, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+internal fun DeleteDialog(row: AnnotationRow, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     val goesWithIt =
         when {
             row.type == AnnotationType.CARD -> "Its question and its review history are deleted too. "

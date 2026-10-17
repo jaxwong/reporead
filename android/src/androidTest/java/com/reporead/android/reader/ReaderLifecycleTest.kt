@@ -12,6 +12,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.awaitText
+import com.reporead.android.click
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
@@ -20,6 +22,7 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
+import com.reporead.android.type
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -315,6 +318,49 @@ class ReaderLifecycleTest {
         assertSavedStays(12)
         // The page is gone, so there is no final save to wait for at teardown.
         readerReady = false
+    }
+
+    /** A note being written, and a highlight being reattached, survive recreation with what was typed. */
+    @Test
+    fun aNoteBeingEditedAndAHighlightBeingReattachedSurviveRecreation() {
+        runBlocking {
+            store
+                .library()
+                .saveAnnotation(
+                    AnnotationRow(
+                        mutationId = "test-only-acknowledged",
+                        serverId = 5,
+                        documentId = 1,
+                        // Placed in another version, so it is not drawn here and Reattach is offered.
+                        sourceBlobSha = "b".repeat(40),
+                        blockId = "b2",
+                        startOffset = 0,
+                        endOffset = 9,
+                        exactText = "Test-only",
+                        note = null,
+                        version = 1,
+                        createdAt = 0,
+                        state = AnnotationState.ACKNOWLEDGED,
+                    )
+                )
+        }
+        // Away from the top, so finding the place again after recreation shows the page has opened.
+        evaluate("window.reporead.showBlock('b12'); return {};")
+        awaitSaved(12)
+        click("Highlights and notes")
+        click("Edit note")
+        type("Test-only half-typed note")
+        scenario.recreate()
+        awaitText("Test-only half-typed note")
+        click("Cancel")
+        click("Reattach")
+        val placing = "Select the passage for “Test-only”, then choose Reattach here."
+        awaitText(placing)
+        scenario.recreate()
+        awaitText(placing)
+        click("Cancel")
+        // Back at its place, so the page has opened and makes the final save the teardown waits for.
+        awaitReader(12)
     }
 
     @Test
