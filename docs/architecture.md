@@ -90,7 +90,7 @@ One Spring Boot 4 / Java 25 service, a modular monolith with one package per con
 
 ### Packages and their dependencies
 
-Arrows point from a package to the packages it calls (from the imports in each file). The packages form a stack with no cycles: each calls only packages below it, and `datacontrol`, which deletes across every owner, is on top. Every package with routes also reads the signed-in user (`auth.AppUser`); those arrows are left out.
+Arrows point from a package to the packages it calls (from the imports in each file). The packages form a stack with no cycles: each calls only packages below it, and `datacontrol`, which deletes across every owner, is on top. Every package with routes also reads the signed-in user (`auth.AppUser`); those arrows are left out. The stack is of imports: SQL reads do cross owners (`Documents` checks reading and annotation rows, `RepositoryConnections` counts documents), which ADR-01 allows, since each table's writes stay with its one owner. Controllers call owners only; no controller calls GitHub.
 
 ```mermaid
 flowchart TB
@@ -148,7 +148,7 @@ flowchart TB
 | --- | --- | --- |
 | `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token (`GitHubTokens`) and its renewal and revocation (`GitHubCredentials`) | `AppSecurity` (loopback only, the API and management chains), `GitHubSecurity` (browser sign-in), `GitHubTokens`, `GitHubCredentials`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication` |
 | `github` | Every GitHub REST read, with the user's token; the HTTP clients every GitHub call goes through: 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttp` |
-| `repository` | Which repositories a user has connected; the connection row lock every write shares | `RepositoryConnections` |
+| `repository` | Which repositories a user may connect (GitHub decides, through the user's token) and has connected; the connection row lock every write shares | `RepositoryConnections` |
 | `sync` | Publishing a complete tree snapshot of the default branch; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySync`, `ContentMoves` |
 | `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; changes since last read ([ADR-09](adrs.md#adr-09--changed-since-last-read-compares-the-version-actually-read-by-source-lines)); images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `NoteChanges`, `Attachments` |
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
