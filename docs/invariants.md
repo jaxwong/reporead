@@ -117,7 +117,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Notes and annotations are not backed up, transferred, logged, or kept after the user removes them.**
 
-- Enforced by: backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them on both sides; exports exist only in a private folder until shared.
+- Enforced by: backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them on both sides; exports exist only in a private folder until shared, and are deleted at each start, disconnect and clear; a sign-out or account deletion stays pending on disk until Room's rows and every file are gone, and only then forgets the data's owner; saved images are derived from Room's saved versions, and a fetch that began before a deletion does not write.
 - Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
 
 ## Failure behaviour
