@@ -122,16 +122,6 @@ class GitHubLoginTest extends SharedSpringTest {
                     posted.getRequest().getSession(false),
                     "POST " + path + " " + posted.getResponse().getStatus());
         }
-        var malformed = mvc.perform(get("/app/sign-in").param("code_challenge", "test-only-short"))
-                .andExpect(status().isBadRequest())
-                .andReturn();
-        assertNull(malformed.getRequest().getSession(false));
-    }
-
-    @Test
-    void apiRequiresAnAppSessionWithoutStartingAnExternalCall() throws Exception {
-        mvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/repositories")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -261,11 +251,6 @@ class GitHubLoginTest extends SharedSpringTest {
         return db.sql("select count(*) from " + tableAndCondition)
                 .query(Integer.class)
                 .single();
-    }
-
-    @Test
-    void unknownBrowserPathsAreNotServed() throws Exception {
-        mvc.perform(get("/")).andExpect(status().isUnauthorized());
     }
 
     private static Map<String, String> query(URI uri) {

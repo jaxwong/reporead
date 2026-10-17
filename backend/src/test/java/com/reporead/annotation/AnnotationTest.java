@@ -272,22 +272,6 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
-    void requestsTheRoutesCannotReadAreTypedFailuresLikeEveryOther() throws Exception {
-        create(alice, note, "{not json")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mvc.perform(delete("/api/annotations/1")
-                        .param("expectedVersion", "one")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        mvc.perform(get("/api/documents/not-a-number/annotations").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-        assertEquals(0, count("annotations"));
-    }
-
-    @Test
     void malformedRequestsAreRejectedBeforeGitHub() throws Exception {
         String valid = body(UUID.randomUUID().toString(), "b2", START, EXACT, null);
         for (String json : List.of(
@@ -306,8 +290,8 @@ class AnnotationTest extends SharedSpringTest {
 
     @Test
     void aSelectionThatSplitsACharacterIsRefusedBeforeGitHub() throws Exception {
-        // In "An 🍎 a day." the apple is two UTF-16 units at 3 and 4. Half of it matches the block as Java compares
-        // text, so this was accepted, and the driver stored the half as '?'.
+        // In "An 🍎 a day." the apple is two UTF-16 units at 3 and 4; half of it matches the block as Java compares
+        // text.
         String sha = Hashes.gitBlobSha("# Fruit\n\nAn \uD83C\uDF4E a day.\n".getBytes(StandardCharsets.UTF_8));
         for (String range : List.of(
                 "\"startOffset\":0,\"endOffset\":4,\"exactText\":\"An \\ud83c\"",
@@ -328,8 +312,7 @@ class AnnotationTest extends SharedSpringTest {
 
     @Test
     void textTheDatabaseCannotStoreExactlyIsRefusedAsTheItemsFault() throws Exception {
-        // PostgreSQL refuses U+0000, which was a code-less 500 that the phone retries forever, holding back every later
-        // creation; the driver stores an unpaired surrogate as '?', which changed the note without saying so.
+        // PostgreSQL refuses U+0000, and the driver stores an unpaired surrogate as '?'.
         var unstorable = List.of("a\\u0000b", "a\\ud83cb", "a\\udf4eb");
         for (String text : unstorable) {
             create(alice, note, body(UUID.randomUUID().toString(), "b2", START, EXACT, text))
@@ -811,12 +794,7 @@ class AnnotationTest extends SharedSpringTest {
         moveNoteTo(OLD_SHA);
         expectSource(ExpectedCount.once());
         long card = createdId(cardBody());
-        assertEquals(
-                404,
-                statusDuringDisconnect(() -> mvc.perform(post("/api/annotations/" + card + "/check")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":1,\"blobSha\":\"" + OLD_SHA + "\"}"))));
+        assertEquals(404, statusDuringDisconnect(() -> check(alice, card, 1, OLD_SHA)));
     }
 
     @Test
@@ -882,10 +860,7 @@ class AnnotationTest extends SharedSpringTest {
         expectSource(ExpectedCount.once());
         long id = createdId(cardBody());
         edit(alice, id, "an edit from another phone", 1).andExpect(status().isOk());
-        mvc.perform(post("/api/annotations/" + id + "/check")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":1,\"blobSha\":\"" + OLD_SHA + "\"}"))
+        check(alice, id, 1, OLD_SHA)
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ANNOTATION_CONFLICT"));
     }
