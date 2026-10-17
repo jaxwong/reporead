@@ -78,7 +78,8 @@ public class GitHubApi {
                         token,
                         JSON,
                         GitHubApi::accessDenied,
-                        GitHubApi::responseLimit),
+                        GitHubApi::responseLimit,
+                        GitHubApi::redirected),
                 "installation");
         var items = completeList(
                 page,
@@ -105,7 +106,8 @@ public class GitHubApi {
                         token,
                         JSON,
                         GitHubApi::accessDenied,
-                        GitHubApi::responseLimit),
+                        GitHubApi::responseLimit,
+                        GitHubApi::redirected),
                 "repository");
         var items = completeList(
                 page,
@@ -142,7 +144,8 @@ public class GitHubApi {
                         () -> new ApiFailure(
                                 Code.DEFAULT_BRANCH_NOT_FOUND,
                                 "The default branch was not found: the repository may be empty or no longer accessible, or its default branch was renamed (connecting the repository again records the current one)."),
-                        GitHubApi::responseLimit),
+                        GitHubApi::responseLimit,
+                        GitHubApi::renamed),
                 "branch");
         var commit = body.get("commit");
         String commitSha = string(commit, "sha", "branch commit");
@@ -162,7 +165,8 @@ public class GitHubApi {
                         token,
                         JSON,
                         GitHubApi::accessDenied,
-                        GitHubApi::responseLimit),
+                        GitHubApi::responseLimit,
+                        GitHubApi::renamed),
                 "tree");
         var truncated = body.get("truncated");
         var entries = body.get("tree");
@@ -199,7 +203,8 @@ public class GitHubApi {
                         Code.SOURCE_NOT_FOUND, "GitHub no longer has this note version; refresh the repository."),
                 () -> new ApiFailure(
                         Code.UNSUPPORTED_CONTENT,
-                        "This note exceeds the " + GitHubHttp.MAX_RESPONSE_BYTES / 1_048_576 + " MiB reader limit."));
+                        "This note exceeds the " + GitHubHttp.MAX_RESPONSE_BYTES / 1_048_576 + " MiB reader limit."),
+                GitHubApi::renamed);
         LOG.info("GitHub blob read; bytes={}", bytes.length);
         return bytes;
     }
@@ -226,7 +231,8 @@ public class GitHubApi {
                 token,
                 RAW,
                 () -> new ApiFailure(Code.IMAGE_NOT_FOUND, "This image is not in the repository at the note's commit."),
-                () -> new ApiFailure(Code.UNSUPPORTED_CONTENT, "This image exceeds the 5 MiB reader limit."));
+                () -> new ApiFailure(Code.UNSUPPORTED_CONTENT, "This image exceeds the 5 MiB reader limit."),
+                GitHubApi::renamed);
         LOG.info("GitHub image read; bytes={}", bytes.length);
         return bytes;
     }
@@ -240,8 +246,9 @@ public class GitHubApi {
     }
 
     /**
-     * One GET. {@code notFound} is what a 404 means for this resource, and {@code tooLarge} what a response over the
-     * client's size ceiling means.
+     * One GET. {@code notFound} is what a 404 means for this resource, {@code tooLarge} what a response over the
+     * client's size ceiling means, and {@code redirect} what a redirect means: GitHub redirects a renamed repository's
+     * or branch's old name, which only a request naming a repository can have.
      */
     private byte[] get(
             RestTemplate api,
@@ -249,7 +256,8 @@ public class GitHubApi {
             String token,
             MediaType accept,
             Supplier<ApiFailure> notFound,
-            Supplier<ApiFailure> tooLarge) {
+            Supplier<ApiFailure> tooLarge,
+            Supplier<ApiFailure> redirect) {
         var request = RequestEntity.get(uri)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .accept(accept)
@@ -279,13 +287,7 @@ public class GitHubApi {
             throw new ApiFailure(
                     Code.GITHUB_UNAVAILABLE, "The GitHub request failed or timed out; nothing was changed.");
         }
-        // A renamed repository's old name is redirected. Connecting it again stores GitHub's current name and default
-        // branch and keeps the connection's data.
-        if (response.getStatusCode().is3xxRedirection()) {
-            throw new ApiFailure(
-                    Code.REPOSITORY_RENAMED,
-                    "GitHub redirected this request, as it does after a repository or branch is renamed.");
-        }
+        if (response.getStatusCode().is3xxRedirection()) throw redirect.get();
         if (response.getStatusCode().value() != 200) throw invalid("GitHub did not return a complete response.");
         // RestTemplate gives a null body for a 200 with no bytes, which is how GitHub returns an empty file. Empty raw
         // content is then checked like any other (a note's bytes must hash to its blob SHA); JSON callers reject it.
@@ -340,6 +342,20 @@ public class GitHubApi {
     private static ApiFailure responseLimit() {
         return new ApiFailure(
                 Code.GITHUB_RESPONSE_LIMIT, "GitHub exceeded the response-size limit; nothing was changed.");
+    }
+
+    /**
+     * Connecting the repository again stores GitHub's current name and default branch and keeps the connection's data;
+     * retrying cannot fix it.
+     */
+    private static ApiFailure renamed() {
+        return new ApiFailure(
+                Code.REPOSITORY_RENAMED,
+                "GitHub redirected this request, as it does after a repository or branch is renamed.");
+    }
+
+    private static ApiFailure redirected() {
+        return invalid("GitHub redirected a request that names no repository.");
     }
 
     private static ApiFailure accessDenied() {

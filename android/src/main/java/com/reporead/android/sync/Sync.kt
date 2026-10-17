@@ -78,10 +78,11 @@ private val REFUSAL_STATUSES = setOf(400, 404, 409, 410, 422)
 /**
  * The server answered and refused this one request for a reason resending it cannot change (invalid, gone, a
  * conflicting edit): the item is marked or dropped and the run goes on. Any other failure — unreachable, signed out,
- * access denied, GitHub or the server failing, or an answer that is not RepoRead's — says nothing about the item, which
- * stays pending.
+ * access denied, GitHub or the server failing, a renamed repository that only connecting it again fixes, or an answer
+ * that is not RepoRead's — says nothing about the item, which stays pending.
  */
-internal fun ApiException.refusesItem() = status in REFUSAL_STATUSES && !code.startsWith("HTTP_")
+internal fun ApiException.refusesItem() =
+    status in REFUSAL_STATUSES && !code.startsWith("HTTP_") && code != "REPOSITORY_RENAMED"
 
 /**
  * What one sync could not do. [refused]: reading positions and bookmark changes the server refused; a refused position
