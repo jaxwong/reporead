@@ -229,27 +229,34 @@ data class AnnotationRow(
     fun orphanedIn(blobSha: String) = status == AnchorStatus.ORPHANED && resolvedBlobSha == blobSha
 
     /**
-     * Why this card cannot be graded when its note is [deleted] from the repository or at [currentBlobSha] (null:
-     * unlisted), with [savedBlobSha] saved; the phone's one rule (ADR-13).
+     * Why this card cannot be graded when its note is [deleted] from the repository or at [currentBlobSha], with
+     * [savedBlobSha] saved; null when it can be. The phone's one rule (ADR-13), the server's Card.gradeableAt: the
+     * first reason that applies is the one to fix first, and Review offers one remedy per reason.
      */
-    fun cardBlock(deleted: Boolean, currentBlobSha: String?, savedBlobSha: String?): CardBlock? =
+    fun cardBlock(deleted: Boolean, currentBlobSha: String, savedBlobSha: String?): CardBlock? =
         when {
-            state == AnnotationState.REFUSED -> CardBlock.NOT_SYNCED
+            state == AnnotationState.REFUSED -> CardBlock.REFUSED
             deleted -> CardBlock.REMOVED
             status == AnchorStatus.ORPHANED -> CardBlock.ORPHANED
-            checkedBlobSha == null || checkedBlobSha != currentBlobSha || drawn.blobSha != currentBlobSha ->
-                CardBlock.UNCONFIRMED
             savedBlobSha != currentBlobSha -> CardBlock.NOT_SAVED
+            drawn.blobSha != currentBlobSha -> if (serverId == null) CardBlock.UNSENT else CardBlock.UNPLACED
+            checkedBlobSha != currentBlobSha -> CardBlock.UNCONFIRMED
             else -> null
         }
 }
 
 enum class CardBlock(val reason: String) {
-    NOT_SYNCED("Card not synced"),
+    /** The server refused its creation, which is never sent again ([AnnotationRow.rejection] says why). */
+    REFUSED("Refused by the server"),
     REMOVED("Note removed from the repository"),
     ORPHANED("Check this card: reattach its answer"),
-    UNCONFIRMED("Check this card: the note changed or its answer is unconfirmed"),
     NOT_SAVED("Save the current note before reviewing"),
+    /** Made in an older version and not sent yet, so the server has not placed it in the current one. */
+    UNSENT("Not synced yet, so not found in the new version"),
+    /** The server places a card in a new version only when its note's highlights are listed (ADR-06). */
+    UNPLACED("Check this card: open its note to find the answer in the new version"),
+    /** Placed in the current version (or reattached) and not confirmed there. */
+    UNCONFIRMED("Check this card: confirm its answer"),
 }
 
 /**

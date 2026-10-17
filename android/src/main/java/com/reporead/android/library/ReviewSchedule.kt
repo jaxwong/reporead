@@ -58,10 +58,11 @@ internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: Zo
         }
 
 /**
- * A card a review session can show: the server did not refuse it and its note is still listed. A card that needs
- * checking is shown too, to be fixed in place; refused and removed ones are dealt with in Notebook.
+ * A card on the review schedule: the server did not refuse it and its note is still listed. Review shows it (one that
+ * needs checking, with its fix), and Practice does not ask its question again; refused and removed ones are listed in
+ * Notebook.
  */
-private fun reviewable(item: NotebookItem) =
+internal fun reviewable(item: NotebookItem) =
     item.annotation.type == AnnotationType.CARD && item.annotation.state != AnnotationState.REFUSED && !item.deleted
 
 /**

@@ -30,6 +30,7 @@ class PracticeTest {
         answer: String,
         type: AnnotationType = AnnotationType.CARD,
         blobSha: String = sha,
+        state: AnnotationState = AnnotationState.ACKNOWLEDGED,
     ) =
         NotebookItem(
             AnnotationRow(
@@ -44,7 +45,7 @@ class PracticeTest {
                 null,
                 1,
                 0,
-                AnnotationState.ACKNOWLEDGED,
+                state,
                 null,
                 type = type,
                 question = question,
@@ -107,6 +108,14 @@ class PracticeTest {
         assertEquals(
             emptySet<String>(),
             scheduledQuestions(questions, listOf(card(1, "Edited?", "Canonical answer: First"))),
+        )
+        // A card the server refused is on no schedule: Review leaves it out, so Practice asks its question again.
+        assertEquals(
+            emptySet<String>(),
+            scheduledQuestions(
+                questions,
+                listOf(card(1, "Same?", "Canonical answer: First", state = AnnotationState.REFUSED)),
+            ),
         )
         assertEquals(emptySet<String>(), scheduledQuestions(questions, emptyList()))
         // The prompt includes a follow-up's instruction.

@@ -57,20 +57,26 @@ class AnnotationRowTest {
                 location = Passage(current, "b2", 12, 30, "declarative transactions"),
                 checkedBlobSha = current,
             )
+        val older = "a".repeat(40)
         assertNull(card.cardBlock(false, current, current))
         assertEquals(CardBlock.REMOVED, card.cardBlock(true, current, current))
         for ((block, changed) in
             listOf(
-                CardBlock.NOT_SYNCED to card.copy(state = AnnotationState.REFUSED, rejection = "Test-only refusal"),
+                CardBlock.REFUSED to card.copy(state = AnnotationState.REFUSED, rejection = "Test-only refusal"),
                 CardBlock.ORPHANED to card.copy(status = AnchorStatus.ORPHANED),
                 CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = null),
-                CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = "a".repeat(40)),
-                CardBlock.UNCONFIRMED to
-                    card.copy(location = Passage("a".repeat(40), "b2", 12, 30, "declarative transactions")),
+                CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = older),
+                CardBlock.UNPLACED to card.copy(location = Passage(older, "b2", 12, 30, "declarative transactions")),
+                // Made in the older version and not sent yet, it is drawn where it was made.
+                CardBlock.UNSENT to
+                    unsent.copy(type = AnnotationType.CARD, question = "Test-only question?", checkedBlobSha = older),
             )) assertEquals(changed.toString(), block, changed.cardBlock(false, current, current))
-        assertEquals("the note is no longer listed", CardBlock.UNCONFIRMED, card.cardBlock(false, null, current))
-        assertEquals(CardBlock.NOT_SAVED, card.cardBlock(false, current, "a".repeat(40)))
+        assertEquals(CardBlock.NOT_SAVED, card.cardBlock(false, current, older))
         assertEquals(CardBlock.NOT_SAVED, card.cardBlock(false, current, null))
+        // Saved first: confirming needs the saved page of the current version to show the answer.
+        assertEquals(CardBlock.NOT_SAVED, card.copy(checkedBlobSha = null).cardBlock(false, current, older))
+        // An unsent card made in the current version can be graded offline; its grade waits for it.
+        assertNull(unsent.copy(type = AnnotationType.CARD, checkedBlobSha = older).cardBlock(false, older, older))
     }
 
     @Test

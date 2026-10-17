@@ -39,7 +39,7 @@ import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
-import com.reporead.android.data.AnchorStatus
+import com.reporead.android.data.CardBlock
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
@@ -263,13 +263,14 @@ private fun ColumnScope.CardAnswer(
 }
 
 /**
- * A due card that needs something before it can be graded, with what fixes it from here: confirming its answer in the
- * note's new version (a server call, so online only), or opening the note to save that version or reattach the answer.
- * [onConfirmed] runs once the server has confirmed it.
+ * A due card that cannot be graded, for [block], with what fixes it from here: confirming its answer in the note's new
+ * version (a server call, so online only), or opening the note to save that version, find or reattach the answer, or
+ * delete the card. [onConfirmed] runs once the server has confirmed it.
  */
 @Composable
 private fun ColumnScope.FixCard(
     item: NotebookItem,
+    block: CardBlock,
     sync: Sync,
     dao: LibraryDao,
     push: (Screen) -> Unit,
@@ -285,32 +286,43 @@ private fun ColumnScope.FixCard(
                 Text(label)
             }
         }
-    when {
-        row.status == AnchorStatus.ORPHANED -> {
+    when (block) {
+        CardBlock.REFUSED -> {
+            Text(
+                "The server refused this card, so it can't be reviewed: ${row.rejection} Delete it in its note's Highlights and notes."
+            )
+            openNote("Open note")
+        }
+        CardBlock.REMOVED -> {
+            Text(
+                "Its note was removed from the repository, so this card can't be reviewed. Delete it in the note's Highlights and notes, or skip it."
+            )
+            openNote("Open note")
+        }
+        CardBlock.ORPHANED -> {
             Text(
                 "Its answer is no longer in the note. Open the note, select the answer, then choose Reattach on this card in Highlights and notes."
             )
             openNote("Open note")
         }
-        item.savedBlobSha != current -> {
+        CardBlock.NOT_SAVED -> {
             Text(
                 "The note's current version isn't saved on this phone. Open the note while online to save it, then review this card."
             )
             openNote("Open note")
         }
-        row.serverId == null ->
+        CardBlock.UNSENT ->
             Text(
-                "This card hasn't reached the server yet, so it can't be confirmed. Open Library while online to sync it."
+                "This card hasn't reached the server yet, so it can't be found in the note's new version. Open Library while online to sync it."
             )
-        // The server places a card in a new version only when its note's highlights are listed (ADR-06), which opening
-        // the note does and a sync does not.
-        row.drawn.blobSha != current -> {
+        // Opening the note lists its highlights, which places the card; a sync does not.
+        CardBlock.UNPLACED -> {
             Text(
                 "The note changed since this card was made. Open the note while online to find its answer there, then confirm it here."
             )
             openNote("Open note")
         }
-        else -> {
+        CardBlock.UNCONFIRMED -> {
             var confirming by remember(row.mutationId) { mutableStateOf(false) }
             var problem by remember(row.mutationId) { mutableStateOf<String?>(null) }
             val scope = rememberCoroutineScope()
@@ -448,9 +460,10 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             }
             val row = item.annotation
             Text(checkNotNull(row.question), style = MaterialTheme.typography.titleLarge)
-            if (item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha) != null) {
+            val block = item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
+            if (block != null) {
                 // Confirmed, it goes to the back of the session like any card still to answer.
-                FixCard(item, sync, dao, push, onConfirmed = { next(ids.drop(1) + id) })
+                FixCard(item, block, sync, dao, push, onConfirmed = { next(ids.drop(1) + id) })
                 return@Column
             }
             // Read while the question is asked, so the answer is ready when it is revealed.

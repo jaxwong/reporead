@@ -204,6 +204,39 @@ class ReviewLifecycleTest {
             }
         }
 
+    /** A card the server refuses during a session is never sent again, so syncing cannot fix it. */
+    @Test
+    fun aCardRefusedDuringTheSessionSaysSoInsteadOfOfferingASync() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val exact = "Test-only answer 1"
+            dao.saveAnnotation(
+                AnnotationRow(
+                    "card1",
+                    null,
+                    1,
+                    sha,
+                    "b1",
+                    0,
+                    exact.length,
+                    exact,
+                    null,
+                    1,
+                    0,
+                    state = AnnotationState.UNSENT,
+                    type = AnnotationType.CARD,
+                    question = "Test-only question 1?",
+                    checkedBlobSha = sha,
+                )
+            )
+            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+                awaitText("Show answer")
+                dao.rejectAnnotation("card1", "Test-only refusal.")
+                awaitTextStarting("The server refused this card")
+                assertNull(findText(root()) { it.startsWith("This card hasn't reached the server yet") })
+            }
+        }
+
     private fun root(): AccessibilityNodeInfo? = instrumentation.uiAutomation.rootInActiveWindow
 
     private fun findText(node: AccessibilityNodeInfo?, matches: (String) -> Boolean): AccessibilityNodeInfo? {
