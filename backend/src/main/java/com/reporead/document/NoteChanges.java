@@ -37,13 +37,16 @@ public final class NoteChanges {
 
     record LineDiff(boolean[] deleted, boolean[] inserted) {}
 
-    /** Empty when either version or the edit exceeds the limits: the comparison is too large to summarize. */
-    public static Optional<Comparison> compare(
-            List<String> oldLines,
-            List<MarkdownRenderer.Heading> oldHeadings,
-            List<String> newLines,
-            List<MarkdownRenderer.Heading> newHeadings) {
+    /**
+     * The sections of {@code current} that changed since {@code old}, by their source lines and headings. Empty when
+     * either version or the edit exceeds the limits: the comparison is too large to summarize.
+     */
+    public static Optional<Comparison> compare(NoteVersions.Rendered old, NoteVersions.Rendered current) {
+        var oldLines = MarkdownRenderer.sourceLines(old.markdown());
+        var newLines = MarkdownRenderer.sourceLines(current.markdown());
         if (oldLines.size() > MAX_LINES || newLines.size() > MAX_LINES) return Optional.empty();
+        var oldHeadings = old.note().headings();
+        var newHeadings = current.note().headings();
         return lineDiff(oldLines, newLines, MAX_CHANGED_LINES)
                 .map(diff -> sections(diff, oldLines.size(), oldHeadings, newLines.size(), newHeadings));
     }

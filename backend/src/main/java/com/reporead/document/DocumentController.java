@@ -193,12 +193,7 @@ public class DocumentController {
             if (!NoteVersions.versionUnavailable(failure)) throw failure;
             return Changes.sinceUnavailable(document.id(), since, to, failure.getMessage());
         }
-        var current = noteVersions.render(user, document, to);
-        return NoteChanges.compare(
-                        MarkdownRenderer.sourceLines(old.markdown()),
-                        old.note().headings(),
-                        MarkdownRenderer.sourceLines(current.markdown()),
-                        current.note().headings())
+        return NoteChanges.compare(old, noteVersions.render(user, document, to))
                 .map(comparison -> Changes.changed(document.id(), since, to, comparison))
                 .orElseGet(() -> Changes.tooLarge(document.id(), since, to));
     }

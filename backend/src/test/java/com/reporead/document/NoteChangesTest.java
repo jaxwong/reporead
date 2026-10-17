@@ -5,7 +5,7 @@ import static com.reporead.document.NoteChanges.Change.CHANGED;
 import static com.reporead.document.NoteChanges.Change.REMOVED;
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -39,14 +39,13 @@ class NoteChangesTest {
         Postgres note one.
         """;
 
+    private static NoteVersions.Rendered version(String markdown) {
+        var note = MarkdownRenderer.render(markdown, MarkdownRendererTest.sha(markdown), "notes/test.md");
+        return new NoteVersions.Rendered(note, markdown.getBytes(StandardCharsets.UTF_8).length, markdown);
+    }
+
     private static Optional<NoteChanges.Comparison> compare(String before, String after) {
-        var old = MarkdownRenderer.render(before, MarkdownRendererTest.sha(before), "notes/test.md");
-        var current = MarkdownRenderer.render(after, MarkdownRendererTest.sha(after), "notes/test.md");
-        return NoteChanges.compare(
-                MarkdownRenderer.sourceLines(before),
-                old.headings(),
-                MarkdownRenderer.sourceLines(after),
-                current.headings());
+        return NoteChanges.compare(version(before), version(after));
     }
 
     private static NoteChanges.Comparison changed(String before, String after) {
@@ -175,9 +174,8 @@ class NoteChangesTest {
 
     @Test
     void aVersionWithMoreLinesThanTheLimitIsTooLargeToSummarize() {
-        var lines = new ArrayList<String>();
-        for (int i = 0; i <= NoteChanges.MAX_LINES; i++) lines.add("x");
-        assertEquals(Optional.empty(), NoteChanges.compare(List.of("x"), List.of(), lines, List.of()));
-        assertEquals(Optional.empty(), NoteChanges.compare(lines, List.of(), List.of("x"), List.of()));
+        String lines = "x\n".repeat(NoteChanges.MAX_LINES + 1);
+        assertEquals(Optional.empty(), compare("x\n", lines));
+        assertEquals(Optional.empty(), compare(lines, "x\n"));
     }
 }
