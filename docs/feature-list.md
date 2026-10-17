@@ -126,6 +126,12 @@ Noticed and deliberately not changed:
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
+- A reading position the server refuses (for example, with the phone's clock more than 5 minutes ahead) stays pending, counted as waiting, until a newer one replaces it: reading rows have no refusal mark, unlike highlights and grades. Fixing it is a Room migration.
+- Rotating the reader while writing a note or reattaching a highlight loses the text and the mode; a question being written survives. The reader's overlays are separate states, only some saved across recreation.
+- Study, Notes → Show and Changes can be tapped before the page is ready, and then do nothing or say the passage is not in this version; after the 15-second readiness timeout they stay unavailable.
+- A stored session the Keystore fails to decrypt is deleted whatever the failure, so a passing Keystore error means signing in again (saved notes stay). Telling passing failures from permanent ones by exception type could instead keep a session that can never be read.
+- Error text has two owners: the app words some codes itself, and some server messages name app controls ("tap Update").
+- Room reads a row through a cursor window of about 2 MB, so a saved page over that (HTML plus search text) would save but not open. Not reproduced; the largest real page is 0.6 MB with 0.4 MB of text.
 
 The ADRs record further limits: anchors (ADR-05), the unbumped page format (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
 
@@ -141,6 +147,7 @@ Covered by automated tests only, or not at all:
 - Practice and Review with real grades (fixture tests only), a successful **Answer is still right** against the real server, and the Practice tab's due badge.
 - Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
+- Signing out or deleting the account while the phone rotates: both now run in the application's scope, checked by reading the code; the root screen uses the app's own session and database, which tests never touch.
 - A deploy that fails on the VM: the deploy and backup scripts were installed there on 2026-10-17 and the deploy dump ran there, but a failing deploy was only checked in a container with stubbed services.
 
 ## Personal-project definition of done
