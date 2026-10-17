@@ -104,7 +104,19 @@ public class RepositorySync {
         var contentMoves = contentMoves(user, connection, markdown);
         Instant syncedAt = Instant.now();
         var moves = transaction.execute(status -> {
-            String checkpoint = connections.lockForSync(user.id(), connectionId).commitSha();
+            var locked = connections.lockForSync(user.id(), connectionId);
+            // A reconnect changed the branch while this sync fetched; its snapshot is of a branch no longer synced.
+            if (!locked.defaultBranch().equals(connection.defaultBranch())) {
+                LOG.info(
+                        "Sync superseded; connectionId={} fetchedBranch={} defaultBranch={}",
+                        connectionId,
+                        connection.defaultBranch(),
+                        locked.defaultBranch());
+                throw new ApiFailure(
+                        Code.SYNC_SUPERSEDED,
+                        "The repository's default branch changed during this sync; nothing was published.");
+            }
+            String checkpoint = locked.commitSha();
             // Another sync published while this one fetched; its snapshot may be newer, so this one must not replace
             // it.
             if (!Objects.equals(checkpoint, connection.lastSyncedCommitSha())

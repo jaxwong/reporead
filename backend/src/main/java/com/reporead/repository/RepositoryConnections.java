@@ -164,20 +164,25 @@ public class RepositoryConnections {
         });
     }
 
-    /** The commit a connection last published (null before its first sync), read under its lock. */
-    public record Checkpoint(String commitSha) {}
+    /**
+     * The commit a connection last published (null before its first sync) and the branch it syncs from, read under its
+     * lock.
+     */
+    public record Checkpoint(String commitSha, String defaultBranch) {}
 
     /**
-     * Serializes syncs and disconnection of one connection; must run inside their transaction. Returns the published
-     * checkpoint, read under the lock. A connection disconnected meanwhile is not found.
+     * Serializes syncs, reconnection (whose upsert locks the same row) and disconnection of one connection; must run
+     * inside their transaction. Returns the published checkpoint, read under the lock. A connection disconnected
+     * meanwhile is not found.
      */
     public Checkpoint lockForSync(long userId, long connectionId) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("lockForSync(connectionId=" + connectionId
                     + ") ran outside a transaction, where its row lock is released as soon as it is taken");
         }
-        return db.sql(
-                        "select last_synced_commit_sha as commit_sha from repository_connections where id = :id and user_id = :userId for update")
+        return db.sql("""
+                        select last_synced_commit_sha as commit_sha, default_branch from repository_connections
+                        where id = :id and user_id = :userId for update""")
                 .param("id", connectionId)
                 .param("userId", userId)
                 .query(Checkpoint.class)
