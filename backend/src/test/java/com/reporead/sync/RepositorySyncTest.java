@@ -1016,6 +1016,36 @@ class RepositorySyncTest extends SharedSpringTest {
     }
 
     @Test
+    void aSyncWhoseDefaultBranchChangedWhileItFetchedPublishesNothing() throws Exception {
+        user.expect(requestTo(BRANCH)).andRespond(withSuccess(branch(COMMIT_A, TREE_A), MediaType.APPLICATION_JSON));
+        user.expect(requestTo("https://api.github.com/user/installations/7/repositories?per_page=100"))
+                .andRespond(withSuccess(
+                        "{\"total_count\":1,\"repositories\":[{\"id\":11,\"full_name\":\"test-only/notes\",\"private\":true,\"default_branch\":\"next\"}]}",
+                        MediaType.APPLICATION_JSON));
+        // While the sync fetches main's tree, reconnecting records GitHub's new default branch.
+        trees.expect(requestTo("https://api.github.com/repos/test-only/notes/git/trees/" + TREE_A + "?recursive=1"))
+                .andRespond(request -> {
+                    try {
+                        mvc.perform(post("/api/repositories/11/connect")
+                                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content("{\"installationId\":7}"))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.defaultBranch").value("next"));
+                    } catch (Exception failure) {
+                        throw new AssertionError("The interleaved reconnect failed", failure);
+                    }
+                    return withSuccess(tree(false, entry("a.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON)
+                            .createResponse(request);
+                });
+        sync(alice, connection)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SYNC_SUPERSEDED"));
+        assertNull(checkpoint());
+        assertEquals(List.of(), activePaths());
+    }
+
+    @Test
     void concurrentSyncsOfOneConnectionDoNotDuplicateDocuments() throws Exception {
         String body = tree(false, entry("a.md", "100644", "blob", BLOB_1), entry("b.md", "100644", "blob", BLOB_2));
         user.expect(ExpectedCount.times(4), requestTo(BRANCH))
