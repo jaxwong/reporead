@@ -268,7 +268,7 @@ flowchart TB
         Library["Library<br/>tabs: Reading · Bookmarks · Practice · Repositories"]
         Folder["Folder"]
         Available["Available repositories"]
-        Reader["Reader"]
+        Reader["Reader<br/>one saved overlay (ADR-25)"]
         Figure["Full-screen figure"]
         Notebook["Notebook"]
         Practice["Practice session"]
