@@ -127,8 +127,6 @@ Noticed and deliberately not changed:
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
 - A reading position the server refuses (for example, with the phone's clock more than 5 minutes ahead) stays pending, counted as waiting, until a newer one replaces it: reading rows have no refusal mark, unlike highlights and grades. Fixing it is a Room migration.
-- Rotating the reader while writing a note or reattaching a highlight loses the text and the mode; a question being written survives. The reader's overlays are separate states, only some saved across recreation.
-- Study, Notes → Show and Changes can be tapped before the page is ready, and then do nothing or say the passage is not in this version; after the 15-second readiness timeout they stay unavailable.
 - A stored session the Keystore fails to decrypt is deleted whatever the failure, so a passing Keystore error means signing in again (saved notes stay). Telling passing failures from permanent ones by exception type could instead keep a session that can never be read.
 - A bank question is matched to its card by bank, prompt and answer line, so renaming its heading or editing its Canonical line makes it a new question; grading it then starts a second card on the same answer.
 - Error text has two owners: the app words some codes itself, and some server messages name app controls ("tap Update").
