@@ -55,7 +55,14 @@ class ReviewSyncTest {
                     dao.saveAnnotation(card)
                     val grades =
                         (1..10).map {
-                            ReviewRow(UUID.randomUUID().toString(), "card", 4, it.toLong(), "a".repeat(40), true)
+                            ReviewRow(
+                                UUID.randomUUID().toString(),
+                                "card",
+                                4,
+                                it.toLong(),
+                                "a".repeat(40),
+                                SyncState.WAITING,
+                            )
                         }
                     grades.forEach { dao.saveReview(it) }
                     val sync =
@@ -74,19 +81,19 @@ class ReviewSyncTest {
                     }
                     first.await()
                     assertEquals(5, stored.size)
-                    assertEquals(5, dao.pendingReviews().size)
+                    assertEquals(5, dao.waitingReviews().size)
                     val second = async(Dispatchers.IO) { respond(server, 5, failLast = false, stored) }
                     sync.pushReviews()
                     second.await()
                     assertEquals(10, stored.size)
-                    assertTrue(dao.pendingReviews().isEmpty())
+                    assertTrue(dao.waitingReviews().isEmpty())
                     // Lost local acknowledgement: explicitly resend the identical mutation.
                     dao.saveReview(grades.first())
                     val replay = async(Dispatchers.IO) { respond(server, 1, failLast = false, stored) }
                     sync.pushReviews()
                     replay.await()
                     assertEquals(10, stored.size)
-                    assertTrue(dao.pendingReviews().isEmpty())
+                    assertTrue(dao.waitingReviews().isEmpty())
                     sync.pushReviews() // empty: makes no HTTP calls
                     assertEquals(10, stored.size)
                 }

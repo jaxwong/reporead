@@ -29,9 +29,9 @@ class BaselineMigrationTest {
             },
         ) { dao ->
             val highlight = checkNotNull(dao.annotation("offline"))
-            assertEquals(AnnotationState.UNSENT, highlight.state)
+            assertEquals(AnnotationState.WAITING, highlight.state)
             assertEquals(listOf("offline"), dao.annotations(1).first().map { it.mutationId })
-            assertTrue(dao.reading(1)!!.pending)
+            assertEquals(SyncState.WAITING, dao.reading(1)!!.state)
             assertNull(dao.changeBaseline(1))
             // A note read in an older version is still listed as updated without a baseline.
             assertEquals(

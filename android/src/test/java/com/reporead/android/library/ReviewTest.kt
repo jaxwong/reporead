@@ -7,6 +7,7 @@ import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.data.SyncState
 import com.reporead.android.reader.AnswerLink
 import com.reporead.android.reader.StudyAnswer
 import com.reporead.android.reader.StudyQuestion
@@ -29,7 +30,8 @@ class ReviewTest {
     private fun dueSession(items: List<NotebookItem>, reviews: List<ReviewRow>, now: Long, limit: Int, seed: Int) =
         dueSession(items, reviews, now, limit, seed, utc)
 
-    private fun grade(id: Int, value: Int, at: Long) = ReviewRow("g$id", "card", value, at, "sha", false)
+    private fun grade(id: Int, value: Int, at: Long) =
+        ReviewRow("g$id", "card", value, at, "sha", SyncState.ACKNOWLEDGED)
 
     private fun card(id: Int, document: Long = 1) =
         NotebookItem(
@@ -78,7 +80,10 @@ class ReviewTest {
         val log = good + grade(4, 0, 11 * day) + grade(5, 4, 12 * day)
         assertEquals(ReviewSchedule(15 * day, 1), scheduleReviews(0, log))
         assertEquals(scheduleReviews(0, log), scheduleReviews(0, log.reversed()))
-        assertEquals(ReviewSchedule(0, null), scheduleReviews(0, listOf(grade(1, 4, 0).copy(rejection = "refused"))))
+        assertEquals(
+            ReviewSchedule(0, null),
+            scheduleReviews(0, listOf(grade(1, 4, 0).copy(state = SyncState.REFUSED, rejection = "refused"))),
+        )
         assertEquals(ReviewSchedule(0, null), scheduleReviews(0, listOf(grade(1, 4, 0).copy(cardMutationId = "other"))))
     }
 

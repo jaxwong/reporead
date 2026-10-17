@@ -79,6 +79,29 @@ val ANNOTATION_STATE_10_11 =
         }
     }
 
+/**
+ * v14: grades and reading positions stand with the server in [SyncState]'s words, as highlights do (whose UNSENT
+ * becomes WAITING). Grades had a pending flag and a rejection, one combination of which meant nothing; reading
+ * positions had a pending flag alone, so a refused one looked waiting forever. Hand-written: each row's state comes
+ * from its old columns.
+ */
+val PENDING_STATE_13_14 =
+    object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("update annotations set state = 'WAITING' where state = 'UNSENT'")
+            db.execSQL("alter table review_log add column state TEXT NOT NULL DEFAULT 'ACKNOWLEDGED'")
+            db.execSQL(
+                """update review_log set state = case when rejection is not null then 'REFUSED' when pending then 'WAITING'
+                      else 'ACKNOWLEDGED' end"""
+            )
+            db.execSQL("alter table review_log drop column pending")
+            db.execSQL("alter table reading_states add column state TEXT NOT NULL DEFAULT 'ACKNOWLEDGED'")
+            db.execSQL("alter table reading_states add column rejection TEXT")
+            db.execSQL("update reading_states set state = case when pending then 'WAITING' else 'ACKNOWLEDGED' end")
+            db.execSQL("alter table reading_states drop column pending")
+        }
+    }
+
 @Database(
     entities =
         [
@@ -93,7 +116,7 @@ val ANNOTATION_STATE_10_11 =
             ReviewLimitRow::class,
             ChangeBaselineRow::class,
         ],
-    version = 13,
+    version = 14,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -115,6 +138,8 @@ abstract class LocalStore : RoomDatabase() {
     companion object {
         /** The database file [name] with every migration: the automatic ones above and the hand-written ones here. */
         fun open(context: Context, name: String): LocalStore =
-            Room.databaseBuilder(context, LocalStore::class.java, name).addMigrations(ANNOTATION_STATE_10_11).build()
+            Room.databaseBuilder(context, LocalStore::class.java, name)
+                .addMigrations(ANNOTATION_STATE_10_11, PENDING_STATE_13_14)
+                .build()
     }
 }

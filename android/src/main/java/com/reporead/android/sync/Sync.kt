@@ -18,6 +18,7 @@ import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.data.SavedVersion
+import com.reporead.android.data.SyncState
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -384,7 +385,7 @@ class Sync(
 
     /** Only the reader calls this, with the version it actually displayed. */
     suspend fun saveReading(row: ReadingRow) {
-        dao.saveDisplayedReading(row.copy(pending = true))
+        dao.saveDisplayedReading(row.copy(state = SyncState.WAITING, rejection = null))
         onPendingChange()
     }
 
@@ -434,7 +435,7 @@ class Sync(
             }
         sendReviews()
         val refused = mutableListOf<String>()
-        for (row in dao.pendingReading()) {
+        for (row in dao.waitingReading()) {
             val body =
                 JSONObject()
                     .put("lastReadBlobSha", row.lastReadBlobSha)
@@ -448,9 +449,10 @@ class Sync(
                     if (!error.refusesItem()) throw error
                     Log.w("RepoRead", "Reading state refused; documentId=${row.documentId} code=${error.code}")
                     // Not this user's note on the server any more: the position goes with it when the lists are
-                    // next replaced. Any other refusal keeps the position on this phone, pending, and offers it again
-                    // at the next sync.
+                    // next replaced. Any other refusal keeps the position on this phone, refused: sending it again
+                    // cannot change the answer, and a newer save of this note is sent as usual.
                     if (error.status == 404) dao.acknowledgeReading(row.documentId, row.lastReadAt)
+                    else dao.rejectReading(row.documentId, row.lastReadAt, error.describe())
                     refused += "Your place in ${noteName(row.documentId)} (${error.describe()})"
                     continue
                 }
@@ -532,7 +534,7 @@ class Sync(
                 note = note,
                 version = 1,
                 createdAt = System.currentTimeMillis(),
-                state = AnnotationState.UNSENT,
+                state = AnnotationState.WAITING,
                 type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
                 question = question,
                 checkedBlobSha = if (question == null) null else passage.blobSha,
@@ -692,7 +694,7 @@ class Sync(
                 dao.removeAnnotation(row.mutationId)
             }
             AnnotationState.REFUSED -> dao.removeAnnotation(row.mutationId)
-            AnnotationState.UNSENT -> {
+            AnnotationState.WAITING -> {
                 dao.markDeleting(row.mutationId)
                 onPendingChange()
             }
@@ -721,7 +723,7 @@ class Sync(
     suspend fun pushReviews() = locked { sendReviews() }
 
     private suspend fun sendReviews() {
-        for (row in dao.pendingReviews()) {
+        for (row in dao.waitingReviews()) {
             val card =
                 checkNotNull(dao.annotation(row.cardMutationId)) {
                     "Review ${row.mutationId} references missing local card ${row.cardMutationId}"

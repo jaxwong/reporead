@@ -40,7 +40,7 @@ class NoteFactsMigrationTest {
             },
         ) { dao ->
             assertEquals(false, dao.document(1)!!.deleted)
-            assertEquals(listOf(ReadingRow(1, sha, 40, "{}", 5, pending = true)), dao.pendingReading())
+            assertEquals(listOf(ReadingRow(1, sha, 40, "{}", 5, state = SyncState.WAITING)), dao.waitingReading())
             assertEquals(
                 listOf(BookmarkRow(1, bookmarked = true, pending = true, changedAt = 6)),
                 dao.pendingBookmarks(),

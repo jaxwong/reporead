@@ -5,6 +5,7 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.data.SyncState
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -49,7 +50,7 @@ internal fun gaps(step: Int?): Map<Int, Long> = GRADES.associate { (grade) -> gr
  * next morning.
  */
 internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: ZoneId): ReviewSchedule =
-    log.filter { it.cardMutationId == card.mutationId && it.rejection == null }
+    log.filter { it.cardMutationId == card.mutationId && it.state != SyncState.REFUSED }
         .sortedWith(compareBy({ it.reviewedAt }, { it.mutationId }))
         .fold(ReviewSchedule(card.createdAt, null)) { state, review ->
             require(review.grade in 0..5) { "Review ${review.mutationId} has grade ${review.grade}; expected 0..5" }

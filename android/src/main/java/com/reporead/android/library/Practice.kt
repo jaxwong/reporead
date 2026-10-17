@@ -29,6 +29,7 @@ import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.PracticePage
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.data.SyncState
 import com.reporead.android.reader.BankAnswer
 import com.reporead.android.reader.StudyQuestion
 import com.reporead.android.reader.interviewBank
@@ -162,7 +163,7 @@ internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: Pra
                 grade = grade,
                 reviewedAt = System.currentTimeMillis(),
                 blobSha = question.blobSha,
-                pending = true,
+                state = SyncState.WAITING,
             )
         )
     return if (graded) null else "The card was saved but not its grade, so it is due now in Review cards."

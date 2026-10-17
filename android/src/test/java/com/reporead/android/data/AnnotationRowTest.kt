@@ -20,7 +20,7 @@ class AnnotationRowTest {
             null,
             1,
             0,
-            state = AnnotationState.UNSENT,
+            state = AnnotationState.WAITING,
         )
 
     @Test
@@ -68,7 +68,7 @@ class AnnotationRowTest {
                 CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = older),
                 CardBlock.UNPLACED to card.copy(location = Passage(older, "b2", 12, 30, "declarative transactions")),
                 // Made in the older version and not sent yet, it is drawn where it was made.
-                CardBlock.UNSENT to
+                CardBlock.WAITING to
                     unsent.copy(type = AnnotationType.CARD, question = "Test-only question?", checkedBlobSha = older),
             )) assertEquals(changed.toString(), block, changed.cardBlock(false, current, current))
         assertEquals(CardBlock.NOT_SAVED, card.cardBlock(false, current, older))

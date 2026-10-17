@@ -80,7 +80,7 @@ class LocalSyncTest {
             50,
             """{"headingPath":[],"textPrefix":null,"blockIndex":0}""",
             1_000,
-            pending = true,
+            state = SyncState.WAITING,
         )
 
     /** The server's reading state for document 1, as the reading-state PUT and the complete list return it. */
@@ -122,15 +122,21 @@ class LocalSyncTest {
                     ),
                     server.requests,
                 )
-                // The refused position is kept, pending, rather than replaced by the server's list that lacks it.
-                assertTrue(dao.reading(1)!!.pending)
+                // The refused position stays on this phone rather than being replaced by the server's list that lacks
+                // it, but it is not waiting: it no longer counts, and the next sync does not send it again.
+                val refused = dao.reading(1)!!
+                assertEquals(SyncState.REFUSED, refused.state)
+                assertEquals("Test-only INVALID_READING_STATE", refused.rejection)
+                assertEquals(0, dao.waitingCount().first())
+                Sync(Api(server.url, { "TEST_ONLY_SESSION" }) {}, store, directory) {}.syncLocalChanges()
+                assertEquals(1, server.requests.count { it == "PUT /api/documents/1/reading-state" })
             }
     }
 
     @Test
     fun creationsWaitWhenGitHubAccessFailsWhileDatabaseOnlyWorkStillSyncs() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.WAITING)
         )
         dao.saveAnnotation(
             AnnotationRow(
@@ -145,13 +151,13 @@ class LocalSyncTest {
                 null,
                 1,
                 1,
-                state = AnnotationState.UNSENT,
+                state = AnnotationState.WAITING,
                 type = AnnotationType.CARD,
                 question = "Test-only question?",
                 checkedBlobSha = sha,
             )
         )
-        dao.saveReview(ReviewRow("grade-of-unsent-card", "unsent-card", 4, 2, sha, pending = true))
+        dao.saveReview(ReviewRow("grade-of-unsent-card", "unsent-card", 4, 2, sha, state = SyncState.WAITING))
         dao.saveReading(reading(1))
         LoopbackServer(
                 emptyLists +
@@ -178,8 +184,8 @@ class LocalSyncTest {
                 )
                 assertEquals(setOf("unsent", "unsent-card"), dao.waitingAnnotations().map { it.mutationId }.toSet())
                 assertNull(dao.annotation("unsent")!!.rejection)
-                assertEquals(listOf("grade-of-unsent-card"), dao.pendingReviews().map { it.mutationId })
-                assertTrue(dao.pendingReading().isEmpty())
+                assertEquals(listOf("grade-of-unsent-card"), dao.waitingReviews().map { it.mutationId })
+                assertTrue(dao.waitingReading().isEmpty())
             }
     }
 
@@ -189,7 +195,7 @@ class LocalSyncTest {
     @Test
     fun aCreationAnswerThatBreaksTheContractWaitsWhileDatabaseOnlyWorkStillSyncs() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("unparsed", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationRow("unparsed", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.WAITING)
         )
         dao.saveReading(reading(1))
         LoopbackServer(
@@ -216,14 +222,14 @@ class LocalSyncTest {
                 // Still pending under its mutation id: the next sync replays it, and the server answers with the same
                 // highlight.
                 assertEquals(listOf("unparsed"), dao.waitingAnnotations().map { it.mutationId })
-                assertTrue(dao.pendingReading().isEmpty())
+                assertTrue(dao.waitingReading().isEmpty())
             }
     }
 
     @Test
     fun aDeletedCreationIsReplayedThenDeletedOnTheServer() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationRow("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.WAITING)
         )
         Sync(Api("http://127.0.0.1:9", { "TEST_ONLY_SESSION" }) {}, store, directory) {}
             .deleteAnnotation(dao.annotation("deleted")!!)
@@ -286,7 +292,7 @@ class LocalSyncTest {
     @Test
     fun anUnreachableServerEndsTheSyncWithEverythingPending() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.WAITING)
         )
         dao.saveReading(reading(1))
         try {
@@ -296,7 +302,7 @@ class LocalSyncTest {
             assertEquals("BACKEND_UNAVAILABLE", error.code)
         }
         assertEquals(1, dao.waitingAnnotations().size)
-        assertEquals(1, dao.pendingReading().size)
+        assertEquals(1, dao.waitingReading().size)
     }
 
     @Test
@@ -317,12 +323,12 @@ class LocalSyncTest {
         sync.deleteAnnotation(dao.annotation(highlight)!!)
         assertEquals(4, requested)
         val card = sync.createAnnotation(passage, 1, null, "Test-only question?")
-        assertTrue(sync.recordReview(ReviewRow("grade", card, 4, 1, sha, pending = true)))
+        assertTrue(sync.recordReview(ReviewRow("grade", card, 4, 1, sha, state = SyncState.WAITING)))
         assertEquals(6, requested)
         sync.deleteAnnotation(dao.annotation(card)!!)
         assertEquals(7, requested)
         // A grade the card no longer accepts saves nothing, so there is nothing to send.
-        assertFalse(sync.recordReview(ReviewRow("stale", card, 4, 2, sha, pending = true)))
+        assertFalse(sync.recordReview(ReviewRow("stale", card, 4, 2, sha, state = SyncState.WAITING)))
         assertEquals(7, requested)
     }
 
@@ -366,7 +372,7 @@ class LocalSyncTest {
     @Test
     fun signingOutWaitsForAHighlightBeingSentSoItCannotComeBack() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("sent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationRow("sent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.WAITING)
         )
         val arrived = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -432,7 +438,7 @@ class LocalSyncTest {
             assertEquals(Result.success(), backgroundSync(sync(server.url), 0))
             assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
         }
-        assertTrue(dao.pendingReading().isEmpty())
+        assertTrue(dao.waitingReading().isEmpty())
         assertEquals("the lists are left as they were", 1, dao.documents(7).first().size)
     }
 
@@ -462,13 +468,13 @@ class LocalSyncTest {
         assertEquals(Result.retry(), backgroundSync(sync, 0))
         assertEquals(Result.retry(), backgroundSync(sync, 8))
         assertEquals(Result.failure(), backgroundSync(sync, 9))
-        assertEquals(1, dao.pendingReading().size)
+        assertEquals(1, dao.waitingReading().size)
     }
 
     @Test
     fun gitHubUnavailableIsTriedAgainAfterTheRestIsSent() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.WAITING)
         )
         dao.saveReading(reading(1))
         LoopbackServer(
@@ -480,7 +486,7 @@ class LocalSyncTest {
             )
             .use { server ->
                 assertEquals(Result.retry(), backgroundSync(sync(server.url), 0))
-                assertTrue(dao.pendingReading().isEmpty())
+                assertTrue(dao.waitingReading().isEmpty())
                 assertEquals(1, dao.waitingAnnotations().size)
             }
     }
@@ -490,10 +496,10 @@ class LocalSyncTest {
         dao.saveReading(reading(1))
         LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to failure(401, "SIGN_IN_REQUIRED"))).use { server ->
             assertEquals(Result.failure(), backgroundSync(sync(server.url), 0))
-            assertEquals(1, dao.pendingReading().size)
+            assertEquals(1, dao.waitingReading().size)
         }
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.WAITING)
         )
         LoopbackServer(
                 emptyLists +

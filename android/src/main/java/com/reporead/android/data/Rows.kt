@@ -127,7 +127,25 @@ data class HighlightMatch(
     val note: String?,
 )
 
-/** [pending] is a local save the backend has not acknowledged. Last write wins by [lastReadAt]. */
+/**
+ * Where a change made on this phone stands with the server: the words every kind of pending change uses
+ * (AnnotationState adds its deletion).
+ */
+enum class SyncState {
+    /** Made on this phone; the next sync sends it. */
+    WAITING,
+    /**
+     * The server refused it for a reason sending it again cannot change ([rejection] says why): kept, never sent again.
+     */
+    REFUSED,
+    /** The server has it, or it came from the server. */
+    ACKNOWLEDGED,
+}
+
+/**
+ * Where the note was last read. [state] is where a local save stands with the server; [rejection] is set only when it
+ * is REFUSED. Last write wins by [lastReadAt].
+ */
 @Entity(tableName = "reading_states")
 data class ReadingRow(
     @PrimaryKey val documentId: Long,
@@ -135,10 +153,14 @@ data class ReadingRow(
     val progressPercent: Int,
     val anchorJson: String,
     val lastReadAt: Long,
-    val pending: Boolean,
+    @ColumnInfo(defaultValue = "'ACKNOWLEDGED'") val state: SyncState,
+    val rejection: String? = null,
 )
 
-/** A row with bookmarked=false is a pending removal; it is deleted once the backend acknowledges it. */
+/**
+ * A row with bookmarked=false is a pending removal; it is deleted once the backend acknowledges it. [pending] alone
+ * says where it stands, because a bookmark change the server refuses is undone, never kept: it has no refused state.
+ */
 @Entity(tableName = "bookmarks")
 data class BookmarkRow(
     @PrimaryKey val documentId: Long,
@@ -159,10 +181,10 @@ data class Passage(
     val exactText: String,
 ) : Serializable
 
-/** Where a highlight or card stands with the server. */
+/** Where a highlight or card stands with the server: [SyncState]'s words, and a deletion waiting to be sent. */
 enum class AnnotationState {
     /** Created on this phone; the next sync sends the creation. */
-    UNSENT,
+    WAITING,
     /** The server refused the creation ([AnnotationRow.rejection] says why): shown, never sent again. */
     REFUSED,
     /**
@@ -240,7 +262,7 @@ data class AnnotationRow(
             deleted -> CardBlock.REMOVED
             status == AnchorStatus.ORPHANED -> CardBlock.ORPHANED
             savedBlobSha != currentBlobSha -> CardBlock.NOT_SAVED
-            drawn.blobSha != currentBlobSha -> if (serverId == null) CardBlock.UNSENT else CardBlock.UNPLACED
+            drawn.blobSha != currentBlobSha -> if (serverId == null) CardBlock.WAITING else CardBlock.UNPLACED
             checkedBlobSha != currentBlobSha -> CardBlock.UNCONFIRMED
             else -> null
         }
@@ -253,7 +275,7 @@ enum class CardBlock(val reason: String) {
     ORPHANED("Check this card: reattach its answer"),
     NOT_SAVED("Save the current note before reviewing"),
     /** Made in an older version and not sent yet, so the server has not placed it in the current one. */
-    UNSENT("Not synced yet, so not found in the new version"),
+    WAITING("Not synced yet, so not found in the new version"),
     /** The server places a card in a new version only when its note's highlights are listed (ADR-06). */
     UNPLACED("Check this card: open its note to find the answer in the new version"),
     /** Placed in the current version (or reattached) and not confirmed there. */
@@ -268,7 +290,10 @@ enum class CardBlock(val reason: String) {
 @Entity(tableName = "change_baselines")
 data class ChangeBaselineRow(@PrimaryKey val documentId: Long, val sinceBlobSha: String)
 
-/** Pending grades and the server log share the same immutable client mutation id. */
+/**
+ * One grade. Grades made here and the server's log share the same immutable client mutation id. [state] is where it
+ * stands with the server; [rejection] is set only when it is REFUSED.
+ */
 @Entity(tableName = "review_log", indices = [Index("cardMutationId")])
 data class ReviewRow(
     @PrimaryKey val mutationId: String,
@@ -276,7 +301,7 @@ data class ReviewRow(
     val grade: Int,
     val reviewedAt: Long,
     val blobSha: String,
-    val pending: Boolean,
+    @ColumnInfo(defaultValue = "'ACKNOWLEDGED'") val state: SyncState,
     val rejection: String? = null,
 )
 

@@ -9,6 +9,7 @@ import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.data.SyncState
 import java.time.Instant
 import org.json.JSONException
 import org.json.JSONObject
@@ -41,7 +42,7 @@ internal fun reviewRow(json: JSONObject) = contract {
         grade,
         Instant.parse(json.string("reviewedAt")).toEpochMilli(),
         json.string("blobSha"),
-        pending = false,
+        state = SyncState.ACKNOWLEDGED,
     )
 }
 
@@ -86,6 +87,6 @@ internal fun readingRow(json: JSONObject) = contract {
         json.getInt("progressPercent"),
         json.getJSONObject("anchor").toString(),
         Instant.parse(json.string("lastReadAt")).toEpochMilli(),
-        pending = false,
+        state = SyncState.ACKNOWLEDGED,
     )
 }

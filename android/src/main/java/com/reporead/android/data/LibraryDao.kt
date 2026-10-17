@@ -170,14 +170,15 @@ interface LibraryDao {
     @Query(
         """select (select count(*) from annotations a join documents d on d.id = a.documentId where d.repositoryId = :repositoryId and a.state <> 'ACKNOWLEDGED')
               + (select count(*) from review_log l join annotations a on a.mutationId = l.cardMutationId join documents d on d.id = a.documentId
-                 where d.repositoryId = :repositoryId and l.pending)"""
+                 where d.repositoryId = :repositoryId and l.state <> 'ACKNOWLEDGED')"""
     )
     suspend fun unsentInRepository(repositoryId: Long): Int
 
     /** Every change on this phone that the server has not acknowledged (unsent or refused): what signing out loses. */
     @Query(
-        """select (select count(*) from annotations where state <> 'ACKNOWLEDGED') + (select count(*) from review_log where pending)
-              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)"""
+        """select (select count(*) from annotations where state <> 'ACKNOWLEDGED')
+              + (select count(*) from review_log where state <> 'ACKNOWLEDGED')
+              + (select count(*) from reading_states where state <> 'ACKNOWLEDGED') + (select count(*) from bookmarks where pending)"""
     )
     suspend fun unsentCount(): Int
 
@@ -186,9 +187,9 @@ interface LibraryDao {
      * deliver.
      */
     @Query(
-        """select (select count(*) from annotations where state in ('UNSENT', 'DELETING'))
-              + (select count(*) from review_log where pending and rejection is null)
-              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)"""
+        """select (select count(*) from annotations where state in ('WAITING', 'DELETING'))
+              + (select count(*) from review_log where state = 'WAITING')
+              + (select count(*) from reading_states where state = 'WAITING') + (select count(*) from bookmarks where pending)"""
     )
     fun waitingCount(): Flow<Int>
 
@@ -284,23 +285,35 @@ interface LibraryDao {
         saveReading(row)
     }
 
-    @Query("select * from reading_states where pending") suspend fun pendingReading(): List<ReadingRow>
+    @Query("select * from reading_states where state = 'WAITING'") suspend fun waitingReading(): List<ReadingRow>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReading(row: ReadingRow)
 
-    /** Acknowledges only the save that was sent; a newer local save made meanwhile stays pending. */
-    @Query("update reading_states set pending = 0 where documentId = :documentId and lastReadAt = :lastReadAt")
+    /** Acknowledges only the save that was sent; a newer local save made meanwhile stays waiting. */
+    @Query(
+        "update reading_states set state = 'ACKNOWLEDGED' where documentId = :documentId and lastReadAt = :lastReadAt"
+    )
     suspend fun acknowledgeReading(documentId: Long, lastReadAt: Long)
 
-    /** A local pending save wins unless the server's state is at least as new. */
+    /** Marks only the save that was sent as refused, for [reason]; a newer local save made meanwhile stays waiting. */
+    @Query(
+        """update reading_states set state = 'REFUSED', rejection = :reason
+              where documentId = :documentId and lastReadAt = :lastReadAt"""
+    )
+    suspend fun rejectReading(documentId: Long, lastReadAt: Long, reason: String)
+
+    /**
+     * A local save the server does not have yet (waiting, or refused, which stays on this phone) wins unless the
+     * server's state is at least as new.
+     */
     @Transaction
     suspend fun mergeRemoteReading(remote: ReadingRow) {
         val local = reading(remote.documentId)
-        if (local == null || !local.pending || remote.lastReadAt >= local.lastReadAt)
-            saveReading(remote.copy(pending = false))
+        if (local == null || local.state == SyncState.ACKNOWLEDGED || remote.lastReadAt >= local.lastReadAt)
+            saveReading(remote.copy(state = SyncState.ACKNOWLEDGED, rejection = null))
     }
 
-    @Query("delete from reading_states where not pending") suspend fun clearAcknowledgedReading()
+    @Query("delete from reading_states where state = 'ACKNOWLEDGED'") suspend fun clearAcknowledgedReading()
 
     /**
      * The server's complete list replaces acknowledged rows; pending local saves are kept or yield as
@@ -343,7 +356,7 @@ interface LibraryDao {
     @Query("select * from annotations where mutationId = :mutationId")
     suspend fun annotation(mutationId: String): AnnotationRow?
 
-    @Query("select * from annotations where state in ('UNSENT', 'DELETING') order by createdAt")
+    @Query("select * from annotations where state in ('WAITING', 'DELETING') order by createdAt")
     suspend fun waitingAnnotations(): List<AnnotationRow>
 
     @Query(
@@ -355,15 +368,17 @@ interface LibraryDao {
 
     @Query("select * from review_log order by reviewedAt, mutationId") fun reviews(): Flow<List<ReviewRow>>
 
-    @Query("select * from review_log where pending and rejection is null order by reviewedAt, mutationId")
-    suspend fun pendingReviews(): List<ReviewRow>
+    @Query("select * from review_log where state = 'WAITING' order by reviewedAt, mutationId")
+    suspend fun waitingReviews(): List<ReviewRow>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReview(row: ReviewRow)
 
     /** A concurrent sync may invalidate/delete a card after it was revealed; never persist that stale grade. */
     @Transaction
     suspend fun recordReview(row: ReviewRow): Boolean {
-        require(row.grade in 0..5 && row.pending && row.rejection == null) { "Invalid local review ${row.mutationId}" }
+        require(row.grade in 0..5 && row.state == SyncState.WAITING && row.rejection == null) {
+            "Invalid local review ${row.mutationId}"
+        }
         val card = annotation(row.cardMutationId) ?: return false
         val document = document(card.documentId) ?: return false
         if (
@@ -377,11 +392,11 @@ interface LibraryDao {
         return true
     }
 
-    @Query("update review_log set rejection = :reason where mutationId = :mutationId")
+    @Query("update review_log set state = 'REFUSED', rejection = :reason where mutationId = :mutationId")
     suspend fun rejectReview(mutationId: String, reason: String)
 
     /** Forgets grades the server refused; they never reached it and the schedule already ignores them. */
-    @Query("delete from review_log where rejection is not null") suspend fun dismissRefusedReviews()
+    @Query("delete from review_log where state = 'REFUSED'") suspend fun dismissRefusedReviews()
 
     @Query("select sessionLimit from review_limits where id = 1") fun reviewLimit(): Flow<Int?>
 
@@ -395,7 +410,7 @@ interface LibraryDao {
     )
     suspend fun deleteReviewsOnDocuments(ids: List<Long>)
 
-    @Query("delete from review_log where not pending") suspend fun clearAcknowledgedReviews()
+    @Query("delete from review_log where state = 'ACKNOWLEDGED'") suspend fun clearAcknowledgedReviews()
 
     @Query("delete from review_log where cardMutationId not in (select mutationId from annotations)")
     suspend fun deleteMissingCardReviews()
@@ -435,7 +450,7 @@ interface LibraryDao {
     @Query("update annotations set state = 'DELETING' where mutationId = :mutationId")
     suspend fun setDeleting(mutationId: String)
 
-    @Query("delete from review_log where cardMutationId = :mutationId and pending")
+    @Query("delete from review_log where cardMutationId = :mutationId and state <> 'ACKNOWLEDGED'")
     suspend fun deletePendingCardReviews(mutationId: String)
 
     /**

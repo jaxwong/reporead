@@ -30,7 +30,7 @@ class AnnotationStateMigrationTest {
                 }
             },
         ) { dao ->
-            assertEquals(AnnotationState.UNSENT, dao.annotation("unsent")!!.state)
+            assertEquals(AnnotationState.WAITING, dao.annotation("unsent")!!.state)
             val refused = dao.annotation("refused")!!
             assertEquals(AnnotationState.REFUSED, refused.state)
             assertEquals("Test-only refusal", refused.rejection)

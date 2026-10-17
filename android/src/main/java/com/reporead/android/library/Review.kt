@@ -41,6 +41,7 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.data.SyncState
 import com.reporead.android.reader.BankAnswer
 import com.reporead.android.reader.StudyQuestion
 import com.reporead.android.reader.interviewBank
@@ -260,7 +261,7 @@ private fun ColumnScope.FixCard(
             )
             openNote("Open note")
         }
-        CardBlock.UNSENT ->
+        CardBlock.WAITING ->
             Text(
                 "This card hasn't reached the server yet, so it can't be found in the note's new version. Open Library while online to sync it."
             )
@@ -348,7 +349,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                 return@Column
             }
             StatusLine(notice)
-            val refused = log.filter { it.rejection != null }
+            val refused = log.filter { it.state == SyncState.REFUSED }
             if (refused.isNotEmpty())
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // A refused grade never reached the server and is not in the schedule; dismissing only forgets it.
@@ -358,7 +359,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                     )
                     TextButton(onClick = { scope.launch { dao.dismissRefusedReviews() } }) { Text("Dismiss") }
                 }
-            val pending = log.count { it.pending && it.rejection == null }
+            val pending = log.count { it.state == SyncState.WAITING }
             if (pending > 0)
                 Text(
                     "$pending grades saved on this phone; they are sent once it is online.",
@@ -375,7 +376,9 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             }
             // The cards this session saved a grade for, from the log.
             val graded =
-                log.filter { it.rejection == null && it.reviewedAt >= startedAt }.map { it.cardMutationId }.toSet()
+                log.filter { it.state != SyncState.REFUSED && it.reviewedAt >= startedAt }
+                    .map { it.cardMutationId }
+                    .toSet()
             val id = asked.current
             if (id == null) {
                 Text(
@@ -438,7 +441,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                         grade = grade,
                         reviewedAt = System.currentTimeMillis(),
                         blobSha = row.drawn.blobSha,
-                        pending = true,
+                        state = SyncState.WAITING,
                     )
                 scope.launch {
                     try {

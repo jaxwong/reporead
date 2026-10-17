@@ -149,7 +149,7 @@ class PracticeSessionTest {
                 click("Again")
                 val missed =
                     withTimeout(5_000) {
-                        while (dao.waitingAnnotations().isEmpty() || dao.pendingReviews().isEmpty()) delay(20)
+                        while (dao.waitingAnnotations().isEmpty() || dao.waitingReviews().isEmpty()) delay(20)
                         dao.waitingAnnotations().single()
                     }
                 assertEquals(AnnotationType.CARD, missed.type)
@@ -157,7 +157,7 @@ class PracticeSessionTest {
                 assertEquals("Canonical answer: $first", missed.exactText)
                 assertEquals(if (first == "First answer") "b3" else "b5", missed.blockId)
                 assertEquals(bankSha, missed.checkedBlobSha)
-                assertEquals(listOf(0), dao.pendingReviews().map { it.grade })
+                assertEquals(listOf(0), dao.waitingReviews().map { it.grade })
 
                 // The miss went to the back; the other question is next, also after recreation. The grade is saved
                 // before the queue moves on, and the count reads the same either way, so recreating only once the next
@@ -169,7 +169,7 @@ class PracticeSessionTest {
                 val second = shownAnswer(scenario)
                 assertTrue("The other question comes next", second != first)
                 click("Good")
-                withTimeout(5_000) { while (dao.pendingReviews().size != 2) delay(20) }
+                withTimeout(5_000) { while (dao.waitingReviews().size != 2) delay(20) }
 
                 // The miss comes back; grading it again decides only whether it returns.
                 awaitText("1 question left · Foundations · Test-only bank")

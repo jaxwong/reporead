@@ -21,6 +21,7 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.SyncState
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import com.reporead.android.type
@@ -175,7 +176,7 @@ class ReaderLifecycleTest {
                         note = null,
                         version = 1,
                         createdAt = 0,
-                        state = AnnotationState.UNSENT,
+                        state = AnnotationState.WAITING,
                     )
                 )
         }
@@ -268,7 +269,7 @@ class ReaderLifecycleTest {
                     null,
                     1,
                     0,
-                    state = AnnotationState.UNSENT,
+                    state = AnnotationState.WAITING,
                 )
             dao.saveAnnotation(highlight("test-only-elsewhere", 2, "b2"))
             // Apart, so Room reports the two writes separately.
@@ -398,7 +399,7 @@ class ReaderLifecycleTest {
                     null,
                     1,
                     0,
-                    AnnotationState.UNSENT,
+                    AnnotationState.WAITING,
                 )
             )
         }
@@ -433,7 +434,7 @@ class ReaderLifecycleTest {
                 val row = store.library().reading(1)
                 if (row != null && JSONObject(row.anchorJson).getInt("blockIndex") == block) {
                     assertEquals(sha, row.lastReadBlobSha)
-                    assertTrue(row.pending)
+                    assertEquals(SyncState.WAITING, row.state)
                     break
                 }
                 delay(10)

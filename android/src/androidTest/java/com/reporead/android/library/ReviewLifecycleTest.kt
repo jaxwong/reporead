@@ -109,15 +109,15 @@ class ReviewLifecycleTest {
                 awaitText("Good")
                 for (i in 1..10) {
                     click("Good")
-                    withTimeout(5_000) { while (dao.pendingReviews().size != i) delay(20) }
+                    withTimeout(5_000) { while (dao.waitingReviews().size != i) delay(20) }
                     if (i < 10) click("Show answer")
                 }
                 awaitText("Session complete: 10 cards reviewed.")
                 scenario.recreate()
                 awaitText("Session complete: 10 cards reviewed.")
                 assertEquals(10, dao.reviews().first().size)
-                assertEquals(10, dao.pendingReviews().map { it.cardMutationId }.distinct().size)
-                assertTrue(dao.pendingReviews().all { it.grade == 4 && it.blobSha == sha })
+                assertEquals(10, dao.waitingReviews().map { it.cardMutationId }.distinct().size)
+                assertTrue(dao.waitingReviews().all { it.grade == 4 && it.blobSha == sha })
             }
         }
 
@@ -178,7 +178,7 @@ class ReviewLifecycleTest {
                 awaitText("1 card left · Test-only review")
                 click("Show answer")
                 click("Again")
-                withTimeout(5_000) { while (dao.pendingReviews().isEmpty()) delay(20) }
+                withTimeout(5_000) { while (dao.waitingReviews().isEmpty()) delay(20) }
                 awaitText("1 card left · Test-only review")
                 click("Show answer")
                 awaitText(
@@ -226,7 +226,7 @@ class ReviewLifecycleTest {
                     null,
                     1,
                     0,
-                    state = AnnotationState.UNSENT,
+                    state = AnnotationState.WAITING,
                     type = AnnotationType.CARD,
                     question = "Test-only question 1?",
                     checkedBlobSha = sha,
