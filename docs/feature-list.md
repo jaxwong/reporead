@@ -122,7 +122,6 @@ These are exclusions, not hidden stretch goals.
 
 Noticed and deliberately not changed:
 
-- `android/reader-web/check-restore.mjs` keeps its own copies of reader functions.
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
@@ -147,6 +146,7 @@ Covered by automated tests only, or not at all:
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
 - Signing out or deleting the account while the phone rotates: both now run in the application's scope, checked by reading the code; the root screen uses the app's own session and database, which tests never touch.
 - A deploy that fails on the VM: the deploy and backup scripts were installed there on 2026-10-17 and the deploy dump ran there, but a failing deploy was only checked in a container with stubbed services.
+- The reading-position restore check (`android/reader-web/check-restore.mjs`) since it became a round trip through the reader's own `restore` and `position` (2026-10-17): syntax-checked only, not yet run on the phone.
 
 ## Personal-project definition of done
 
