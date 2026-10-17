@@ -21,6 +21,7 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.findText
 import com.reporead.android.reader.ReaderTestActivity
+import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
@@ -63,12 +64,6 @@ class PracticeSessionTest {
     /** What the session asked the app to open. */
     private val pushed = mutableListOf<Screen>()
 
-    private fun page(sha: String, body: String) =
-        """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
-        <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
-        <p id="render-status"></p><main id="note">$body</main></body></html>"""
-
     @Before
     fun open() = runBlocking {
         val context = instrumentation.targetContext
@@ -78,7 +73,7 @@ class PracticeSessionTest {
         val dao = store.library()
         // Both questions read the same; each must take its own answer line and section.
         val bank =
-            page(
+            testPage(
                 bankSha,
                 block("b0", "h1", "Test-only bank") +
                     block("b1", "h2", "1. Foundations") +
@@ -88,7 +83,7 @@ class PracticeSessionTest {
                     answer("b5", "Second answer", "second-answer"),
             )
         val core =
-            page(
+            testPage(
                 coreSha,
                 block("c0", "h1", "Test-only core") +
                     block("c1", "p", "Test-only introduction.") +

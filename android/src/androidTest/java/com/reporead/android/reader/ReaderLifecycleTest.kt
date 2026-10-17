@@ -87,11 +87,7 @@ class ReaderLifecycleTest {
                 // A footnote whose definition links a heading of this note, as the renderer marks them.
                 """<p data-block-id="b81" data-anchor-text="See the footnote[^n].">See the footnote<sup class="fn-ref" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]</span></sup>.</p>""" +
                 """<p data-block-id="b82" data-anchor-text="[^n]: Back to the answer"><span class="fn-def" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]:</span></span> <a href="#answer">Back to the answer</a></p>"""
-        val html =
-            """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-            <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
-            <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
-            <p id="render-status"></p><main id="note">$body</main></body></html>"""
+        val html = testPage(sha, body)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, path, title, sha)))
         dao.saveNote(NoteRow(1, sha, path, title, html, 0, renderFormat = RENDER_FORMAT))
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
