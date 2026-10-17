@@ -2,7 +2,7 @@ package com.reporead;
 
 /**
  * An expected, typed failure published to API clients as {code, message}. Messages never contain credentials or note
- * content.
+ * content, and name no client's screens or controls: each client words a code for its own users.
  */
 public final class ApiFailure extends RuntimeException {
     /** Every code the API publishes, each with the one HTTP status it is published with. */

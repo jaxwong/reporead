@@ -450,7 +450,7 @@ public class Annotations {
         if (find(userId, id).isEmpty()) return ApiFailure.notFound();
         return new ApiFailure(
                 Code.ANNOTATION_CONFLICT,
-                "This annotation was changed elsewhere; reload it and choose which text to keep.");
+                "This annotation was changed elsewhere; expectedVersion is not its current version.");
     }
 
     private Annotation annotation(ResultSet row, int n) throws SQLException {

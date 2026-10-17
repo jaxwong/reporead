@@ -193,9 +193,7 @@ fun ReaderScreen(
                     reattaching = null
                     null
                 } catch (error: ApiException) {
-                    if (error.code == "ANNOTATION_CONFLICT")
-                        "This highlight was changed elsewhere; sync, reopen the note, and try again."
-                    else "Not reattached. ${error.describe()}"
+                    "Not reattached. ${error.describe()}"
                 }
         }
     }
@@ -230,9 +228,7 @@ fun ReaderScreen(
                     sync.deleteAnnotation(row)
                     null
                 } catch (error: ApiException) {
-                    if (error.code == "ANNOTATION_CONFLICT")
-                        "This highlight was changed elsewhere; sync and review it before deleting."
-                    else "Not deleted. ${error.describe()}"
+                    "Not deleted. ${error.describe()}"
                 }
         }
     }

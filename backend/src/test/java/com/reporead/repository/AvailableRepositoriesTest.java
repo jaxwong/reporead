@@ -328,7 +328,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         available(alice)
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"))
-                .andExpect(jsonPath("$.message").value(containsString("tap Update on the repository")));
+                .andExpect(jsonPath("$.message").value(containsString("connecting the repository again")));
     }
 
     @Test

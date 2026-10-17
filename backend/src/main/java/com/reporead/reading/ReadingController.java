@@ -77,7 +77,7 @@ public class ReadingController {
             throw new ApiFailure(
                     Code.INVALID_READING_STATE,
                     "lastReadAt must be from 1970 through " + ClientClock.MAX_AHEAD.toMinutes()
-                            + " minutes ahead of the server; check the phone's clock.");
+                            + " minutes ahead of the server; the client's clock may be ahead.");
         }
     }
 }

@@ -99,8 +99,7 @@ public class AppSessions {
         if (expectedUserId != null && expectedUserId != pending.get().userId()) {
             throw new ApiFailure(
                     Code.ACCOUNT_MISMATCH,
-                    "This phone holds another account's notes, so it signs in only as that account. Sign in with the"
-                            + " GitHub account that saved them, or sign out first to remove them from this phone.");
+                    "This sign-in is for a different account than expectedUserId; no session was issued.");
         }
 
         String token = randomToken();
