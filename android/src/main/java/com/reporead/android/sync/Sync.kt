@@ -718,8 +718,6 @@ class Sync(
         dao.replaceRemoteNotebook(annotations, reviews, limit)
     }
 
-    suspend fun pushReviews() = locked { sendReviews() }
-
     private suspend fun sendReviews() {
         for (row in dao.pendingReviews()) {
             val card =
