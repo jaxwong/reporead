@@ -283,7 +283,8 @@ flowchart TB
         Api["core/network/Api<br/>HTTP + JSON, 8 MiB cap"]
         Images["sync/NoteImages<br/>saved notes' images,<br/>outside the lock"]
         Session["auth/SessionStore<br/>Keystore AES-GCM bearer token"]
-        Sched["library/Review<br/>pure review scheduler"]
+        Sched["library/ReviewSchedule<br/>pure review scheduler"]
+        StudyS["library/StudySession<br/>pure session progress"]
         StudyK["reader/Study<br/>bank / study-view recognition"]
     end
 
@@ -298,6 +299,8 @@ flowchart TB
     Practice --> StudyK
     Practice --> Sched
     Review --> Sched
+    Practice --> StudyS
+    Review --> StudyS
     Reader --> Page
     Figure --> Page
     Sync --> Api
@@ -316,7 +319,7 @@ flowchart TB
 | `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made |
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
 | `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect and account deletion, all under sign-out's lock (ADR-22); `NoteImages`: saved notes' images, fetched for the reader's WebView outside the lock (Sync deletes them with their notes); `ServerJson.kt`: server responses as Room rows; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
-| `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), the folder screen (`Folder.kt`), and Add repository (`Available.kt`) |
+| `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), both moved by `StudySession.kt`, the folder screen (`Folder.kt`), and Add repository (`Available.kt`) |
 | `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
