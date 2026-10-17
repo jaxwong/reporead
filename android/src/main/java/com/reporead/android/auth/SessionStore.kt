@@ -3,11 +3,14 @@ package com.reporead.android.auth
 import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import com.reporead.android.core.network.ApiException
 import java.security.GeneralSecurityException
 import java.security.KeyStore
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -29,22 +32,49 @@ private const val PREFS = "reporead-session"
 class SessionStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    /** Whether a session is stored; [accessToken] may still fail to read it. */
+    val hasSession: Boolean
+        get() = prefs.contains("token")
+
+    /**
+     * The stored session, or null when there is none. One that can never be read is deleted, signing the phone out:
+     * text [save] did not write, a key gone or invalidated (KeyPermanentlyInvalidatedException at Cipher.init), or
+     * ciphertext the current key does not authenticate (AEADBadTagException: the key was replaced). Any other Keystore
+     * failure may pass, so the session is kept and the request fails before anything is sent.
+     */
     fun accessToken(): String? {
         val stored = prefs.getString("token", null) ?: return null
-        val (iv, ciphertext) = stored.split(':').map { Base64.decode(it, Base64.NO_WRAP) }
+        val parts =
+            try {
+                stored.split(':').map { Base64.decode(it, Base64.NO_WRAP) }
+            } catch (malformed: IllegalArgumentException) {
+                return forgetUnreadable("malformed")
+            }
+        if (parts.size != 2) return forgetUnreadable("malformed")
+        val (iv, ciphertext) = parts
         return try {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv))
             cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+        } catch (error: KeyPermanentlyInvalidatedException) {
+            forgetUnreadable(error.javaClass.simpleName)
+        } catch (error: AEADBadTagException) {
+            forgetUnreadable(error.javaClass.simpleName)
         } catch (error: GeneralSecurityException) {
-            // A Keystore key can be invalidated by the platform; the only recovery is a new sign-in.
-            Log.w(
-                "RepoRead",
-                "Stored session could not be decrypted; signing out. failure=${error.javaClass.simpleName}",
+            Log.w("RepoRead", "Stored session not readable now; kept. failure=${error.javaClass.simpleName}")
+            throw ApiException(
+                0,
+                "SESSION_UNREADABLE",
+                "This phone could not read its sign-in just now (${error.javaClass.simpleName}). Nothing was sent; try again.",
             )
-            clear()
-            null
         }
+    }
+
+    /** The only recovery from a session that can never be read is a new sign-in; saved notes stay. */
+    private fun forgetUnreadable(failure: String): String? {
+        Log.w("RepoRead", "Stored session can never be read; signing out. failure=$failure")
+        clear()
+        return null
     }
 
     fun save(token: String) {
@@ -73,10 +103,10 @@ class SessionStore(context: Context) {
     /** Whether a session is stored, as it changes through any SessionStore (they all share these preferences). */
     fun signedIn(): Flow<Boolean> = callbackFlow {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "token" || key == null) trySend(prefs.contains("token"))
+            if (key == "token" || key == null) trySend(hasSession)
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
-        send(prefs.contains("token"))
+        send(hasSession)
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
         .distinctUntilChanged()

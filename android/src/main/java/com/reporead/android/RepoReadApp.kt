@@ -150,7 +150,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val sync = app.sync
     val dao = app.localStore.library()
     // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
-    val signedIn by remember { store.signedIn() }.collectAsState(remember { store.accessToken() != null })
+    val signedIn by remember { store.signedIn() }.collectAsState(remember { store.hasSession })
     var signInMessage by remember { mutableStateOf<String?>(null) }
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a
