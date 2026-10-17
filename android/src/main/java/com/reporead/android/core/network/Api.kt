@@ -150,7 +150,10 @@ fun JSONArray.string(index: Int): String = get(index) as? String ?: throw JSONEx
 internal fun contractBroken(cause: Exception) =
     ApiException(200, "INVALID_RESPONSE", "RepoRead's server response did not match the app's contract.", cause)
 
-/** A short, user-facing explanation of a failure, distinguishing the states the reader must show explicitly. */
+/**
+ * A short, user-facing explanation of a failure, distinguishing the states the reader must show explicitly. The one
+ * place that words a code for this app's screens; the server's message, which names no screen, is the fallback.
+ */
 fun ApiException.describe(): String =
     when (code) {
         "BACKEND_UNAVAILABLE" ->
@@ -161,6 +164,15 @@ fun ApiException.describe(): String =
         "REPOSITORY_NOT_AUTHORIZED" -> "Access denied: $message"
         "UNSUPPORTED_CONTENT" -> "This note can't be shown: $message"
         "DOCUMENT_DELETED" -> "This note was removed from the repository."
+        "DEFAULT_BRANCH_NOT_FOUND" ->
+            "The default branch was not found: the repository may be empty or no longer accessible, or its default " +
+                "branch was renamed (then tap Update on it under Add repository)."
+        "SYNC_SUPERSEDED" ->
+            "This repository changed during the refresh, so nothing was replaced; refresh again to get the latest notes."
+        "ANNOTATION_CONFLICT" -> "It was changed elsewhere; sync, reopen the note, and try again."
+        "ACCOUNT_MISMATCH" ->
+            "This phone holds another account's notes, so it signs in only as that account. Sign in with the GitHub " +
+                "account that saved them, or sign out first to remove them from this phone."
         "SIGN_IN_REQUIRED",
         "HTTP_401" -> "Sign in again to refresh from GitHub."
         "NOT_FOUND" -> "Not found."

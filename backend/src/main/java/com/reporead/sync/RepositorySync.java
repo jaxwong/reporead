@@ -129,7 +129,7 @@ public class RepositorySync {
                         checkpoint);
                 throw new ApiFailure(
                         Code.SYNC_SUPERSEDED,
-                        "Another refresh of this repository finished first; refresh again to get the latest notes.");
+                        "Another sync of this repository published first; nothing was published.");
             }
             var applied = documents.publishSnapshot(connectionId, markdown, syncedAt, contentMoves, checkpoint != null);
             attachments.replace(connectionId, images);
