@@ -1,5 +1,7 @@
 package com.reporead.library;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -151,6 +153,36 @@ class LibraryTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.repositories.length()").value(1))
                 .andExpect(jsonPath("$.repositories[0].documents.length()").value(2));
         mvc.perform(get("/api/library")).andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * The server refuses a library answer over its cap whole, before sending any of it, and sends one at the cap. A
+     * note's title is ASCII in the answer, so each character added to it adds one byte.
+     */
+    @Test
+    void aLibraryOverTheServersCapIsRefusedWholeAndOneAtTheCapIsServed() throws Exception {
+        long padded = document(1, "padded.md", false);
+        int base = library(alice).andReturn().getResponse().getContentAsByteArray().length;
+        int atCap = Library.MAX_RESPONSE_BYTES - base + "padded.md".length();
+        retitle(padded, "t".repeat(atCap));
+        var served = library(alice).andExpect(status().isOk()).andReturn().getResponse();
+        assertEquals(Library.MAX_RESPONSE_BYTES, served.getContentAsByteArray().length);
+        retitle(padded, "t".repeat(atCap + 1));
+        var refused = library(alice)
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("LIBRARY_TOO_LARGE"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        assertFalse(refused.contains("repositories"), refused);
+        assertTrue(refused.length() < 1_000, "only the error, nothing of the library: " + refused.length());
+    }
+
+    private void retitle(long document, String title) {
+        db.sql("update documents set title = :title where id = :id")
+                .param("title", title)
+                .param("id", document)
+                .update();
     }
 
     /**

@@ -40,6 +40,17 @@ val bundleReader = tasks.register<BundleReader>("bundleReader") {
 val commitCount = providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
     .standardOutput.asText.get().trim().toInt()
 
+// The server owns the library's size cap (Library.MAX_RESPONSE_BYTES); the app reads at most that, taken from the
+// backend's own line, so no second number exists. A line this cannot read fails the build.
+val libraryMaxResponseBytes =
+    providers.fileContents(rootProject.layout.projectDirectory.file("backend/src/main/java/com/reporead/library/Library.java"))
+        .asText
+        .map { source ->
+            Regex("""MAX_RESPONSE_BYTES = ([0-9 *]+);""").find(source)?.groupValues?.get(1)
+                ?: error("Library.java has no line `MAX_RESPONSE_BYTES = <digits and *>;`")
+        }
+        .get()
+
 val signingStore = providers.gradleProperty("reporead.signing.storeFile").orNull
 val signingPasswordFile = providers.gradleProperty("reporead.signing.passwordFile").orNull
 
@@ -55,6 +66,7 @@ android {
         versionCode = commitCount
         versionName = "0.1.$commitCount"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("int", "LIBRARY_MAX_RESPONSE_BYTES", libraryMaxResponseBytes)
     }
 
     signingConfigs {

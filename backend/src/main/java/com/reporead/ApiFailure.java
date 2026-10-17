@@ -35,6 +35,7 @@ public final class ApiFailure extends RuntimeException {
         REQUEST_TOO_LARGE(413),
         DOCUMENT_LIMIT(422),
         INVALID_ANCHOR(422),
+        LIBRARY_TOO_LARGE(422),
         UNSUPPORTED_CONTENT(422),
         GITHUB_INVALID_RESPONSE(502),
         GITHUB_RESPONSE_LIMIT(502),
