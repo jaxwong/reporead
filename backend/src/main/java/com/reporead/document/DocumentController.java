@@ -4,6 +4,7 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
+import com.reporead.repository.RepositoryConnections;
 import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
@@ -17,20 +18,35 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * External-call ceilings: content 1 (the note's blob); image 1 (the file at the note's commit); changes 2 (the two
- * versions' blobs), 0 when they are the same version.
+ * External-call ceilings: listing 0 GitHub requests; content 1 (the note's blob); image 1 (the file at the note's
+ * commit); changes 2 (the two versions' blobs), 0 when they are the same version.
  */
 @RestController
 public class DocumentController {
     private static final Logger LOG = LoggerFactory.getLogger(DocumentController.class);
+    private final RepositoryConnections connections;
     private final Documents documents;
     private final NoteVersions noteVersions;
     private final Attachments attachments;
 
-    public DocumentController(Documents documents, NoteVersions noteVersions, Attachments attachments) {
+    public DocumentController(
+            RepositoryConnections connections,
+            Documents documents,
+            NoteVersions noteVersions,
+            Attachments attachments) {
+        this.connections = connections;
         this.documents = documents;
         this.noteVersions = noteVersions;
         this.attachments = attachments;
+    }
+
+    record DocumentList(long repositoryId, String lastSyncedCommitSha, List<Documents.Summary> documents) {}
+
+    /** Kept only for app releases from before GET /api/library; the library contract step deletes it (ADR-08). */
+    @GetMapping("/api/repositories/{id}/documents")
+    DocumentList list(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
+        var connection = connections.find(user.id(), id).orElseThrow(ApiFailure::notFound);
+        return new DocumentList(id, connection.lastSyncedCommitSha(), documents.list(id));
     }
 
     /**

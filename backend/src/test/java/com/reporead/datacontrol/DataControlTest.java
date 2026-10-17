@@ -287,7 +287,7 @@ class DataControlTest extends SharedSpringTest {
 
         mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isNotFound());
-        mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+        mvc.perform(get("/api/repositories").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(jsonPath("$.repositories.length()").value(1))
                 .andExpect(jsonPath("$.repositories[0].id").value(other));
     }
