@@ -57,7 +57,11 @@ class SessionStore(context: Context) {
         prefs.edit().putString("token", encoded).apply()
     }
 
-    fun clear() = prefs.edit().remove("token").apply()
+    /**
+     * Ends the session on this phone, on disk before it returns: sign-out runs it before deleting the phone's copy, and
+     * apply() writes 100 ms later, so process death meanwhile would leave the phone signed in.
+     */
+    fun clear() = commit("remove the stored session") { remove("token") }
 
     /**
      * The server refused [sent] (a 401): ends the session unless a newer sign-in replaced it while that request ran.
@@ -67,21 +71,53 @@ class SessionStore(context: Context) {
     }
 
     /** Whether a session is stored, as it changes through any SessionStore (they all share these preferences). */
-    fun signedIn(): Flow<Boolean> = callbackFlow {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "token" || key == null) trySend(prefs.contains("token"))
+    fun signedIn(): Flow<Boolean> = observed("token") { prefs.contains("token") }
+
+    /** [key]'s value, read by [read], as it changes; one listener shape for each value a screen follows. */
+    private fun <T> observed(key: String, read: () -> T): Flow<T> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changed ->
+            if (changed == key || changed == null) trySend(read())
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
-        send(prefs.contains("token"))
+        send(read())
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
         .distinctUntilChanged()
 
     /** The RepoRead user id whose data is saved on this phone; null when nothing is known to be saved. */
-    var dataOwner: Long?
+    val dataOwner: Long?
         get() = if (prefs.contains("dataOwner")) prefs.getLong("dataOwner", 0) else null
-        set(value) =
-            prefs.edit().apply { if (value == null) remove("dataOwner") else putLong("dataOwner", value) }.apply()
+
+    fun recordOwner(userId: Long) = prefs.edit().putLong("dataOwner", userId).apply()
+
+    /**
+     * Set from just before a sign-out or account deletion asks the server until this phone's copy is gone
+     * (RepoReadApplication.removeCopy); meanwhile the phone signs in as no account (completeSignIn), and the app
+     * finishes the removal when it next starts. A missing session with a known owner cannot say this: a session that
+     * expired keeps its saved notes.
+     */
+    val removalPending: Boolean
+        get() = prefs.getBoolean("removalPending", false)
+
+    fun removalPendingChanges(): Flow<Boolean> = observed("removalPending") { removalPending }
+
+    /** On disk before the server is asked, so process death after it still removes the phone's copy at next start. */
+    fun startRemoval() = commit("record a pending removal") { putBoolean("removalPending", true) }
+
+    /**
+     * The server refused or did not answer an account deletion: nothing on the phone changed, so nothing is removed.
+     */
+    fun cancelRemoval() = commit("cancel the pending removal") { remove("removalPending") }
+
+    /** The phone's copy is gone: the pending removal and the data's owner are forgotten in one write. */
+    fun finishRemoval() =
+        commit("finish the removal") {
+            remove("removalPending")
+            remove("dataOwner")
+        }
+
+    private fun commit(what: String, change: SharedPreferences.Editor.() -> Unit) =
+        check(prefs.edit().apply(change).commit()) { "Could not $what in $PREFS" }
 
     var pendingVerifier: String?
         get() = prefs.getString("verifier", null)

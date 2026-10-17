@@ -6,6 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.ListenableWorker.Result
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.backgroundSync
@@ -631,6 +632,99 @@ class LocalSyncTest {
             assertTrue(dao.repositoryIds().isEmpty())
             assertNull(dao.note(1))
         }
+    }
+
+    /** A test-only image of [documentId]'s version [blobSha], as the reader caches it. */
+    private fun image(documentId: Long, blobSha: String = sha) =
+        File(directory, "images/$documentId/$blobSha/key").also {
+            it.parentFile!!.mkdirs()
+            it.writeText("test-only image")
+        }
+
+    private fun export() =
+        File(directory, "exports/notebook.md").also {
+            it.parentFile!!.mkdirs()
+            it.writeText("test-only export")
+        }
+
+    /** A test-only image of [documentId] in a folder the app may not write, so it cannot be deleted until [after]. */
+    private suspend fun <T> withStuckImage(documentId: Long, after: suspend (stuck: File) -> T): T {
+        val stuck = image(documentId)
+        check(stuck.parentFile!!.setWritable(false))
+        return try {
+            after(stuck)
+        } finally {
+            stuck.parentFile!!.setWritable(true)
+        }
+    }
+
+    /** Repository 7 listing note 1, saved on the phone. */
+    private suspend fun savedRepository() {
+        dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
+        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
+    }
+
+    @Test
+    fun clearingThePhoneDeletesRoomAndReturnsTheFilesItCouldNotDeleteUntilItRunsAgain() = runBlocking {
+        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
+        val export = export()
+        val sync = sync("http://127.0.0.1:${closedPort()}")
+        withStuckImage(1) { stuck ->
+            val left = sync.clearAll()
+            assertTrue(left.toString(), left is LocalCleanup.FilesLeft && left.paths.first() == stuck)
+        }
+        assertNull(dao.note(1))
+        assertFalse(export.exists())
+        assertEquals(LocalCleanup.Done, sync.clearAll())
+        assertEquals(0, File(directory, "images").list()!!.size)
+    }
+
+    @Test
+    fun aDisconnectRunAgainAfterItsAnswerWasLostDeletesExportsAndImagesToo() = runBlocking {
+        savedRepository()
+        val image = image(1)
+        val export = export()
+        LoopbackServer(
+                mapOf(
+                    "DELETE /api/repositories/7" to failure(404, "NOT_FOUND"),
+                    "GET /api/library" to library(),
+                )
+            )
+            .use { server -> sync(server.url).disconnect(7) }
+        assertTrue(dao.repositoryIds().isEmpty())
+        assertNull(dao.note(1))
+        assertFalse(export.exists())
+        assertFalse(image.exists())
+    }
+
+    @Test
+    fun imagesADisconnectCouldNotDeleteGoAtTheNextStart() = runBlocking {
+        savedRepository()
+        LoopbackServer(mapOf("DELETE /api/repositories/7" to (200 to """{"documentIds":[1]}"""))).use { server ->
+            val sync = sync(server.url)
+            withStuckImage(1) { stuck ->
+                sync.disconnect(7)
+                assertTrue(stuck.exists())
+            }
+            assertTrue(dao.repositoryIds().isEmpty())
+            sync.startUp()
+            assertFalse(File(directory, "images/1").exists())
+        }
+    }
+
+    @Test
+    fun startingDeletesExportsAndEveryImageNoSavedPageShows() = runBlocking {
+        savedRepository()
+        val kept = image(1)
+        val older = image(1, "b".repeat(40))
+        val unsaved = image(2)
+        val export = export()
+        sync("http://127.0.0.1:${closedPort()}").startUp()
+        assertTrue(kept.exists())
+        assertFalse(older.exists())
+        assertFalse(unsaved.exists())
+        assertFalse(export.exists())
     }
 }
 

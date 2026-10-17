@@ -37,6 +37,8 @@ import com.reporead.android.library.ReviewScreen
 import com.reporead.android.reader.FigureScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
+import com.reporead.android.sync.LocalCleanup
+import com.reporead.android.ui.counted
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -141,6 +143,26 @@ private fun entryKey(index: Int, screen: Screen) = "$index:" + encode(screen).jo
 
 private val ROOT_STATE = entryKey(0, Screen.Repositories)
 
+/** Where removing this phone's copy stands while it is pending: running, or what stopped it, with [onRetry]. */
+@Composable
+private fun RemovalStatus(outcome: LocalCleanup?, onRetry: () -> Unit) {
+    when (outcome) {
+        // Done shows only until the pending removal's end reaches this screen.
+        null,
+        LocalCleanup.Done -> Text("Removing this phone's copy of your notes…")
+        is LocalCleanup.FilesLeft ->
+            Text(
+                "Signed out, but ${counted(outcome.paths.size, "file or folder", "files and folders")} could not be removed from this phone. Signing in waits until they are."
+            )
+        is LocalCleanup.DatabaseFailed ->
+            Text(
+                "Signed out, but this phone's saved notes could not be deleted (${outcome.error.javaClass.simpleName}). Signing in waits until they are."
+            )
+    }
+    if (outcome is LocalCleanup.FilesLeft || outcome is LocalCleanup.DatabaseFailed)
+        TextButton(onClick = onRetry) { Text("Retry") }
+}
+
 @Composable
 fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val context = LocalContext.current
@@ -151,6 +173,10 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val dao = app.localStore.library()
     // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
     val signedIn by remember { store.signedIn() }.collectAsState(remember { store.accessToken() != null })
+    // From before sign-out or account deletion asks the server until this phone's copy is gone; on disk, so a removal
+    // cut short is finished at the next start and offered again here until it is.
+    val removing by remember { store.removalPendingChanges() }.collectAsState(remember { store.removalPending })
+    val removal by app.removal.collectAsState()
     var signInMessage by remember { mutableStateOf<String?>(null) }
     var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a
@@ -160,17 +186,18 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     val savedRepositories by dao.repositories().collectAsState(null)
 
     val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
-    // Back to the first screen signed out, once this phone's copy is gone; [message] says why.
-    val endSession = { message: String? ->
-        store.clear()
-        store.dataOwner = null
+    // Ends the session here, deletes this phone's copy of private notes, unsynced changes included, and goes back to
+    // the first screen signed out; [message] says why. The removal must be pending already. Callers run it in the
+    // app's scope: a rotation must not stop it part-way.
+    val endSession: suspend (String?) -> Unit = { message ->
+        app.removeCopy()
         screenStates.removeState(ROOT_STATE)
         signInMessage = message
         stack = listOf(Screen.Repositories)
     }
-    // Revokes the session on the server when it can, then deletes this phone's copy of private notes, unsynced
-    // changes included. In the app's scope: a rotation must not stop it between the two.
+    // Revokes the session on the server when it can, then ends it on this phone.
     val signOut: () -> Unit = {
+        store.startRemoval()
         app.scope.launch {
             val message =
                 try {
@@ -181,7 +208,6 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                     else
                         "Signed out on this phone, but the server session could not be revoked (${error.describe()}). It expires within 30 days."
                 }
-            sync.clearAll()
             endSession(message)
         }
     }
@@ -205,14 +231,16 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
     }
 
     val saved = savedRepositories ?: return
-    if (!signedIn && (saved.isEmpty() || signInMessage != null)) {
+    if (!signedIn && (removing || saved.isEmpty() || signInMessage != null)) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("RepoRead", style = MaterialTheme.typography.headlineMedium)
             Text("Read your GitHub notes. RepoRead only reads repositories you grant to its GitHub App.")
-            Button(onClick = signIn) { Text("Sign in with GitHub") }
+            // Signing in waits for the removal (completeSignIn refuses it meanwhile).
+            if (removing) RemovalStatus(removal) { app.scope.launch { app.removeCopy() } }
+            else Button(onClick = signIn) { Text("Sign in with GitHub") }
             signInMessage?.let { Text(it) }
             // A refused sign-in changes nothing saved here, and saved notes stay readable signed out.
-            if (saved.isNotEmpty() && signInMessage != null)
+            if (!removing && saved.isNotEmpty() && signInMessage != null)
                 TextButton(onClick = { signInMessage = null }) { Text("Back to saved notes") }
         }
         return
@@ -241,8 +269,17 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                         push,
                         onSignIn = signIn,
                         onSignOut = signOut,
-                        onAccountDeleted = {
-                            // The server deleted the account and its sessions, and Sync cleared this phone's copy.
+                        onDeleteAccount = {
+                            // Pending before the server is asked: if the app dies before the answer, the next start
+                            // still removes this phone's copy.
+                            store.startRemoval()
+                            try {
+                                sync.deleteAccount()
+                            } catch (failure: ApiException) {
+                                store.cancelRemoval()
+                                throw failure
+                            }
+                            // The server deleted the account and its sessions; this phone's copy goes as at sign-out.
                             endSession(
                                 "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
                             )

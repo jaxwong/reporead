@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        (application as RepoReadApplication).startUp()
         // Debug builds only: lets Chrome DevTools inspect the reader over adb. Release builds never expose it.
         WebView.setWebContentsDebuggingEnabled(applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
         if (savedInstanceState == null) receive(intent)
