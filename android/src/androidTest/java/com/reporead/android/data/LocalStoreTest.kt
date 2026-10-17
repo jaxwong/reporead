@@ -320,14 +320,15 @@ class LocalStoreTest {
             dao.saveAnnotation(annotation("m$id", null, null, AnnotationState.UNSENT).copy(documentId = id))
         }
         // Disconnected with its answer lost, or from another device: the server no longer lists repository 7.
-        assertEquals(listOf(1L), dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40)))))
+        dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40))))
         assertEquals(listOf(8L), dao.repositories().first().map { it.id })
         assertNull(dao.note(1))
         assertNull(dao.reading(1))
         assertNull(dao.annotation("m1"))
         assertEquals("text", dao.note(3)!!.searchText)
         assertEquals(listOf(3L), dao.pendingReading().map { it.documentId })
-        assertEquals(emptyList<Long>(), dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40)))))
+        dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40))))
+        assertEquals("text", dao.note(3)!!.searchText)
     }
 
     @Test
@@ -357,8 +358,8 @@ class LocalStoreTest {
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = false, at = 1))
         dao.saveAnnotation(annotation("m4", 4, null, AnnotationState.ACKNOWLEDGED).copy(documentId = 4))
         // A removed note's copy goes once nothing refers to it, as an unlisted one's does.
-        assertEquals(listOf(5L, 6L), dao.forgetUnreferencedNotes().sorted())
-        assertEquals(listOf(1L, 2L, 3L, 4L), (1L..5L).filter { dao.note(it) != null })
+        dao.forgetUnreferencedNotes()
+        assertEquals(listOf(1L, 2L, 3L, 4L), (1L..6L).filter { dao.note(it) != null })
     }
 
     @Test

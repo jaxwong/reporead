@@ -1,5 +1,6 @@
 package com.reporead.android.sync
 
+import android.database.sqlite.SQLiteException
 import android.util.Log
 import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
@@ -93,6 +94,18 @@ internal fun ApiException.refusesItem() =
  */
 data class LocalSync(val refused: List<String>, val notSent: ApiException?)
 
+/** What clearing this phone's copy did ([Sync.clearAll]). */
+sealed interface LocalCleanup {
+    /** Room's rows and every file are gone. */
+    data object Done : LocalCleanup
+
+    /** Room's rows are gone; [paths], each file and folder still there (deepest first), are not. */
+    data class FilesLeft(val paths: List<File>) : LocalCleanup
+
+    /** Room's rows could not be deleted ([error]); no file was tried. */
+    data class DatabaseFailed(val error: SQLiteException) : LocalCleanup
+}
+
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
  * cache untouched. Nothing here retries; every local change calls [onPendingChange], which asks for a background sync
@@ -110,8 +123,8 @@ class Sync(
      * Every operation that writes the server's answers into Room, and clearing the phone, run under this lock, so
      * nothing fetched before sign-out or an account switch is written after it (ADR-22). The app has one Sync
      * (RepoReadApplication), so the screens and the background sync share it. Not reentrant: locked operations call
-     * only private helpers. Local saves and the reader's image fetches ([NoteImages]) do not wait; a late image is
-     * removed at the next clear.
+     * only private helpers. Local saves and the reader's image fetches ([NoteImages]) do not wait; an image whose fetch
+     * began before a deletion is not written ([NoteImages]).
      */
     private val oneSyncAtATime = Mutex()
 
@@ -127,13 +140,34 @@ class Sync(
     val images = NoteImages(api, filesDir)
     private val exportRoot = exportDirectory(filesDir)
 
+    /** The [paths] a deletion [after] something left, logged; a later sweep or clear deletes them again. */
+    private fun logged(after: String, paths: List<File>): List<File> {
+        if (paths.isNotEmpty())
+            Log.w("RepoRead", "Files left on the phone; after=$after count=${paths.size} paths=$paths")
+        return paths
+    }
+
+    /**
+     * Deletes the images of every version Room holds no page of: forgotten notes' and replaced versions'. Derived from
+     * Room each time, so nothing remembers what to delete. Run wherever a saved page may have gone or been replaced:
+     * after a page is saved, after the server's lists replace the saved ones, after a disconnect, at a clear and at
+     * start.
+     */
+    private suspend fun sweepImages(): List<File> = logged("sweeping images", images.sweep(dao.allSavedVersions()))
+
+    /**
+     * Exports are kept only until they are shared: deleted at start, at a disconnect and at a clear, so none outlives
+     * the notes it quotes. An app that reads a shared export only after one of those finds it gone.
+     */
+    private fun deleteExports(): List<File> = logged("deleting exports", deleteTree(exportRoot))
+
     /**
      * Loads the server's whole library in one request, no GitHub call (GET /api/library): the repositories with every
      * note, which name every note the other rows refer to, the reading states, the bookmarks, and the notebook, all
      * read from one database snapshot (ADR-08). It replaces the acknowledged rows, never pending work, in one Room
-     * transaction; a failed request or an answer that breaks the contract writes nothing. Images of the notes it
-     * forgets — in a repository no longer listed (disconnected on another device, or here with the answer lost), or
-     * referred to by nothing — are deleted after the commit.
+     * transaction; a failed request or an answer that breaks the contract writes nothing. After the commit it sweeps
+     * the images of the notes it forgot — in a repository no longer listed (disconnected on another device, or here
+     * with the answer lost), or referred to by nothing ([sweepImages]).
      */
     private suspend fun loadLibrary() {
         val json = api.get("/api/library", BuildConfig.LIBRARY_MAX_RESPONSE_BYTES)
@@ -170,7 +204,8 @@ class Sync(
             }
         }
         val (annotations, reviews, limit) = notebookRows(contract { json.getJSONObject("notebook") })
-        images.delete(dao.replaceFromServer(library, reading, bookmarks, annotations, reviews, limit))
+        dao.replaceFromServer(library, reading, bookmarks, annotations, reviews, limit)
+        sweepImages()
     }
 
     private fun documentRows(repositoryId: Long, array: JSONArray) = contract {
@@ -249,7 +284,9 @@ class Sync(
             )
         }
         dao.saveNote(note)
-        images.keepOnly(documentId, note.blobSha)
+        // Images left behind are logged and skipped: the page asks only for this version's, and the next sweep deletes
+        // them.
+        sweepImages()
         return note
     }
 
@@ -357,6 +394,7 @@ class Sync(
                 if (error.code != "NOT_FOUND") throw error
                 Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
                 loadLibrary()
+                deleteExports()
                 return@locked null
             }
         val stored = contract {
@@ -373,35 +411,40 @@ class Sync(
 
     /**
      * Online only: the server deletes the connection and everything stored for it, then this phone deletes its copies,
-     * including unsynced changes for those notes. A failure changes nothing on the phone. When the server no longer has
-     * the repository (an earlier answer was lost), the phone reloads the server's library instead.
+     * including unsynced changes for those notes. A failed request changes nothing on the phone, but the server may
+     * already have deleted (its answer lost or unreadable). When the server no longer has the repository, disconnecting
+     * again reloads the server's library instead. Either way exports and the forgotten notes' images are deleted; files
+     * that stay are logged and deleted again by the next sweep.
      */
-    suspend fun disconnect(repositoryId: Long) = locked {
+    suspend fun disconnect(repositoryId: Long): Unit = locked {
         val json =
             try {
                 api.delete("/api/repositories/$repositoryId")
                     ?: throw ApiException(204, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
             } catch (error: ApiException) {
                 if (error.code != "NOT_FOUND") throw error
-                Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
-                loadLibrary()
-                return@locked
+                null
             }
-        val documentIds = contract {
-            json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } }
+        if (json == null) {
+            Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
+            loadLibrary()
+        } else {
+            val documentIds = contract {
+                json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } }
+            }
+            dao.forgetRepository(repositoryId, documentIds)
+            Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
+            sweepImages()
         }
-        dao.forgetRepository(repositoryId, documentIds)
-        check(!exportRoot.exists() || exportRoot.deleteRecursively()) {
-            "Could not remove private notebook exports at $exportRoot"
-        }
-        images.delete(documentIds)
-        Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
+        deleteExports()
     }
 
-    /** Online only: the server deletes the account and everything it stored; then this phone's copy is cleared. */
+    /**
+     * Online only: the server deletes the account and everything it stored. The caller then ends the session here and
+     * clears this phone's copy, in sign-out's order (RepoReadApp).
+     */
     suspend fun deleteAccount() {
         api.delete("/api/account")
-        clearAll()
     }
 
     /** Only the reader calls this, with the version it actually displayed. */
@@ -748,13 +791,29 @@ class Sync(
 
     /**
      * Explicit sign-out removes every cached note, image, and pending change from this phone; a running sync finishes
-     * first.
+     * first. Says what it could not delete; running it again tries again, whenever it runs. A database failure is the
+     * expected kind only (SQLiteException: a full or failing disk); any other failure is a bug and is thrown.
      */
-    suspend fun clearAll() = locked {
-        store.clearAllTables()
-        images.clear()
-        check(!exportRoot.exists() || exportRoot.deleteRecursively()) {
-            "Could not remove private notebook exports at $exportRoot"
+    suspend fun clearAll(): LocalCleanup = locked {
+        val left =
+            try {
+                store.clearAllTables()
+                deleteExports() + sweepImages()
+            } catch (error: SQLiteException) {
+                Log.w("RepoRead", "Could not clear the phone's database", error)
+                return@locked LocalCleanup.DatabaseFailed(error)
+            }
+        if (left.isEmpty()) LocalCleanup.Done else LocalCleanup.FilesLeft(left)
+    }
+
+    /**
+     * Once per process, when the app opens: exports from before are deleted, and images Room holds no page of, such as
+     * those a deletion cut short by process death left.
+     */
+    suspend fun startUp() {
+        locked {
+            deleteExports()
+            sweepImages()
         }
     }
 }

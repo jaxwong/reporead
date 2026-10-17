@@ -22,28 +22,21 @@ interface LibraryDao {
 
     /**
      * The server's complete list replaces the saved one. A repository no longer listed was disconnected — here with its
-     * answer lost, or on another device — so everything saved for its listed notes is forgotten too. Returns those
-     * notes' ids, for the files kept beside the database.
+     * answer lost, or on another device — so everything saved for its listed notes is forgotten too.
      */
     @Transaction
-    suspend fun replaceRepositories(rows: List<RepositoryRow>): List<Long> {
+    suspend fun replaceRepositories(rows: List<RepositoryRow>) {
         val listed = rows.map { it.id }.toSet()
-        val forgotten = mutableListOf<Long>()
-        for (gone in repositoryIds().filter { it !in listed }) {
-            val ids = documentIds(gone)
-            forgetRepository(gone, ids)
-            forgotten += ids
-        }
+        for (gone in repositoryIds().filter { it !in listed }) forgetRepository(gone, documentIds(gone))
         clearRepositories()
         insertRepositories(rows)
-        return forgotten
     }
 
     /**
      * The server's library, read from one snapshot, replaces the saved lists in one transaction, so the phone holds all
      * of one answer or none of it: the repositories and each one's notes, then the reading, bookmark and notebook rows
-     * (acknowledged ones only; pending work stays), then saved copies nothing refers to any more. Returns the ids of
-     * every note forgotten, for the files kept beside the database.
+     * (acknowledged ones only; pending work stays), then saved copies nothing refers to any more. Their images are
+     * swept from what is left (Sync.sweepImages).
      */
     @Transaction
     suspend fun replaceFromServer(
@@ -53,13 +46,13 @@ interface LibraryDao {
         annotations: List<AnnotationRow>,
         reviews: List<ReviewRow>,
         sessionLimit: Int,
-    ): List<Long> {
-        val forgotten = replaceRepositories(library.keys.toList())
+    ) {
+        replaceRepositories(library.keys.toList())
         for ((repository, documents) in library) replaceDocuments(repository.id, documents)
         replaceRemoteReading(reading)
         replaceRemoteBookmarks(bookmarks)
         replaceRemoteNotebook(annotations, reviews, sessionLimit)
-        return forgotten + forgetUnreferencedNotes()
+        forgetUnreferencedNotes()
     }
 
     @Query("select * from documents where repositoryId = :repositoryId and not deleted order by path")
@@ -128,6 +121,10 @@ interface LibraryDao {
     )
     suspend fun savedVersions(repositoryId: Long): List<SavedVersion>
 
+    /** Every saved page's version: the only images worth keeping (NoteImages.sweep). */
+    @Query("select documentId, blobSha, path, renderFormat from notes")
+    suspend fun allSavedVersions(): List<SavedVersion>
+
     /**
      * The listed notes in a folder named `interview`, each with its saved page only when that page is the listed
      * version: an older copy reads as unsaved, so Practice never asks a question whose grade would be refused. Only
@@ -178,13 +175,11 @@ interface LibraryDao {
     /**
      * Deletes saved copies of notes that no saved list lists now and that no reading, bookmark, or annotation row
      * refers to — for example notes removed from their repository. Run only after those rows were replaced from the
-     * server's complete lists. Returns the deleted ids, for their images.
+     * server's complete lists.
      */
     @Transaction
-    suspend fun forgetUnreferencedNotes(): List<Long> {
-        val ids = unreferencedNoteIds()
-        for (chunk in ids.chunked(IDS_PER_STATEMENT)) deleteNotes(chunk)
-        return ids
+    suspend fun forgetUnreferencedNotes() {
+        for (chunk in unreferencedNoteIds().chunked(IDS_PER_STATEMENT)) deleteNotes(chunk)
     }
 
     /**
