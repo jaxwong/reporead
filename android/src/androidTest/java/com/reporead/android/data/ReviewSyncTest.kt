@@ -3,6 +3,7 @@ package com.reporead.android.data
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.sync.Sync
@@ -60,7 +61,10 @@ class ReviewSyncTest {
                     grades.forEach { dao.saveReview(it) }
                     val sync =
                         Sync(
-                            Api("http://127.0.0.1:${server.localPort}", { "TEST_ONLY_SESSION" }) {},
+                            Api(
+                                "http://127.0.0.1:${server.localPort}",
+                                { StoredSession.Readable("TEST_ONLY_SESSION") },
+                            ) {},
                             store,
                             directory,
                         ) {}
