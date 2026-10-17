@@ -2,12 +2,10 @@ package com.reporead.android.library
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -22,7 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
@@ -117,13 +114,6 @@ internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<N
         .map { it.key }
         .toSet()
 }
-
-/**
- * The session's queue after grading its front question: one graded Again (a miss) goes to the back, to be answered
- * again until it is answered right. Hard was right, so it leaves the session and keeps its gap.
- */
-internal fun afterGrade(queue: List<String>, grade: Int): List<String> =
-    queue.drop(1) + if (grade < 3) queue.take(1) else emptyList()
 
 internal fun inPracticeFolder(path: String, folder: String): Boolean {
     val prefix = folder.trim().trim('/')
@@ -257,11 +247,8 @@ private fun TopicRow(topic: String?, banks: Banks, scheduled: Set<String>, push:
 internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (Screen) -> Unit, onBack: () -> Unit) {
     val banks = rememberBanks(dao)
     val cards by dao.notebook().collectAsState(null)
-    // The keys still to ask, chosen once from the topic's questions without a card; the front one is shown.
-    var queue by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
-    // The questions the session started with. The cards made since, not a counter, say how many were graded.
-    var started by rememberSaveable { mutableStateOf<ArrayList<String>>(arrayListOf()) }
-    var revealed by rememberSaveable { mutableStateOf(false) }
+    // Chosen once from the topic's questions without a card, by key.
+    var session by rememberSaveable { mutableStateOf<StudySession?>(null) }
     var saving by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -273,17 +260,12 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             if (questions == null || notebook == null) null else scheduledQuestions(questions, notebook)
         }
     LaunchedEffect(questions, scheduled) {
-        if (queue != null || questions == null || scheduled == null) return@LaunchedEffect
-        started =
-            ArrayList(
+        if (session != null || questions == null || scheduled == null) return@LaunchedEffect
+        session =
+            StudySession(
                 interleaveByNote(questions.filter { it.key !in scheduled }, Random.nextInt()) { it.documentId }
                     .map { it.key }
             )
-        queue = ArrayList(started)
-    }
-    val next = { remaining: List<String> ->
-        queue = ArrayList(remaining)
-        revealed = false
     }
     Scaffold(topBar = { AppBar("Practice · ${topicName(topic)}", onBack = onBack) }) { padding ->
         // Not scrolled as a whole: the answer takes the space left, and the grades stay under it.
@@ -291,34 +273,36 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             Modifier.padding(padding).fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val ids = queue
-            if (ids == null || questions == null || scheduled == null) {
+            val asked = session
+            if (asked == null || questions == null || scheduled == null) {
                 Text("Reading questions from saved notes…")
                 return@Column
             }
             StatusLine(notice)
-            val key = ids.firstOrNull()
+            // A session question that has a card here was graded in this session: the cards made, not a counter.
+            val key = asked.current
             if (key == null) {
                 Text(
-                    if (started.isEmpty())
+                    if (asked.started.isEmpty())
                         "No new questions here: each question in its up-to-date banks already has a card. They come back under Review when due."
                     else
-                        "Session complete: ${counted(started.count { it in scheduled }, "question")} graded. They come back under Review when due."
+                        "Session complete: ${counted(asked.completed(scheduled), "question")} graded. They come back under Review when due."
                 )
                 TextButton(onClick = onBack) { Text("Finish") }
                 return@Column
             }
             val question = questions.firstOrNull { it.key == key }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    listOfNotNull(counted(ids.size, "question") + " left", question?.question?.level, question?.title)
-                        .joinToString(" · "),
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(enabled = !saving, onClick = { next(ids.drop(1)) }) {
-                    Text(if (question == null) "Next" else "Skip")
-                }
+            SessionHeader(
+                listOfNotNull(
+                        counted(asked.queue.size, "question") + " left",
+                        question?.question?.level,
+                        question?.title,
+                    )
+                    .joinToString(" · "),
+                skip = if (question == null) "Next" else "Skip",
+                enabled = !saving,
+            ) {
+                session = asked.skip()
             }
             if (question == null) {
                 Text(
@@ -327,18 +311,12 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
                 return@Column
             }
             Text(question.question.prompt, style = MaterialTheme.typography.titleLarge)
-            if (!revealed) {
-                Text("Answer it aloud or in writing first, then check it.")
-                Button(onClick = { revealed = true }) { Text("Show answer") }
+            if (!asked.revealed) {
+                AttemptFirst { session = asked.reveal() }
                 return@Column
             }
-            // Only a session question that has a card here was graded earlier in this session.
             val again = key in scheduled
-            if (again)
-                Text(
-                    "Asked again: its first grade is saved. This grade only decides whether it comes back in this session.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            if (again) AskedAgain()
             BankAnswer(question.question, question.documentId, question.path, sync, dao, Modifier.weight(1f), push)
             GradeBar(enabled = !saving, gaps = if (again) null else gaps(null)) { grade ->
                 saving = true
@@ -348,7 +326,7 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
                             if (again) null
                             else withContext(NonCancellable) { gradeNewQuestion(sync, dao, question, grade) }
                         notice = problem
-                        next(if (problem == null) afterGrade(ids, grade) else ids.drop(1))
+                        session = if (problem == null) asked.graded(grade) else asked.skip()
                     } finally {
                         saving = false
                     }
