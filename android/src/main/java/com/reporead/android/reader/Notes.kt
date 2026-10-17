@@ -275,7 +275,7 @@ private fun AnnotationItem(
             if (shown && row.type == AnnotationType.HIGHLIGHT)
                 TextButton(onClick = onMakeQuestion) { Text("Make a question") }
             if (shown && block == CardBlock.UNCONFIRMED && row.serverId != null)
-                TextButton(onClick = onConfirmCard) { Text("Answer is correct") }
+                TextButton(onClick = onConfirmCard) { Text("Answer is still right") }
         }
         Row {
             // Online: the server verifies the new selection against the version it was made on.
