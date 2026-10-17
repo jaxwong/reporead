@@ -288,7 +288,7 @@ flowchart TB
     end
 
     subgraph ReaderHost["Reader hosting"]
-        Page["reader/ReaderPage<br/>isolation + resource interception"]
+        Page["reader/ReaderPage<br/>isolation + resource interception<br/>+ the one page-script boundary"]
         WebV["WebView<br/>reader.js · Mermaid · highlight.js"]
         Page --> WebV
     end
