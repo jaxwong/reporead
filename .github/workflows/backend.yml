@@ -73,6 +73,9 @@ jobs:
   deploy:
     needs: [test, build]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # DEPLOY_SSH_KEY is an environment secret, and GitHub lets only main use this environment, so a workflow on any
+    # other branch cannot read the key.
+    environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
