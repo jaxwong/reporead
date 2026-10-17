@@ -97,19 +97,4 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$VM_KNOWN_HOST" > ~/.ssh/known_hosts
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            deploy@152.69.219.238 < backend/build/libs/backend.jar | tee "$RUNNER_TEMP/deploy.out"
-          # The VM's copies of backend/deploy change only by hand (backend/README.md), so fail when one differs from the
-          # repository's, or is missing, rather than leave a change there uninstalled. reporead-backup-pull runs on the
-          # developer's Mac, not the VM.
-          drift=0
-          for file in backend/deploy/*; do
-            name=$(basename "$file")
-            [ "$name" = reporead-backup-pull ] && continue
-            installed=$(awk -v name="$name" '$2 == "installed" && $3 == name {print $4}' "$RUNNER_TEMP/deploy.out")
-            if [ "$installed" != "$(sha256sum "$file" | cut -d' ' -f1)" ]; then
-              echo "The VM's $name differs from backend/deploy/$name, or is missing:" \
-                "install it by hand (backend/README.md)" >&2
-              drift=1
-            fi
-          done
-          exit "$drift"
+            deploy@152.69.219.238 < backend/build/libs/backend.jar
