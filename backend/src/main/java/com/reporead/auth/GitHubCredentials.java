@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
@@ -92,23 +93,19 @@ public class GitHubCredentials {
                         .principal(principal)
                         .build());
             } catch (OAuth2AuthorizationException error) {
-                Throwable unanswered = unanswered(error);
-                if (unanswered != null) {
+                String refusal = GitHubSecurity.githubError(error);
+                // Only GitHub refusing the refresh token itself makes it useless. Anything else (no answer, 429 or 5xx,
+                // or a refusal of this server's own credentials) leaves it good for a later request.
+                if (!REFUSED_REFRESH_TOKEN.contains(refusal)) {
                     LOG.warn(
-                            "GitHub token refresh failed; githubUserId={} failureType={}",
+                            "GitHub token refresh failed; githubUserId={} error={} failureType={}",
                             githubUserId,
-                            unanswered.getClass().getSimpleName());
+                            refusal,
+                            NestedExceptionUtils.getMostSpecificCause(error)
+                                    .getClass()
+                                    .getSimpleName());
                     throw new ApiFailure(
                             Code.GITHUB_UNAVAILABLE, "GitHub could not renew your sign-in; nothing was changed.");
-                }
-                String refusal = GitHubSecurity.githubError(error);
-                // Any other refusal (incorrect_client_credentials) is this server's configuration, and the user's
-                // refresh token works again once it is fixed.
-                if (!REFUSED_REFRESH_TOKEN.contains(refusal)) {
-                    throw new IllegalStateException(
-                            "GitHub refused to renew the token of githubUserId=" + githubUserId + " with " + refusal
-                                    + ", not as an invalid refresh token; the token is kept",
-                            error);
                 }
                 // A refused refresh token stays refused; dropping it makes later requests ask for sign-in without a
                 // call.
@@ -124,21 +121,6 @@ public class GitHubCredentials {
             throw new ApiFailure(Code.SIGN_IN_REQUIRED, "No current GitHub user token is available; sign in again.");
         }
         return client.getAccessToken().getTokenValue();
-    }
-
-    /**
-     * The failure behind a refresh GitHub never answered (network, timeout, 429, 5xx), which leaves the refresh token
-     * usable by the next request; null when GitHub answered and refused. Spring nests it under its own OAuth2
-     * exceptions.
-     */
-    private static Throwable unanswered(OAuth2AuthorizationException error) {
-        for (Throwable cause = error.getCause(); cause != null; cause = cause.getCause()) {
-            if (cause instanceof ResourceAccessException) return cause;
-            if (cause instanceof RestClientResponseException response
-                    && (response.getStatusCode().value() == 429
-                            || response.getStatusCode().is5xxServerError())) return cause;
-        }
-        return null;
     }
 
     /**
