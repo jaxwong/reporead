@@ -32,7 +32,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Every list the phone saves from the server comes from one read of one database snapshot, and is written with the others in one Room transaction: all of one answer, or none of it.**
 
-- Enforced by: `GET /api/library` is the only route that lists them, one request per read and no GitHub call; `Library` reads every list in one read-only `REPEATABLE READ` transaction; `Sync` checks the whole answer before `LibraryDao.replaceFromServer` writes it, and deletes images only after the commit.
+- Enforced by: `GET /api/library` is the only route this app reads them from, one request per read and no GitHub call (the five per-list routes stay only for the previous release, until the library contract step, ADR-08); `Library` reads every list in one read-only `REPEATABLE READ` transaction; `Sync` checks the whole answer before `LibraryDao.replaceFromServer` writes it, and deletes images only after the commit.
 - Checked by: `LibraryTest` (a write committed during the read is wholly out of it and wholly in the next); `LocalSyncTest` on a device (a failed request or a broken answer leaves every saved list and image as it was).
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
 
