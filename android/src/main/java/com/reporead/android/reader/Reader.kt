@@ -50,6 +50,7 @@ import com.reporead.android.sync.Changes
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
+import java.io.Serializable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -58,6 +59,33 @@ import kotlinx.coroutines.withContext
 
 /** The displayed copy and its study model are published together, so reloads cannot use a previous version's blocks. */
 private data class StudyPage(val opened: Sync.Opened, val study: StudyNote)
+
+/**
+ * The one dialog or sheet over the note: at most one is open, and it is kept across recreation, with what was typed in
+ * it. Serializable so a screen can keep it in saved state.
+ */
+private sealed interface ReaderOverlay : Serializable {
+    /** A new question is being written for [passage]. */
+    data class Question(val passage: Passage) : ReaderOverlay
+
+    /** A new note is being written for [passage]. */
+    data class Note(val passage: Passage) : ReaderOverlay
+
+    data class EditNote(val row: AnnotationRow) : ReaderOverlay
+
+    data class Delete(val row: AnnotationRow) : ReaderOverlay
+
+    /** An edit the server refused because another edit landed first: the user picks which text to keep. */
+    data class Conflict(val current: AnnotationRow, val mine: String?) : ReaderOverlay
+
+    /** A tapped link to one note and its heading, previewed before opening. */
+    data class Preview(val target: DocumentRow, val heading: String?) : ReaderOverlay
+
+    /** Notes sharing the linked name, for the reader to pick one. */
+    data class LinkChoices(val heading: String?, val choices: List<DocumentRow>) : ReaderOverlay
+
+    data object Outline : ReaderOverlay
+}
 
 @Composable
 fun ReaderScreen(
@@ -119,19 +147,12 @@ fun ReaderScreen(
     val bookmark by dao.bookmark(screen.documentId).collectAsState(null)
     val annotations by dao.annotations(screen.documentId).collectAsState(emptyList())
     var message by remember { mutableStateOf<String?>(null) }
-    var notesOpen by remember { mutableStateOf(false) }
-    // The passage a new question is being written for.
-    var questionPassage by rememberSaveable(screen.documentId) { mutableStateOf<Passage?>(null) }
-    // The passage a new note is being written for.
-    var notePassage by remember { mutableStateOf<Passage?>(null) }
-    // The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here.
-    var reattaching by remember { mutableStateOf<AnnotationRow?>(null) }
-    // A tapped link to one note and its heading, previewed before opening.
-    var preview by remember { mutableStateOf<Pair<DocumentRow, String?>?>(null) }
-    // Notes sharing the linked name, for the reader to pick one.
-    var linkChoices by remember { mutableStateOf<Pair<String?, List<DocumentRow>>?>(null) }
+    var notesOpen by rememberSaveable(screen.documentId) { mutableStateOf(false) }
+    var overlay by rememberSaveable(screen.documentId) { mutableStateOf<ReaderOverlay?>(null) }
+    // The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach here. A
+    // mode, not an overlay: the outline and links stay usable while the passage is found.
+    var reattaching by rememberSaveable(screen.documentId) { mutableStateOf<AnnotationRow?>(null) }
     val scope = rememberCoroutineScope()
-    var outlineOpen by remember { mutableStateOf(false) }
 
     if (signedIn) {
         LaunchedEffect(screen.documentId) {
@@ -179,6 +200,43 @@ fun ReaderScreen(
         }
     }
 
+    // Editing and deleting acknowledged highlights need the server; offline they fail visibly and change nothing.
+    fun editNote(row: AnnotationRow, note: String?, expectedVersion: Int) {
+        appScope.launch {
+            message =
+                try {
+                    sync.editAnnotation(row, note, expectedVersion)
+                    null
+                } catch (error: ApiException) {
+                    if (error.code != "ANNOTATION_CONFLICT") "Edit not saved. ${error.describe()}"
+                    else
+                        try {
+                            sync.refreshAnnotations(row.documentId)
+                            dao.annotation(row.mutationId)?.let {
+                                overlay = ReaderOverlay.Conflict(it, note)
+                                null
+                            } ?: "This highlight was deleted elsewhere."
+                        } catch (refresh: ApiException) {
+                            "This note was changed elsewhere, and the latest version could not be loaded. ${refresh.describe()}"
+                        }
+                }
+        }
+    }
+
+    fun delete(row: AnnotationRow) {
+        appScope.launch {
+            message =
+                try {
+                    sync.deleteAnnotation(row)
+                    null
+                } catch (error: ApiException) {
+                    if (error.code == "ANNOTATION_CONFLICT")
+                        "This highlight was changed elsewhere; sync and review it before deleting."
+                    else "Not deleted. ${error.describe()}"
+                }
+        }
+    }
+
     // Resolved against this repository's saved note list, so links work offline too.
     fun followNoteLink(target: String?, path: String?, heading: String?) {
         scope.launch {
@@ -193,8 +251,8 @@ fun ReaderScreen(
                 0 ->
                     message =
                         "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
-                1 -> preview = matches.first() to heading
-                else -> linkChoices = heading to matches
+                1 -> overlay = ReaderOverlay.Preview(matches.first(), heading)
+                else -> overlay = ReaderOverlay.LinkChoices(heading, matches)
             }
         }
     }
@@ -210,8 +268,8 @@ fun ReaderScreen(
                     SelectionAction.REATTACH ->
                         if (placing != null) reattach(placing, selection.passage)
                         else message = "Reattaching was cancelled; choose Reattach again in Notes."
-                    SelectionAction.MAKE_QUESTION -> questionPassage = selection.passage
-                    SelectionAction.ADD_NOTE -> notePassage = selection.passage
+                    SelectionAction.MAKE_QUESTION -> overlay = ReaderOverlay.Question(selection.passage)
+                    SelectionAction.ADD_NOTE -> overlay = ReaderOverlay.Note(selection.passage)
                     SelectionAction.HIGHLIGHT -> save(selection.passage, null, null)
                 }
         }
@@ -268,7 +326,9 @@ fun ReaderScreen(
                 actions = {
                     val opened = page?.opened
                     if (!session?.outline.isNullOrEmpty()) {
-                        IconButton(onClick = { outlineOpen = true }) { AppIcon(R.drawable.ic_toc, "Outline") }
+                        IconButton(onClick = { overlay = ReaderOverlay.Outline }) {
+                            AppIcon(R.drawable.ic_toc, "Outline")
+                        }
                     }
                     if (opened != null) {
                         if (page?.study?.recognized == true) {
@@ -356,7 +416,9 @@ fun ReaderScreen(
                     appScope,
                     onReveal = { session.reveal(it.mutationId) },
                     onMessage = { message = it },
-                    onMakeQuestion = { row -> questionPassage = row.drawn },
+                    onMakeQuestion = { row -> overlay = ReaderOverlay.Question(row.drawn) },
+                    onEdit = { row -> overlay = ReaderOverlay.EditNote(row) },
+                    onDelete = { row -> overlay = ReaderOverlay.Delete(row) },
                     onReattach = { row ->
                         reattaching = row
                         notesOpen = false
@@ -368,69 +430,100 @@ fun ReaderScreen(
             }
         }
     }
-    val headings = session?.outline
-    if (outlineOpen && session != null && !headings.isNullOrEmpty()) {
-        OutlineSheet(
-            headings,
-            section,
-            onDismiss = { outlineOpen = false },
-            onJump = { entry ->
-                outlineOpen = false
-                scope.launch {
-                    if (!session.showBlock(entry.blockId))
-                        message = "Couldn't scroll to “${entry.text}”; reopen the note."
-                }
-            },
-        )
-    }
-    preview?.let { (target, heading) ->
-        LinkPreviewSheet(
-            target,
-            heading,
-            sync,
-            dao,
-            onDismiss = { preview = null },
-            onOpen = {
-                preview = null
-                push(Screen.Reader(target.id, target.title, heading?.let(OpenAt::Heading)))
-            },
-        )
-    }
-    linkChoices?.let { (heading, choices) ->
-        LinkChoicesDialog(
-            choices,
-            onDismiss = { linkChoices = null },
-            onChoose = { choice ->
-                linkChoices = null
-                push(Screen.Reader(choice.id, choice.title, heading?.let(OpenAt::Heading)))
-            },
-        )
-    }
-    questionPassage?.let { passage ->
-        NoteDialog(
-            title = "Make a question",
-            quote = passage.exactText,
-            initial = "",
-            label = "Question",
-            allowBlank = false,
-            onDismiss = { questionPassage = null },
-            onSave = { question ->
-                questionPassage = null
-                save(passage, null, question)
-            },
-        )
-    }
-    notePassage?.let { passage ->
-        NoteDialog(
-            title = "Add a note",
-            quote = passage.exactText,
-            initial = "",
-            onDismiss = { notePassage = null },
-            onSave = { note ->
-                notePassage = null
-                save(passage, note.ifBlank { null }, null)
-            },
-        )
+    when (val shown = overlay) {
+        null -> {}
+        ReaderOverlay.Outline -> {
+            // Restored before the recreated page has its outline: shown once it does.
+            val headings = session?.outline
+            if (session != null && !headings.isNullOrEmpty())
+                OutlineSheet(
+                    headings,
+                    section,
+                    onDismiss = { overlay = null },
+                    onJump = { entry ->
+                        overlay = null
+                        scope.launch {
+                            if (!session.showBlock(entry.blockId))
+                                message = "Couldn't scroll to “${entry.text}”; reopen the note."
+                        }
+                    },
+                )
+        }
+        is ReaderOverlay.Preview ->
+            LinkPreviewSheet(
+                shown.target,
+                shown.heading,
+                sync,
+                dao,
+                onDismiss = { overlay = null },
+                onOpen = {
+                    overlay = null
+                    push(Screen.Reader(shown.target.id, shown.target.title, shown.heading?.let(OpenAt::Heading)))
+                },
+            )
+        is ReaderOverlay.LinkChoices ->
+            LinkChoicesDialog(
+                shown.choices,
+                onDismiss = { overlay = null },
+                onChoose = { choice ->
+                    overlay = null
+                    push(Screen.Reader(choice.id, choice.title, shown.heading?.let(OpenAt::Heading)))
+                },
+            )
+        is ReaderOverlay.Question ->
+            NoteDialog(
+                title = "Make a question",
+                quote = shown.passage.exactText,
+                initial = "",
+                label = "Question",
+                allowBlank = false,
+                onDismiss = { overlay = null },
+                onSave = { question ->
+                    overlay = null
+                    save(shown.passage, null, question)
+                },
+            )
+        is ReaderOverlay.Note ->
+            NoteDialog(
+                title = "Add a note",
+                quote = shown.passage.exactText,
+                initial = "",
+                onDismiss = { overlay = null },
+                onSave = { note ->
+                    overlay = null
+                    save(shown.passage, note.ifBlank { null }, null)
+                },
+            )
+        is ReaderOverlay.EditNote ->
+            NoteDialog(
+                title = "Edit note",
+                quote = shown.row.exactText,
+                initial = shown.row.note ?: "",
+                onDismiss = { overlay = null },
+                onSave = { text ->
+                    overlay = null
+                    editNote(shown.row, text.ifBlank { null }, shown.row.version)
+                },
+            )
+        is ReaderOverlay.Delete ->
+            DeleteDialog(
+                shown.row,
+                onDismiss = { overlay = null },
+                onConfirm = {
+                    overlay = null
+                    delete(shown.row)
+                },
+            )
+        is ReaderOverlay.Conflict ->
+            ConflictDialog(
+                shown.current,
+                shown.mine,
+                onDismiss = { overlay = null },
+                onKeepMine = {
+                    overlay = null
+                    editNote(shown.current, shown.mine, shown.current.version)
+                },
+            )
     }
 }
 
