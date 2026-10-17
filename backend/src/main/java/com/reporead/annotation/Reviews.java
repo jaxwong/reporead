@@ -58,17 +58,7 @@ public class Reviews {
      */
     Review grade(long userId, long cardId, UUID mutation, int grade, Instant reviewedAt, String blobSha) {
         return transaction.execute(tx -> {
-            // Same lock order as repository refresh/disconnect: connection first, then annotations.
-            annotations.lockForWrite(userId, cardId);
-            var current = db.sql("""
-                    select a.checked_blob_sha, d.current_blob_sha, d.deleted_at is not null as deleted, a.status
-                    from annotations a join documents d on d.id = a.document_id
-                    where a.id = :id and a.user_id = :userId and a.type = 'CARD' for update of a""")
-                    .param("id", cardId)
-                    .param("userId", userId)
-                    .query(Current.class)
-                    .optional()
-                    .orElseThrow(ApiFailure::notFound);
+            var card = annotations.lockCard(userId, cardId);
             int inserted = db.sql("""
                     insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha)
                     values (:userId, :mutation, :id, :grade, :at, :sha) on conflict do nothing""")
@@ -91,11 +81,7 @@ public class Reviews {
                     || !stored.blobSha().equals(blobSha)) {
                 throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
             }
-            if (inserted != 0
-                    && (current.deleted()
-                            || current.status() == Annotations.Status.ORPHANED
-                            || !blobSha.equals(current.checkedBlobSha())
-                            || !blobSha.equals(current.currentBlobSha()))) {
+            if (inserted != 0 && !card.gradeableAt(blobSha)) {
                 throw new ApiFailure(Code.CARD_CHANGED, "Check this card in the current note before reviewing it.");
             }
             return db.sql(SELECT + " and r.mutation_id = :mutation")
@@ -105,8 +91,6 @@ public class Reviews {
                     .single();
         });
     }
-
-    private record Current(String checkedBlobSha, String currentBlobSha, boolean deleted, Annotations.Status status) {}
 
     private record Stored(long annotationId, int grade, Instant reviewedAt, String blobSha) {}
 }

@@ -331,28 +331,66 @@ public class Annotations {
         });
     }
 
+    /**
+     * Where a card stands for confirming and grading: the one owner of both rules (ADR-13). Its answer is placed in
+     * version {@code resolvedBlobSha} with {@code status}, and confirmed in {@code checkedBlobSha}; its note is at
+     * {@code currentBlobSha} unless {@code deleted}.
+     */
+    record Card(
+            int version,
+            Status status,
+            String resolvedBlobSha,
+            String checkedBlobSha,
+            String currentBlobSha,
+            boolean deleted) {
+        /** Its answer is found in its note's current version {@code blobSha}, so it can be confirmed there. */
+        boolean confirmableAt(String blobSha) {
+            return !deleted
+                    && status != Status.ORPHANED
+                    && blobSha.equals(resolvedBlobSha)
+                    && blobSha.equals(currentBlobSha);
+        }
+
+        /** Confirmed in its note's current version {@code blobSha}, so a grade of that answer counts. */
+        boolean gradeableAt(String blobSha) {
+            return confirmableAt(blobSha) && blobSha.equals(checkedBlobSha);
+        }
+    }
+
+    /**
+     * Locks the user's card {@code id} for a write that depends on where it stands: its note's connection lock, as
+     * every write takes, then its row. Runs inside that write's transaction; 404 if it is not this user's card.
+     */
+    Card lockCard(long userId, long id) {
+        lockForWrite(userId, id);
+        return db.sql("""
+                select a.version, a.status, a.resolved_blob_sha, a.checked_blob_sha, d.current_blob_sha,
+                       d.deleted_at is not null as deleted
+                from annotations a join documents d on d.id = a.document_id
+                where a.id = :id and a.user_id = :userId and a.type = 'CARD' for update of a""")
+                .param("id", id)
+                .param("userId", userId)
+                .query(Card.class)
+                .optional()
+                .orElseThrow(ApiFailure::notFound);
+    }
+
     Annotation checkCard(long userId, long id, int expectedVersion, String blobSha) {
         return transaction.execute(tx -> {
-            lockForWrite(userId, id);
-            int updated = db.sql("""
-                    update annotations a set checked_blob_sha = :sha, version = version + 1, updated_at = :now
-                    from documents d where a.document_id = d.id and a.id = :id and a.user_id = :userId and a.type = 'CARD'
-                    and a.version = :expected and a.resolved_blob_sha = :sha and a.status <> 'ORPHANED'
-                    and d.current_blob_sha = :sha and d.deleted_at is null""")
-                    .param("sha", blobSha)
-                    .param("now", Timestamp.from(Instant.now()))
-                    .param("id", id)
-                    .param("userId", userId)
-                    .param("expected", expectedVersion)
-                    .update();
-            if (updated == 0) {
-                var card = find(userId, id).filter(a -> a.type() == Type.CARD).orElseThrow(ApiFailure::notFound);
-                // A stale version is another edit landing first, as for edit, delete, and reattach.
-                if (card.version() != expectedVersion) throw missingOrConflict(userId, id);
+            var card = lockCard(userId, id);
+            // A stale version is another edit landing first, as for edit, delete, and reattach.
+            if (card.version() != expectedVersion) throw missingOrConflict(userId, id);
+            if (!card.confirmableAt(blobSha)) {
                 throw new ApiFailure(
                         Code.CARD_CHANGED,
                         "Check this card in its current version; reattach an orphan before confirming.");
             }
+            db.sql(
+                            "update annotations set checked_blob_sha = :sha, version = version + 1, updated_at = :now where id = :id")
+                    .param("sha", blobSha)
+                    .param("now", Timestamp.from(Instant.now()))
+                    .param("id", id)
+                    .update();
             return find(userId, id).orElseThrow();
         });
     }
@@ -362,7 +400,7 @@ public class Annotations {
      * write commits, as every write to a note's rows does, so the write can read its result back. Runs inside that
      * write's transaction; 404 if the annotation is not this user's or was disconnected meanwhile.
      */
-    void lockForWrite(long userId, long id) {
+    private void lockForWrite(long userId, long id) {
         long documentId = db.sql(
                         "select document_id from annotations where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD')")
                 .param("id", id)
