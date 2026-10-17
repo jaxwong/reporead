@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -198,6 +199,35 @@ public class Documents {
                 .param("connectionId", connectionId)
                 .query(Summary.class)
                 .list();
+    }
+
+    /**
+     * Every document of every connection of this user, deleted ones too, by connection id, each connection's ordered by
+     * path as {@link #list} orders them. One query; a connection without documents has no entry.
+     */
+    public Map<Long, List<Summary>> listForUser(long userId) {
+        return db
+                .sql("""
+                        select d.repository_connection_id, d.id, d.path, d.title, d.current_blob_sha, d.content_changed_at,
+                               d.deleted_at is not null as deleted
+                        from documents d join repository_connections c on c.id = d.repository_connection_id
+                        where c.user_id = :userId order by d.path""")
+                .param("userId", userId)
+                .query((row, n) -> Map.entry(
+                        row.getLong("repository_connection_id"),
+                        new Summary(
+                                row.getLong("id"),
+                                row.getString("path"),
+                                row.getString("title"),
+                                row.getString("current_blob_sha"),
+                                Optional.ofNullable(row.getTimestamp("content_changed_at"))
+                                        .map(Timestamp::toInstant)
+                                        .orElse(null),
+                                row.getBoolean("deleted"))))
+                .list()
+                .stream()
+                .collect(Collectors.groupingBy(
+                        Map.Entry::getKey, Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
     }
 
     /** Finds a document only if it belongs to one of this user's connections. */
