@@ -5,7 +5,6 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.room.Room
@@ -13,18 +12,21 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.Screen
+import com.reporead.android.awaitText
+import com.reporead.android.click
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.findText
 import com.reporead.android.reader.ReaderTestActivity
+import com.reporead.android.root
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -315,46 +317,5 @@ class PracticeSessionTest {
                 return it
             }
         return null
-    }
-
-    private fun root(): AccessibilityNodeInfo? = instrumentation.uiAutomation.rootInActiveWindow
-
-    private fun findText(node: AccessibilityNodeInfo?, text: String): AccessibilityNodeInfo? {
-        if (node == null) return null
-        if (node.text?.toString() == text) return node
-        for (i in 0 until node.childCount) node.getChild(i)?.let {
-            findText(it, text)?.let { found ->
-                return found
-            }
-        }
-        return null
-    }
-
-    private fun awaitText(text: String): AccessibilityNodeInfo = runBlocking {
-        try {
-            withTimeout(10_000) {
-                while (true) {
-                    findText(root(), text)?.let {
-                        return@withTimeout it
-                    }
-                    delay(50)
-                }
-                error("Unreachable")
-            }
-        } catch (error: TimeoutCancellationException) {
-            fun texts(node: AccessibilityNodeInfo?): List<String> =
-                if (node == null) emptyList()
-                else
-                    listOfNotNull(node.text?.toString()) +
-                        (0 until node.childCount).flatMap { texts(node.getChild(it)) }
-            throw AssertionError("Timed out waiting for '$text'; visible texts=${texts(root())}", error)
-        }
-    }
-
-    private fun click(text: String) {
-        var node = awaitText(text)
-        while (!node.isClickable) node = checkNotNull(node.parent) { "No clickable parent for $text" }
-        assertTrue("Could not click $text", node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-        instrumentation.waitForIdleSync()
     }
 }
