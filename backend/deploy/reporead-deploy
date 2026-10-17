@@ -40,7 +40,8 @@ healthy() {
 
 /usr/local/sbin/reporead-backup deploy
 echo "reporead-deploy: installing jar sha256 $(sha256sum "$incoming" | cut -d' ' -f1)"
-cp -p "$JAR" "$PREVIOUS"
+# Only a jar that is serving is worth going back to: after a failed deploy the installed jar is the broken one.
+if curl -sf -m 5 "$HEALTH" >/dev/null; then cp -p "$JAR" "$PREVIOUS"; fi
 install -m 0644 -o root -g root "$incoming" "$JAR"
 systemctl restart reporead-backend
 if healthy; then
