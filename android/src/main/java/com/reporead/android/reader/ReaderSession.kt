@@ -88,7 +88,7 @@ internal class ReaderSession(
     /** The selection when a selection action is chosen, and that action. */
     private val onSelection: (Selection, SelectionAction) -> Unit,
 ) {
-    /** The page's headings, once rendering has finished; null until then. */
+    /** The page's headings once it has opened; null before, if it did not render, and after it is gone ([opened]). */
     var outline by mutableStateOf<List<OutlineEntry>?>(null)
         private set
 
@@ -117,10 +117,10 @@ internal class ReaderSession(
     /**
      * The page has rendered and opened, so its scripts can be used and scrolling saves the position. The screen offers
      * the controls that use the page only then; saving waits for it so that the top of the page, shown while loading,
-     * never overwrites the saved position. It stays false for a page that did not render.
+     * never overwrites the saved position.
      */
-    var opened by mutableStateOf(false)
-        private set
+    val opened: Boolean
+        get() = outline != null
 
     private val main = Handler(Looper.getMainLooper())
     private var view: WebView? = null
@@ -187,7 +187,7 @@ internal class ReaderSession(
             Log.w("RepoRead", "Reader page stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
             main.removeCallbacksAndMessages(null)
             opening?.cancel()
-            opened = false
+            outline = null
             this@ReaderSession.view = null
             stopped = true
             onMessage("This page stopped: Android ended the process that draws it. Go back and open the note again.")
@@ -294,7 +294,7 @@ internal class ReaderSession(
             )
         check(configured == true) { "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}" }
         Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height}")
-        outline = parseOutline(view.evaluate("JSON.stringify(window.reporead.outline())") as String)
+        val headings = parseOutline(view.evaluate("JSON.stringify(window.reporead.outline())") as String)
         val highlights = dao.annotations(note.documentId)
         // Drawn before opening, so that a highlight to open at is on the page.
         drawHighlights(view, drawn(highlights.first()))
@@ -318,7 +318,7 @@ internal class ReaderSession(
                 }
             }
         if (openAt != null) onOpenedAtTarget()
-        opened = true
+        outline = headings
         save(view)
         // Room sends the list again after every write to the annotations table, any note's; the page is redrawn only
         // when what it draws changed: a new highlight, an edit, a sync that moved one.
@@ -387,7 +387,7 @@ internal class ReaderSession(
         opening?.cancel()
         val wasOpened = opened
         view = null
-        opened = false
+        outline = null
         appScope.launch {
             if (wasOpened) save(webView)
             webView.destroy()

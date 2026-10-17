@@ -21,6 +21,8 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.findText
+import com.reporead.android.root
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import com.reporead.android.type
@@ -299,11 +301,12 @@ class ReaderLifecycleTest {
             assertTrue("$failure", failure!!.message!!.contains("Study heading b999 missing"))
         }
 
-    /** A renderer can crash or be reclaimed by the system; the reader then says so instead of ending the app. */
+    /** A renderer can crash or be reclaimed; the reader says so, stops offering the page's controls, and lives on. */
     @Test
     fun aPageWhoseRendererStopsIsReplacedAndSavesNothing() {
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
+        awaitText("Outline")
         scenario.onActivity { activity ->
             checkNotNull(findWebView(activity.window.decorView)).loadUrl("chrome://crash")
         }
@@ -315,6 +318,7 @@ class ReaderLifecycleTest {
                     if (!present) break
                     delay(50)
                 }
+                while (findText(root(), "Outline") != null) delay(50)
             }
         }
         assertSavedStays(12)
