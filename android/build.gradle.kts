@@ -25,6 +25,8 @@ val bundleReader = tasks.register<BundleReader>("bundleReader") {
         "reader-web/diagrams.js",
         "reader-web/reader.css",
         "reader-web/build.mjs",
+        "reader-web/check-restore.mjs",
+        "reader-web/package.json",
         "reader-web/package-lock.json",
     )
     doFirst { commandLine("npm", "run", "build", "--", assetDirectory.get().asFile.absolutePath) }
