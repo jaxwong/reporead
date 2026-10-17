@@ -57,14 +57,22 @@ public class Library {
             List<Bookmarks.Bookmark> bookmarks,
             Reviews.Notebook notebook) {}
 
-    /** Database only: 1 + repositories + 4 queries, all in {@link #snapshot}. */
+    /**
+     * Database only, and a fixed 6 queries however many repositories and notes: connections, documents, reading states,
+     * bookmarks, and the notebook's annotations and review log, all in {@link #snapshot}.
+     */
     Snapshot read(long userId) {
-        return snapshot.execute(status -> new Snapshot(
-                connections.list(userId).stream()
-                        .map(connection -> new Repository(connection, documents.list(connection.id())))
-                        .toList(),
-                readingStates.list(userId),
-                bookmarks.list(userId),
-                reviews.notebook(userId)));
+        return snapshot.execute(status -> {
+            var repositories = connections.list(userId);
+            var documentsByConnection = documents.listForUser(userId);
+            return new Snapshot(
+                    repositories.stream()
+                            .map(connection -> new Repository(
+                                    connection, documentsByConnection.getOrDefault(connection.id(), List.of())))
+                            .toList(),
+                    readingStates.list(userId),
+                    bookmarks.list(userId),
+                    reviews.notebook(userId));
+        });
     }
 }

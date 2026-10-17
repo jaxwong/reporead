@@ -55,17 +55,28 @@ class LibraryTest extends SharedSpringTest {
     void setup() {
         TestEnvironment.reset(db);
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
-        db.sql("""
-                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
-                values (1, 11, 'test-only', 'notes', 'main', :sha)""").param("sha", SHA).update();
-        active = document("a.md", false);
-        removed = document("b.md", true);
+        long notes = connection(1, 11, "notes");
+        active = document(notes, "a.md", false);
+        removed = document(notes, "b.md", true);
     }
 
-    private long document(String path, boolean deleted) {
+    private long connection(long userId, long githubRepositoryId, String name) {
+        return db.sql("""
+                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
+                values (:userId, :githubRepositoryId, 'test-only', :name, 'main', :sha) returning id""")
+                .param("userId", userId)
+                .param("githubRepositoryId", githubRepositoryId)
+                .param("name", name)
+                .param("sha", SHA)
+                .query(Long.class)
+                .single();
+    }
+
+    private long document(long connection, String path, boolean deleted) {
         return db.sql("""
                 insert into documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
-                values (1, :path, :path, :sha, case when :deleted then now() end) returning id""")
+                values (:connection, :path, :path, :sha, case when :deleted then now() end) returning id""")
+                .param("connection", connection)
                 .param("path", path)
                 .param("sha", SHA)
                 .param("deleted", deleted)
@@ -87,9 +98,10 @@ class LibraryTest extends SharedSpringTest {
                 .andExpect(status().isOk());
         mvc.perform(put("/api/documents/" + removed + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isOk());
+        long other = document(connection(1, 12, "other"), "z.md", false);
         library(alice)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories.length()").value(1))
+                .andExpect(jsonPath("$.repositories.length()").value(2))
                 .andExpect(jsonPath("$.repositories[0].id").value(1))
                 .andExpect(jsonPath("$.repositories[0].fullName").value("test-only/notes"))
                 .andExpect(jsonPath("$.repositories[0].documentCount").value(1))
@@ -102,6 +114,9 @@ class LibraryTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.repositories[0].documents[0].deleted").value(false))
                 .andExpect(jsonPath("$.repositories[0].documents[1].id").value(removed))
                 .andExpect(jsonPath("$.repositories[0].documents[1].deleted").value(true))
+                .andExpect(jsonPath("$.repositories[1].fullName").value("test-only/other"))
+                .andExpect(jsonPath("$.repositories[1].documents.length()").value(1))
+                .andExpect(jsonPath("$.repositories[1].documents[0].id").value(other))
                 .andExpect(jsonPath("$.readingStates.length()").value(1))
                 .andExpect(jsonPath("$.readingStates[0].documentId").value(active))
                 .andExpect(jsonPath("$.readingStates[0].progressPercent").value(40))
@@ -125,6 +140,16 @@ class LibraryTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.bookmarks").isEmpty())
                 .andExpect(jsonPath("$.notebook.annotations").isEmpty())
                 .andExpect(jsonPath("$.notebook.reviews").isEmpty());
+        // Bob's own repository: his library lists only its note, and Alice's lists none of it.
+        long bobs = document(connection(2, 11, "notes"), "bob.md", false);
+        library(bob)
+                .andExpect(jsonPath("$.repositories.length()").value(1))
+                .andExpect(jsonPath("$.repositories[0].documents.length()").value(1))
+                .andExpect(jsonPath("$.repositories[0].documents[0].id").value(bobs))
+                .andExpect(jsonPath("$.bookmarks").isEmpty());
+        library(alice)
+                .andExpect(jsonPath("$.repositories.length()").value(1))
+                .andExpect(jsonPath("$.repositories[0].documents.length()").value(2));
         mvc.perform(get("/api/library")).andExpect(status().isUnauthorized());
     }
 
@@ -141,7 +166,7 @@ class LibraryTest extends SharedSpringTest {
         ResultActions during;
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var writing = executor.submit(() -> transaction.execute(status -> {
-                long id = document("c.md", false);
+                long id = document(1, "c.md", false);
                 db.sql("""
                         insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
                         values (1, :id, :sha, 10, cast(:anchor as jsonb), now())""")
