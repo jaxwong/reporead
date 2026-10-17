@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
@@ -103,13 +102,14 @@ internal fun <T> interleaveByNote(items: List<T>, seed: Int, note: (T) -> Long):
 }
 
 /**
- * The keys of the questions that already have a card — in the same bank, with the same prompt and answer line — and so
- * are on the review schedule rather than new. Two identical prompts with different answer lines stay two questions.
+ * The keys of the questions that already have a card on the review schedule ([reviewable]) — in the same bank, with the
+ * same prompt and answer line — and so are not new. Two identical prompts with different answer lines stay two
+ * questions. A question whose card the server refused is asked again.
  */
 internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<NotebookItem>): Set<String> {
     val made =
         cards
-            .filter { it.annotation.type == AnnotationType.CARD }
+            .filter(::reviewable)
             .map { Triple(it.annotation.documentId, it.annotation.question, it.annotation.drawn.exactText) }
             .toSet()
     return questions

@@ -130,6 +130,7 @@ Noticed and deliberately not changed:
 - Rotating the reader while writing a note or reattaching a highlight loses the text and the mode; a question being written survives. The reader's overlays are separate states, only some saved across recreation.
 - Study, Notes → Show and Changes can be tapped before the page is ready, and then do nothing or say the passage is not in this version; after the 15-second readiness timeout they stay unavailable.
 - A stored session the Keystore fails to decrypt is deleted whatever the failure, so a passing Keystore error means signing in again (saved notes stay). Telling passing failures from permanent ones by exception type could instead keep a session that can never be read.
+- A bank question is matched to its card by bank, prompt and answer line, so renaming its heading or editing its Canonical line makes it a new question; grading it then starts a second card on the same answer.
 - Error text has two owners: the app words some codes itself, and some server messages name app controls ("tap Update").
 - Room reads a row through a cursor window of about 2 MB, so a saved page over that (HTML plus search text) would save but not open. Not reproduced; the largest real page is 0.6 MB with 0.4 MB of text.
 

@@ -274,7 +274,7 @@ private fun AnnotationItem(
             if (shown) TextButton(onClick = onReveal) { Text("Show") }
             if (shown && row.type == AnnotationType.HIGHLIGHT)
                 TextButton(onClick = onMakeQuestion) { Text("Make a question") }
-            if (shown && block == CardBlock.UNCONFIRMED && row.serverId != null)
+            if (shown && block == CardBlock.UNCONFIRMED)
                 TextButton(onClick = onConfirmCard) { Text("Answer is still right") }
         }
         Row {
