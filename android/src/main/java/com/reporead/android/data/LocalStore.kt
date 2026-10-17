@@ -40,8 +40,8 @@ class DocumentsOwnNoteFacts : AutoMigrationSpec
 @DeleteColumn(tableName = "bookmarks", columnName = "sourceBlobSha") class DropBookmarkVersion : AutoMigrationSpec
 
 /**
- * v10: the note links of each saved page get their own table, filled here once from the pages already saved; reading
- * every page for Linked from took 3.2–3.7 s on the Pixel. A cursor holds a few pages at a time; only links are kept.
+ * v10: the note links of each saved page get their own table, filled here once from the pages already saved; Linked
+ * from no longer reads every page (ADR-19). A cursor holds a few pages at a time; only links are kept.
  */
 class KeepNoteLinks : AutoMigrationSpec {
     override fun onPostMigrate(db: SupportSQLiteDatabase) {

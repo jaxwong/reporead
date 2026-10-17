@@ -113,8 +113,8 @@ class Sync(
     private val oneSyncAtATime = Mutex()
 
     /**
-     * Runs [work] under [oneSyncAtATime], off the main thread: it maps whole server lists into rows (a notebook of
-     * 2,000 cards and 20,000 grades held the main thread for about 480 ms) and reads and deletes files.
+     * Runs [work] under [oneSyncAtATime], off the main thread: it maps whole server lists, which grow with the
+     * notebook, into rows, and reads and deletes files.
      */
     private suspend fun <T> locked(work: suspend () -> T): T = oneSyncAtATime.withLock {
         withContext(Dispatchers.IO) { work() }
