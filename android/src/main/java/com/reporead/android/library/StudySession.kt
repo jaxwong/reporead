@@ -44,7 +44,7 @@ internal data class StudySession(
      * After grading this item: Again, a miss, sends it to the back, to be answered again until it is answered right;
      * Hard was right, so it leaves the session and keeps its gap.
      */
-    fun graded(grade: Int) = if (grade < 3) requeue() else skip()
+    fun graded(grade: Int) = if (isMiss(grade)) requeue() else skip()
 
     /** How many of the items it started with have a saved first grade, given the [graded] ones in storage. */
     fun completed(graded: Set<String>) = started.count { it in graded }
@@ -99,7 +99,7 @@ internal fun GradeBar(enabled: Boolean, gaps: Map<Int, Long>?, onGrade: (Int) ->
                         }
                     }
                 }
-                if (grade < 3)
+                if (isMiss(grade))
                     OutlinedButton(
                         enabled = enabled,
                         modifier = modifier,

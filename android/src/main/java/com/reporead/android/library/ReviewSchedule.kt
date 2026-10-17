@@ -15,8 +15,11 @@ internal data class ReviewSchedule(val dueAt: Long, val step: Int?)
 /** The days between reviews, one step per Good: a fixed ladder, so each grade's effect is predictable. */
 internal val STEPS = listOf(1L, 3, 7, 14, 30, 60, 120)
 
-/** The grades offered, stored on a 0–5 scale (the server accepts 0–5): below 3 is Again. */
+/** The grades offered, stored on a 0–5 scale (the server accepts 0–5). */
 internal val GRADES = listOf(0 to "Again", 3 to "Hard", 4 to "Good", 5 to "Easy")
+
+/** Again, a miss: every grade below Hard. The one place that decides it; the server only stores grades. */
+internal fun isMiss(grade: Int) = grade < 3
 
 /**
  * What each grade means against the answer shown, so a missed point is graded Again rather than Hard (Hard passes the
@@ -29,14 +32,12 @@ internal const val GRADE_MEANING =
  * The step a [grade] moves a card on [step] (null when new, so Good puts it on the first step) to, capped at the last.
  */
 internal fun nextStep(step: Int?, grade: Int): Int =
-    when (grade) {
-        0,
-        1,
-        2 -> 0 // Again: back to the first step.
-        3 -> step ?: 0 // Hard: stay.
-        4 -> ((step ?: -1) + 1).coerceAtMost(STEPS.lastIndex) // Good: climb one.
-        5 -> ((step ?: -1) + 2).coerceAtMost(STEPS.lastIndex) // Easy: climb two.
-        else -> error("Grade $grade; expected 0..5")
+    when {
+        grade !in 0..5 -> error("Grade $grade; expected 0..5")
+        isMiss(grade) -> 0 // Again: back to the first step.
+        grade == 3 -> step ?: 0 // Hard: stay.
+        grade == 4 -> ((step ?: -1) + 1).coerceAtMost(STEPS.lastIndex) // Good: climb one.
+        else -> ((step ?: -1) + 2).coerceAtMost(STEPS.lastIndex) // Easy: climb two.
     }
 
 /** The days until a card on [step] is due again, by each grade of [GRADES]. */
