@@ -34,11 +34,7 @@ class StudyReaderTest {
         """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
 
     private fun load(body: String) {
-        val html =
-            """<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-            <link rel="stylesheet" href="/assets/reader.css"><script defer src="/assets/reader.js"></script></head>
-            <body data-source-blob-sha="${"a".repeat(40)}" data-max-diagram-chars="20000" data-max-edges="200">
-            <p id="render-status"></p><main id="note">$body</main></body></html>"""
+        val html = testPage("a".repeat(40), body)
         val ready = CountDownLatch(1)
         var state: String? = null
         instrumentation.runOnMainSync {

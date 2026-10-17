@@ -38,11 +38,7 @@ class IsolatedPageTest {
     private fun shown(body: String, script: String): String {
         val context = instrumentation.targetContext
         val sha = "a".repeat(40)
-        val html =
-            """<!doctype html><html><head><link rel="stylesheet" href="/assets/reader.css">
-            <script defer src="/assets/reader.js"></script></head>
-            <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
-            <p id="render-status"></p><main id="note">$body</main></body></html>"""
+        val html = testPage(sha, body)
         val note = NoteRow(1, sha, "test-only/page.md", "Test-only page", html, 0, renderFormat = RENDER_FORMAT)
         val images =
             NoteImages(
@@ -86,11 +82,7 @@ class IsolatedPageTest {
     fun aPageWhoseRendererStopsIsReportedAsFailed() {
         val context = instrumentation.targetContext
         val sha = "a".repeat(40)
-        val html =
-            """<!doctype html><html><head><link rel="stylesheet" href="/assets/reader.css">
-            <script defer src="/assets/reader.js"></script></head>
-            <body data-source-blob-sha="$sha" data-max-diagram-chars="20000" data-max-edges="200">
-            <p id="render-status"></p><main id="note"><p data-block-id="b0" data-anchor-text="Test-only page">Test-only page</p></main></body></html>"""
+        val html = testPage(sha, """<p data-block-id="b0" data-anchor-text="Test-only page">Test-only page</p>""")
         val note = NoteRow(1, sha, "test-only/page.md", "Test-only page", html, 0, renderFormat = RENDER_FORMAT)
         val api = Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {}
         val images = NoteImages(api, File(context.cacheDir, "isolated-page-test"))
