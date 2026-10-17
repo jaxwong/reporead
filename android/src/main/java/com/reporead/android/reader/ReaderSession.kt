@@ -114,13 +114,16 @@ internal class ReaderSession(
     var stopped by mutableStateOf(false)
         private set
 
+    /**
+     * The page has rendered and opened, so its scripts can be used and scrolling saves the position. The screen offers
+     * the controls that use the page only then; saving waits for it so that the top of the page, shown while loading,
+     * never overwrites the saved position. It stays false for a page that did not render.
+     */
+    var opened by mutableStateOf(false)
+        private set
+
     private val main = Handler(Looper.getMainLooper())
     private var view: WebView? = null
-    /**
-     * The page has rendered and opened, so its scripts can be used and scrolling saves the position. Saving waits for
-     * this so that the top of the page, shown while loading, never overwrites the saved position.
-     */
-    private var opened = false
     /** Opening the page, then keeping its highlights current; cancelled when the view is released. */
     private var opening: Job? = null
     private val saveAfterScroll = Runnable { savePosition() }

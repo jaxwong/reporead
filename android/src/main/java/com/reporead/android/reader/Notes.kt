@@ -63,6 +63,7 @@ internal fun NotesPanel(
     annotations: List<AnnotationRow>,
     displayedBlobSha: String,
     notShown: Set<String>,
+    pageReady: Boolean,
     sync: Sync,
     dao: LibraryDao,
     scope: CoroutineScope,
@@ -119,6 +120,7 @@ internal fun NotesPanel(
                 AnnotationItem(
                     row,
                     shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown,
+                    pageReady = pageReady,
                     status = status(row, displayedBlobSha, notShown),
                     block =
                         if (row.type == AnnotationType.CARD) row.cardBlock(removed, displayedBlobSha, displayedBlobSha)
@@ -156,13 +158,15 @@ internal fun NotesPanel(
 }
 
 /**
- * One highlight or card with what can be done with it. [shown]: drawn in the version on screen; [status] says where it
- * stands when that needs saying; [block] is why a card cannot be reviewed yet.
+ * One highlight or card with what can be done with it. [shown]: drawn in the version on screen, which Show scrolls to
+ * once the page is ready ([pageReady]); [status] says where it stands when that needs saying; [block] is why a card
+ * cannot be reviewed yet.
  */
 @Composable
 private fun AnnotationItem(
     row: AnnotationRow,
     shown: Boolean,
+    pageReady: Boolean,
     status: String?,
     block: CardBlock?,
     onReveal: () -> Unit,
@@ -184,7 +188,7 @@ private fun AnnotationItem(
         row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         Row {
-            if (shown) TextButton(onClick = onReveal) { Text("Show") }
+            if (shown) TextButton(enabled = pageReady, onClick = onReveal) { Text("Show") }
             if (shown && row.type == AnnotationType.HIGHLIGHT)
                 TextButton(onClick = onMakeQuestion) { Text("Make a question") }
             if (shown && block == CardBlock.UNCONFIRMED)

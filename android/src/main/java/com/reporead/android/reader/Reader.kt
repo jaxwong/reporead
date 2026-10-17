@@ -332,7 +332,10 @@ fun ReaderScreen(
                     }
                     if (opened != null) {
                         if (page?.study?.recognized == true) {
-                            TextButton(onClick = ::toggleStudy) { Text(if (studying) "Read" else "Study") }
+                            // Only once the page is ready: before, it would change nothing on the page.
+                            TextButton(enabled = session?.opened == true, onClick = ::toggleStudy) {
+                                Text(if (studying) "Read" else "Study")
+                            }
                         }
                         IconButton(onClick = { notesOpen = !notesOpen }) {
                             BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
@@ -390,13 +393,16 @@ fun ReaderScreen(
                     changesExpanded,
                     onToggle = { changesExpanded = !changesExpanded },
                     onRetry = { changesReload++ },
-                    onOpen = { section ->
-                        changesExpanded = false
-                        scope.launch {
-                            if (!session.showBlock(section.blockId))
-                                message = "That section isn't in the version on screen; reopen the note."
-                        }
-                    },
+                    onOpen =
+                        if (!session.opened) null
+                        else
+                            { section ->
+                                changesExpanded = false
+                                scope.launch {
+                                    if (!session.showBlock(section.blockId))
+                                        message = "That section isn't in the version on screen; reopen the note."
+                                }
+                            },
                 )
             }
             if (!session.stopped)
@@ -411,6 +417,7 @@ fun ReaderScreen(
                     annotations,
                     opened.note.blobSha,
                     session.notShown,
+                    session.opened,
                     sync,
                     dao,
                     appScope,
