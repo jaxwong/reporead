@@ -17,7 +17,7 @@ import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
-import com.reporead.android.data.SavedCopy
+import com.reporead.android.data.SavedVersion
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -181,11 +181,11 @@ class Sync(
      * The saved copy is the current version of [document], a listed note: same blob and same path (the page shows the
      * path and resolves relative images against it).
      */
-    private fun sameVersion(cached: SavedCopy, document: DocumentRow?) =
+    private fun sameVersion(cached: SavedVersion, document: DocumentRow?) =
         document != null && !document.deleted && cached.blobSha == document.blobSha && cached.path == document.path
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
-    private fun upToDate(cached: SavedCopy, document: DocumentRow?) =
+    private fun upToDate(cached: SavedVersion, document: DocumentRow?) =
         sameVersion(cached, document) && cached.renderFormat >= RENDER_FORMAT
 
     /**
@@ -197,12 +197,12 @@ class Sync(
     suspend fun openNote(documentId: Long): Opened {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
-        if (cached != null && upToDate(cached, current)) return Opened(cached, null)
+        if (cached != null && upToDate(cached.version, current)) return Opened(cached, null)
         return try {
             Opened(locked { fetchNote(documentId) }, null)
         } catch (error: ApiException) {
             if (cached == null) throw error
-            val cachedIsCurrent = sameVersion(cached, current)
+            val cachedIsCurrent = sameVersion(cached.version, current)
             Log.i("RepoRead", "Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
             Opened(cached, if (cachedIsCurrent) null else error.describe())
         }
