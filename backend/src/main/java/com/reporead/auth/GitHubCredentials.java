@@ -101,7 +101,7 @@ public class GitHubCredentials {
                     throw new ApiFailure(
                             Code.GITHUB_UNAVAILABLE, "GitHub could not renew your sign-in; nothing was changed.");
                 }
-                String refusal = githubError(error);
+                String refusal = GitHubSecurity.githubError(error);
                 // Any other refusal (incorrect_client_credentials) is this server's configuration, and the user's
                 // refresh token works again once it is fixed.
                 if (!REFUSED_REFRESH_TOKEN.contains(refusal)) {
@@ -139,16 +139,6 @@ public class GitHubCredentials {
                             || response.getStatusCode().is5xxServerError())) return cause;
         }
         return null;
-    }
-
-    /** GitHub's error code; Spring nests the one read from a token response under its own invalid_token_response. */
-    private static String githubError(OAuth2AuthorizationException error) {
-        String code = error.getError().getErrorCode();
-        for (Throwable cause = error.getCause(); cause != null; cause = cause.getCause()) {
-            if (cause instanceof OAuth2AuthorizationException answered)
-                code = answered.getError().getErrorCode();
-        }
-        return code;
     }
 
     /**

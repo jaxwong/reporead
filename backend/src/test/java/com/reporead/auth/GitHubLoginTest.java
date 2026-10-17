@@ -191,6 +191,35 @@ class GitHubLoginTest extends SharedSpringTest {
         assertEquals(0, count("app_sign_in_codes"));
     }
 
+    @Test
+    void aCodeGitHubRefusesIsLoggedWithGitHubsReason(CapturedOutput log) throws Exception {
+        TestEnvironment.reset(db);
+        var tokens = RestClient.builder();
+        var tokenEndpoint = MockRestServiceServer.bindTo(tokens).build();
+        githubCodeExchange.setRestClient(GitHubSecurity.tokenApi(tokens, meters));
+        // GitHub refuses a code with HTTP 200 and an error body.
+        tokenEndpoint
+                .expect(requestTo("https://github.com/login/oauth/access_token"))
+                .andRespond(withSuccess("{\"error\":\"bad_verification_code\"}", MediaType.APPLICATION_JSON));
+        var session = appSignIn();
+        URI authorize =
+                URI.create(mvc.perform(get("/oauth2/authorization/github").session(session))
+                        .andReturn()
+                        .getResponse()
+                        .getHeader("Location"));
+        mvc.perform(get("/login/oauth2/code/github")
+                        .session(session)
+                        .param("code", "TEST_ONLY_CODE")
+                        .param("state", query(authorize).get("state")))
+                .andExpect(redirectedUrl("/auth/failed"));
+        tokenEndpoint.verify();
+        assertTrue(
+                log.getOut()
+                        .contains(
+                                "GitHub sign-in rejected; failureType=OAuth2AuthenticationException error=bad_verification_code"));
+        assertEquals(0, count("github_tokens"));
+    }
+
     /** Starts the app's sign-in and returns GitHub's callback for {@code githubUserId}, GitHub answering from fakes. */
     private ResultActions signInAsGitHubUser(long githubUserId) throws Exception {
         var tokens = RestClient.builder();

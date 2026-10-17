@@ -123,9 +123,7 @@ public class GitHubSecurity {
                             LOG.warn(
                                     "GitHub sign-in rejected; failureType={} error={}",
                                     error.getClass().getSimpleName(),
-                                    error instanceof OAuth2AuthenticationException rejected
-                                            ? rejected.getError().getErrorCode()
-                                            : null);
+                                    githubError(error));
                             response.sendRedirect("/auth/failed");
                         }));
         return http.build();
@@ -226,6 +224,21 @@ public class GitHubSecurity {
                         .addCustomConverter(tokens))
                 .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler())
                 .build();
+    }
+
+    /**
+     * The OAuth error code a failure carries, GitHub's own when tokenApi read one: Spring nests it under its own
+     * invalid_token_response. Null when there is none. Sign-in failures and token refreshes both read it here.
+     */
+    static String githubError(Throwable failure) {
+        String code = null;
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof OAuth2AuthenticationException rejected)
+                code = rejected.getError().getErrorCode();
+            if (cause instanceof OAuth2AuthorizationException refused)
+                code = refused.getError().getErrorCode();
+        }
+        return code;
     }
 
     /**
