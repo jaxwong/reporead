@@ -28,6 +28,14 @@ These come from the original implementation spec's engineering invariants and th
 - Enforced by: Room replaces server lists only with complete responses; the server stores no due dates; the phone computes no reconciliation.
 - Why: [ADR-01](adrs.md#adr-01--a-spring-boot-backend-between-the-phone-and-github), [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
 
+### The phone's lists are one server snapshot
+
+**Every list the phone saves from the server comes from one read of one database snapshot, and is written with the others in one Room transaction: all of one answer, or none of it.**
+
+- Enforced by: `GET /api/library` is the only route that lists them, one request per read and no GitHub call; `Library` reads every list in one read-only `REPEATABLE READ` transaction; `Sync` checks the whole answer before `LibraryDao.replaceFromServer` writes it, and deletes images only after the commit.
+- Checked by: `LibraryTest` (a write committed during the read is wholly out of it and wholly in the next); `LocalSyncTest` on a device (a failed request or a broken answer leaves every saved list and image as it was).
+- Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
+
 ### Source traceability
 
 **Every annotation keeps the blob it was created against, and its original anchor never changes.**
