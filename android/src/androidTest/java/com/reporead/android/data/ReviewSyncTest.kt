@@ -67,7 +67,7 @@ class ReviewSyncTest {
                     val stored = mutableMapOf<String, JSONObject>()
                     val first = async(Dispatchers.IO) { respond(server, 6, failLast = true, stored) }
                     try {
-                        sync.pushReviews()
+                        sync.syncWaitingChanges()
                         fail("Expected a typed 503 failure")
                     } catch (error: ApiException) {
                         assertEquals("GITHUB_UNAVAILABLE", error.code)
@@ -76,18 +76,18 @@ class ReviewSyncTest {
                     assertEquals(5, stored.size)
                     assertEquals(5, dao.pendingReviews().size)
                     val second = async(Dispatchers.IO) { respond(server, 5, failLast = false, stored) }
-                    sync.pushReviews()
+                    sync.syncWaitingChanges()
                     second.await()
                     assertEquals(10, stored.size)
                     assertTrue(dao.pendingReviews().isEmpty())
                     // Lost local acknowledgement: explicitly resend the identical mutation.
                     dao.saveReview(grades.first())
                     val replay = async(Dispatchers.IO) { respond(server, 1, failLast = false, stored) }
-                    sync.pushReviews()
+                    sync.syncWaitingChanges()
                     replay.await()
                     assertEquals(10, stored.size)
                     assertTrue(dao.pendingReviews().isEmpty())
-                    sync.pushReviews() // empty: makes no HTTP calls
+                    sync.syncWaitingChanges() // empty: makes no HTTP calls
                     assertEquals(10, stored.size)
                 }
             } finally {
