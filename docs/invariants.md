@@ -39,7 +39,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **A sync publishes a complete snapshot or changes nothing; a missing path is marked deleted, never removed, and only from a complete tree.**
 
-- Enforced by: `RepositorySync` validates the whole tree before one transaction; an older snapshot cannot replace a newer one (409 `SYNC_SUPERSEDED`).
+- Enforced by: `RepositorySync` validates the whole tree before one transaction; neither an older snapshot nor one of a branch the connection no longer follows can replace the current one (409 `SYNC_SUPERSEDED`).
 - Checked by: `RepositorySyncTest`.
 - Why: [ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots).
 
@@ -128,6 +128,13 @@ These come from the original implementation spec's engineering invariants and th
 - A client cannot choose its own cap.
 - No retry, backoff, alternate fetching strategy, or installation-token fallback. A comparison or listing that hits a limit says so; it never presents a partial result as complete.
 - Why: [ADR-02](adrs.md#adr-02--github-is-canonical-and-read-only-note-bodies-are-not-stored-on-the-server).
+
+### Error wording has one owner per client
+
+**The server sends a code and a neutral message that names no client's screens or controls; the app words codes for its screens only in `describe()` (`Api.kt`).**
+
+- Checked by: `DescribeTest`.
+- Why: [ADR-01](adrs.md#adr-01--a-spring-boot-backend-between-the-phone-and-github).
 
 ### The previous release runs on the current schema
 
