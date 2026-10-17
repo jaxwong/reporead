@@ -2,12 +2,16 @@ package com.reporead.android.auth
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.security.KeyStoreException
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
-import android.util.Base64
 import android.util.Log
 import java.security.GeneralSecurityException
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
+import java.util.Base64
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -19,6 +23,74 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 private const val KEY_ALIAS = "reporead-session"
 private const val PREFS = "reporead-session"
+private const val TRANSFORMATION = "AES/GCM/NoPadding"
+
+/**
+ * The IV Android Keystore generates for AES/GCM, the only length it accepts back
+ * (AndroidKeyStoreAuthenticatedAESCipherSpi).
+ */
+private const val GCM_IV_BYTES = 12
+private const val GCM_TAG_BYTES = 16
+
+/** What this phone holds for its sign-in. */
+sealed interface StoredSession {
+    data object Absent : StoredSession
+
+    data class Readable(val token: String) : StoredSession
+
+    /** It can never be read again, so it was deleted: only a new sign-in recovers (saved notes stay). */
+    data object PermanentlyInvalid : StoredSession
+
+    /** The Keystore failed in a way that may pass; the session is kept. */
+    class TemporarilyUnavailable(val cause: GeneralSecurityException) : StoredSession
+}
+
+/** An IV and ciphertext as [SessionStore.save] writes them. */
+internal class Envelope(val iv: ByteArray, val ciphertext: ByteArray)
+
+/**
+ * Reads "iv:ciphertext" (each Base64) without the Keystore, or null for text [SessionStore.save] could not have
+ * written: not two parts, not Base64, an IV of another length, or a ciphertext shorter than its GCM tag.
+ */
+internal fun parseEnvelope(stored: String): Envelope? {
+    val parts = stored.split(':')
+    if (parts.size != 2) return null
+    val (iv, ciphertext) =
+        try {
+            parts.map { Base64.getDecoder().decode(it) }
+        } catch (notBase64: IllegalArgumentException) {
+            return null
+        }
+    if (iv.size != GCM_IV_BYTES || ciphertext.size < GCM_TAG_BYTES) return null
+    return Envelope(iv, ciphertext)
+}
+
+/**
+ * What a Keystore [failure] to decrypt the stored session means. Permanent when the key is gone or can never decrypt
+ * this ciphertext: KeyPermanentlyInvalidatedException (Cipher.init found the key missing or invalidated),
+ * UnrecoverableKeyException (KeyStore.getKey could not load the key) unless [keyLoadMayPass], and AEADBadTagException
+ * (the ciphertext does not authenticate under the current key: a missing key is replaced by a new one before
+ * decrypting, so this is how a lost key shows). Anything else may pass.
+ */
+internal fun keystoreFailure(
+    failure: GeneralSecurityException,
+    keyLoadMayPass: Boolean = keystoreSaysItMayPass(failure),
+): StoredSession =
+    when (failure) {
+        is UnrecoverableKeyException ->
+            if (keyLoadMayPass) StoredSession.TemporarilyUnavailable(failure) else StoredSession.PermanentlyInvalid
+        is KeyPermanentlyInvalidatedException,
+        is AEADBadTagException -> StoredSession.PermanentlyInvalid
+        else -> StoredSession.TemporarilyUnavailable(failure)
+    }
+
+/**
+ * Android raises UnrecoverableKeyException for an invalidated key (no cause) and for any other Keystore error loading
+ * it (the KeyStoreException as cause). Only an error of this key that never passes needs a new key; one Keystore marks
+ * transient, or as a fault of the system rather than the key, may pass.
+ */
+private fun keystoreSaysItMayPass(failure: GeneralSecurityException): Boolean =
+    (failure.cause as? KeyStoreException)?.let { it.isTransientFailure || it.isSystemError } == true
 
 /**
  * Owns the app's bearer session on this device. The token is encrypted with an Android Keystore AES-GCM key; only
@@ -29,30 +101,40 @@ private const val PREFS = "reporead-session"
 class SessionStore(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun accessToken(): String? {
-        val stored = prefs.getString("token", null) ?: return null
-        val (iv, ciphertext) = stored.split(':').map { Base64.decode(it, Base64.NO_WRAP) }
-        return try {
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv))
-            cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
-        } catch (error: GeneralSecurityException) {
-            // A Keystore key can be invalidated by the platform; the only recovery is a new sign-in.
-            Log.w(
-                "RepoRead",
-                "Stored session could not be decrypted; signing out. failure=${error.javaClass.simpleName}",
-            )
-            clear()
-            null
-        }
+    /** Whether a session is stored, without reading it; [read] may still find it unreadable. */
+    val hasSession: Boolean
+        get() = prefs.contains("token")
+
+    /** The stored session. One that can never be read is deleted here, signing this phone out. */
+    fun read(): StoredSession {
+        val stored = prefs.getString("token", null) ?: return StoredSession.Absent
+        val envelope = parseEnvelope(stored)
+        if (envelope == null) Log.w("RepoRead", "Stored session is not text save() writes; signing out.")
+        val session = envelope?.let(::decrypt) ?: StoredSession.PermanentlyInvalid
+        if (session == StoredSession.PermanentlyInvalid) clear()
+        return session
     }
 
+    private fun decrypt(envelope: Envelope): StoredSession =
+        try {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(GCM_TAG_BYTES * 8, envelope.iv))
+            StoredSession.Readable(cipher.doFinal(envelope.ciphertext).toString(Charsets.UTF_8))
+        } catch (failure: GeneralSecurityException) {
+            keystoreFailure(failure).also {
+                Log.w(
+                    "RepoRead",
+                    "Stored session could not be decrypted; result=${it.javaClass.simpleName} failure=${failure.javaClass.simpleName}",
+                )
+            }
+        }
+
     fun save(token: String) {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val encoded =
             listOf(cipher.iv, cipher.doFinal(token.toByteArray(Charsets.UTF_8))).joinToString(":") {
-                Base64.encodeToString(it, Base64.NO_WRAP)
+                Base64.getEncoder().encodeToString(it)
             }
         prefs.edit().putString("token", encoded).apply()
     }
@@ -65,13 +147,14 @@ class SessionStore(context: Context) {
 
     /**
      * The server refused [sent] (a 401): ends the session unless a newer sign-in replaced it while that request ran.
+     * One that cannot be read now is kept, since it may be newer; the next request that reads it is refused in turn.
      */
     fun endRefused(sent: String?) {
-        if (sent != null && accessToken() == sent) clear()
+        if (sent != null && (read() as? StoredSession.Readable)?.token == sent) clear()
     }
 
     /** Whether a session is stored, as it changes through any SessionStore (they all share these preferences). */
-    fun signedIn(): Flow<Boolean> = observed("token") { prefs.contains("token") }
+    fun signedIn(): Flow<Boolean> = observed("token") { hasSession }
 
     /** [key]'s value, read by [read], as it changes; one listener shape for each value a screen follows. */
     private fun <T> observed(key: String, read: () -> T): Flow<T> = callbackFlow {

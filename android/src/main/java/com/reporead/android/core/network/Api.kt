@@ -2,6 +2,7 @@ package com.reporead.android.core.network
 
 import android.util.Log
 import com.reporead.android.BuildConfig
+import com.reporead.android.auth.StoredSession
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -29,12 +30,12 @@ private const val MAX_JSON_BYTES = 8 * 1024 * 1024
 const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 /**
- * The RepoRead HTTP/JSON contract client: one request per call, no retries. Any 401 hands [onUnauthorized] the refused
- * session.
+ * The RepoRead HTTP/JSON contract client: one request per call, no retries. Each request sends the [session] read then;
+ * any 401 hands [onUnauthorized] the refused session.
  */
 class Api(
     private val baseUrl: String,
-    private val accessToken: () -> String?,
+    private val session: () -> StoredSession,
     private val onUnauthorized: (sent: String?) -> Unit,
 ) {
     /** [maxBytes]: the largest answer read; a response that sets its own, such as the library's, passes it. */
@@ -79,7 +80,7 @@ class Api(
             connection.readTimeout = 45_000
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", accept)
-            val token = accessToken()
+            val token = bearerToken()
             token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
             if (body != null) {
                 connection.doOutput = true
@@ -120,6 +121,21 @@ class Api(
             connection.disconnect()
         }
     }
+
+    /** The session to send, or null when signed out. One the phone cannot read now fails the request unsent. */
+    private fun bearerToken(): String? =
+        when (val stored = session()) {
+            StoredSession.Absent,
+            StoredSession.PermanentlyInvalid -> null
+            is StoredSession.Readable -> stored.token
+            is StoredSession.TemporarilyUnavailable ->
+                throw ApiException(
+                    0,
+                    "SESSION_UNREADABLE",
+                    "The stored session could not be decrypted (${stored.cause.javaClass.simpleName}).",
+                    stored.cause,
+                )
+        }
 
     private fun unexpected(status: Int) =
         ApiException(status, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
@@ -186,6 +202,7 @@ fun ApiException.describe(): String =
             "Your library, with its highlights and review history, is too large to sync in one answer; the lists on this phone were not updated."
         "SIGN_IN_REQUIRED",
         "HTTP_401" -> "Sign in again to refresh from GitHub."
+        "SESSION_UNREADABLE" -> "This phone couldn't read its sign-in just now. Nothing was sent; try again."
         "NOT_FOUND" -> "Not found."
         else -> message
     }

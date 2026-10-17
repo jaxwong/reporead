@@ -20,7 +20,7 @@ class RepoReadApplication : Application() {
     val sessionStore by lazy { SessionStore(this) }
 
     /** Sends the stored session with every request; the session ends when the server refuses it (any 401). */
-    val api by lazy { Api(BuildConfig.API_BASE_URL, sessionStore::accessToken, sessionStore::endRefused) }
+    val api by lazy { Api(BuildConfig.API_BASE_URL, sessionStore::read, sessionStore::endRefused) }
 
     val localStore by lazy { LocalStore.open(this, "reporead.db") }
 

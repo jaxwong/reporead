@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.auth.StoredSession
 import com.reporead.android.awaitText
 import com.reporead.android.awaitTextStarting
 import com.reporead.android.click
@@ -56,7 +57,7 @@ class ReviewLifecycleTest {
         // No token and a closed local port: a server call fails as unreachable instead of leaving the phone.
         val sync =
             Sync(
-                Api("http://127.0.0.1:1", { null }) {},
+                Api("http://127.0.0.1:1", { StoredSession.Absent }) {},
                 store,
                 File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
             ) {}
@@ -135,7 +136,7 @@ class ReviewLifecycleTest {
             card(1)
             val sync =
                 Sync(
-                    Api("http://127.0.0.1:1", { null }) {},
+                    Api("http://127.0.0.1:1", { StoredSession.Absent }) {},
                     store,
                     File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
                 ) {}

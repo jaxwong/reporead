@@ -2,6 +2,7 @@ package com.reporead.android.sync
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.LoopbackServer
 import java.io.File
@@ -28,7 +29,7 @@ class NoteImagesTest {
     @Test
     fun aFetchedImageIsCachedAndServedFromTheCacheAfterwards() {
         LoopbackServer(mapOf("GET /api/documents/1/image?path=a.png" to (200 to "PNG"))).use { server ->
-            val images = NoteImages(Api(server.url, { "TEST_ONLY_SESSION" }) {}, filesDir)
+            val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             assertArrayEquals("PNG".toByteArray(), images.image(1, sha, "a.png"))
             assertArrayEquals("PNG".toByteArray(), images.image(1, sha, "a.png"))
             assertTrue(server.requests.toString(), server.requests.size == 1)
@@ -40,7 +41,7 @@ class NoteImagesTest {
     @Test
     fun anImageThatCannotBeCachedIsStillShown() {
         LoopbackServer(mapOf("GET /api/documents/1/image?path=a.png" to (200 to "PNG"))).use { server ->
-            val images = NoteImages(Api(server.url, { "TEST_ONLY_SESSION" }) {}, filesDir)
+            val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             // The version's folder cannot be created: a file has its name, so nothing can be written in it.
             File(filesDir, "images/1").mkdirs()
             File(filesDir, "images/1/$sha").writeText("test-only, not a folder")
