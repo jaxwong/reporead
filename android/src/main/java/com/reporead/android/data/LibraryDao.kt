@@ -39,6 +39,39 @@ interface LibraryDao {
         return forgotten
     }
 
+    /**
+     * The server's complete repository list and each repository's complete note list replace the saved ones together.
+     * Returns the ids of the notes forgotten with repositories no longer listed, for the files kept beside the
+     * database.
+     */
+    @Transaction
+    suspend fun replaceLibrary(library: Map<RepositoryRow, List<DocumentRow>>): List<Long> {
+        val forgotten = replaceRepositories(library.keys.toList())
+        for ((repository, documents) in library) replaceDocuments(repository.id, documents)
+        return forgotten
+    }
+
+    /**
+     * One sync's complete lists replace the saved ones in one transaction, so the phone holds all of them or none: the
+     * library, then reading, bookmark and notebook rows, then saved copies nothing refers to any more. Returns the ids
+     * of every note forgotten, for its images.
+     */
+    @Transaction
+    suspend fun replaceFromServer(
+        library: Map<RepositoryRow, List<DocumentRow>>,
+        reading: List<ReadingRow>,
+        bookmarks: List<BookmarkRow>,
+        annotations: List<AnnotationRow>,
+        reviews: List<ReviewRow>,
+        sessionLimit: Int,
+    ): List<Long> {
+        val forgotten = replaceLibrary(library)
+        replaceRemoteReading(reading)
+        replaceRemoteBookmarks(bookmarks)
+        replaceRemoteNotebook(annotations, reviews, sessionLimit)
+        return forgotten + forgetUnreferencedNotes()
+    }
+
     @Query("select * from documents where repositoryId = :repositoryId and not deleted order by path")
     fun documents(repositoryId: Long): Flow<List<DocumentRow>>
 

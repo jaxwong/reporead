@@ -583,6 +583,59 @@ class LocalSyncTest {
             }
     }
 
+    /** The saved lists are all from one sync or all as they were: a list that fails part-way writes none of them. */
+    @Test
+    fun aListThatFailsLeavesEverySavedListAndImageAsItWas() = runBlocking {
+        dao.replaceRepositories(
+            listOf(RepositoryRow(7, "test-only/kept", 1, sha), RepositoryRow(9, "test-only/gone", 1, sha))
+        )
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
+        dao.replaceDocuments(9, listOf(DocumentRow(3, 9, "c.md", "c", sha)))
+        dao.saveNote(NoteRow(3, sha, "c.md", "c", "<html/>", 0, "text"))
+        dao.saveReading(reading(1).copy(pending = false))
+        dao.saveBookmark(BookmarkRow(1, bookmarked = true, pending = false, changedAt = 5))
+        val image = File(directory, "images/3/$sha/test-only").apply { check(parentFile!!.mkdirs()) }
+        image.writeText("test-only image")
+        suspend fun saved() =
+            listOf(
+                dao.repositories().first(),
+                dao.documents(7).first(),
+                dao.documents(9).first(),
+                dao.note(3),
+                dao.reading(1),
+                dao.bookmarks().first(),
+                dao.notebook().first(),
+            )
+        val before = saved()
+        fun notes(repositoryId: Int, documentId: Int) =
+            200 to
+                """{"repositoryId":$repositoryId,"lastSyncedCommitSha":"$sha","documents":[
+                {"id":$documentId,"path":"n$documentId.md","title":"n$documentId","blobSha":"$sha","contentChangedAt":null,"deleted":false}]}"""
+        // Repository 9 is gone, 8 is new, and every other list is empty: a complete sync would change every saved list.
+        val newLists =
+            emptyLists +
+                mapOf(
+                    "GET /api/repositories" to
+                        (200 to
+                            """{"repositories":[{"id":7,"fullName":"test-only/kept","documentCount":1,"lastSyncedCommitSha":"$sha"},
+                            {"id":8,"fullName":"test-only/new","documentCount":1,"lastSyncedCommitSha":"$sha"}]}"""),
+                    "GET /api/repositories/7/documents" to notes(7, 2),
+                    "GET /api/repositories/8/documents" to notes(8, 4),
+                )
+        for (failing in listOf("GET /api/repositories/8/documents", "GET /api/notebook")) {
+            LoopbackServer(newLists + (failing to failure(500, "TEST_ONLY_FAILURE"))).use { server ->
+                try {
+                    sync(server.url).syncLocalChanges()
+                    fail("Expected $failing to end the sync")
+                } catch (error: ApiException) {
+                    assertEquals("TEST_ONLY_FAILURE", error.code)
+                }
+            }
+            assertEquals(failing, before, saved())
+            assertTrue(failing, image.isFile)
+        }
+    }
+
     @Test
     fun aRepositoryTheServerAlreadyDisconnectedIsRemovedFromThePhoneInsteadOfFailing() = runBlocking {
         dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
