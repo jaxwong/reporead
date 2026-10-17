@@ -20,7 +20,8 @@ data class RepositoryRow(
  * One note of a repository's complete server list, and the phone's one owner of its title, path, current version and
  * removal. [changedAt]: when a repository refresh found the note new or changed (epoch ms); null if RepoRead never saw
  * it change. [deleted]: the latest complete refresh did not have it; it stays here so the reading position, bookmark
- * and highlights kept on it are named, and the screens that list notes leave it out.
+ * and highlights kept on it are named, and the screens that list notes leave it out. Serializable so the reader can
+ * keep a link's target across recreation.
  */
 @Entity(tableName = "documents", indices = [Index("repositoryId")])
 data class DocumentRow(
@@ -31,7 +32,7 @@ data class DocumentRow(
     val blobSha: String,
     val changedAt: Long? = null,
     @ColumnInfo(defaultValue = "0") val deleted: Boolean = false,
-)
+) : Serializable
 
 /**
  * A note in the library's change lists: its current version, when it was seen changing, and the version last read
@@ -195,7 +196,7 @@ enum class AnchorStatus {
  * [rejection] is set only when [state] is REFUSED. The source/block/offset/exact fields and [prefixText]/[suffixText]
  * are the original selection. [location], [status] and [resolvedBlobSha] are the server's: where the highlight is now
  * and what that means for that version ([AnchorStatus]). A pending creation has none of them and is drawn where it was
- * made.
+ * made. Serializable so the reader can keep the one being edited, deleted or reattached across recreation.
  */
 @Entity(tableName = "annotations", indices = [Index("documentId")])
 data class AnnotationRow(
@@ -220,7 +221,7 @@ data class AnnotationRow(
     @ColumnInfo(defaultValue = "'HIGHLIGHT'") val type: AnnotationType = AnnotationType.HIGHLIGHT,
     val question: String? = null,
     val checkedBlobSha: String? = null,
-) {
+) : Serializable {
     /** Where to draw it: the server's current location, or the original selection while the creation is pending. */
     val drawn: Passage
         get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
