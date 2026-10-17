@@ -304,6 +304,28 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
+    void aSelectionThatSplitsACharacterIsRefusedBeforeGitHub() throws Exception {
+        // In "An 🍎 a day." the apple is two UTF-16 units at 3 and 4. Half of it matches the block as Java compares
+        // text, so this was accepted, and the driver stored the half as '?'.
+        String sha = Hashes.gitBlobSha("# Fruit\n\nAn \uD83C\uDF4E a day.\n".getBytes(StandardCharsets.UTF_8));
+        for (String range : List.of(
+                "\"startOffset\":0,\"endOffset\":4,\"exactText\":\"An \\ud83c\"",
+                "\"startOffset\":4,\"endOffset\":7,\"exactText\":\"\\udf4e a\"")) {
+            String anchor = "{\"sourceBlobSha\":\"" + sha + "\",\"blockId\":\"b1\"," + range + "}";
+            create(alice, note, "{\"mutationId\":\"" + UUID.randomUUID() + "\",\"anchor\":" + anchor + "}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_ANNOTATION"));
+            mvc.perform(post("/api/annotations/1/reattach")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"expectedVersion\":1,\"anchor\":" + anchor + "}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_ANNOTATION"));
+        }
+        assertEquals(0, count("annotation_mutations"));
+    }
+
+    @Test
     void textTheDatabaseCannotStoreExactlyIsRefusedAsTheItemsFault() throws Exception {
         // PostgreSQL refuses U+0000, which was a code-less 500 that the phone retries forever, holding back every later
         // creation; the driver stores an unpaired surrogate as '?', which changed the note without saying so.

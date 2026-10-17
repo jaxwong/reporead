@@ -64,8 +64,8 @@ public class AnnotationController {
                     Code.INVALID_ANNOTATION,
                     "An annotation needs a source blob SHA, a block id, a non-empty UTF-16 range matching exactText (at most "
                             + MAX_TEXT_CHARS + " characters), an optional note of at most " + MAX_TEXT_CHARS
-                            + " characters, and a non-blank question for type CARD; a note or question cannot contain"
-                            + " NUL or an unpaired surrogate.");
+                            + " characters, and a non-blank question for type CARD; no text can contain NUL or an unpaired"
+                            + " surrogate, so a range cannot split a character.");
         }
         var type = card ? Annotations.Type.CARD : Annotations.Type.HIGHLIGHT;
         var created = service.create(user, id, mutationId, selection, body.note(), type, body.question());
@@ -83,7 +83,7 @@ public class AnnotationController {
             throw new ApiFailure(
                     Code.INVALID_ANNOTATION,
                     "A reattachment needs expectedVersion and a selection: source blob SHA, block id, and a non-empty UTF-16 range matching exactText (at most "
-                            + MAX_TEXT_CHARS + " characters).");
+                            + MAX_TEXT_CHARS + " characters) that does not split a character.");
         }
         return service.reattach(user, id, body.expectedVersion(), body.anchor());
     }
@@ -147,16 +147,20 @@ public class AnnotationController {
                 && selection.endOffset() > selection.startOffset()
                 && selection.exactText() != null
                 && selection.exactText().length() == selection.endOffset() - selection.startOffset()
-                && selection.exactText().length() <= MAX_TEXT_CHARS;
+                && selection.exactText().length() <= MAX_TEXT_CHARS
+                && storable(selection.exactText());
+    }
+
+    private static boolean validNote(String note) {
+        return note == null || (note.length() <= MAX_TEXT_CHARS && storable(note));
     }
 
     /**
-     * A note or question the database stores exactly: PostgreSQL refuses U+0000, and the driver would store an unpaired
-     * surrogate as '?'. Refusing them here makes them this item's fault, which the phone marks instead of resending.
+     * Text the database stores exactly: PostgreSQL refuses U+0000, and the driver would store an unpaired surrogate as
+     * '?', as in a selection that splits a character. Refusing them here makes them this item's fault, which the phone
+     * marks instead of resending.
      */
-    private static boolean validNote(String note) {
-        return note == null
-                || (note.length() <= MAX_TEXT_CHARS
-                        && note.codePoints().noneMatch(c -> c == 0 || Character.getType(c) == Character.SURROGATE));
+    private static boolean storable(String text) {
+        return text.codePoints().noneMatch(c -> c == 0 || Character.getType(c) == Character.SURROGATE);
     }
 }
