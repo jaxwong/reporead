@@ -14,6 +14,7 @@ import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.awaitText
 import com.reporead.android.click
+import com.reporead.android.control
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
@@ -38,6 +39,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -360,6 +362,54 @@ class ReaderLifecycleTest {
         awaitText(placing)
         click("Cancel")
         // Back at its place, so the page has opened and makes the final save the teardown waits for.
+        awaitReader(12)
+    }
+
+    /**
+     * Until the page is ready the controls that use it are not offered: they did nothing, or said the passage was not
+     * in this version.
+     */
+    @Test
+    fun aPageThatIsNotReadyOffersNoShow() {
+        runBlocking {
+            val dao = store.library()
+            val path = "test-only/unready.md"
+            dao.replaceDocuments(
+                7,
+                listOf(
+                    DocumentRow(1, 7, "test-only/lifecycle.md", title, sha),
+                    DocumentRow(2, 7, path, "Test-only unready", sha),
+                ),
+            )
+            // No reader script, so the page never says it is ready.
+            val html =
+                """<main id="note"><p data-block-id="b0" data-anchor-text="Never ready.">Never ready.</p></main>"""
+            dao.saveNote(NoteRow(2, sha, path, "Test-only unready", html, 0, renderFormat = RENDER_FORMAT))
+            dao.saveAnnotation(
+                AnnotationRow(
+                    "test-only-unready",
+                    null,
+                    2,
+                    sha,
+                    "b0",
+                    0,
+                    5,
+                    "Never",
+                    null,
+                    1,
+                    0,
+                    AnnotationState.UNSENT,
+                )
+            )
+        }
+        // Away from the top, so finding the place again shows the fixture's page has opened.
+        evaluate("window.reporead.showBlock('b12'); return {};")
+        awaitSaved(12)
+        scenario.onActivity { screenUnderTest.value = Screen.Reader(2, "Test-only unready") }
+        click("Highlights and notes")
+        assertFalse("Show is offered before the page is ready", control("Show").isEnabled)
+        // Back to the fixture's note, whose final save the teardown waits for; back at its place, it has opened.
+        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title) }
         awaitReader(12)
     }
 
