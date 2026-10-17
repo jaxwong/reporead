@@ -90,7 +90,7 @@ One Spring Boot 4 / Java 25 service, a modular monolith with one package per con
 
 ### Packages and their dependencies
 
-Arrows point from a package to the packages it calls (from the imports in each file). The packages form a stack with no cycles: each calls only packages below it, and `datacontrol`, which deletes across every owner, is on top. Every package with routes also reads the signed-in user (`auth.AppUser`); those arrows are left out. The stack is of imports: SQL reads do cross owners (`Documents` checks reading and annotation rows, `RepositoryConnections` counts documents), which ADR-01 allows, since each table's writes stay with its one owner. Controllers call owners only; no controller calls GitHub.
+Arrows point from a package to the packages it calls (from the imports in each file). The packages form a stack with no cycles: each calls only packages below it, and `datacontrol`, which deletes across every owner, and `library`, which reads the phone's lists across their owners in one snapshot, are on top. Every package with routes also reads the signed-in user (`auth.AppUser`); those arrows are left out. The stack is of imports: SQL reads do cross owners (`Documents` checks reading and annotation rows, `RepositoryConnections` counts documents), which ADR-01 allows, since each table's writes stay with its one owner. Controllers call owners only; no controller calls GitHub.
 
 ```mermaid
 flowchart TB
@@ -103,9 +103,11 @@ flowchart TB
         ReadC["ReadingController"]
         AnnC["AnnotationController<br/>BookmarkController<br/>ReviewController"]
         DataC["DataControlController"]
+        LibC["LibraryController"]
     end
 
     datacontrol["datacontrol<br/>disconnect, stored data,<br/>account deletion"]
+    library["library<br/>Library: every list the phone saves,<br/>one read-only snapshot"]
     sync["sync<br/>RepositorySync: snapshot publish<br/>ContentMoves: moved-and-edited"]
     annotation["annotation<br/>Annotations, Anchoring,<br/>Bookmarks, Reviews"]
     reading["reading<br/>ReadingStates"]
@@ -121,6 +123,7 @@ flowchart TB
     ReadC --> reading
     AnnC --> annotation
     DataC --> datacontrol
+    LibC --> library
 
     datacontrol --> annotation
     datacontrol --> reading
@@ -128,6 +131,10 @@ flowchart TB
     datacontrol --> repository
     datacontrol --> auth
     datacontrol --> github
+    library --> annotation
+    library --> reading
+    library --> document
+    library --> repository
     sync --> document
     sync --> repository
     sync --> github
@@ -154,6 +161,7 @@ flowchart TB
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
 | `datacontrol` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionData`, `AccountDeletion`, `DataControlController` |
+| `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook, each from its owner, in one read-only `REPEATABLE READ` transaction ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `Library`, `LibraryController` |
 | root | Error responses (`{code, message}`), client clock bounds | `ApiErrors`, `ApiFailure`, `ClientClock` |
 
 ### Data model (PostgreSQL)
@@ -330,7 +338,7 @@ Room never decides anything the server owns; it mirrors complete server response
 
 | Table | Comes from | Pending local changes? |
 | --- | --- | --- |
-| `repositories`, `documents` | Server's complete lists (replaced, never merged) | No |
+| `repositories`, `documents` | Server's complete lists (replaced, never merged), with every other list from one library answer in one transaction | No |
 | `notes` | Latest rendered copy of each opened note, keyed by document and blob SHA, with its canonical text for search | No |
 | `reading_states`, `bookmarks` | Server lists, merged with local saves | Yes, last write wins by time |
 | `annotations` | Notebook and per-note listings | Yes: creations (with mutation id) and deletions of unacknowledged creations |
@@ -399,9 +407,10 @@ sequenceDiagram
             API-->>App: 200
         end
     end
-    App->>API: GET /api/repositories/{id}/documents
-    API-->>App: complete list
-    App->>App: replace Room documents for that repository
+    App->>API: GET /api/library
+    API->>DB: one read-only REPEATABLE READ snapshot:<br/>repositories, documents, reading states, bookmarks, notebook
+    API-->>App: every list
+    App->>App: replace Room's lists in one transaction
 ```
 
 ### Opening and displaying a note
@@ -441,7 +450,7 @@ Links the page needs native help with (`/note-link`, `/copy-code`, `/full-screen
 
 ### Highlights, cards and the sync
 
-Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh, **Sync now**, and opening a note also send them, and the first three then load the server's complete lists, which the background sync leaves alone. Every path runs the same `Sync` code under one per-process lock that sign-out also takes, as does every other `Sync` operation that writes the server's answers into Room; the mutation id makes resending safe.
+Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh, **Sync now**, and opening a note also send them, and the first three then load the server's library in one request, which the background sync leaves alone. Every path runs the same `Sync` code under one per-process lock that sign-out also takes, as does every other `Sync` operation that writes the server's answers into Room; the mutation id makes resending safe.
 
 ```mermaid
 sequenceDiagram
@@ -465,9 +474,8 @@ sequenceDiagram
     P->>API: 2. pending grades
     P->>API: 3. pending reading positions
     P->>API: 4. pending bookmark changes
-    P->>API: 5. GET complete reading states and bookmarks → replace Room
-    P->>API: 6. GET /api/notebook → replace annotations and review log
-    P->>P: 7. delete saved notes nothing refers to any more
+    P->>API: 5. GET /api/library (one snapshot) → replace every list in one Room transaction,<br/>deleting saved notes nothing refers to any more
+    P->>P: 6. delete the forgotten notes' images
 ```
 
 A refused item (400/404/409/410/422) is marked and the run continues; any other failure ends the run with everything unacknowledged still pending.
@@ -512,7 +520,7 @@ flowchart LR
 
     Grade["Grade 0 / 3 / 4 / 5<br/>pending, client UUID"]
     Grade -- "sync" --> Log["Server: review_log<br/>immutable, idempotent"]
-    Log -- "GET /api/notebook" --> Proj["Room: review_log projection"]
+    Log -- "GET /api/library" --> Proj["Room: review_log projection"]
     Proj --> Ladder["library/ReviewSchedule.kt<br/>gap ladder over the log"]
     Ladder --> Due["Due cards → Review session<br/>capped at 40 (server-owned)"]
     Due --> Grade
