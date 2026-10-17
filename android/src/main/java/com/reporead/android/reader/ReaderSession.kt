@@ -274,7 +274,7 @@ internal class ReaderSession(
      */
     private suspend fun open(view: WebView) {
         val state = suspendCancellableCoroutine { rendered ->
-            awaitRendered(view, main) { state, _ -> rendered.resume(state) }
+            awaitRendered(view, main) { state -> rendered.resume(state) }
         }
         if (state != "ready") {
             // A page that failed to render shows why itself.

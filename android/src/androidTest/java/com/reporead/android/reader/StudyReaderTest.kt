@@ -68,7 +68,7 @@ class StudyReaderTest {
                                     )
 
                             override fun onPageFinished(view: WebView, url: String) =
-                                awaitRendered(view, Handler(Looper.getMainLooper())) { result, _ ->
+                                awaitRendered(view, Handler(Looper.getMainLooper())) { result ->
                                     state = result
                                     ready.countDown()
                                 }
