@@ -142,16 +142,6 @@ class PracticeTest {
     }
 
     @Test
-    fun aMissedQuestionComesBackAtTheEndUntilAnsweredRight() {
-        assertEquals(listOf("b", "c", "a"), afterGrade(listOf("a", "b", "c"), 0))
-        assertEquals(listOf("b", "c"), afterGrade(listOf("a", "b", "c"), 3))
-        assertEquals(listOf("b", "c"), afterGrade(listOf("a", "b", "c"), 4))
-        assertEquals(listOf("b", "c"), afterGrade(listOf("a", "b", "c"), 5))
-        assertEquals(listOf("a"), afterGrade(listOf("a"), 0))
-        assertEquals(emptyList<String>(), afterGrade(listOf("a"), 4))
-    }
-
-    @Test
     fun banksAreTheListedNotesInInterviewFoldersAndNameTheirNonQuestions() {
         val html =
             "<main id=note><h3 data-block-id=b1 data-anchor-text='1. Asked?'>1. Asked?</h3>" +

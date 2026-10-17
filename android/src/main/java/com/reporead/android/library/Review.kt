@@ -4,16 +4,13 @@ import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -92,54 +89,6 @@ internal fun revealedAnswer(html: String, path: String, passage: Passage): Revea
             interviewBank(html, path).questions.firstOrNull { it.answer.blockId == passage.blockId },
         )
     }
-
-/**
- * The grades in one row under the answer, so grading never needs scrolling past it; Again, the only failing grade, is
- * set apart from the three that pass. Each shows the days until the card is due again ([gaps], by grade); null when
- * this grade is not saved, so does not schedule.
- */
-@Composable
-internal fun GradeBar(enabled: Boolean, gaps: Map<Int, Long>?, onGrade: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(GRADE_MEANING, style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for ((grade, label) in GRADES) {
-                val modifier = Modifier.weight(1f)
-                val padding = PaddingValues(horizontal = 4.dp)
-                val content: @Composable () -> Unit = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(label)
-                        gaps?.let {
-                            Text(
-                                counted(it.getValue(grade).toInt(), "day"),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                    }
-                }
-                if (grade < 3)
-                    OutlinedButton(
-                        enabled = enabled,
-                        modifier = modifier,
-                        contentPadding = padding,
-                        onClick = { onGrade(grade) },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    ) {
-                        content()
-                    }
-                else
-                    Button(
-                        enabled = enabled,
-                        modifier = modifier,
-                        contentPadding = padding,
-                        onClick = { onGrade(grade) },
-                    ) {
-                        content()
-                    }
-            }
-        }
-    }
-}
 
 /** What review holds now, from this phone's cards and grades; null while they are read. */
 @Composable
@@ -369,11 +318,9 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
     val items by dao.notebook().collectAsState(null)
     val reviews by dao.reviews().collectAsState(null)
     val limit by dao.reviewLimit().collectAsState(null)
-    // The cards still to show, chosen once from the due cards when the session starts; the front one is shown.
-    var queue by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
-    var started by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    // Chosen once from the due cards when the session starts.
+    var session by rememberSaveable { mutableStateOf<StudySession?>(null) }
     var startedAt by rememberSaveable { mutableLongStateOf(0L) }
-    var revealed by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -381,19 +328,14 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
     val log = reviews
     val cap = limit
     LaunchedEffect(ready, log, cap) {
-        if (queue != null || ready == null || log == null || cap == null) return@LaunchedEffect
+        if (session != null || ready == null || log == null || cap == null) return@LaunchedEffect
         startedAt = System.currentTimeMillis()
-        started =
-            ArrayList(
+        session =
+            StudySession(
                 dueSession(ready, log, startedAt, cap, Random.nextInt(), ZoneId.systemDefault()).map {
                     it.annotation.mutationId
                 }
             )
-        queue = ArrayList(started)
-    }
-    val next = { remaining: List<String> ->
-        queue = ArrayList(remaining)
-        revealed = false
     }
     Scaffold(topBar = { AppBar("Review", onBack = onBack) }) { padding ->
         // Not scrolled as a whole: a revealed answer takes the space left, and the grades stay under it.
@@ -426,33 +368,31 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                 Text("Review starts after one sync with the server: open Library while signed in and online.")
                 return@Column
             }
-            val ids = queue
-            if (ids == null) {
+            val asked = session
+            if (asked == null) {
                 Text("Choosing due cards…")
                 return@Column
             }
-            // The log, not the queue, says which cards this session saved a grade for, so a grade saved just before the
-            // screen was recreated is never saved twice.
+            // The cards this session saved a grade for, from the log.
             val graded =
                 log.filter { it.rejection == null && it.reviewedAt >= startedAt }.map { it.cardMutationId }.toSet()
-            val id = ids.firstOrNull()
+            val id = asked.current
             if (id == null) {
                 Text(
-                    if (started.isEmpty())
+                    if (asked.started.isEmpty())
                         outlookLine(reviewOutlook(ready, log, System.currentTimeMillis(), ZoneId.systemDefault()), cap)
-                    else "Session complete: ${counted(started.count { it in graded }, "card")} reviewed."
+                    else "Session complete: ${counted(asked.completed(graded), "card")} reviewed."
                 )
                 TextButton(onClick = onBack) { Text("Finish") }
                 return@Column
             }
             val item = ready.firstOrNull { it.annotation.mutationId == id }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    listOfNotNull("${counted(ids.size, "card")} left", item?.title).joinToString(" · "),
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(enabled = !saving, onClick = { next(ids.drop(1)) }) { Text("Skip") }
+            SessionHeader(
+                listOfNotNull("${counted(asked.queue.size, "card")} left", item?.title).joinToString(" · "),
+                skip = "Skip",
+                enabled = !saving,
+            ) {
+                session = asked.skip()
             }
             if (item == null) {
                 Text("This card was deleted.")
@@ -463,22 +403,17 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             val block = item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
             if (block != null) {
                 // Confirmed, it goes to the back of the session like any card still to answer.
-                FixCard(item, block, sync, dao, push, onConfirmed = { next(ids.drop(1) + id) })
+                FixCard(item, block, sync, dao, push, onConfirmed = { session = asked.requeue() })
                 return@Column
             }
             // Read while the question is asked, so the answer is ready when it is revealed.
             val answer = rememberRevealed(item, dao)
-            if (!revealed) {
-                Text("Answer it aloud or in writing first, then check it.")
-                Button(onClick = { revealed = true }) { Text("Show answer") }
+            if (!asked.revealed) {
+                AttemptFirst { session = asked.reveal() }
                 return@Column
             }
             val again = id in graded
-            if (again)
-                Text(
-                    "Asked again: its first grade is saved. This grade only decides whether it comes back in this session.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+            if (again) AskedAgain()
             when (answer) {
                 Revealed.Reading -> {}
                 Revealed.Unverifiable ->
@@ -492,7 +427,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             // decides whether it comes back in this session.
             fun saveGrade(grade: Int) {
                 if (again) {
-                    next(afterGrade(ids, grade))
+                    session = asked.graded(grade)
                     return
                 }
                 saving = true
@@ -508,10 +443,10 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                 scope.launch {
                     try {
                         val saved = withContext(NonCancellable) { sync.recordReview(review) }
-                        if (saved) next(afterGrade(ids, grade))
+                        if (saved) session = asked.graded(grade)
                         else {
                             notice = "Card changed while answering; grade not saved. Open it to check the answer."
-                            next(ids.drop(1))
+                            session = asked.skip()
                         }
                     } finally {
                         saving = false
