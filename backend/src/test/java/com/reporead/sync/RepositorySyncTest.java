@@ -155,9 +155,9 @@ class RepositorySyncTest extends SharedSpringTest {
                 post("/api/repositories/" + id + "/sync").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
     }
 
-    /** The user's library; these tests' user has one connection, {@code $.repositories[0]}. */
-    private ResultActions library(String bearer) throws Exception {
-        return mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+    private ResultActions documents(String bearer, long id) throws Exception {
+        return mvc.perform(
+                get("/api/repositories/" + id + "/documents").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
     }
 
     private List<String> activePaths() {
@@ -199,12 +199,12 @@ class RepositorySyncTest extends SharedSpringTest {
                 db.sql("select id from documents order by id").query(Long.class).list());
         assertEquals(rowVersions, rowVersions(), "a refresh that finds nothing changed rewrites no document row");
         assertEquals(List.of("algorithms/Graphs.MD", "intro.md"), activePaths());
-        library(alice)
+        documents(alice, connection)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories[0].lastSyncedCommitSha").value(COMMIT_A))
-                .andExpect(jsonPath("$.repositories[0].documents[0].path").value("algorithms/Graphs.MD"))
-                .andExpect(jsonPath("$.repositories[0].documents[0].title").value("Graphs"))
-                .andExpect(jsonPath("$.repositories[0].documents[1].blobSha").value(BLOB_1));
+                .andExpect(jsonPath("$.lastSyncedCommitSha").value(COMMIT_A))
+                .andExpect(jsonPath("$.documents[0].path").value("algorithms/Graphs.MD"))
+                .andExpect(jsonPath("$.documents[0].title").value("Graphs"))
+                .andExpect(jsonPath("$.documents[1].blobSha").value(BLOB_1));
     }
 
     @Test
@@ -295,12 +295,10 @@ class RepositorySyncTest extends SharedSpringTest {
         assertEquals(
                 2, db.sql("select count(*) from documents").query(Integer.class).single());
         // Still listed, so the app can name a note whose reading state, bookmark or highlights are kept.
-        library(alice)
-                .andExpect(jsonPath("$.repositories[0].documents.length()").value(2))
-                .andExpect(jsonPath("$.repositories[0].documents[?(@.path == 'a.md')].deleted")
-                        .value(contains(false)))
-                .andExpect(jsonPath("$.repositories[0].documents[?(@.path == 'b.md')].deleted")
-                        .value(contains(true)));
+        documents(alice, connection)
+                .andExpect(jsonPath("$.documents.length()").value(2))
+                .andExpect(jsonPath("$.documents[?(@.path == 'a.md')].deleted").value(contains(false)))
+                .andExpect(jsonPath("$.documents[?(@.path == 'b.md')].deleted").value(contains(true)));
         assertEquals(
                 BLOB_2,
                 db.sql("select current_blob_sha from documents where path = 'a.md'")
@@ -315,9 +313,8 @@ class RepositorySyncTest extends SharedSpringTest {
                 db.sql("select id from documents where path = 'b.md' and deleted_at is null")
                         .query(Long.class)
                         .single());
-        library(alice)
-                .andExpect(jsonPath("$.repositories[0].documents[?(@.path == 'b.md')].deleted")
-                        .value(contains(false)));
+        documents(alice, connection)
+                .andExpect(jsonPath("$.documents[?(@.path == 'b.md')].deleted").value(contains(false)));
     }
 
     private long documentId(String path) {
@@ -402,11 +399,11 @@ class RepositorySyncTest extends SharedSpringTest {
                 "a new commit that leaves a note unchanged does not rewrite its row");
         assertEquals(recorded, changedAt("new.md"));
         assertNull(changedAt("new/moved.md"), "a path-only move is not a content change");
-        library(alice)
+        documents(alice, connection)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories[0].documents[?(@.path == 'edited.md')].contentChangedAt")
+                .andExpect(jsonPath("$.documents[?(@.path == 'edited.md')].contentChangedAt")
                         .value(recorded.toString()))
-                .andExpect(jsonPath("$.repositories[0].documents[?(@.path == 'same.md')].contentChangedAt")
+                .andExpect(jsonPath("$.documents[?(@.path == 'same.md')].contentChangedAt")
                         .value(contains((Object) null)));
 
         next();
@@ -890,17 +887,17 @@ class RepositorySyncTest extends SharedSpringTest {
         sync(alice, connection)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.documentCount").value(0));
-        library(alice)
-                .andExpect(jsonPath("$.repositories[0].lastSyncedCommitSha").value(COMMIT_A))
-                .andExpect(jsonPath("$.repositories[0].documents").isEmpty());
+        documents(alice, connection)
+                .andExpect(jsonPath("$.lastSyncedCommitSha").value(COMMIT_A))
+                .andExpect(jsonPath("$.documents").isEmpty());
     }
 
     @Test
     void neverSyncedRepositoryHasNoCheckpoint() throws Exception {
-        library(alice)
+        documents(alice, connection)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories[0].lastSyncedCommitSha").doesNotExist())
-                .andExpect(jsonPath("$.repositories[0].documents").isEmpty());
+                .andExpect(jsonPath("$.lastSyncedCommitSha").doesNotExist())
+                .andExpect(jsonPath("$.documents").isEmpty());
     }
 
     @Test
@@ -997,7 +994,8 @@ class RepositorySyncTest extends SharedSpringTest {
     void anotherUserCannotSyncOrListAndMakesNoGitHubCalls() throws Exception {
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
         sync(bob, connection).andExpect(status().isNotFound());
-        library(bob).andExpect(jsonPath("$.repositories").isEmpty());
+        documents(bob, connection).andExpect(status().isNotFound());
+        documents(alice, 999).andExpect(status().isNotFound());
         mvc.perform(post("/api/repositories/" + connection + "/sync")).andExpect(status().isUnauthorized());
     }
 

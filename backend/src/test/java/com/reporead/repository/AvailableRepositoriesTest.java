@@ -369,7 +369,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 db.sql("select count(*) from repository_connections")
                         .query(Integer.class)
                         .single());
-        as(alice, get("/api/library"))
+        as(alice, get("/api/repositories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.repositories.length()").value(1));
 
@@ -460,7 +460,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
         connect(alice, 11, "{\"installationId\":7}").andExpect(status().isOk());
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
-        as(bob, get("/api/library"))
+        as(bob, get("/api/repositories"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.repositories").isEmpty());
     }
