@@ -282,8 +282,9 @@ public class GitHubApi {
         // A renamed repository's old name is redirected. Connecting it again stores GitHub's current name and default
         // branch and keeps the connection's data.
         if (response.getStatusCode().is3xxRedirection()) {
-            throw invalid("GitHub redirected this request, as it does after a repository or branch is renamed;"
-                    + " connecting the repository again records its current name and default branch.");
+            throw new ApiFailure(
+                    Code.REPOSITORY_RENAMED,
+                    "GitHub redirected this request, as it does after a repository or branch is renamed.");
         }
         if (response.getStatusCode().value() != 200) throw invalid("GitHub did not return a complete response.");
         // RestTemplate gives a null body for a 200 with no bytes, which is how GitHub returns an empty file. Empty raw
