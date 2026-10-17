@@ -85,7 +85,7 @@ fun FolderScreen(
     val root = screen.path.isEmpty()
     if (signedIn && root) {
         RefreshOnEntry(screen.repositoryId, { refreshing = it }, { status = it }) {
-            sync.refreshDocuments(screen.repositoryId)
+            sync.refreshLibrary()
             listed = true
             null
         }
