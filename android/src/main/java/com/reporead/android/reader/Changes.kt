@@ -63,8 +63,8 @@ private fun summary(changes: Load<Changes>): String =
     }
 
 /**
- * What changed between the version last read and the one on screen. Tapping a current section scrolls the note to it;
- * removed sections are listed where they used to be, without a target.
+ * What changed between the version last read and the one on screen. Tapping a current section scrolls the note to it
+ * with [onOpen], null until the page is ready; removed sections are listed where they used to be, without a target.
  */
 @Composable
 internal fun ChangesPanel(
@@ -72,7 +72,7 @@ internal fun ChangesPanel(
     expanded: Boolean,
     onToggle: () -> Unit,
     onRetry: () -> Unit,
-    onOpen: (ChangedSection) -> Unit,
+    onOpen: ((ChangedSection) -> Unit)?,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -90,10 +90,10 @@ internal fun ChangesPanel(
         if (expanded && sections.isNotEmpty()) {
             LazyColumn(Modifier.heightIn(max = 240.dp)) {
                 items(sections) { section ->
-                    val open = section.change != SectionChange.REMOVED
+                    val open = onOpen.takeIf { section.change != SectionChange.REMOVED }
                     Column(
                         Modifier.fillMaxWidth()
-                            .let { if (open) it.clickable { onOpen(section) } else it }
+                            .let { if (open != null) it.clickable { open(section) } else it }
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Text(label(section), style = MaterialTheme.typography.bodyLarge)
