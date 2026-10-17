@@ -40,6 +40,7 @@ import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
@@ -656,16 +657,15 @@ class AnnotationTest extends SharedSpringTest {
         long id = createdId(cardBody());
         next();
         moveNoteTo(CURRENT_SHA);
-        grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isConflict());
+        grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(cardChanged());
+        // Not placed in the current version until its note's highlights are listed: nothing to confirm there yet.
+        check(alice, id, 1, CURRENT_SHA).andExpect(cardChanged());
         expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
         list(alice)
                 .andExpect(jsonPath("$.annotations[0].status").value("REANCHORED"))
                 .andExpect(jsonPath("$.annotations[0].checkedBlobSha").isEmpty());
-        grade(alice, id, UUID.randomUUID().toString(), 4, CURRENT_SHA).andExpect(status().isConflict());
-        mvc.perform(post("/api/annotations/" + id + "/check")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":1,\"blobSha\":\"" + CURRENT_SHA + "\"}"))
+        grade(alice, id, UUID.randomUUID().toString(), 4, CURRENT_SHA).andExpect(cardChanged());
+        check(alice, id, 1, CURRENT_SHA)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.checkedBlobSha").value(CURRENT_SHA));
         grade(alice, id, UUID.randomUUID().toString(), 4, CURRENT_SHA).andExpect(status().isOk());
@@ -673,10 +673,29 @@ class AnnotationTest extends SharedSpringTest {
         moveNoteTo(REWRITTEN_SHA);
         expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
         list(alice).andExpect(jsonPath("$.annotations[0].status").value("ORPHANED"));
+        check(alice, id, 2, REWRITTEN_SHA).andExpect(cardChanged());
         next();
         expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
         reattach(alice, id, 2, REWRITTEN_SHA, "b2", 8, "weaves advice").andExpect(status().isOk());
-        grade(alice, id, UUID.randomUUID().toString(), 4, REWRITTEN_SHA).andExpect(status().isConflict());
+        grade(alice, id, UUID.randomUUID().toString(), 4, REWRITTEN_SHA).andExpect(cardChanged());
+        db.sql("update documents set deleted_at = now() where id = :id")
+                .param("id", note)
+                .update();
+        check(alice, id, 3, REWRITTEN_SHA).andExpect(cardChanged());
+    }
+
+    private ResultActions check(String bearer, long id, int expectedVersion, String sha) throws Exception {
+        return mvc.perform(post("/api/annotations/" + id + "/check")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"expectedVersion\":" + expectedVersion + ",\"blobSha\":\"" + sha + "\"}"));
+    }
+
+    private static ResultMatcher cardChanged() {
+        return result -> {
+            status().isConflict().match(result);
+            jsonPath("$.code").value("CARD_CHANGED").match(result);
+        };
     }
 
     @Test
