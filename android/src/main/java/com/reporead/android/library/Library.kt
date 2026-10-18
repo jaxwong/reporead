@@ -54,7 +54,6 @@ import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
 import com.reporead.android.ui.folderOf
 import com.reporead.android.ui.sectionTitle
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /** When a refresh found the note changed; RepoRead does not know the commit time. */
@@ -98,12 +97,13 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 fun LibraryScreen(
     sync: Sync,
     dao: LibraryDao,
-    appScope: CoroutineScope,
     signedIn: Boolean,
     push: (Screen) -> Unit,
+    notice: String?,
+    onNoticeShown: () -> Unit,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
-    onDeleteAccount: suspend () -> Unit,
+    onDeleteAccount: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(LibraryTab.READING) }
     var confirmDeleteAccount by remember { mutableStateOf(false) }
@@ -130,25 +130,16 @@ fun LibraryScreen(
                 .ifEmpty { null }
         }
     }
+    // What an account operation reported (a deletion the server did not confirm) joins this screen's status line.
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            status = notice
+            onNoticeShown()
+        }
+    }
     val deleteAccount = {
         confirmDeleteAccount = false
-        status = "Deleting account…"
-        // A rotation must not stop it between the server's deletion and clearing this phone.
-        appScope.launch {
-            try {
-                onDeleteAccount()
-            } catch (failure: ApiException) {
-                status =
-                    if (failure.status == 401) {
-                        // A lost answer to an earlier deletion also ends the session; the two look the same.
-                        "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
-                            "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
-                    } else {
-                        // The server may have deleted it with the answer lost; trying again then gets the 401 above.
-                        "Couldn't confirm the account deletion, so nothing was deleted on this phone; try again. ${failure.describe()}"
-                    }
-            }
-        }
+        onDeleteAccount()
     }
     Scaffold(
         topBar = {
