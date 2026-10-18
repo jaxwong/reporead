@@ -1,6 +1,8 @@
 package com.reporead.android
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,19 +13,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSerializable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.rememberDecoratedNavEntries
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.runtime.serialization.NavBackStackSerializer
+import androidx.navigation3.ui.NavDisplay
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.startSignIn
 import com.reporead.android.core.network.Api
@@ -40,20 +43,24 @@ import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.ui.counted
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.serialization.Serializable
 
-/** One navigation entry, encoded as strings so the back stack survives process death. */
+/** A place in the app; saved with the back stack ([Entry]), so it survives process death. */
+@Serializable
 sealed interface Screen {
-    data object Repositories : Screen
+    @Serializable data object Repositories : Screen
 
-    data object Available : Screen
+    @Serializable data object Available : Screen
 
-    data class Folder(val repositoryId: Long, val repositoryName: String, val path: String) : Screen
+    @Serializable data class Folder(val repositoryId: Long, val repositoryName: String, val path: String) : Screen
 
     /** A note, opened once at [openAt] and otherwise where it was last read. */
-    data class Reader(val documentId: Long, val title: String, val openAt: OpenAt? = null) : Screen
+    @Serializable data class Reader(val documentId: Long, val title: String, val openAt: OpenAt? = null) : Screen
 
     /** One table or diagram ([figure], the page's id for it) of the saved version [blobSha] of a note, full screen. */
+    @Serializable
     data class Figure(
         val documentId: Long,
         val blobSha: String,
@@ -62,105 +69,41 @@ sealed interface Screen {
         val snapshotCommitSha: String?,
     ) : Screen
 
-    data object Notebook : Screen
+    @Serializable data object Notebook : Screen
 
-    data object Review : Screen
+    @Serializable data object Review : Screen
 
     /** A practice session over the questions of one topic's interview folder; null mixes every topic. */
-    data class Practice(val topic: String?) : Screen
+    @Serializable data class Practice(val topic: String?) : Screen
 
-    data object Search : Screen
+    @Serializable data object Search : Screen
 }
 
 /** A place to open a note at instead of where it was last read. */
+@Serializable
 sealed interface OpenAt {
     /** A heading named by a note link. */
-    data class Heading(val text: String) : OpenAt
+    @Serializable data class Heading(val text: String) : OpenAt
 
     /** A highlight or card, from the notebook or a review. */
-    data class Highlight(val mutationId: String) : OpenAt
+    @Serializable data class Highlight(val mutationId: String) : OpenAt
 
     /** A Practice warning's exact block; block ids are meaningful only within [blobSha]. */
-    data class Block(val blobSha: String, val blockId: String) : OpenAt
+    @Serializable data class Block(val blobSha: String, val blockId: String) : OpenAt
 }
 
-private fun encode(screen: Screen): List<String> =
-    when (screen) {
-        Screen.Repositories -> listOf("repositories")
-        Screen.Available -> listOf("available")
-        is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
-        is Screen.Reader -> {
-            // Existing heading/highlight slots stay unchanged for saved, pre-upgrade back stacks.
-            listOf("reader", screen.documentId.toString(), screen.title) +
-                when (val target = screen.openAt) {
-                    null -> listOf("", "")
-                    is OpenAt.Heading -> listOf(target.text, "")
-                    is OpenAt.Highlight -> listOf("", target.mutationId)
-                    is OpenAt.Block -> listOf("", "", target.blobSha, target.blockId)
-                }
-        }
-        is Screen.Figure ->
-            listOf(
-                "figure",
-                screen.documentId.toString(),
-                screen.blobSha,
-                screen.figure,
-                screen.title,
-                screen.snapshotCommitSha.orEmpty(),
-            )
-        Screen.Notebook -> listOf("notebook")
-        Screen.Review -> listOf("review")
-        is Screen.Practice -> listOfNotNull("practice", screen.topic)
-        Screen.Search -> listOf("search")
-    }
-
-private fun decode(parts: List<String>): Screen =
-    when (parts[0]) {
-        "repositories" -> Screen.Repositories
-        "available" -> Screen.Available
-        "folder" -> Screen.Folder(parts[1].toLong(), parts[2], parts[3])
-        "reader" ->
-            Screen.Reader(
-                parts[1].toLong(),
-                parts[2],
-                when {
-                    parts[3].isNotEmpty() -> OpenAt.Heading(parts[3])
-                    parts[4].isNotEmpty() -> OpenAt.Highlight(parts[4])
-                    parts.size > 5 -> OpenAt.Block(parts[5], parts[6])
-                    else -> null
-                },
-            )
-        // A saved pre-upgrade destination has no image identity, just like its migrated NoteRow.
-        "figure" -> Screen.Figure(parts[1].toLong(), parts[2], parts[3], parts[4], parts.getOrNull(5)?.ifEmpty { null })
-        "notebook" -> Screen.Notebook
-        "review" -> Screen.Review
-        "practice" -> Screen.Practice(parts.getOrNull(1))
-        "search" -> Screen.Search
-        else -> error("Unknown saved screen ${parts[0]}")
-    }
-
-internal val StackSaver =
-    listSaver<List<Screen>, String>(
-        save = { stack -> stack.flatMap { screen -> encode(screen).let { listOf(it.size.toString()) + it } } },
-        restore = { flat ->
-            val stack = mutableListOf<Screen>()
-            var index = 0
-            while (index < flat.size) {
-                val size = flat[index].toInt()
-                stack += decode(flat.subList(index + 1, index + 1 + size))
-                index += size + 1
-            }
-            stack
-        },
-    )
-
 /**
- * The key of one back-stack entry's saved UI state. The index tells repeated screens apart (a note linking to a note
- * that links back), so each entry keeps its own state while it is in the stack.
+ * One back-stack entry: [screen], and the [id] its saved UI state is kept under from its push until it leaves the
+ * stack. The id, not the screen, tells repeated destinations apart (a note linking to a note that links back); it is
+ * saved with the stack, so a restored entry finds its state again.
  */
-private fun entryKey(index: Int, screen: Screen) = "$index:" + encode(screen).joinToString("\u001f")
+@Serializable data class Entry(val id: String, val screen: Screen) : NavKey
 
-private val ROOT_STATE = entryKey(0, Screen.Repositories)
+/** A new entry for [screen], with an id no other entry has. */
+private fun entry(screen: Screen) = Entry(UUID.randomUUID().toString(), screen)
+
+/** How the back stack is saved with the activity and across process death. */
+internal val BackStackSerializer = NavBackStackSerializer(Entry.serializer())
 
 /** What an account operation reported, in the words of the screen it ends on. */
 internal fun noticeText(notice: AccountNotice): String =
@@ -211,18 +154,60 @@ fun RepoReadApp(
     onSignInCodeConsumed: () -> Unit,
 ) {
     val context = LocalContext.current
-    val sync = account.sync
     // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
     val signedIn by remember { store.signedIn() }.collectAsState(remember { store.hasSession })
     val accountState by account.state.collectAsState()
-    var stack by rememberSaveable(sync, stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
-    // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a
-    // summary starts from) while covered, as they do across recreation; it is dropped once the entry leaves the stack.
-    val screenStates = rememberSaveableStateHolder()
-    var keptStates by remember { mutableStateOf(emptySet<String>()) }
+    val backStack = rememberSerializable(serializer = BackStackSerializer) { NavBackStack(entry(Screen.Repositories)) }
     val savedRepositories by dao.repositories().collectAsState(null)
 
     val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
+    val push: (Screen) -> Unit = { backStack += entry(it) }
+    // Back to the Library, which keeps its own state: a finished connect or disconnect leaves nothing above it.
+    val popToRoot = { backStack.subList(1, backStack.size).clear() }
+
+    // Each entry keeps its saved UI state (scroll, tabs, one-shot targets already applied, the version a summary starts
+    // from) while it is covered, by another screen or by the account screen below, and across recreation; it is dropped
+    // once the entry leaves the stack. Entries are made once, at their push, so their content reads the account and
+    // sign-in state each time it draws, never values captured then.
+    val entries =
+        rememberDecoratedNavEntries(backStack, listOf(rememberSaveableStateHolderNavEntryDecorator())) { entry ->
+            NavEntry(entry, contentKey = entry.id) {
+                val sync = account.sync
+                // Removes this entry, never another: a second tap on a screen already left does nothing.
+                val onBack: () -> Unit = { backStack.remove(entry) }
+                when (val screen = entry.screen) {
+                    Screen.Repositories ->
+                        LibraryScreen(
+                            sync,
+                            dao,
+                            signedIn,
+                            push,
+                            notice = (accountState as? AccountState.Idle)?.notice?.let(::noticeText),
+                            onDismissNotice = account::dismissNotice,
+                            onSignIn = signIn,
+                            onSignOut = account::signOut,
+                            onDeleteAccount = account::deleteAccount,
+                        )
+                    Screen.Available ->
+                        AvailableScreen(
+                            api,
+                            onBack,
+                            onConnected = {
+                                popToRoot()
+                                push(it)
+                            },
+                        )
+                    is Screen.Folder ->
+                        FolderScreen(sync, dao, signedIn, screen, push, onBack, onDisconnected = popToRoot)
+                    is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, screen, onBack, push)
+                    is Screen.Figure -> FigureScreen(sync, dao, screen, onBack)
+                    Screen.Notebook -> NotebookScreen(dao, sync, push, onBack)
+                    Screen.Review -> ReviewScreen(dao, sync, push, onBack)
+                    is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, push, onBack)
+                    Screen.Search -> SearchScreen(dao, push, onBack)
+                }
+            }
+        }
 
     // The exchange runs in the app's scope (Account), so the code is consumed at once and a rotation cannot cut it off.
     LaunchedEffect(signInCode) {
@@ -230,12 +215,13 @@ fun RepoReadApp(
         account.signIn(code)
         onSignInCodeConsumed()
     }
-    // A removal leaves nothing the old screens showed: the next account starts at the first screen.
+    // A removal leaves nothing the old screens showed: their entries and saved state go, and the next account starts at
+    // a new root. The account screen covers it until the removal is done, so it is first drawn with the fresh Sync.
     val removing = accountState is AccountState.Removing
     LaunchedEffect(removing) {
         if (removing) {
-            screenStates.removeState(ROOT_STATE)
-            stack = listOf(Screen.Repositories)
+            backStack.clear()
+            backStack += entry(Screen.Repositories)
         }
     }
 
@@ -266,51 +252,13 @@ fun RepoReadApp(
         return
     }
 
-    val push: (Screen) -> Unit = { stack = stack + it }
-    val pop: () -> Unit = { stack = stack.dropLast(1) }
-    BackHandler(enabled = stack.size > 1) { stack = stack.dropLast(1) }
-    val screen = stack.last()
-    val current = stack.mapIndexed(::entryKey)
-    SideEffect {
-        (keptStates - current.toSet()).forEach(screenStates::removeState)
-        keptStates = current.toSet()
-    }
-    // Keyed by entry so each screen starts with its own remembered state, also when it follows one of the same kind (a
-    // note opened from a note, a subfolder): otherwise an open notes panel or a status line carries over.
-    key(current.last()) {
-        screenStates.SaveableStateProvider(current.last()) {
-            when (screen) {
-                Screen.Repositories ->
-                    LibraryScreen(
-                        sync,
-                        dao,
-                        signedIn,
-                        push,
-                        notice = notice?.let(::noticeText),
-                        onDismissNotice = account::dismissNotice,
-                        onSignIn = signIn,
-                        onSignOut = account::signOut,
-                        onDeleteAccount = account::deleteAccount,
-                    )
-                Screen.Available ->
-                    AvailableScreen(api, onBack = pop, onConnected = { stack = listOf(Screen.Repositories, it) })
-                is Screen.Folder ->
-                    FolderScreen(
-                        sync,
-                        dao,
-                        signedIn,
-                        screen,
-                        push,
-                        onBack = pop,
-                        onDisconnected = { stack = listOf(Screen.Repositories) },
-                    )
-                is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, screen, onBack = pop, push = push)
-                is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
-                Screen.Notebook -> NotebookScreen(dao, sync, push, onBack = pop)
-                Screen.Review -> ReviewScreen(dao, sync, push, onBack = pop)
-                is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, push, onBack = pop)
-                Screen.Search -> SearchScreen(dao, push, onBack = pop)
-            }
-        }
-    }
+    // Only the top entry is drawn, and screens switch at once, as they always have; Back at the root leaves the app.
+    val instant = ContentTransform(EnterTransition.None, ExitTransition.None)
+    NavDisplay(
+        entries,
+        onBack = { backStack.removeLastOrNull() },
+        transitionSpec = { instant },
+        popTransitionSpec = { instant },
+        predictivePopTransitionSpec = { instant },
+    )
 }

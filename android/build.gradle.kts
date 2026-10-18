@@ -196,6 +196,9 @@ dependencies {
     implementation("org.jsoup:jsoup:${rootProject.extra["jsoupVersion"]}")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.13.0")
+    // The back stack and each entry's saved UI state while it is in the stack (ADR-27).
+    implementation("androidx.navigation3:navigation3-runtime:1.2.0")
+    implementation("androidx.navigation3:navigation3-ui:1.2.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.webkit:webkit:1.16.0")
