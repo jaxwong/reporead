@@ -93,7 +93,7 @@ val ANNOTATION_STATE_10_11 =
             ReviewLimitRow::class,
             ChangeBaselineRow::class,
         ],
-    version = 13,
+    version = 14,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -107,6 +107,7 @@ val ANNOTATION_STATE_10_11 =
             AutoMigration(from = 9, to = 10, spec = KeepNoteLinks::class),
             AutoMigration(from = 11, to = 12, spec = DropBookmarkVersion::class),
             AutoMigration(from = 12, to = 13, spec = DocumentsOwnNoteFacts::class),
+            AutoMigration(from = 13, to = 14),
         ],
 )
 abstract class LocalStore : RoomDatabase() {

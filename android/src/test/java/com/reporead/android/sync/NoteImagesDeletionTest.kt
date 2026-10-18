@@ -32,8 +32,8 @@ class NoteImagesDeletionTest {
     /** Never makes a request: deleting needs no server. */
     private fun images() = NoteImages(Api("http://test-only.invalid", { StoredSession.Absent }) {}, temporary.root)
 
-    private fun image(documentId: Long, blobSha: String) =
-        File(temporary.root, "images/$documentId/$blobSha/key").also {
+    private fun image(documentId: Long, snapshotCommitSha: String) =
+        File(temporary.root, "images/$documentId/commit-$snapshotCommitSha/key").also {
             it.parentFile!!.mkdirs()
             it.writeText("test-only image")
         }
@@ -87,7 +87,7 @@ class NoteImagesDeletionTest {
     @Test
     fun aFetchedImageIsKeptWhenNothingWasDeletedMeanwhile() {
         fetchAcross {}
-        assertEquals(1, File(temporary.root, "images/1/$current").listFiles()!!.size)
+        assertEquals(1, File(temporary.root, "images/1/commit-$current").listFiles()!!.size)
     }
 
     @Test
@@ -96,7 +96,8 @@ class NoteImagesDeletionTest {
         assertFalse(File(temporary.root, "images/1").exists())
     }
 
-    private fun saved(documentId: Long, blobSha: String) = SavedVersion(documentId, blobSha, "test-only.md", 3)
+    private fun saved(documentId: Long, snapshotCommitSha: String) =
+        SavedVersion(documentId, "c".repeat(40), "test-only.md", 3, snapshotCommitSha)
 
     /** What is left under images/, as document/version folders. */
     private fun versionsLeft() =
@@ -114,10 +115,10 @@ class NoteImagesDeletionTest {
         image(3, current)
         val images = images()
         assertEquals(emptyList<File>(), images.sweep(listOf(saved(1, current), saved(2, current), saved(4, current))))
-        assertEquals(setOf("1/$current", "2/$current"), versionsLeft())
+        assertEquals(setOf("1/commit-$current", "2/commit-$current"), versionsLeft())
         assertFalse(File(temporary.root, "images/3").exists())
         assertEquals(emptyList<File>(), images.sweep(listOf(saved(1, current), saved(2, current))))
-        assertEquals(setOf("1/$current", "2/$current"), versionsLeft())
+        assertEquals(setOf("1/commit-$current", "2/commit-$current"), versionsLeft())
     }
 
     @Test

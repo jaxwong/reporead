@@ -235,31 +235,38 @@ class Sync(
     data class Opened(val note: NoteRow, val staleReason: String?)
 
     /**
-     * The saved copy is the current version of [document], a listed note: same blob and same path (the page shows the
-     * path and resolves relative images against it).
+     * The saved copy is the current version of [document], a listed note: same blob, path and repository snapshot. The
+     * snapshot matters even when Markdown is unchanged: images and embed resolution may have changed.
      */
-    private fun sameVersion(cached: SavedVersion, document: DocumentRow?) =
-        document != null && !document.deleted && cached.blobSha == document.blobSha && cached.path == document.path
+    private fun sameVersion(cached: SavedVersion, document: DocumentRow?, commitSha: String?) =
+        document != null &&
+            !document.deleted &&
+            cached.blobSha == document.blobSha &&
+            cached.path == document.path &&
+            cached.snapshotCommitSha != null &&
+            cached.snapshotCommitSha == commitSha
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
-    private fun upToDate(cached: SavedVersion, document: DocumentRow?) =
-        sameVersion(cached, document) && cached.renderFormat >= RENDER_FORMAT
+    private fun upToDate(cached: SavedVersion, document: DocumentRow?, commitSha: String?) =
+        sameVersion(cached, document, commitSha) && cached.renderFormat >= RENDER_FORMAT
 
     /**
-     * A cached copy of the document's current version and path opens without a network call. Otherwise the current
-     * version is fetched; if that fails, an older cached copy is shown with the reason, and a missing cache is the
-     * failure itself. A current copy saved in an older page format (without search text, note links, embeds, or
-     * footnotes) is fetched once more; if that fails it is still the current version, so it opens without a warning.
+     * A cached copy of the document's current version, path and repository snapshot opens without a network call.
+     * Otherwise the current version is fetched; if that fails, an older cached copy is shown with the reason, and a
+     * missing cache is the failure itself. A current copy saved in an older page format (without search text, note
+     * links, embeds, or footnotes) is fetched once more; if that fails it is still the current version, so it opens
+     * without a warning.
      */
     suspend fun openNote(documentId: Long): Opened {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
-        if (cached != null && upToDate(cached.version, current)) return Opened(cached, null)
+        val commitSha = current?.let { dao.repositoryCommitSha(it.repositoryId) }
+        if (cached != null && upToDate(cached.version, current, commitSha)) return Opened(cached, null)
         return try {
             Opened(locked { fetchNote(documentId) }, null)
         } catch (error: ApiException) {
             if (cached == null) throw error
-            val cachedIsCurrent = sameVersion(cached.version, current)
+            val cachedIsCurrent = sameVersion(cached.version, current, commitSha)
             Log.i("RepoRead", "Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
             Opened(cached, if (cachedIsCurrent) null else error.describe())
         }
@@ -281,6 +288,10 @@ class Sync(
                 System.currentTimeMillis(),
                 json.string("text"),
                 json.getInt("renderFormat"),
+                json.string("snapshotCommitSha").also {
+                    if (!it.matches(Regex("[0-9a-f]{40}")))
+                        throw JSONException("snapshotCommitSha must be a lowercase Git SHA-1: $it")
+                },
             )
         }
         dao.saveNote(note)
@@ -306,8 +317,11 @@ class Sync(
     suspend fun saveAllNotes(repositoryId: Long, onProgress: (done: Int, toFetch: Int) -> Unit): SavedAll {
         refreshLibrary()
         val documents = dao.listedDocuments(repositoryId)
+        val commitSha = dao.repositoryCommitSha(repositoryId)
         val saved = dao.savedVersions(repositoryId).associateBy { it.documentId }
-        val missing = documents.filter { document -> saved[document.id]?.let { upToDate(it, document) } != true }
+        val missing = documents.filter { document ->
+            saved[document.id]?.let { upToDate(it, document, commitSha) } != true
+        }
         Log.i(
             "RepoRead",
             "Saving all notes; repositoryId=$repositoryId documents=${documents.size} toFetch=${missing.size}",

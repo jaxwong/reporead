@@ -327,7 +327,7 @@ flowchart TB
 | `auth` | PKCE sign-in through a Custom Tab; the encrypted bearer session, deleted only when it can never be read; the pending removal of the phone's copy (`SessionStore`) |
 | `core/network` | `Api`: one HTTP client, bounded responses, `ApiException(status, code)` from the server's error body; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
-| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect, account deletion, clearing the phone (`clearAll`, which says what it left as a `LocalCleanup`) and the start's deletions; every one that writes the server's answers into Room, and clearing, run under one lock (ADR-22); `NoteImages`: saved notes' images, fetched for the reader's WebView outside the lock (Sync's one sweep deletes those of versions Room holds no page of); `ServerJson.kt`: server responses as Room rows; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
+| `sync` | `Sync`: refreshes, opening notes, the sync of local changes, annotation and card mutations, disconnect, account deletion, clearing the phone (`clearAll`, which says what it left as a `LocalCleanup`) and the start's deletions; every one that writes the server's answers into Room, and clearing, run under one lock (ADR-22); `NoteImages`: saved notes' images, fetched for the reader's WebView outside the lock (Sync's one sweep deletes those of snapshots Room holds no page of); `ServerJson.kt`: server responses as Room rows; `BackgroundSync.kt`: the WorkManager job that runs that sync after each local change. Sign-in, sign-out and **Add repository** call `Api` directly: they write nothing to Room, and a newly connected repository's note list is then loaded through `Sync` when it opens |
 | `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), both moved by `StudySession.kt`, the folder screen (`Folder.kt`), and Add repository (`Available.kt`) |
 | `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
@@ -429,21 +429,22 @@ sequenceDiagram
 
     R->>S: openNote(documentId)
     S->>Room: saved copy for this document?
-    alt saved copy matches current blob SHA, path and page format
+    alt saved copy matches current blob SHA, path, repository snapshot and page format
         Room-->>S: saved note (no network)
     else
         S->>API: GET /api/documents/{id}/content
-        API->>GH: raw blob at the stored SHA (1 call)
-        API->>API: CommonMark/GFM → escape raw HTML → jsoup safelist<br/>→ block ids + canonical text, limits enforced
-        API-->>S: reader HTML, canonical text, renderFormat
+        API->>API: capture document/checkpoint and image paths<br/>in one short read-only REPEATABLE READ transaction
+        API->>GH: raw blob at the captured SHA (1 call)
+        API->>API: CommonMark/GFM → escape raw HTML → jsoup safelist<br/>→ block ids + canonical text → bind captured embed paths<br/>→ one bounded page serialization
+        API-->>S: reader HTML, canonical text, renderFormat, snapshotCommitSha
         S->>Room: replace saved copy
         Note over S,Room: if the fetch fails, the older saved copy is shown with the reason
     end
     S-->>R: note
     R->>WV: load HTML at https://appassets.androidplatform.net
     WV->>R: request /assets/… (bundled JS/CSS)
-    WV->>R: request /repo-image/… or /repo-embed/…
-    R->>S: image bytes (cache, else backend with bearer token in native code)
+    WV->>R: request /repo-image/<resolved path>
+    R->>S: image bytes for displayed snapshot (cache, else backend path + commitSha;<br/>bearer token in native code, never latest-snapshot fallback)
     R->>WV: evaluateJavascript: restore position, draw highlights, read selection
     Note over WV: no JS bridge, no credentials,<br/>network/file/content access blocked,<br/>Mermaid in strict mode
 ```
@@ -477,7 +478,7 @@ sequenceDiagram
     P->>API: 3. pending reading positions
     P->>API: 4. pending bookmark changes
     P->>API: 5. GET /api/library (one snapshot) → replace every list in one Room transaction,<br/>deleting saved notes nothing refers to any more
-    P->>P: 6. delete the images of every version Room holds no page of
+    P->>P: 6. delete the images of every snapshot Room holds no page of
 ```
 
 A refused item (400/404/409/410/422 with a RepoRead code, other than 409 `REPOSITORY_RENAMED`) is marked and the run continues. Any other failure leaves the item pending: sending a highlight or card stops the remaining creations but not the database-only work (ADR-03) unless the server is unreachable, and sending a grade, reading position or bookmark ends the run.

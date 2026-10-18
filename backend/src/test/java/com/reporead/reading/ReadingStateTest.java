@@ -17,7 +17,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.concurrent.Executors;
-import org.jsoup.Jsoup;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -190,8 +189,7 @@ class ReadingStateTest extends SharedSpringTest {
         String markdown = "word ".repeat(150).strip() + "\n---\n\nThe section's first paragraph.\n";
         var rendered = MarkdownRenderer.render(
                 markdown, Hashes.gitBlobSha(markdown.getBytes(StandardCharsets.UTF_8)), "notes/long.md");
-        String heading =
-                Jsoup.parse(rendered.html()).selectFirst("[data-block-id=b1]").attr("data-heading-2");
+        String heading = rendered.page().selectFirst("[data-block-id=b1]").attr("data-heading-2");
         String anchor = "{\"headingPath\":[\"" + heading + "\"],\"textPrefix\":\"The section\",\"blockIndex\":1}";
         save(alice, note, body(SHA_A, 10, Instant.now(), anchor)).andExpect(status().isOk());
     }

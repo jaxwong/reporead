@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,10 @@ class RenderedCorpus {
     void render() throws Exception {
         int rendered = 0;
         var rejected = new ArrayList<String>();
+        var imagePaths = Arrays.stream(
+                        git("ls-tree", "-r", "--name-only", "-z", "HEAD").split("\0"))
+                .filter(MarkdownRenderer::isImagePath)
+                .toList();
         for (String path : git("ls-files", "-z", "*.md").split("\0")) {
             if (path.isEmpty()) continue;
             String markdown = git("show", "HEAD:" + path);
@@ -46,7 +51,8 @@ class RenderedCorpus {
                             .append(block.text())
                             .append("\n␞\n");
                 }
-                write(out.resolve("pages").resolve(path + ".html"), note.html());
+                Attachments.bind(note.page(), path, imagePaths);
+                write(out.resolve("pages").resolve(path + ".html"), MarkdownRenderer.pageHtml(note.page()));
                 rendered++;
             } catch (MarkdownRenderer.ContentRejected rejection) {
                 text.append("REJECTED ").append(rejection.getMessage()).append('\n');

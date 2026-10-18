@@ -78,8 +78,8 @@ class LocalSyncTest {
             "notebook":{"annotations":[],"reviews":[],"sessionLimit":$sessionLimit}}"""
 
     /** A library repository [id] with one listed note and these [documents]. */
-    private fun repository(id: Int, documents: String) =
-        """{"id":$id,"fullName":"test-only/r$id","documentCount":1,"lastSyncedCommitSha":"$sha","documents":[$documents]}"""
+    private fun repository(id: Int, documents: String, snapshot: String = sha) =
+        """{"id":$id,"fullName":"test-only/r$id","documentCount":1,"lastSyncedCommitSha":"$snapshot","documents":[$documents]}"""
 
     /** A library note [id] at version [sha]. */
     private fun document(id: Int, deleted: Boolean = false) =
@@ -525,10 +525,10 @@ class LocalSyncTest {
         fun content(id: Int) =
             200 to
                 """{"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
-                "renderFormat":$RENDER_FORMAT}"""
-        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, "", RENDER_FORMAT))
-        dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", RENDER_FORMAT))
-        dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", RENDER_FORMAT - 1))
+                "renderFormat":$RENDER_FORMAT,"snapshotCommitSha":"$sha"}"""
+        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, "", RENDER_FORMAT, sha))
+        dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", RENDER_FORMAT, old))
+        dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", RENDER_FORMAT - 1, sha))
         LoopbackServer(
                 mapOf(
                     "GET /api/library" to
@@ -565,7 +565,7 @@ class LocalSyncTest {
         val text = "測😀".repeat(10_000)
         val prefix = "<main id=note>"
         val suffix = "</main>"
-        val fixedBytes = (sha + path + title + text + prefix + suffix).toByteArray().size
+        val fixedBytes = (sha + sha + path + title + text + prefix + suffix).toByteArray().size
         val html = prefix + "x".repeat(1_048_576 - fixedBytes) + suffix
         val content =
             JSONObject()
@@ -575,6 +575,7 @@ class LocalSyncTest {
                 .put("html", html)
                 .put("text", text)
                 .put("renderFormat", RENDER_FORMAT)
+                .put("snapshotCommitSha", sha)
                 .toString()
         val old = NoteRow(1, "b".repeat(40), "n1.md", "n1", "<main>kept</main>", 0, "kept", RENDER_FORMAT)
         dao.saveNote(old)
@@ -594,7 +595,7 @@ class LocalSyncTest {
                     sync.saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
-                val expected = NoteRow(3, sha, path, title, html, 0, text, RENDER_FORMAT)
+                val expected = NoteRow(3, sha, path, title, html, 0, text, RENDER_FORMAT, sha)
                 repeat(2) {
                     assertEquals(old, dao.note(1))
                     assertNull(dao.note(2))
@@ -619,6 +620,79 @@ class LocalSyncTest {
                     server.requests,
                 )
             }
+    }
+
+    @Test
+    fun anImageOnlySnapshotChangeRefreshesThePageAndRetiresOldImagesWithoutChangingTheDisplayedCopy() = runBlocking {
+        val oldCommit = "b".repeat(40)
+        val newCommit = "d".repeat(40)
+        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, oldCommit)))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
+        val displayed =
+            NoteRow(1, sha, "n1.md", "n1", "<main>saved text</main>", 0, "saved text", RENDER_FORMAT, oldCommit)
+        dao.saveNote(displayed)
+        val oldImage = image(1, oldCommit)
+        val html = "<main>saved text<img src=\"/repo-image/new/chart.png\"></main>"
+        val answer =
+            JSONObject()
+                .put("sourceBlobSha", sha)
+                .put("snapshotCommitSha", newCommit)
+                .put("path", "n1.md")
+                .put("title", "n1")
+                .put("html", html)
+                .put("text", "saved text")
+                .put("renderFormat", RENDER_FORMAT)
+                .toString()
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(repository(7, document(1), newCommit)),
+                    "GET /api/documents/1/content" to (200 to answer),
+                )
+            )
+            .use { server ->
+                val sync = sync(server.url)
+                assertEquals(displayed, sync.openNote(1).note)
+                assertTrue(server.requests.isEmpty())
+                assertEquals(Sync.SavedAll(1, 0, emptyList()), sync.saveAllNotes(7) { _, _ -> })
+                val saved = dao.note(1)!!
+                assertEquals(sha, saved.blobSha)
+                assertEquals(newCommit, saved.snapshotCommitSha)
+                assertEquals(html, saved.html)
+                assertFalse(oldImage.exists())
+                assertEquals(oldCommit, displayed.snapshotCommitSha)
+                assertEquals(saved, sync.openNote(1).note)
+                assertEquals(Sync.SavedAll(0, 1, emptyList()), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(
+                    listOf("GET /api/library", "GET /api/documents/1/content", "GET /api/library"),
+                    server.requests,
+                )
+            }
+    }
+
+    @Test
+    fun missingOrMalformedImageSnapshotMetadataCannotReplaceALegacySavedPage() = runBlocking {
+        val saved = NoteRow(1, sha, "n1.md", "n1", "<main>kept</main>", 0, "kept", RENDER_FORMAT)
+        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, sha)))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
+        dao.saveNote(saved)
+        for (value in listOf(null, JSONObject.NULL, "INVALID", "A".repeat(40))) {
+            val answer =
+                JSONObject()
+                    .put("sourceBlobSha", sha)
+                    .put("path", "n1.md")
+                    .put("title", "n1")
+                    .put("html", "<main>new</main>")
+                    .put("text", "new")
+                    .put("renderFormat", RENDER_FORMAT)
+            if (value != null) answer.put("snapshotCommitSha", value)
+            LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer.toString()))).use { server ->
+                val opened = sync(server.url).openNote(1)
+                assertEquals(saved, opened.note)
+                assertTrue(opened.staleReason.toString(), opened.staleReason != null)
+                assertEquals(saved, dao.note(1))
+                assertEquals(listOf("GET /api/documents/1/content"), server.requests)
+            }
+        }
     }
 
     @Test
@@ -709,9 +783,9 @@ class LocalSyncTest {
         }
     }
 
-    /** A test-only image of [documentId]'s version [blobSha], as the reader caches it. */
-    private fun image(documentId: Long, blobSha: String = sha) =
-        File(directory, "images/$documentId/$blobSha/key").also {
+    /** A test-only image of [documentId]'s snapshot [snapshotCommitSha], as the reader caches it. */
+    private fun image(documentId: Long, snapshotCommitSha: String = sha) =
+        File(directory, "images/$documentId/commit-$snapshotCommitSha/key").also {
             it.parentFile!!.mkdirs()
             it.writeText("test-only image")
         }
@@ -737,7 +811,7 @@ class LocalSyncTest {
     private suspend fun savedRepository() {
         dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
+        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text", snapshotCommitSha = sha))
     }
 
     @Test

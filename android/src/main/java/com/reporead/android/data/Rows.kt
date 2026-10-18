@@ -50,7 +50,8 @@ data class ChangedNote(
 /**
  * The latest complete rendered copy of an opened note, identified by document and source version. [searchText] is its
  * blocks' canonical text, one per line; null for a copy saved before search existed. [renderFormat] is the server's
- * page format for [html]; 0 for copies saved before formats were recorded.
+ * page format for [html]; 0 for copies saved before formats were recorded. [snapshotCommitSha] pins images and embed
+ * resolution; null means a legacy page whose image identity is unknown, not permission to fetch current images.
  */
 @Entity(tableName = "notes")
 data class NoteRow(
@@ -62,13 +63,20 @@ data class NoteRow(
     val fetchedAt: Long,
     val searchText: String? = null,
     @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0,
+    val snapshotCommitSha: String? = null,
 ) {
     val version: SavedVersion
-        get() = SavedVersion(documentId, blobSha, path, renderFormat)
+        get() = SavedVersion(documentId, blobSha, path, renderFormat, snapshotCommitSha)
 }
 
 /** What a saved page is a copy of, read without its HTML: enough to tell whether the copy is current. */
-data class SavedVersion(val documentId: Long, val blobSha: String, val path: String, val renderFormat: Int)
+data class SavedVersion(
+    val documentId: Long,
+    val blobSha: String,
+    val path: String,
+    val renderFormat: Int,
+    val snapshotCommitSha: String?,
+)
 
 private val NOTE_LINK_QUERY = Regex("""href="/note-link\?([^"]*)"""")
 

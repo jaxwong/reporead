@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -29,16 +31,21 @@ public class DocumentController {
     private final Documents documents;
     private final NoteVersions noteVersions;
     private final Attachments attachments;
+    private final TransactionTemplate snapshot;
 
     public DocumentController(
             RepositoryConnections connections,
             Documents documents,
             NoteVersions noteVersions,
-            Attachments attachments) {
+            Attachments attachments,
+            TransactionTemplate transaction) {
         this.connections = connections;
         this.documents = documents;
         this.noteVersions = noteVersions;
         this.attachments = attachments;
+        this.snapshot = new TransactionTemplate(transaction.getTransactionManager());
+        snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        snapshot.setReadOnly(true);
     }
 
     record DocumentList(long repositoryId, String lastSyncedCommitSha, List<Documents.Summary> documents) {}
@@ -59,11 +66,12 @@ public class DocumentController {
             String path,
             String title,
             String sourceBlobSha,
+            String snapshotCommitSha,
             String html,
             String text,
             int renderFormat) {
         Content {
-            long bytes = List.of(path, title, sourceBlobSha, html, text).stream()
+            long bytes = List.of(path, title, sourceBlobSha, snapshotCommitSha, html, text).stream()
                     .mapToLong(value -> value.getBytes(StandardCharsets.UTF_8).length)
                     .sum();
             if (bytes > MarkdownRenderer.MAX_PAGE_BYTES) {
@@ -75,16 +83,31 @@ public class DocumentController {
         }
     }
 
+    private record ContentSource(Documents.Located document, List<String> imagePaths) {}
+
     @GetMapping("/api/documents/{id}/content")
     Content content(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        var document = present(user, id);
+        // No GitHub I/O inside the transaction: a refresh cannot mix one checkpoint with another image index.
+        var source = snapshot.execute(status -> {
+            var document = present(user, id);
+            return new ContentSource(document, attachments.paths(document.connectionId()));
+        });
+        var document = source.document();
         var version = noteVersions.render(user, document, document.blobSha());
         var rendered = version.note();
+        Attachments.bind(rendered.page(), document.path(), source.imagePaths());
+        String html;
+        try {
+            html = MarkdownRenderer.pageHtml(rendered.page());
+        } catch (MarkdownRenderer.ContentRejected rejected) {
+            throw new ApiFailure(Code.UNSUPPORTED_CONTENT, rejected.getMessage());
+        }
         LOG.info(
-                "Document rendered; userId={} documentId={} blobSha={} bytes={} blocks={} diagrams={}",
+                "Document rendered; userId={} documentId={} blobSha={} snapshotCommitSha={} bytes={} blocks={} diagrams={}",
                 user.id(),
                 id,
                 document.blobSha(),
+                document.commitSha(),
                 version.bytes(),
                 rendered.blocks().size(),
                 rendered.diagramCount());
@@ -93,7 +116,8 @@ public class DocumentController {
                 document.path(),
                 document.title(),
                 document.blobSha(),
-                rendered.html(),
+                document.commitSha(),
+                html,
                 String.join(
                         "\n",
                         rendered.blocks().stream()
@@ -205,31 +229,32 @@ public class DocumentController {
     }
 
     /**
-     * An image in an owned note's repository, fetched at the note's current commit: by {@code path}, or by an Obsidian
-     * {@code embed} name resolved against the latest snapshot's image files (no GitHub call when it is missing or
-     * ambiguous). Access is per repository, not per reference: the note need not name the image, as the user's own
-     * GitHub token reads the whole repository anyway. Not cached on the server.
+     * An image in an owned note's repository, fetched at the displayed page's explicit commit and resolved path. Access
+     * is per repository, not per reference: the note need not name the image, as the user's own GitHub token reads the
+     * whole repository anyway. Not cached on the server.
      */
     @GetMapping("/api/documents/{id}/image")
     ResponseEntity<byte[]> image(
             @AuthenticationPrincipal AppUser user,
             @PathVariable long id,
-            @RequestParam(required = false) String path,
-            @RequestParam(required = false) String embed) {
-        if ((path == null) == (embed == null)) {
-            throw new ApiFailure(Code.INVALID_IMAGE_PATH, "Give exactly one of path or embed.");
+            @RequestParam String path,
+            @RequestParam String commitSha) {
+        if (!Hashes.isGitSha(commitSha)) {
+            throw new ApiFailure(Code.INVALID_VERSIONS, "commitSha must be the saved page's lowercase Git SHA-1.");
         }
-        if (path != null
-                ? !MarkdownRenderer.isImagePath(path)
-                : embed.length() > 1024 || !MarkdownRenderer.isImagePath(embed)) {
+        if (!MarkdownRenderer.isImagePath(path)) {
             throw new ApiFailure(
-                    Code.INVALID_IMAGE_PATH, "path or embed must name a png, jpg, gif, webp, or svg image.");
+                    Code.INVALID_IMAGE_PATH, "path must name a normalized png, jpg, gif, webp, or svg image.");
         }
         var document = present(user, id);
-        if (embed != null) path = attachments.resolve(document.connectionId(), document.path(), embed);
-        byte[] bytes = attachments.image(user, document, path);
+        byte[] bytes = attachments.image(user, document, path, commitSha);
         String extension = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-        LOG.info("Document image served; userId={} documentId={} bytes={}", user.id(), id, bytes.length);
+        LOG.info(
+                "Document image served; userId={} documentId={} snapshotCommitSha={} bytes={}",
+                user.id(),
+                id,
+                commitSha,
+                bytes.length);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(MarkdownRenderer.IMAGE_TYPES.get(extension)))
                 .header("X-Content-Type-Options", "nosniff")

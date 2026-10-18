@@ -113,11 +113,19 @@ These come from the original implementation spec's engineering invariants and th
 - Enforced by: raw HTML is escaped and output passes a jsoup safelist; the WebView loads only bundled assets and the note's own images, with network, file and content access blocked; Mermaid runs in strict mode within server-owned bounds; there is no JavaScript bridge, and the page reaches native code only through intercepted same-origin links (`/note-link`, `/copy-code`, `/full-screen`).
 - Why: [ADR-04](adrs.md#adr-04--the-server-renders-an-isolated-webview-displays), [ADR-18](adrs.md#adr-18--rendering-changes-never-change-an-unchanged-blobs-canonical-text).
 
+### A displayed page never borrows another snapshot's images
+
+**Every repository image belongs to the displayed page's immutable repository commit and resolved path, even when only images changed.**
+
+- Enforced by: the content boundary captures document/checkpoint and image paths together, binds embeds once, and returns `snapshotCommitSha`; `NoteRow`, shared reader resources and figure navigation preserve it; image requests require that commit, and `NoteImages` uses one commit-keyed layout. An unknown legacy identity means unavailable images, never a latest-snapshot fallback.
+- Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `LocalSyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest`, `FigureSnapshotTest` and `NavigationTest` (image-only refresh, repeat reads, cache/deletion interleavings, preserved legacy data and saved navigation).
+- Why: [Images contract](../backend/README.md#images), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
+
 ### The user's data leaves only when the user sends it
 
 **Notes and annotations are not backed up, transferred, logged, or kept after the user removes them.**
 
-- Enforced by: backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them on both sides; exports exist only in a private folder until shared, and are deleted at each start, disconnect and clear; a sign-out or account deletion stays pending on disk until Room's rows and every file are gone, and only then forgets the data's owner; saved images are derived from Room's saved versions, and a fetch that began before a deletion does not write.
+- Enforced by: backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them on both sides; exports exist only in a private folder until shared, and are deleted at each start, disconnect and clear; a sign-out or account deletion stays pending on disk until Room's rows and every file are gone, and only then forgets the data's owner; saved images are derived from Room's saved snapshots, cache reads share the deletion lock, and a fetch that began before a deletion does not write.
 - Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
 
 ## Failure behaviour

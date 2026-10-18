@@ -27,7 +27,6 @@ import org.json.JSONTokener
 internal const val ASSET_HOST = "appassets.androidplatform.net"
 internal const val ASSET_ORIGIN = "https://$ASSET_HOST"
 private const val IMAGE_PREFIX = "/repo-image/"
-private const val EMBED_PREFIX = "/repo-embed/"
 private val IMAGE_TYPES =
     mapOf(
         "png" to "image/png",
@@ -79,9 +78,7 @@ internal fun readerResource(
             when {
                 type == null -> null
                 path.startsWith(IMAGE_PREFIX) ->
-                    images.image(note.documentId, note.blobSha, path.removePrefix(IMAGE_PREFIX))
-                path.startsWith(EMBED_PREFIX) ->
-                    images.embedImage(note.documentId, note.blobSha, path.removePrefix(EMBED_PREFIX))
+                    images.image(note.documentId, note.snapshotCommitSha, path.removePrefix(IMAGE_PREFIX))
                 else -> null
             }
         if (type != null && bytes != null) {

@@ -10,15 +10,15 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 
 /**
- * Saved notes' images, kept per document and version (files/images/<document>/<blob>/<key>) and fetched through the
- * backend with the bearer token when missing. Blocking, for WebView request interception, and outside sign-out's lock;
- * [generation] keeps a fetch from writing back what a deletion removed meanwhile. Sync deletes them when their notes
- * go.
+ * Saved pages' images, kept per document and snapshot (files/images/<document>/commit-<sha>/<key>) and fetched through
+ * the backend with the bearer token when missing. Blocking, for WebView request interception, and outside sign-out's
+ * lock; [generation] keeps a fetch from writing back what a deletion removed meanwhile. Sync deletes them when their
+ * notes go.
  */
 class NoteImages(private val api: Api, filesDir: File) {
     private val root = File(filesDir, "images")
 
-    /** Held only to write one fetched image, or to delete; never by a request to the server. */
+    /** Held for a cached read, publishing one fetched image, or deletion; never for an HTTP request. */
     private val lock = Any()
 
     /**
@@ -32,21 +32,31 @@ class NoteImages(private val api: Api, filesDir: File) {
      * A repository image for the displayed note version: from the cache, else fetched through the backend with the
      * bearer token (blocking; call from a background thread). Null when it is neither cached nor fetchable.
      */
-    fun image(documentId: Long, blobSha: String, path: String): ByteArray? =
-        cached(documentId, blobSha, sha256(path), "path=${URLEncoder.encode(path, Charsets.UTF_8)}")
-
-    /** The same for an Obsidian embed by attachment name; the server resolves the name (missing or ambiguous: null). */
-    fun embedImage(documentId: Long, blobSha: String, name: String): ByteArray? =
-        cached(documentId, blobSha, sha256("embed:$name"), "embed=${URLEncoder.encode(name, Charsets.UTF_8)}")
-
-    private fun cached(documentId: Long, blobSha: String, key: String, query: String): ByteArray? {
-        val directory = File(root, "$documentId/$blobSha")
+    fun image(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? {
+        // Upgraded pages retain their text, but cannot honestly identify any image until fetched again.
+        if (snapshotCommitSha == null) return null
+        val key = sha256(path)
+        val directory = File(root, "$documentId/${snapshotDirectoryName(snapshotCommitSha)}")
         val file = File(directory, key)
-        if (file.isFile) return file.readBytes()
-        val started = synchronized(lock) { generation }
+        val started =
+            synchronized(lock) {
+                try {
+                    if (file.isFile) return file.readBytes()
+                } catch (error: IOException) {
+                    Log.w(
+                        "RepoRead",
+                        "Cached image unreadable; documentId=$documentId snapshot=$snapshotCommitSha",
+                        error,
+                    )
+                    return null
+                }
+                generation
+            }
         val bytes =
             try {
-                api.bytes("/api/documents/$documentId/image?$query")
+                api.bytes(
+                    "/api/documents/$documentId/image?commitSha=$snapshotCommitSha&path=${URLEncoder.encode(path, Charsets.UTF_8)}"
+                )
             } catch (error: ApiException) {
                 Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
                 return null
@@ -77,7 +87,13 @@ class NoteImages(private val api: Api, filesDir: File) {
      * versions'. Returns what could not be deleted ([deleteTree]).
      */
     fun sweep(saved: List<SavedVersion>): List<File> = deleting {
-        val kept = saved.groupBy({ it.documentId.toString() }, { it.blobSha })
+        // Legacy pages have no provable image snapshot: their old blob-keyed cache is retired, not read as a fallback.
+        val kept =
+            saved
+                .mapNotNull { page ->
+                    page.snapshotCommitSha?.let { page.documentId.toString() to snapshotDirectoryName(it) }
+                }
+                .groupBy({ it.first }, { it.second })
         root.listFiles().orEmpty().flatMap { document ->
             val versions = kept[document.name] ?: return@flatMap deleteTree(document)
             document.listFiles().orEmpty().filter { it.name !in versions }.flatMap(::deleteTree)
@@ -93,6 +109,9 @@ class NoteImages(private val api: Api, filesDir: File) {
 
     private fun sha256(value: String) =
         MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+
+    /** Disjoint from the retired bare blob-SHA folders, even if two supplied SHA strings happen to be equal. */
+    private fun snapshotDirectoryName(commitSha: String) = "commit-$commitSha"
 }
 
 /**

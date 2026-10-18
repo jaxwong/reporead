@@ -13,6 +13,10 @@ class MarkdownRendererTest {
         return MarkdownRenderer.render(source, sha(source), "notes/backend/test.md");
     }
 
+    private org.jsoup.nodes.Document page(MarkdownRenderer.RenderedNote note) {
+        return Jsoup.parse(MarkdownRenderer.pageHtml(note.page()));
+    }
+
     static String sha(String source) {
         try {
             byte[] bytes = source.getBytes(StandardCharsets.UTF_8);
@@ -30,7 +34,7 @@ class MarkdownRendererTest {
         assertEquals("A transaction groups work.", result.blocks().get(1).text());
         assertEquals("transaction", result.blocks().get(1).text().substring(2, 13));
         assertEquals(java.util.List.of("Heading"), result.blocks().get(1).headingPath());
-        var html = Jsoup.parse(result.html());
+        var html = page(result);
         assertEquals(
                 result.blocks().get(1).text(),
                 html.selectFirst("[data-block-id=b1]").attr("data-anchor-text"));
@@ -49,7 +53,7 @@ class MarkdownRendererTest {
                         new MarkdownRenderer.Heading("b5", 13, java.util.List.of("Top", "In list")),
                         new MarkdownRenderer.Heading("b6", 15, java.util.List.of("Top", "Top"))),
                 result.headings());
-        var html = Jsoup.parse(result.html());
+        var html = page(result);
         for (var heading : result.headings())
             assertTrue(html.selectFirst("[data-block-id=" + heading.blockId() + "]")
                     .tagName()
@@ -72,9 +76,7 @@ class MarkdownRendererTest {
         assertTrue(path.endsWith("…"));
         assertTrue(heading.startsWith(path.substring(0, path.length() - 1)));
         assertEquals(path, new String(path.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
-        assertEquals(
-                path,
-                Jsoup.parse(result.html()).selectFirst("[data-block-id=b1]").attr("data-heading-2"));
+        assertEquals(path, page(result).selectFirst("[data-block-id=b1]").attr("data-heading-2"));
     }
 
     /**
@@ -83,7 +85,7 @@ class MarkdownRendererTest {
      */
     @Test
     void aPlusInALinkNameStaysLiteral() {
-        var html = Jsoup.parse(render("See [[C++ templates#A+B]].").html());
+        var html = page(render("See [[C++ templates#A+B]]."));
         assertEquals(
                 "/note-link?target=C++%20templates&heading=A+B",
                 html.selectFirst("a.wikilink").attr("href"));
@@ -100,7 +102,7 @@ class MarkdownRendererTest {
                 result.blocks().getFirst().text(),
                 "brackets and targets stay in the canonical text, only hidden");
         assertEquals("[[not a link]]\n", result.blocks().get(1).text());
-        var html = Jsoup.parse(result.html());
+        var html = page(result);
         assertEquals(
                 java.util.List.of(
                         "/note-link?target=stack",
@@ -136,7 +138,7 @@ class MarkdownRendererTest {
                         "[^1]: First bold note. [^src]: Second note, https://example.com/x."),
                 result.blocks().stream().map(MarkdownRenderer.Block::text).toList(),
                 "source text stays, only hidden");
-        var html = Jsoup.parse(result.html());
+        var html = page(result);
         // Numbered in definition order, which is the order the definitions are shown; an undefined label stays literal.
         assertEquals(
                 java.util.List.of("src", "1", "src", "1"),
@@ -161,8 +163,7 @@ class MarkdownRendererTest {
 
     @Test
     void onlyAParagraphThatStartsWithADefinitionDefinesFootnotes() {
-        var html = Jsoup.parse(render("Prose that mentions [^1]: not a definition.\n\nSee [^1].")
-                .html());
+        var html = page(render("Prose that mentions [^1]: not a definition.\n\nSee [^1]."));
         assertTrue(html.select(".fn-def, .fn-ref").isEmpty());
     }
 
@@ -171,12 +172,10 @@ class MarkdownRendererTest {
         String source = "![[Pasted image 1.png]] and ![[diagram.svg|300]] and ![[other note]]";
         var result = render(source);
         assertEquals(source, result.blocks().getFirst().text());
-        var html = Jsoup.parse(result.html());
+        var html = page(result);
         assertEquals(
-                java.util.List.of(
-                        MarkdownRenderer.EMBED_PREFIX + "Pasted%20image%201.png",
-                        MarkdownRenderer.EMBED_PREFIX + "diagram.svg"),
-                html.select("#note img").eachAttr("src"));
+                java.util.List.of("Pasted image 1.png", "diagram.svg"),
+                html.select("#note img").eachAttr("data-embed"));
         assertEquals("300", html.select("#note img").get(1).attr("width"));
         assertEquals("Pasted image 1.png", html.selectFirst("#note img").attr("alt"));
         assertEquals(
@@ -186,9 +185,9 @@ class MarkdownRendererTest {
 
     @Test
     void relativeMarkdownLinksBecomeNoteLinksResolvedAgainstTheNote() {
-        var html = Jsoup.parse(render(
-                        "[next](../queues/fifo%20list.md#Enqueue) [root](/top.md) [out](../../../x.md) [web](https://example.com/a.md)")
-                .html());
+        var html = page(
+                render(
+                        "[next](../queues/fifo%20list.md#Enqueue) [root](/top.md) [out](../../../x.md) [web](https://example.com/a.md)"));
         assertEquals(
                 java.util.List.of(
                         "/note-link?path=notes/queues/fifo%20list.md&heading=Enqueue",
@@ -201,10 +200,9 @@ class MarkdownRendererTest {
     @Test
     void anAuthoredLinkToTheAppsOwnPagesIsANoteOrNothing() {
         // The app decodes every /note-link it is tapped or shown, and "%" alone is not a valid escape.
-        var html = Jsoup.parse(
+        var html = page(
                 render("[a](/note-link?target=50%) [b](https://appassets.androidplatform.net/note-link?target=%zz) "
-                                + "[c](scripts/run.py) [d](next.md) [e](https://example.com/x) [f](#Heading)")
-                        .html());
+                        + "[c](scripts/run.py) [d](next.md) [e](https://example.com/x) [f](#Heading)"));
         assertEquals(
                 java.util.List.of("/note-link?path=notes/backend/next.md", "https://example.com/x", "#Heading"),
                 html.select("#note a[href]").eachAttr("href"));
@@ -220,7 +218,7 @@ class MarkdownRendererTest {
         assertEquals(
                 java.util.List.of("See the paper[^1].", "[^1]: https://arxiv.org/abs/1706.03762"),
                 result.blocks().stream().map(MarkdownRenderer.Block::text).toList());
-        var html = Jsoup.parse(result.html());
+        var html = page(result);
         assertEquals(java.util.List.of("1"), html.select(".fn-ref").eachAttr("data-label"));
         assertEquals(java.util.List.of("1"), html.select(".fn-def").eachAttr("data-label"));
         assertTrue(html.select("#note a").isEmpty());
@@ -248,7 +246,7 @@ class MarkdownRendererTest {
     void tablesCodeAndTaskListsAreSupported() {
         var result = render(
                 "| Key | Value |\n| --- | --- |\n| a | **b** |\n\n```java\nint x = 1;\n```\n\n- [x] done\n- [ ] pending");
-        var html = Jsoup.parse(result.html());
+        var html = page(result);
         assertEquals(1, html.select("table").size());
         assertEquals(1, html.select("code.language-java").size());
         assertEquals(2, html.select("input[type=checkbox][disabled]").size());
@@ -258,9 +256,8 @@ class MarkdownRendererTest {
 
     @Test
     void rawHtmlAndUnsafeLinksAreNotExecuted() {
-        var html = Jsoup.parse(render(
-                        "<script>alert(1)</script>\n\n[unsafe](javascript:alert)\n\n![bad](https://example.com/tracker.png)")
-                .html());
+        var html = page(render(
+                "<script>alert(1)</script>\n\n[unsafe](javascript:alert)\n\n![bad](https://example.com/tracker.png)"));
         assertEquals(1, html.select("script").size(), "only the app-owned reader script is allowed");
         assertEquals("/assets/reader.js", html.selectFirst("script").attr("src"));
         assertTrue(html.select("a[href^=javascript:]").isEmpty());
@@ -270,7 +267,7 @@ class MarkdownRendererTest {
 
     @Test
     void relativeImagesResolveLikeGitHubAndOthersAreVisiblyBlocked() {
-        var html = Jsoup.parse(render("""
+        var html = page(render("""
             ![diagram](images/flow%20chart.png)
 
             ![shared](../../assets/logo.SVG "title")
@@ -282,7 +279,7 @@ class MarkdownRendererTest {
             ![escape](../../../secret.png)
 
             ![not an image](notes.md)
-            """).html());
+            """));
         assertEquals(
                 java.util.List.of(
                         "/repo-image/notes/backend/images/flow%20chart.png",
@@ -296,8 +293,7 @@ class MarkdownRendererTest {
 
     @Test
     void imageCountIsBounded() {
-        var html = Jsoup.parse(render("![i](a.png)\n\n".repeat(MarkdownRenderer.MAX_IMAGES + 1))
-                .html());
+        var html = page(render("![i](a.png)\n\n".repeat(MarkdownRenderer.MAX_IMAGES + 1)));
         assertEquals(MarkdownRenderer.MAX_IMAGES, html.select("img").size());
         assertTrue(html.text().contains("Image limit reached: i"));
     }
@@ -316,7 +312,7 @@ class MarkdownRendererTest {
     void mermaidSourceIsBoundedAndNotAnExecutableScript() {
         var result = render("```mermaid\nflowchart TD\n  A --> B\n```");
         assertEquals(1, result.diagramCount());
-        assertEquals(1, Jsoup.parse(result.html()).select("pre[data-mermaid]").size());
+        assertEquals(1, page(result).select("pre[data-mermaid]").size());
         assertThrows(
                 MarkdownRenderer.ContentRejected.class,
                 () -> render("```mermaid\n" + "x".repeat(MarkdownRenderer.MAX_DIAGRAM_CHARS + 1) + "\n```"));
@@ -329,14 +325,29 @@ class MarkdownRendererTest {
     void emptyNoteHasAVisibleEmptyState() {
         var result = render("");
         assertTrue(result.blocks().isEmpty());
-        assertTrue(Jsoup.parse(result.html()).text().contains("This note is empty"));
+        assertTrue(page(result).text().contains("This note is empty"));
+    }
+
+    @Test
+    void canonicalExtractionDoesNotSerializeAnUnneededOversizedPage() {
+        var source = new StringBuilder();
+        for (int level = 1; level <= 6; level++)
+            source.append("#".repeat(level)).append(' ').append("H".repeat(500)).append("\n\n");
+        source.append("paragraph\n\n".repeat(1000));
+        var result = render(source.toString());
+        assertEquals(1006, result.blocks().size());
+        assertEquals("paragraph", result.blocks().getLast().text());
+        assertThrows(MarkdownRenderer.ContentRejected.class, () -> MarkdownRenderer.pageHtml(result.page()));
     }
 
     @Test
     void htmlSerializationAcceptsItsExactUtf8LimitAndRejectsOneMoreByte() {
         String basePath = "limit.md";
-        int fixedBytes = MarkdownRenderer.render("x", sha("x"), basePath).html().getBytes(StandardCharsets.UTF_8).length
-                - 2; // The one-character block appears as text and as data-anchor-text.
+        int fixedBytes = MarkdownRenderer.pageHtml(
+                                MarkdownRenderer.render("x", sha("x"), basePath).page())
+                        .getBytes(StandardCharsets.UTF_8)
+                        .length
+                - 2;
         for (String character : java.util.List.of("x", "é", "測", "😀")) {
             int blockBytes = 2 * character.getBytes(StandardCharsets.UTF_8).length;
             int available = MarkdownRenderer.MAX_PAGE_BYTES - fixedBytes;
@@ -345,9 +356,14 @@ class MarkdownRendererTest {
             String sha = sha(source);
             assertEquals(
                     MarkdownRenderer.MAX_PAGE_BYTES,
-                    MarkdownRenderer.render(source, sha, path).html().getBytes(StandardCharsets.UTF_8).length);
+                    MarkdownRenderer.pageHtml(
+                                    MarkdownRenderer.render(source, sha, path).page())
+                            .getBytes(StandardCharsets.UTF_8)
+                            .length);
             assertThrows(
-                    MarkdownRenderer.ContentRejected.class, () -> MarkdownRenderer.render(source, sha, "p" + path));
+                    MarkdownRenderer.ContentRejected.class,
+                    () -> MarkdownRenderer.pageHtml(
+                            MarkdownRenderer.render(source, sha, "p" + path).page()));
         }
     }
 
@@ -364,8 +380,12 @@ class MarkdownRendererTest {
     void secondRenderIsIdenticalAndBlocksDoNotOverlap() {
         String source = "# Title\n\n- parent\n  - child\n\n> quoted **text**";
         var first = render(source);
-        assertEquals(first, render(source));
-        var html = Jsoup.parse(first.html());
+        var second = render(source);
+        assertEquals(MarkdownRenderer.pageHtml(first.page()), MarkdownRenderer.pageHtml(second.page()));
+        assertEquals(first.blocks(), second.blocks());
+        assertEquals(first.headings(), second.headings());
+        assertEquals(first.diagramCount(), second.diagramCount());
+        var html = page(first);
         for (var block : html.select("[data-block-id]")) {
             assertEquals(1, block.select("[data-block-id]").size(), "anchor blocks must not overlap");
         }
