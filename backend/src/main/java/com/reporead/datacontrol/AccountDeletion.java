@@ -1,3 +1,5 @@
+// Owns coordinated account-data deletion; credential lifecycle admission comes before its database transaction.
+
 package com.reporead.datacontrol;
 
 import com.reporead.annotation.Annotations;
@@ -41,6 +43,7 @@ public class AccountDeletion {
         this.transaction = transaction;
     }
 
+    /** Owns the committed deletion counts that authorize the phone to remove its own copy. */
     record Deleted(int repositories, int readingStates, int bookmarks, int highlights, int cards) {}
 
     /**
@@ -48,8 +51,12 @@ public class AccountDeletion {
      * leaves the account and its GitHub authorization intact. RepoRead keeps no credential afterwards. The App stays
      * installed on GitHub until the user uninstalls it.
      */
-    Deleted delete(AppUser user) {
-        var token = credentials.tokenToRevoke(user.githubUserId());
+    Deleted delete(AppUser user, String sessionToken) {
+        return credentials.deletingAccount(sessionToken, user, () -> deleteAdmitted(user));
+    }
+
+    /** Runs inside lifecycle admission; returns after commit so the credential owner can safely revoke the grant. */
+    private Deleted deleteAdmitted(AppUser user) {
         var deleted = transaction.execute(status -> {
             // First, so a connection being added concurrently commits before the list below, or waits and then fails.
             sessions.lockUserForDeletion(user.id());
@@ -69,10 +76,9 @@ public class AccountDeletion {
             }
             annotations.deleteMutations(user.id());
             sessions.deleteUser(user.id());
-            credentials.forget(user.githubUserId());
+            credentials.forgetForAccountDeletion(user.githubUserId());
             return new Deleted(repositories, reading, bookmarks, highlights, cards);
         });
-        token.ifPresent(value -> credentials.revoke(user.githubUserId(), value));
         LOG.info(
                 "Account deleted; userId={} repositories={} readingStates={} bookmarks={} highlights={} cards={}",
                 user.id(),

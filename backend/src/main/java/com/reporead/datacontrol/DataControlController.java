@@ -1,6 +1,9 @@
+// Owns data-control HTTP routes; ConnectionData and AccountDeletion own the actual deletion decisions.
+
 package com.reporead.datacontrol;
 
 import com.reporead.auth.AppUser;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,7 +37,7 @@ public class DataControlController {
     }
 
     @DeleteMapping("/api/account")
-    AccountDeletion.Deleted delete(@AuthenticationPrincipal AppUser user) {
-        return accounts.delete(user);
+    AccountDeletion.Deleted delete(@AuthenticationPrincipal AppUser user, Authentication authentication) {
+        return accounts.delete(user, (String) authentication.getCredentials());
     }
 }

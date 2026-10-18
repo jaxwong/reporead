@@ -1,9 +1,13 @@
+// Owns real security-chain OAuth callback coverage using explicitly test-only upstream responses.
+
 package com.reporead.auth;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withNoContent;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -17,10 +21,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
@@ -30,9 +41,11 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextImpl;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.endpoint.RestClientAuthorizationCodeTokenResponseClient;
 import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -45,6 +58,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 
 // Loud test-only credentials; GitHub is faked at HTTP, and nothing here reaches it.
+/** Owns callback ordering, token persistence and browser/API isolation assertions at the real filter boundary. */
 @ExtendWith(OutputCaptureExtension.class)
 class GitHubLoginTest extends SharedSpringTest {
     @Autowired
@@ -61,6 +75,90 @@ class GitHubLoginTest extends SharedSpringTest {
 
     @Autowired
     JdbcClient db;
+
+    @Autowired
+    AppSessions sessions;
+
+    @Autowired
+    OAuth2AuthorizedClientService clients;
+
+    @Autowired
+    ClientRegistrationRepository registrations;
+
+    @Autowired
+    @Qualifier("githubUserApi")
+    RestTemplate githubUserApi;
+
+    /** Revocation must not pass a callback between GitHub issuing its token and the server publishing that sign-in. */
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/app-auth/session", "/api/account"})
+    void credentialRemovalWaitsForAnAlreadyAdmittedOAuthCallback(String path) throws Exception {
+        TestEnvironment.reset(db);
+        String alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_OLD_TOKEN");
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var tokens = RestClient.builder();
+        var tokenEndpoint = MockRestServiceServer.bindTo(tokens).build();
+        githubCodeExchange.setRestClient(GitHubSecurity.tokenApi(tokens, meters));
+        tokenEndpoint
+                .expect(requestTo("https://github.com/login/oauth/access_token"))
+                .andRespond(request -> {
+                    entered.countDown();
+                    try {
+                        assertTrue(release.await(10, TimeUnit.SECONDS), "Test must release the callback");
+                    } catch (InterruptedException error) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError("Test callback interrupted", error);
+                    }
+                    return withSuccess(
+                                    "{\"access_token\":\"TEST_ONLY_NEW_TOKEN\",\"expires_in\":28800,\"token_type\":\"bearer\"}",
+                                    MediaType.APPLICATION_JSON)
+                            .createResponse(request);
+                });
+        var users = new RestTemplate();
+        users.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
+        var userEndpoint = MockRestServiceServer.bindTo(users).build();
+        githubUserInfo.setRestOperations(users);
+        userEndpoint
+                .expect(requestTo("https://api.github.com/user"))
+                .andRespond(withSuccess("{\"id\":42,\"login\":\"test-only-user\"}", MediaType.APPLICATION_JSON));
+        var revoke = MockRestServiceServer.bindTo(githubUserApi).build();
+        revoke.expect(requestTo("https://api.github.com/applications/test-only-not-a-github-app/grant"))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withNoContent());
+        var session = appSignIn();
+        var authorize =
+                URI.create(mvc.perform(get("/oauth2/authorization/github").session(session))
+                        .andReturn()
+                        .getResponse()
+                        .getHeader("Location"));
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var callback = executor.submit(() -> mvc.perform(get("/login/oauth2/code/github")
+                            .session(session)
+                            .param("code", "TEST_ONLY_CODE")
+                            .param("state", query(authorize).get("state")))
+                    .andExpect(status().isFound()));
+            try {
+                assertTrue(entered.await(10, TimeUnit.SECONDS), "Callback must reach token exchange");
+                var removed = executor.submit(
+                        () -> mvc.perform(delete(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)));
+                assertThrows(
+                        TimeoutException.class,
+                        () -> removed.get(300, TimeUnit.MILLISECONDS),
+                        "Credential removal must wait for the admitted callback");
+                release.countDown();
+                callback.get(10, TimeUnit.SECONDS);
+                removed.get(10, TimeUnit.SECONDS).andExpect(status().is(path.equals("/api/account") ? 200 : 204));
+                assertNull(clients.loadAuthorizedClient("github", "42"));
+                assertEquals(0, count("app_sign_in_codes"));
+            } finally {
+                release.countDown();
+            }
+        }
+        tokenEndpoint.verify();
+        userEndpoint.verify();
+        revoke.verify();
+    }
 
     /** A browser session that the app's /app/sign-in began, holding its PKCE challenge. */
     private MockHttpSession appSignIn() throws Exception {

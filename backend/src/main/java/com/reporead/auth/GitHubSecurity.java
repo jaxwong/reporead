@@ -1,3 +1,5 @@
+// Owns the browser OAuth security boundary, including callback admission through the credential lifecycle owner.
+
 package com.reporead.auth;
 
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
@@ -5,7 +7,10 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 import com.reporead.RepoReadProperties;
 import com.reporead.github.GitHubHttp;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -32,6 +37,7 @@ import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserServ
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
+import org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -44,6 +50,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * GitHub sign-in in the browser, for the app's Custom Tab: the App's OAuth registration, the browser filter chain, and
@@ -86,12 +93,41 @@ public class GitHubSecurity {
             RestClientAuthorizationCodeTokenResponseClient githubCodeExchange,
             DefaultOAuth2UserService githubUserInfo,
             AppSessions sessions,
+            GitHubCredentials credentials,
             AllowedUsers allowed,
             RepoReadProperties properties)
             throws Exception {
         var pkce = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
         pkce.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
         var resolver = startedByTheApp(pkce);
+
+        // Admission must precede token exchange, not just token storage: deleting a grant invalidates newly issued
+        // tokens too. The browser's user is not known yet, so the existing credential owner uses one process gate.
+        http.addFilterBefore(
+                new OncePerRequestFilter() {
+                    @Override
+                    protected boolean shouldNotFilter(HttpServletRequest request) {
+                        return !request.getRequestURI().equals(request.getContextPath() + "/login/oauth2/code/github");
+                    }
+
+                    @Override
+                    protected void doFilterInternal(
+                            HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+                            throws ServletException, IOException {
+                        try {
+                            credentials.changing(() -> {
+                                chain.doFilter(request, response);
+                                return null;
+                            });
+                        } catch (IOException | ServletException | RuntimeException error) {
+                            throw error;
+                        } catch (Exception error) {
+                            throw new IllegalStateException(
+                                    "OAuth callback threw an undeclared checked exception", error);
+                        }
+                    }
+                },
+                OAuth2LoginAuthenticationFilter.class);
 
         http.authorizeHttpRequests(auth -> auth.requestMatchers(
                                 "/app/sign-in",
