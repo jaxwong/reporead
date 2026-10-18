@@ -140,8 +140,8 @@ These come from the original implementation spec's engineering invariants and th
 
 **A complete, valid, request-matching response is required before acknowledging a mutation. Only a known item-refusal status/code pair authorizes its permanent rejection.**
 
-- Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence and echoed identity checks; `SignIn` owns the recorded account match, and `Sync` owns a review's local card match. `Sync.refusesItem()` owns the positive refusal decision. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
-- Checked by: shared producer/consumer contract fixtures, `RefusalTest`, `ApiTest`, `LocalSyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot authorize local removal.
+- Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence (generated from `backend/openapi.json`), the value rules (`WireRules.kt`) and echoed identity checks; `SignIn` owns the recorded account match, and `Sync` owns a review's local card match. `Sync.refusesItem()` owns the positive refusal decision. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
+- Checked by: `OpenApiSpecTest` (the committed spec is the backend's, and its mapper's actual output conforms), `ContractTest`, `ItemRefusalsTest` with `RefusalTest`, `ApiTest`, `LocalSyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot authorize local removal.
 - Why: [ADR-26](adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
 
 ### Server-owned limits and no fallback
