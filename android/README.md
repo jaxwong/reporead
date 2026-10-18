@@ -52,6 +52,17 @@ run the same checks, without secrets. `versionCode` is `n`, the commit count of 
 
 On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https://github.com/jaxwong/reporead` (public, so no token) and installs each new release over the current app, keeping its data, because every release is signed with the same key. A release build installed by hand from a branch can carry a higher commit count than the next release from `main`; Android refuses that as a downgrade, so reinstall the release with `adb install -r -d`, and only a release whose database version is at least the hand-installed build's (Room cannot open a newer database).
 
+## HTTP boundary
+
+`core/network/Api.kt` owns every app-used backend route, its success statuses, response cap and echoed identity checks. `Contract.kt` declares consumed fields without defaults; nullable keys are still required. `WireJson.kt` owns strict Boolean/Int/Long tokens and ISO instants representable as epoch milliseconds; unknown extra fields remain compatible. `sync/ServerRows.kt` maps typed records, and `Sync` alone decides which known status/code pairs permanently refuse pending work. No raw HTTP verbs or `org.json` network parser remain; the reader bridge keeps its separately owned JSON protocol. See [ADR-26](../docs/adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
+
+`ContractTest` and `RefusalTest` run in the existing JVM test task and read `backend/src/test/resources/api-contract/`; backend producer tests verify those same examples against actual records/controllers. These are test resources/assets only, never production assets. Run both sides before changing a wire declaration:
+
+```sh
+./gradlew :backend:test --tests '*WireContractTest' --no-daemon
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --no-daemon
+```
+
 ## Device tests
 
 These run against in-memory databases on the phone: the Room cache and pending-change rules, the Room migrations from exported schemas, the sync, the background sync's outcomes, and grade push against a test-only HTTP server on a loopback port, isolated WebView reader and study checks, and Activity-recreation tests of the reader, Practice sessions and Review. The lifecycle tests use a debug-only, non-exported Activity and explicitly test-only saved pages; they never access the app's database, and only the sync tests reach the network, on loopback. The host is absent from release builds. Install and run them with adb, which keeps the installed app and its data:
@@ -64,6 +75,17 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assem
 ```
 
 They need the debug build (RepoRead Dev) installed; the release app is untouched. `./gradlew :app:connectedDebugAndroidTest` runs the same tests but **uninstalls RepoRead Dev afterwards**, deleting its session, cache, and any unsynced changes. `am instrument` exits 0 even when tests fail: the run passed only if it ends with `OK (n tests)`.
+
+### Opt-in live contract check
+
+`LiveApiContractTest` is skipped by default, **before** opening the real session/store. It uses RepoRead Dev's existing signed-in account and a real existing `scratch/` note. Run only with explicit permission to create/delete labelled test highlights/cards and toggle a previously absent scratch bookmark; it refuses unrelated pending work and cleans up only its own records. It never disconnects, signs out, deletes an account or writes to GitHub. Do not clear app data to make it pass.
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> reverse tcp:8081 tcp:8081
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w -e liveApiContract true -e class com.reporead.android.LiveApiContractTest#scratchNoteExercisesRealReadsMutationsConflictsAndCleanup com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The separate offline/replay methods require the reported scratch document id and mutation id, with the tunnel removed/restored between them. Exact executed commands, cleanup and limitations are in [the implementation record](../docs/api-contract-plan.md#implementation-and-verification). These are integration checks through the real app owners, not UI automation or evidence for every live route.
 
 ### Real-corpus check
 

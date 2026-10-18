@@ -26,7 +26,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --no-d
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon   # device tests compile; they run on the phone
 ```
 
-These are the checks CI runs.
+These are the checks CI runs. The Android job also runs `./gradlew :backend:test --tests '*WireContractTest' --no-daemon` before the JVM consumer tests: both sides check the same test-only JSON examples, so incompatible producer or request changes fail the gate. No schema generator or production fixture mode is involved. Ownership and executed evidence are in [the API contract implementation](docs/api-contract-plan.md#implementation-and-verification).
 
 Device tests (Room on the phone) run with `adb shell am instrument`, never `connectedDebugAndroidTest` on a phone you read on — see [android/README.md](android/README.md#device-tests). The opt-in real-corpus harnesses (`AnchorMeasurement`, `MoveMeasurement` and `RenderedCorpus` in the backend, `StudyCorpus` in the app) are skipped unless pointed at a local clone of a notes repository; their outputs contain private note text and stay outside the repository ([ADR-23](docs/adrs.md#adr-23--how-a-change-is-verified)). The commands are in [backend/README.md](backend/README.md#verify).
 

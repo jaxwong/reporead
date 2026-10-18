@@ -32,7 +32,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Every list the phone saves from the server comes from one read of one database snapshot, and is written with the others in one Room transaction: all of one answer, or none of it.**
 
-- Enforced by: `GET /api/library` is the only route this app reads them from, one request per read and no GitHub call, and the server has no other route for them (ADR-08); `Library` reads every list in one read-only `REPEATABLE READ` transaction; `Sync` checks the whole answer before `LibraryDao.replaceFromServer` writes it, and deletes images only after the commit.
+- Enforced by: `GET /api/library` is the only route this app reads them from, one request per read and no GitHub call, and the server has no other route for them (ADR-08); `Library` reads every list in one read-only `REPEATABLE READ` transaction; `Api` decodes and validates the whole answer, then `Sync` maps it before `LibraryDao.replaceFromServer` writes it, and deletes images only after the commit.
 - Checked by: `LibraryTest` (a write committed during the read is wholly out of it and wholly in the next); `LocalSyncTest` on a device (a failed request or a broken answer leaves every saved list and image as it was).
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
 
@@ -135,6 +135,14 @@ These come from the original implementation spec's engineering invariants and th
 **Saved notes stay readable, and local changes queue, when GitHub or the backend is unavailable.** A failed refresh never replaces saved lists or notes.
 
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
+
+### An uncertain answer never acknowledges or rejects pending work
+
+**A complete, valid, request-matching response is required before acknowledging a mutation. Only a known item-refusal status/code pair authorizes its permanent rejection.**
+
+- Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence and echoed identity checks; `SignIn` owns the recorded account match, and `Sync` owns a review's local card match. `Sync.refusesItem()` owns the positive refusal decision. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
+- Checked by: shared producer/consumer contract fixtures, `RefusalTest`, `ApiTest`, `LocalSyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot authorize local removal.
+- Why: [ADR-26](adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
 
 ### Server-owned limits and no fallback
 
