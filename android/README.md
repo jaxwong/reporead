@@ -54,7 +54,7 @@ On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https:/
 
 ## HTTP boundary
 
-`core/network/Api.kt` owns every app-used backend route, its success statuses, response cap and echoed identity checks. Its wire models (`core/network/wire/`) are generated at build time by the `wireModels` task from `backend/openapi.json`, the backend's published API: every field is required and nullable ones are still present. Never edit them; change the backend record and commit the spec its `OpenApiSpecTest` rewrites. `WireRules.kt` owns the value rules a generated shape cannot state. `WireJson.kt` owns strict Boolean/Int/Long tokens and ISO instants representable as epoch milliseconds; unknown extra fields remain compatible. `sync/ServerRows.kt` maps typed records, and `Sync` alone decides which known status/code pairs permanently refuse pending work. `Sync` returns structured refusal facts, disconnect failures and stale-copy fetch failures; Library/Folder/Reader own their UI wording. No raw HTTP verbs or `org.json` network parser remain; the reader bridge keeps its separately owned JSON protocol. See [ADR-26](../docs/adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
+`core/network/Api.kt` owns every app-used backend route, its success statuses, response cap and echoed identity checks. Its wire models (`core/network/wire/`) are generated at build time by the `wireModels` task from `backend/openapi.json`, the backend's published API: response fields are required and nullable ones are still present; optional request fields follow the server's omission declarations. Never edit them; change the backend record and commit the spec its `OpenApiSpecTest` rewrites. `WireRules.kt` owns the value rules a generated shape cannot state. `WireJson.kt` owns strict Boolean/Int/Long tokens and ISO instants representable as epoch milliseconds; unknown extra fields remain compatible. `sync/ServerRows.kt` maps typed records, and `Sync` alone decides which known status/code pairs permanently refuse pending work. `Sync` returns structured refusal facts, disconnect failures and stale-copy fetch failures; Library/Folder/Reader own their UI wording. No raw HTTP verbs or `org.json` network parser remain; the reader bridge keeps its separately owned JSON protocol. See [ADR-26](../docs/adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
 
 `ContractTest` covers what generation cannot promise: strict tokens, required-nullable presence and the value rules. Test answers are built with the generated constructors in `src/testShared/` (`WireSamples.kt`, compiled into both the JVM and device tests), so a backend shape change fails their compilation. `RefusalTest` reads the backend's test-only `api-contract/item-refusals.json`. After a backend wire change:
 
@@ -76,16 +76,13 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assem
 
 They need the debug build (RepoRead Dev) installed; the release app is untouched. `./gradlew :app:connectedDebugAndroidTest` runs the same tests but **uninstalls RepoRead Dev afterwards**, deleting its session, cache, and any unsynced changes. `am instrument` exits 0 even when tests fail: the run passed only if it ends with `OK (n tests)`.
 
-### Opt-in live contract check
+### Historical live verification
 
-`LiveApiContractTest` is skipped by default, **before** opening the real session/store. It uses RepoRead Dev's existing signed-in account and a real existing `scratch/` note. Run only with explicit permission to create/delete labelled test highlights/cards and toggle a previously absent scratch bookmark; it refuses unrelated pending work and cleans up only its own records. It never disconnects, signs out, deletes an account or writes to GitHub. Do not clear app data to make it pass.
-
-```sh
-~/Library/Android/sdk/platform-tools/adb -s <device-serial> reverse tcp:8081 tcp:8081
-~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w -e liveApiContract true -e class com.reporead.android.LiveApiContractTest#scratchNoteExercisesRealReadsMutationsConflictsAndCleanup com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
-```
-
-The separate offline/replay methods require the reported scratch document id and mutation id, with the tunnel removed/restored between them. Exact executed commands, cleanup and limitations are in [the implementation record](../docs/audit-remediation-plan.md#step-9-verification). These are integration checks through the real app owners, not UI automation or evidence for every live route.
+The scratch-note live-write harness was removed after review: its recovery path could send unrelated pending work
+from the real store. It is not replaced by a hidden script or a second harness. This deliberately removes automated
+live-write replay; the maintained device suites use isolated stores and loopback HTTP. Earlier approved live results
+remain historical evidence in [the implementation record](../docs/audit-remediation-plan.md#step-9-verification),
+not instructions to run the deleted tests. Future live writes require separately scoped approval.
 
 ### Real-corpus check
 
