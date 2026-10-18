@@ -28,7 +28,6 @@ import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.library.LibraryScreen
-import com.reporead.android.reader.ReaderTestActivity
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.saveAllInBackground
@@ -533,7 +532,7 @@ class AccountTest {
                 account.deleteAccount()
                 val notice = (account.settled() as AccountState.Idle).notice!!
                 val text = noticeText(notice)
-                ReaderTestActivity.content = {
+                TestHostActivity.content = {
                     val state by account.state.collectAsState()
                     MaterialTheme {
                         LibraryScreen(
@@ -550,7 +549,7 @@ class AccountTest {
                     }
                 }
                 try {
-                    ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+                    ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                         awaitText(text)
                         assertTrue(
                             (account.state.value as AccountState.Idle).notice is AccountNotice.DeletionNotConfirmed
@@ -570,7 +569,7 @@ class AccountTest {
                     }
                 } finally {
                     releaseRefresh.countDown()
-                    ReaderTestActivity.content = null
+                    TestHostActivity.content = null
                 }
             }
     }
@@ -703,11 +702,11 @@ class AccountTest {
                 account.startUp().join()
                 account.signOut()
                 assertTrue(arrived.await(10, SECONDS))
-                ReaderTestActivity.content = {
+                TestHostActivity.content = {
                     MaterialTheme { RepoReadApp(account, sessions, api, dao, scope, null, {}) }
                 }
                 try {
-                    ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+                    ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                         awaitText("Removing this phone's copy of your notes…")
                         assertNull(findText(root(), "Library"))
                         scenario.recreate()
@@ -720,7 +719,7 @@ class AccountTest {
                     assertPhoneCleared()
                 } finally {
                     release.countDown()
-                    ReaderTestActivity.content = null
+                    TestHostActivity.content = null
                 }
             }
     }

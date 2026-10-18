@@ -12,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
 import com.reporead.android.control
@@ -58,7 +59,7 @@ class ReaderLifecycleTest {
     private lateinit var store: LocalStore
     private lateinit var files: File
     private lateinit var sync: Sync
-    private lateinit var scenario: ActivityScenario<ReaderTestActivity>
+    private lateinit var scenario: ActivityScenario<TestHostActivity>
     private val showingReader = mutableStateOf(true)
     private val title = "Test-only lifecycle fixture"
     /** The screen shown; a new one is a new reader screen, as when the app navigates. */
@@ -99,7 +100,7 @@ class ReaderLifecycleTest {
         dao.saveNote(NoteRow(1, sha, path, title, html, 0, renderFormat = RENDER_FORMAT, snapshotCommitSha = sha))
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
         sync = Sync(api, store, files) {}
-        ReaderTestActivity.content = {
+        TestHostActivity.content = {
             MaterialTheme {
                 if (showingReader.value)
                     key(screenUnderTest.value) {
@@ -115,7 +116,7 @@ class ReaderLifecycleTest {
                     }
             }
         }
-        scenario = ActivityScenario.launch(ReaderTestActivity::class.java)
+        scenario = ActivityScenario.launch(TestHostActivity::class.java)
         awaitReader(0)
         awaitSaved(0)
         readerReady = true
@@ -141,7 +142,7 @@ class ReaderLifecycleTest {
         }
         if (::scenario.isInitialized) scenario.close()
         instrumentation.waitForIdleSync()
-        ReaderTestActivity.content = null
+        TestHostActivity.content = null
         appScope.cancel()
         if (::store.isInitialized) store.close()
         if (::files.isInitialized) check(files.deleteRecursively()) { "Cannot delete test-only directory $files" }

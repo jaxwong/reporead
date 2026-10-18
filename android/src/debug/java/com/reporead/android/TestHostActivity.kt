@@ -1,15 +1,15 @@
-package com.reporead.android.reader
+package com.reporead.android
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
 
-/** Debug-only host for instrumented reader lifecycle tests; never packaged in release. */
-class ReaderTestActivity : ComponentActivity() {
+/** Debug-only host for every instrumented screen test; never packaged in release. */
+class TestHostActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val testContent = checkNotNull(content) { "ReaderTestActivity requires test content" }
+        val testContent = checkNotNull(content) { "TestHostActivity requires test content" }
         setContent { testContent() }
     }
 

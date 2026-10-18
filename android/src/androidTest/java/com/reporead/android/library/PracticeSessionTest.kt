@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
 import com.reporead.android.core.network.Api
@@ -21,7 +22,6 @@ import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.findText
-import com.reporead.android.reader.ReaderTestActivity
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.sync.RENDER_FORMAT
@@ -127,7 +127,7 @@ class PracticeSessionTest {
         )
         val sync =
             Sync(Api("http://127.0.0.1:1", { error("Practice fixture must not call the network") }) {}, store, files) {}
-        ReaderTestActivity.content = {
+        TestHostActivity.content = {
             MaterialTheme {
                 PracticeScreen(dao, sync, "test-only/topic", push = { pushed += it }, onBack = {})
             }
@@ -137,7 +137,7 @@ class PracticeSessionTest {
     @After
     fun close() {
         instrumentation.waitForIdleSync()
-        ReaderTestActivity.content = null
+        TestHostActivity.content = null
         if (::store.isInitialized) store.close()
         if (::files.isInitialized) check(files.deleteRecursively()) { "Cannot delete test-only directory $files" }
     }
@@ -150,8 +150,8 @@ class PracticeSessionTest {
             dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
             val html = testPage(bankSha, block("b0", "h3", "Other repository's warning"))
             dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = RENDER_FORMAT))
-            ReaderTestActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
-            ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+            TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("1 heading is not a question")
                 click("Show")
                 awaitText("Other repository's warning")
@@ -177,8 +177,8 @@ class PracticeSessionTest {
                         block("b3", "h3", "Repeated"),
                 )
             dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = RENDER_FORMAT))
-            ReaderTestActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
-            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+            TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
+            ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText("2 headings are not questions")
                 assertNull(findText(root(), "Repeated"))
                 click("Show")
@@ -201,7 +201,7 @@ class PracticeSessionTest {
     fun eachQuestionTakesItsOwnAnswerAMissComesBackUnsavedAndTheSessionSurvivesRecreation() =
         runBlocking<Unit> {
             val dao = store.library()
-            ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("2 questions left · Foundations · Test-only bank")
                 assertNull("Nothing of the answer shows before the attempt", findWebView(scenario))
                 click("Show answer")
@@ -249,7 +249,7 @@ class PracticeSessionTest {
             }
             assertEquals(emptyList<Screen>(), pushed)
             // A new session asks only questions without a card.
-            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+            ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText(
                     "No new questions here: each question in its up-to-date banks already has a card. They come back under Review when due."
                 )
@@ -259,7 +259,7 @@ class PracticeSessionTest {
     @Test
     fun fullScreenInAnAnswerOpensThatFigureOfTheLinkedNote() =
         runBlocking<Unit> {
-            ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 click("Show answer")
                 // The page numbers figures over the whole note, as the full-screen view does, though it shows one
                 // section.
@@ -282,7 +282,7 @@ class PracticeSessionTest {
         }
 
     /** A real touch on the answer page at CSS pixel ([x], [y]); the app follows only links the user tapped. */
-    private fun tapPage(scenario: ActivityScenario<ReaderTestActivity>, x: Double, y: Double) {
+    private fun tapPage(scenario: ActivityScenario<TestHostActivity>, x: Double, y: Double) {
         var screenX = 0f
         var screenY = 0f
         scenario.onActivity { activity ->
@@ -304,7 +304,7 @@ class PracticeSessionTest {
     }
 
     /** Which linked section the revealed answer shows; it must be that section alone, from the saved copy. */
-    private fun shownAnswer(scenario: ActivityScenario<ReaderTestActivity>): String = runBlocking {
+    private fun shownAnswer(scenario: ActivityScenario<TestHostActivity>): String = runBlocking {
         val label =
             withTimeout(5_000) {
                 while (true) {
@@ -344,7 +344,7 @@ class PracticeSessionTest {
         throw AssertionError("Answer section $label never showed; last=$last")
     }
 
-    private fun evaluate(scenario: ActivityScenario<ReaderTestActivity>, script: String): JSONObject {
+    private fun evaluate(scenario: ActivityScenario<TestHostActivity>, script: String): JSONObject {
         val done = CountDownLatch(1)
         var encoded: String? = "\"{}\""
         scenario.onActivity { activity ->
@@ -364,7 +364,7 @@ class PracticeSessionTest {
         return result
     }
 
-    private fun findWebView(scenario: ActivityScenario<ReaderTestActivity>): WebView? {
+    private fun findWebView(scenario: ActivityScenario<TestHostActivity>): WebView? {
         var found: WebView? = null
         scenario.onActivity { found = findWebView(it.window.decorView) }
         return found
