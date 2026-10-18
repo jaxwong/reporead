@@ -123,9 +123,9 @@ These come from the original implementation spec's engineering invariants and th
 
 ### The user's data leaves only when the user sends it
 
-**Notes and annotations are not backed up, transferred, logged, or kept after the user removes them.**
+**Notes and annotations are not backed up off the phone, transferred, logged, or kept in live data after the user removes them; the server's database backups keep their copies until replaced.**
 
-- Enforced by: backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them on both sides; exports exist only in a private folder until shared, and are deleted at each start, disconnect and clear; a sign-out or account deletion stays pending on disk until Room's rows and every file are gone, and only then forgets the data's owner; saved images are derived from Room's saved snapshots, cache reads share the deletion lock, and a fetch that began before a deletion does not write.
+- Enforced by: Android backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them in the live database and on the phone, and their dialogs say that existing backups keep a copy until replaced (retention in backend/README.md, Backups); exports exist only in a private folder until shared, and are deleted at each start, disconnect and clear; a sign-out or account deletion stays pending on disk until Room's rows and every file are gone, and only then forgets the data's owner; saved images are derived from Room's saved snapshots, cache reads share the deletion lock, and a fetch that began before a deletion does not write.
 - Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
 
 ## Failure behaviour

@@ -66,7 +66,7 @@ flowchart TB
 
     subgraph GHA["GitHub Actions on push to main"]
         BW["backend.yml<br/>tests → bootJar"]
-        AW["android.yml<br/>unit tests → signed release APK"]
+        AW["android.yml<br/>unit tests, reader bundle → signed release APK"]
     end
 
     Rel["GitHub Release v0.1.N"]

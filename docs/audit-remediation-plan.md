@@ -1,6 +1,6 @@
 # Codebase audit and root-cause remediation plan
 
-Audited: **2026-10-18**. Status: **steps 1, 2 and 5 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
+Audited: **2026-10-18**. Status: **steps 1, 2, 5 and 10 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
 
 ### Implementation progress
 
@@ -15,6 +15,7 @@ Audited: **2026-10-18**. Status: **steps 1, 2 and 5 complete and verified; the s
 - **Simplicity trade-off:** any repository commit makes a saved page outdated, even if its Markdown did not change. This may refetch unchanged pages but avoids another image-dependency index. Snapshot identity is a required fact, not another mutable copy of “latest.” The first draft's extra HTML parse/serialize pass was removed after the user approved returning a DOM; canonical-only consumers no longer serialize unused HTML. A replacement review also updated the opt-in corpus writer to bind paths from its Git tree before serialization.
 - **Step 2 evidence:** **279 backend tests, 72 Android JVM tests and all 87 device tests passed**; four opt-in corpus tests remain skipped. An image-only refresh, refresh during blob fetch, old/new cached reads, legacy namespace isolation, cache-read/deletion interleavings, v13 migration, figure recreation and real navigation saving are covered. Full commands/results and exclusions are in section 10.
 - **Step 5 complete:** `LibraryDao.searchNotes` returns one row per note from `documents` left-joined to `notes`, so the 50-note limit counts distinct notes and names come from the current document; Kotlin's post-query de-duplication is deleted. A removed note still matches while its saved copy is kept, as the existing test asserted. The fixture of a saved copy with no `documents` row was replaced by a removed row: the server deletes document rows only on disconnection, when the phone forgets their saved copies too. Evidence in section 11.
+- **Step 10 complete:** Android CI's test job runs `:app:mergeDebugAssets`, which runs `bundleReader` (`npm run build`: syntax check + bundle) through the packaged app's asset wiring; the workflow also triggers on `Library.java` and `assetlinks.json`. The `MAX_RESPONSE_BYTES` scrape is kept and contained by that trigger: it fails loudly, both files name each other, and a shared config file would be a second mechanism, not a simpler single owner. Deletion wording in both dialogs, ADR-11 and the privacy invariant now names retained server backups. Evidence in section 12.
 - **Branch:** work is on `fix/saved-page-integrity` (renamed from `audit-root-cause-cleanup` at the user's request before publication). Step 1 is commit `dbf4b10`; the user's approved local-main correction left `main` at `f8ccf82`. No existing remote history was rewritten.
 
 ## Goal and verdict
@@ -609,3 +610,55 @@ OK (88 tests)
 ```
 
 No backend, schema, route or dependency changed; the backend suite was not rerun. Search's UI wording and highlight search are unchanged.
+
+
+## 12. Step 10 verification — 2026-10-18
+
+### Red, then green
+
+With a syntax error appended to `android/reader-web/reader.js` (`function (`), the commands the pull-request job ran exited **0**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 4s
+```
+
+The added CI step on the same tree exited **1**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:mergeDebugAssets --no-daemon
+```
+
+```text
+> Task :app:bundleReader FAILED
+reader.js:547
+SyntaxError: Function statements require a function name
+BUILD FAILED in 3s
+```
+
+Replacing `Library.java`'s `MAX_RESPONSE_BYTES = 8 * 1024 * 1024;` with the equivalent valid Java `Math.multiplyExact(8, 1 << 20)` made `:app:testDebugUnitTest` fail at configuration (``Library.java has no line `MAX_RESPONSE_BYTES = <digits and *>;` ``, exit **1**): a backend-only edit breaks every Android build, so that file now triggers the Android workflow. Both probes were reverted; `git status` showed no change to either file.
+
+### Final checks
+
+From the repository root, exit **0**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:mergeDebugAssets :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+> Task :app:bundleReader
+BUILD SUCCESSFUL in 16s
+82 actionable tasks: 54 executed, 28 up-to-date
+```
+
+The workflow parses as YAML, with identical pull-request and push path lists that include both backend files. On the Pixel 8a (Android 14/API 34), after `adb install -r` / `install -r -t` (`Success`), the full `am instrument` run printed `OK (88 tests)`.
+
+### Not verified
+
+- GitHub's evaluation of the new path filters and the new step on a hosted runner. This pull request changes the workflow file itself, so it runs regardless; a backend-only change triggering the workflow has not been observed.
+- The two dialogs' new sentence was compiled and not viewed on the phone.
+- The reader's behaviour in a WebView still runs only in the device tests on the phone; CI checks syntax and bundling only.
