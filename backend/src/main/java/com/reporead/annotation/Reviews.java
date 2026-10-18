@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** Owns review_log, the durable record of every grade; never scheduling, which stays on the phone (ADR-13). */
@@ -23,34 +22,29 @@ public class Reviews {
     private final JdbcClient db;
     private final Annotations annotations;
     private final TransactionTemplate transaction;
-    /**
-     * One repeatable, read-only database snapshot: a concurrent delete cannot split cards from their logs. Inside
-     * Library.read it joins the library's snapshot; it is for GET /api/notebook, which the library contract step
-     * deletes.
-     */
-    private final TransactionTemplate snapshot;
 
     public Reviews(JdbcClient db, Annotations annotations, TransactionTemplate transaction) {
         this.db = db;
         this.annotations = annotations;
         this.transaction = transaction;
-        this.snapshot = new TransactionTemplate(transaction.getTransactionManager());
-        snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
-        snapshot.setReadOnly(true);
     }
 
     public record Review(String mutationId, String cardMutationId, int grade, Instant reviewedAt, String blobSha) {}
 
     public record Notebook(List<Annotations.Annotation> annotations, List<Review> reviews, int sessionLimit) {}
 
+    /**
+     * The user's anchored annotations and review log. Library.read calls it inside the library's one repeatable
+     * snapshot, so a concurrent delete cannot split cards from their logs.
+     */
     public Notebook notebook(long userId) {
-        return snapshot.execute(tx -> new Notebook(
+        return new Notebook(
                 annotations.notebook(userId),
                 db.sql(SELECT + " order by r.reviewed_at, r.mutation_id")
                         .param("userId", userId)
                         .query(Review.class)
                         .list(),
-                SESSION_LIMIT));
+                SESSION_LIMIT);
     }
 
     /**

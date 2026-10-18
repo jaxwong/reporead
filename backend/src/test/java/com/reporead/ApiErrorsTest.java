@@ -87,9 +87,9 @@ class ApiErrorsTest {
     void routesMethodsAndBodyTypesTheServerDoesNotHaveAreNotRepoReadsAnswer() throws Exception {
         var answers = new Answer[] {
             send("GET", "/api/does-not-exist", null, null, true),
-            // Spring matches no trailing slash, so this is an unknown route too, not the document list.
-            send("GET", "/api/repositories/1/documents/", null, null, true),
-            send("PUT", "/api/bookmarks", "application/json", "{}", true),
+            // Spring matches no trailing slash, so this is an unknown route too, not the library.
+            send("GET", "/api/library/", null, null, true),
+            send("PUT", "/api/library", "application/json", "{}", true),
             send("POST", "/api/documents/1/annotations", "text/plain", "{}", true),
             send("POST", "/api/documents/1/annotations", "multipart/form-data; boundary=x", "--x\r\nunparsed", true)
         };

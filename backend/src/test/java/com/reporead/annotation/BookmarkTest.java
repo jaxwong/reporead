@@ -61,8 +61,9 @@ class BookmarkTest extends SharedSpringTest {
                 delete("/api/documents/" + id + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
     }
 
+    /** The library: its bookmarks are this user's bookmarks. */
     private ResultActions list(String bearer) throws Exception {
-        return mvc.perform(get("/api/bookmarks").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+        return mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
     }
 
     @Test
@@ -99,7 +100,7 @@ class BookmarkTest extends SharedSpringTest {
         clear(bob, note).andExpect(status().isNotFound());
         list(bob).andExpect(jsonPath("$.bookmarks").isEmpty());
         set(alice, 999).andExpect(status().isNotFound());
-        mvc.perform(get("/api/bookmarks")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/documents/" + note + "/bookmark")).andExpect(status().isUnauthorized());
         assertEquals(
                 1,
                 db.sql("select count(*) from annotations").query(Integer.class).single());
