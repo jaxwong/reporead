@@ -1,14 +1,16 @@
 package com.reporead.document;
 
-import com.reporead.ApiFailure;
-import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
 import com.reporead.auth.GitHubCredentials;
 import com.reporead.github.GitHubApi;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.UriUtils;
 
 /**
  * Owns a repository's images: repository_images, the image files of each connection's latest complete snapshot, which
@@ -29,12 +31,45 @@ public class Attachments {
     }
 
     /**
-     * The image at the normalized repository {@code path}, at the commit of the owned, listed {@code document}: one
-     * GitHub request with the user's token, which reads the whole repository anyway. Not cached on the server.
+     * The image at the normalized repository {@code path}, at the saved page's explicit {@code commitSha}: one GitHub
+     * request with the user's token, which reads the whole repository anyway. Not cached on the server.
      */
-    public byte[] image(AppUser user, Documents.Located document, String path) {
+    public byte[] image(AppUser user, Documents.Located document, String path, String commitSha) {
         String token = credentials.githubUserToken(user.githubUserId());
-        return github.imageFile(token, document.owner(), document.repositoryName(), path, document.commitSha());
+        return github.imageFile(token, document.owner(), document.repositoryName(), path, commitSha);
+    }
+
+    /** Read together with the document/checkpoint in the content owner's short database snapshot. */
+    public List<String> paths(long connectionId) {
+        return db.sql("select path from repository_images where repository_connection_id = :connectionId")
+                .param("connectionId", connectionId)
+                .query(String.class)
+                .list();
+    }
+
+    /**
+     * Resolves embeds once, before the page leaves its captured snapshot. Missing/ambiguous images remain visibly
+     * unavailable without changing canonical text; they never acquire a different meaning when images are fetched.
+     */
+    public static void bind(Document page, String notePath, List<String> paths) {
+        for (var image : page.select("img[data-embed]")) {
+            String name = image.attr("data-embed");
+            var matches = matches(paths, notePath, name);
+            if (matches.size() == 1) {
+                image.attr(
+                        "src",
+                        MarkdownRenderer.IMAGE_PREFIX
+                                + UriUtils.encodePath(matches.getFirst(), StandardCharsets.UTF_8));
+                image.removeAttr("data-embed");
+            } else {
+                String reason = matches.isEmpty()
+                        ? "No image named " + name + " in the saved page's repository snapshot."
+                        : matches.size() + " images are named " + name + "; give the embed its folder.";
+                image.replaceWith(new Element("span")
+                        .addClass("image-blocked")
+                        .attr("data-label", "[Image unavailable: " + reason + "]"));
+            }
+        }
     }
 
     /**
@@ -51,34 +86,20 @@ public class Attachments {
                 .update();
     }
 
-    /**
-     * The repository path an embed of {@code name} in the note at {@code notePath} means; 404 IMAGE_NOT_FOUND or 409
-     * IMAGE_AMBIGUOUS.
-     */
-    public String resolve(long connectionId, String notePath, String name) {
+    /** Candidate paths, narrowed to a unique same-folder match when possible; zero/many are normal source outcomes. */
+    private static List<String> matches(List<String> paths, String notePath, String name) {
         String wanted = name.toLowerCase(Locale.ROOT);
-        var matches = db
-                .sql("select path from repository_images where repository_connection_id = :connectionId")
-                .param("connectionId", connectionId)
-                .query(String.class)
-                .list()
-                .stream()
+        var matches = paths.stream()
                 .filter(path -> {
                     String lower = path.toLowerCase(Locale.ROOT);
                     return lower.equals(wanted) || lower.endsWith("/" + wanted);
                 })
                 .toList();
-        if (matches.size() == 1) return matches.getFirst();
-        if (matches.isEmpty()) {
-            throw new ApiFailure(
-                    Code.IMAGE_NOT_FOUND, "No image named " + name + " in the repository's latest refresh.");
-        }
+        if (matches.size() < 2) return matches;
         String folder = notePath.contains("/") ? notePath.substring(0, notePath.lastIndexOf('/') + 1) : "";
         var local = matches.stream()
                 .filter(path -> path.startsWith(folder) && path.indexOf('/', folder.length()) < 0)
                 .toList();
-        if (local.size() == 1) return local.getFirst();
-        throw new ApiFailure(
-                Code.IMAGE_AMBIGUOUS, matches.size() + " images are named " + name + "; give the embed its folder.");
+        return local.size() == 1 ? local : matches;
     }
 }

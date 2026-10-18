@@ -26,7 +26,6 @@ public final class ApiFailure extends RuntimeException {
         ACCOUNT_MISMATCH(409),
         ANNOTATION_CONFLICT(409),
         CARD_CHANGED(409),
-        IMAGE_AMBIGUOUS(409),
         MUTATION_ID_REUSED(409),
         SYNC_SUPERSEDED(409),
         REPOSITORY_RENAMED(409),

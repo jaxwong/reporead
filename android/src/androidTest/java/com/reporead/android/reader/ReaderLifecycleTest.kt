@@ -21,6 +21,7 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.RepositoryRow
 import com.reporead.android.findText
 import com.reporead.android.root
 import com.reporead.android.sync.RENDER_FORMAT
@@ -70,6 +71,7 @@ class ReaderLifecycleTest {
         files = File(context.cacheDir, "reader-lifecycle-test")
         check(files.mkdirs() || files.isDirectory) { "Cannot create test-only directory $files" }
         val dao = store.library()
+        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/lifecycle", 1, sha)))
         val path = "test-only/lifecycle.md"
         fun block(id: Int, tag: String, text: String) =
             """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
@@ -89,7 +91,7 @@ class ReaderLifecycleTest {
                 """<p data-block-id="b82" data-anchor-text="[^n]: Back to the answer"><span class="fn-def" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]:</span></span> <a href="#answer">Back to the answer</a></p>"""
         val html = testPage(sha, body)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, path, title, sha)))
-        dao.saveNote(NoteRow(1, sha, path, title, html, 0, renderFormat = RENDER_FORMAT))
+        dao.saveNote(NoteRow(1, sha, path, title, html, 0, renderFormat = RENDER_FORMAT, snapshotCommitSha = sha))
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
         val sync = Sync(api, store, files) {}
         ReaderTestActivity.content = {
@@ -381,7 +383,18 @@ class ReaderLifecycleTest {
             // No reader script, so the page never says it is ready.
             val html =
                 """<main id="note"><p data-block-id="b0" data-anchor-text="Never ready.">Never ready.</p></main>"""
-            dao.saveNote(NoteRow(2, sha, path, "Test-only unready", html, 0, renderFormat = RENDER_FORMAT))
+            dao.saveNote(
+                NoteRow(
+                    2,
+                    sha,
+                    path,
+                    "Test-only unready",
+                    html,
+                    0,
+                    renderFormat = RENDER_FORMAT,
+                    snapshotCommitSha = sha,
+                )
+            )
             dao.saveAnnotation(
                 AnnotationRow(
                     "test-only-unready",

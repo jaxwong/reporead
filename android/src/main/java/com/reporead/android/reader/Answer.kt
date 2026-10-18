@@ -169,7 +169,15 @@ private fun ColumnScope.AnswerSection(
                             onProblem = { notice = it },
                             onFailed = { failed = true },
                             onFigure = { figure ->
-                                push(Screen.Figure(saved.documentId, saved.blobSha, figure, saved.title))
+                                push(
+                                    Screen.Figure(
+                                        saved.documentId,
+                                        saved.blobSha,
+                                        figure,
+                                        saved.title,
+                                        saved.snapshotCommitSha,
+                                    )
+                                )
                             },
                         )
                     },

@@ -54,7 +54,13 @@ sealed interface Screen {
     data class Reader(val documentId: Long, val title: String, val openAt: OpenAt? = null) : Screen
 
     /** One table or diagram ([figure], the page's id for it) of the saved version [blobSha] of a note, full screen. */
-    data class Figure(val documentId: Long, val blobSha: String, val figure: String, val title: String) : Screen
+    data class Figure(
+        val documentId: Long,
+        val blobSha: String,
+        val figure: String,
+        val title: String,
+        val snapshotCommitSha: String?,
+    ) : Screen
 
     data object Notebook : Screen
 
@@ -90,7 +96,15 @@ private fun encode(screen: Screen): List<String> =
                 }
             listOf("reader", screen.documentId.toString(), screen.title, heading, highlight)
         }
-        is Screen.Figure -> listOf("figure", screen.documentId.toString(), screen.blobSha, screen.figure, screen.title)
+        is Screen.Figure ->
+            listOf(
+                "figure",
+                screen.documentId.toString(),
+                screen.blobSha,
+                screen.figure,
+                screen.title,
+                screen.snapshotCommitSha.orEmpty(),
+            )
         Screen.Notebook -> listOf("notebook")
         Screen.Review -> listOf("review")
         is Screen.Practice -> listOfNotNull("practice", screen.topic)
@@ -112,7 +126,8 @@ private fun decode(parts: List<String>): Screen =
                     else -> null
                 },
             )
-        "figure" -> Screen.Figure(parts[1].toLong(), parts[2], parts[3], parts[4])
+        // A saved pre-upgrade destination has no image identity, just like its migrated NoteRow.
+        "figure" -> Screen.Figure(parts[1].toLong(), parts[2], parts[3], parts[4], parts.getOrNull(5)?.ifEmpty { null })
         "notebook" -> Screen.Notebook
         "review" -> Screen.Review
         "practice" -> Screen.Practice(parts.getOrNull(1))
@@ -120,7 +135,7 @@ private fun decode(parts: List<String>): Screen =
         else -> error("Unknown saved screen ${parts[0]}")
     }
 
-private val StackSaver =
+internal val StackSaver =
     listSaver<List<Screen>, String>(
         save = { stack -> stack.flatMap { screen -> encode(screen).let { listOf(it.size.toString()) + it } } },
         restore = { flat ->

@@ -1,6 +1,6 @@
 # Codebase audit and root-cause remediation plan
 
-Audited: **2026-10-18**. Status: **step 1 complete and verified; step 2 awaits its concrete persistence/API approval**.
+Audited: **2026-10-18**. Status: **steps 1 and 2 complete and verified; step 3 awaits the account-removal and legacy-ownership policies in section 5**.
 
 ### Implementation progress
 
@@ -8,6 +8,13 @@ Audited: **2026-10-18**. Status: **step 1 complete and verified; step 2 awaits i
 - **Root-cause replacement:** removed the intermediate HTML serialize-and-reparse path and the unbounded final serializer. One bounded serializer now receives the existing DOM nodes directly. Its small private output stream satisfies the named generation-bound requirement; this safety fix adds production lines rather than being a net-line-reducing mechanical refactor. No old renderer, compatibility wrapper, alternate parser, old-only test suite or temporary measurement class remains in the repository. Existing behavior assertions remain.
 - **Evidence:** the initial HTTP regression failed with `Status expected:<422> but was:<200>`; it now passes. Exact-limit/+1-byte tests cover complete content and HTML serialization, including multi-byte UTF-8 and supplementary characters. On the approved Pixel 8a (Android 14/API 34), complete 1 MiB and 2 MiB minus 4 KiB string payloads read successfully; 2 MiB and both larger probes fail with `SQLiteBlobTooBigException`. The initial no-device blocker was resolved by connecting that phone.
 - **Device outcome:** all **80 device tests passed**. The new Save all test uses production Api/Sync/Room against a labelled loopback fixture: a complete 1 MiB page round-trips, oversized notes are skipped, an older saved page is not overwritten, progress continues, and a second run fetches only the remaining unsupported versions. Full commands/results and remaining exclusions are in section 9.
+
+
+- **Step 2 complete:** saved pages carry `snapshotCommitSha`; content captures the document/checkpoint and image index together, resolves embeds in the DOM, and serializes once. Image requests and files use the displayed snapshot plus resolved path. `RepositoryRow` owns the latest checkpoint; `NoteRow` owns the saved snapshot; navigation preserves the displayed snapshot. No new manager, dependency, retry, resolution fallback, or image-change index was added.
+- **Approved retirement:** the user approved the coordinated image contract, Room migration and legacy-cache deletion, preserving saved text, annotations and pending changes. Room v14 leaves legacy image identity null; images are unavailable until refreshed. The old embed endpoint shape, URI, client method, fetch-time resolver, ambiguity error code and blob-keyed cache lookup are removed. Existing behavioral assertions moved onto snapshot/content tests; historical schema files remain migration evidence, not parallel implementations.
+- **Simplicity trade-off:** any repository commit makes a saved page outdated, even if its Markdown did not change. This may refetch unchanged pages but avoids another image-dependency index. Snapshot identity is a required fact, not another mutable copy of “latest.” The first draft's extra HTML parse/serialize pass was removed after the user approved returning a DOM; canonical-only consumers no longer serialize unused HTML. A replacement review also updated the opt-in corpus writer to bind paths from its Git tree before serialization.
+- **Step 2 evidence:** **279 backend tests, 72 Android JVM tests and all 87 device tests passed**; four opt-in corpus tests remain skipped. An image-only refresh, refresh during blob fetch, old/new cached reads, legacy namespace isolation, cache-read/deletion interleavings, v13 migration, figure recreation and real navigation saving are covered. Full commands/results and exclusions are in section 10.
+- **Branch:** work is on `audit-root-cause-cleanup`. Step 1 is commit `dbf4b10`; the user's approved local-main correction left `main` at `f8ccf82`. No remote history was changed.
 
 ## Goal and verdict
 
@@ -95,7 +102,8 @@ Do not “simplify” these into one ambiguous `version` or one `loaded` Boolean
 | Version whose answer was confirmed | `checkedBlobSha` |
 | Last version actually read | `ReadingRow.lastReadBlobSha` |
 | Oldest changes not yet acknowledged | `ChangeBaselineRow.sinceBlobSha` |
-| Snapshot/image identity | Incomplete today; A2 must supply it |
+| Latest repository snapshot | `RepositoryRow.lastSyncedCommitSha` |
+| Saved/displayed image identity | `NoteRow.snapshotCommitSha` plus resolved paths in that saved HTML; null only for legacy unknown identity |
 
 Reduce cognitive load by giving each transition an owner and taking these facts as a coherent input—not by erasing necessary distinctions or spreading their comparisons through screens.
 
@@ -279,10 +287,10 @@ Google's [Compose state-hoisting guidance](https://developer.android.com/develop
 ## 5. Decisions/approvals required before implementation
 
 1. **Old app support:** confirm the installed APK reads `/api/library`, or approve dropping the legacy read contract. Do not infer deployment state from the checkout.
-2. **Persistence/API changes:** approve the concrete image identity and reading-refusal schema/contract changes before writing migrations or deleting the old artifact layout.
+2. **Persistence/API changes:** image identity, Room v14, retiring the image contract/cache and the single-serialization DOM refactor were explicitly approved and completed in step 2. The reading-refusal schema/contract in step 4 still needs concrete approval.
 3. **Account-deletion interruption:** choose restart behavior when the server result is unknown. Current persisted removal can cause local cleanup after interruption even though a normally received failed deletion cancels it. Preserve data or finish removal only under an explicit agreed policy; report server uncertainty honestly.
 4. **Legacy unowned data:** decide how a nonempty database without a recorded owner is claimed or removed. Do not guess the account.
-5. **Study semantics:** choose stable-question continuity and whether linked answer content participates in confirmation. These choices produce different implementations.
+5. **Study semantics:** choose stable-question continuity and whether linked answer content participates in confirmation, including image-only changes. Snapshot-correct images do not by themselves make blob-only card confirmation cover image changes. These choices produce different implementations.
 6. **Refactor scope:** approve the targeted package moves separately from correctness slices. Each move removes its old location/import path; no forwarding wrappers. Where a refactor adds production lines, explain the named requirement or shrink it.
 7. **Style:** choose exact Google Java/Android Kotlin style versus the repository's current Palantir/Kotlinlang variants. The current formatters intentionally do not enforce the requested exact guides. Use one mechanical change after functional fixes, not a manual reformat mixed into them.
 
@@ -363,7 +371,7 @@ Initial sandboxed Gradle/loopback attempts were denied; the standalone image pro
 
 ### Not verified
 
-At the original audit's completion, no physical-device run, live OAuth/GitHub run, hosted deployment, restore exercise, dependency/advisory scan, full historical canonical-compatibility corpus, removal race reproduction, credential-lifecycle race reproduction, or runtime database-query timeout experiment had been performed. Step 1's later device verification is recorded in section 9. No real account/session, production data, infrastructure, dependencies, migrations, or existing user notes were changed.
+At the original audit's completion, no physical-device run, live OAuth/GitHub run, hosted deployment, restore exercise, dependency/advisory scan, full historical canonical-compatibility corpus, removal race reproduction, credential-lifecycle race reproduction, or runtime database-query timeout experiment had been performed. Later device verification is recorded in sections 9 and 10. No real account/session, production data, infrastructure, dependencies, migrations, or existing user notes were changed.
 
 ## 8. Completion rule for the cleanup
 
@@ -474,3 +482,94 @@ The old renderer copy exists only in that temporary comparison directory, not in
 - No existing cached page was rewritten or deleted. Previously stored oversized rows and general page-format upgrade policy remain for `Sync`'s saved-page work in step 4.
 - The cap prevents newly delivered unusable pages; it is not a 1 MiB bound on the entire parser/DOM heap or a fix for other findings.
 - The temporary measurement harness initially used an unsupported Room `.use` lifecycle; it was corrected to the existing tests' explicit close convention before the successful run, then removed. The temporary compatibility launcher initially used a mismatched package path; that setup was corrected before its successful run. Neither failure was hidden as an application regression.
+
+
+## 10. Step 2 verification — 2026-10-18
+
+### Root cause and deletion review
+
+`DocumentController` captures the document/checkpoint and `Attachments` image paths in one short read-only `REPEATABLE READ` transaction; GitHub I/O happens afterwards. Rendering returns a DOM and canonical facts. `Attachments.bind` resolves names once; zero/many candidates are normal visible-unavailable outcomes, not exceptions. One bounded serializer runs after binding. The existing `repository_images` table now serves that one capture-time index; it is not a fetch-time resolver or another snapshot history.
+
+The required image contract is `path` + `commitSha`. Android validates the returned snapshot SHA at its existing JSON error boundary before writing Room. The one `NoteImages.image` function uses document/`commit-<sha>`/hashed-path files, so even an identical SHA string cannot alias the retired bare-blob namespace. Null legacy identity makes no disk lookup or HTTP call. Cache-hit reads share deletion's existing lock; an unreadable file is unavailable with a logged cause, not a trigger for another fetch strategy. Existing late-fetch publication protection remains.
+
+Searches of production and tests confirmed all affected callers: `DocumentController`, `NoteVersions` consumers (`AnnotationService`, `RepositorySync`, changes and reading tests), renderer tests and `RenderedCorpus`; `Sync`, DAO projections, shared `ReaderPage` resources (reader, preview, answers and figures), `Screen.Figure` creation/restoration, and all `SavedVersion` constructors. There is no old rendered-HTML accessor, embed-image method, alternate image selector, fetch-time name resolver or old-cache read path. Negative tests of the retired request shape remain because refusal is a current behavior, not an old implementation.
+
+The production Java/Kotlin diff adds a net **122 lines**. This is a correctness change, not a net-deletion mechanical refactor: the saved immutable identity, atomic capture, boundary validation, migration wiring and safe cached-read failure path were previously absent. The named requirement is preventing cross-snapshot images without guessing. No additional tracking subsystem was introduced. Broader package moves and style changes remain separate steps.
+
+**External-call ceiling:** content: one exact note-blob request; uncached image: one image-file request; cached or unknown-identity image: zero. At most 64 image references per page; each operation can separately renew credentials once. Save all is sequential and at most one content request per outdated note, bounded by the existing 5,000-document server limit. No failure starts an alternative strategy.
+
+### Red, then green
+
+The backend regression `DocumentContentTest.repositoryImageIsServedAtTheRequestedSnapshotWithItsType` first failed (Gradle exit **1**): it requested an older `b…b` snapshot but the GitHub mock received the latest `c…c` ref. The corresponding real Android image-client regression first failed on device because requests omitted the snapshot; its expected bytes were null. Both now pass through the existing HTTP/Room/file boundaries. Loopback and mock GitHub responses are labelled test fixtures, not production stand-ins.
+
+The content exact-limit fixture initially omitted the new 40-byte snapshot from its budget; it was corrected to count both SHAs without changing the limit or weakening assertions. The first full device run reported `Tests run: 87, Failures: 1`: the new figure test inferred a non-void JUnit method. Its signature was corrected to explicit `Unit`; the final full run below passed unchanged behavioral assertions.
+
+### Final checks
+
+From the repository root, exit **0**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :backend:spotlessApply :app:spotlessApply :backend:spotlessCheck :backend:test :app:spotlessCheck :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 31s
+90 actionable tasks: 13 executed, 77 up-to-date
+backend {'tests': 282, 'failures': 0, 'errors': 0, 'skipped': 3}
+android JVM {'tests': 73, 'failures': 0, 'errors': 0, 'skipped': 1}
+```
+
+After updating the opt-in corpus writer to bind image paths from its Git tree, the backend was checked again, exit **0**:
+
+```sh
+./gradlew :backend:spotlessApply :backend:spotlessCheck :backend:test --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 26s
+8 actionable tasks: 4 executed, 4 up-to-date
+```
+
+The aggregate counts are from the generated JUnit XML: **279 backend and 72 Android JVM tests passed**. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` are opt-in and skipped. Compilation/type checking and current configured Spotless checks passed; this is not a claim of exact Google style conformance.
+
+On the approved Pixel 8a, Android 14/API 34, each command exited **0**:
+
+```sh
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 install -r android/build/outputs/apk/debug/app-debug.apk
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+Performing Streamed Install
+Success
+Performing Streamed Install
+Success
+Time: 59.168
+OK (87 tests)
+```
+
+The instrumentation terminal success matters: `am instrument` also returned process exit 0 for the earlier failed run. Tests use scratch directories, in-memory/exported-schema databases and the existing isolated test activity, not the release app's data.
+
+The exported v13/v14 schemas were compared: only nullable `notes.snapshotCommitSha` was added; no existing field, table or index was removed. `ImageSnapshotMigrationTest` executes the actual upgrade and verifies saved HTML/search text/links plus pending reading, bookmark and annotation data survive. The legacy image cache uses a disjoint namespace and is retired by the existing sweep; it is not migrated by guessing an identity.
+
+Temporary compatibility probe, exit **0**:
+
+```sh
+python3 /tmp/reporead-audit-2026-10-18/render-compatibility/run.py
+```
+
+```text
+PASS: 18 renders retain canonical blocks/headings; 16 retain identical HTML; 2 differ only by the approved resolved-image URI and image attribute order.
+```
+
+This uses a pre-fix renderer only in `/tmp`, not a retained repository implementation. The launcher initially failed on package-private access across Java source-launcher class loaders; ordinary compilation fixed that setup. Its first comparison then identified image attribute order as well as the intentional URI change; both differences are now explicitly checked rather than claiming byte identity. This small synthetic comparison is not the full historical/private corpus.
+
+### Explicit exclusions and next gate
+
+- No backend deployment, live GitHub/OAuth request, release APK install, real saved-note rewrite, dependency or infrastructure change was performed. The approved schema upgrade and old-image retirement run when this app version opens the store/sweeps; saved text is preserved.
+- The image contract is deliberately replaced, not backward compatible. Deploying requires the matching app/backend; no compatibility endpoint remains.
+- The full private corpus and browser visual measurement were not run. No JavaScript or CSS changed.
+- Account-removal admission/ownership, historical canonical compatibility, reading refusals, search duplication and answer-confirmation policy remain open plan items. Correct snapshot identity does not solve those separately owned defects.
+- Step 3 needs two explicit policies before implementation: what happens locally after an interrupted account-deletion call whose server result is unknown, and what to do with nonempty legacy local data whose account owner cannot be proven. No policy is inferred from a missing credential or a 401.
+- Unrelated `.gitignore` and untracked `notes/` edits are excluded from the cleanup commits.

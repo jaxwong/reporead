@@ -291,7 +291,15 @@ fun ReaderScreen(
                     studying = { studying },
                     onNoteLink = ::followNoteLink,
                     onFigure = { figure ->
-                        push(Screen.Figure(opened.note.documentId, opened.note.blobSha, figure, opened.note.title))
+                        push(
+                            Screen.Figure(
+                                opened.note.documentId,
+                                opened.note.blobSha,
+                                figure,
+                                opened.note.title,
+                                opened.note.snapshotCommitSha,
+                            )
+                        )
                     },
                     reattaching = { reattaching != null },
                     onMessage = { message = it },

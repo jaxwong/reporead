@@ -63,7 +63,7 @@ fun FigureScreen(sync: Sync, dao: LibraryDao, screen: Screen.Figure, onBack: () 
         when {
             problem != null -> EmptyState(problem)
             saved == null -> Unit
-            saved.blobSha != screen.blobSha ->
+            saved.blobSha != screen.blobSha || saved.snapshotCommitSha != screen.snapshotCommitSha ->
                 EmptyState("This note was updated since it was opened. Go back and open the table or diagram again.")
             else ->
                 AndroidView(

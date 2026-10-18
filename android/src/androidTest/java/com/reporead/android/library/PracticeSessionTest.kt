@@ -113,7 +113,16 @@ class PracticeSessionTest {
             )
         )
         dao.saveNote(
-            NoteRow(2, coreSha, "test-only/topic/core.md", "Test-only core", core, 0, renderFormat = RENDER_FORMAT)
+            NoteRow(
+                2,
+                coreSha,
+                "test-only/topic/core.md",
+                "Test-only core",
+                core,
+                0,
+                renderFormat = RENDER_FORMAT,
+                snapshotCommitSha = "d".repeat(40),
+            )
         )
         val sync =
             Sync(Api("http://127.0.0.1:1", { error("Practice fixture must not call the network") }) {}, store, files) {}
@@ -212,7 +221,7 @@ class PracticeSessionTest {
                 assertTrue("The table is wide enough for a Full screen link: $link", !link.getBoolean("hidden"))
                 tapPage(scenario, link.getDouble("x"), link.getDouble("y"))
                 withTimeout(5_000) { while (pushed.isEmpty()) delay(20) }
-                assertEquals(listOf(Screen.Figure(2, coreSha, figure, "Test-only core")), pushed)
+                assertEquals(listOf(Screen.Figure(2, coreSha, figure, "Test-only core", "d".repeat(40))), pushed)
             }
         }
 

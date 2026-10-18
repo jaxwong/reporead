@@ -44,9 +44,9 @@ public final class MarkdownRenderer {
     public static final int MAX_NOTE_MIB = MAX_NOTE_BYTES / 1_048_576;
 
     /**
-     * UTF-8 bytes across a saved page's HTML, search text, path, title and blob SHA. A complete 1 MiB payload
-     * round-trips through Room on Android 14; 2 MiB fails its CursorWindow. The remaining space covers row overhead.
-     * Even sixfold JSON escaping stays below the phone's 8 MiB content-response ceiling.
+     * UTF-8 bytes across a saved page's HTML, search text, path, title, blob SHA and image snapshot SHA. A complete 1
+     * MiB payload round-trips through Room on Android 14; 2 MiB fails its CursorWindow. The remaining space covers row
+     * overhead. Even sixfold JSON escaping stays below the phone's 8 MiB content-response ceiling.
      */
     public static final int MAX_PAGE_BYTES = 1_048_576;
 
@@ -70,8 +70,6 @@ public final class MarkdownRenderer {
             "image/svg+xml");
     /** Same-origin path that the Android reader serves from its cache or the authenticated image endpoint. */
     public static final String IMAGE_PREFIX = "/repo-image/";
-    /** Same-origin path for an Obsidian image embed by attachment name, resolved by the server's image endpoint. */
-    public static final String EMBED_PREFIX = "/repo-embed/";
     /**
      * Same-origin path the reader app intercepts to open another note: {@code target} (an Obsidian link name) or
      * {@code path} (a repository path from a relative Markdown link), and an optional {@code heading}.
@@ -157,7 +155,8 @@ public final class MarkdownRenderer {
      */
     public record Heading(String blockId, int line, List<String> headingPath) {}
 
-    public record RenderedNote(String html, List<Block> blocks, int diagramCount, List<Heading> headings) {}
+    /** One operation's page DOM and canonical facts; image paths bind before the page is serialized. */
+    public record RenderedNote(Document page, List<Block> blocks, int diagramCount, List<Heading> headings) {}
 
     public static final class ContentRejected extends IllegalArgumentException {
         public ContentRejected(String message) {
@@ -337,7 +336,7 @@ public final class MarkdownRenderer {
     }
 
     /** The reader page around the note: CSP, the bundled script and style, and the limits the page enforces. */
-    private static String page(Document clean, boolean empty, String sourceBlobSha, String documentPath) {
+    private static Document page(Document clean, boolean empty, String sourceBlobSha, String documentPath) {
         var document = Document.createShell(ORIGIN);
         document.outputSettings().prettyPrint(false).charset(StandardCharsets.UTF_8);
         document.head().appendElement("meta").attr("charset", "utf-8");
@@ -364,6 +363,11 @@ public final class MarkdownRenderer {
                 .id("note")
                 .appendChildren(new ArrayList<>(clean.body().childNodes()));
         if (empty) note.appendElement("p").text("This note is empty.");
+        return document;
+    }
+
+    /** The single bounded serializer; callers needing only canonical facts never build an HTML string. */
+    static String pageHtml(Document document) {
         var bytes = new PageOutput();
         try (var writer = new OutputStreamWriter(bytes, StandardCharsets.UTF_8)) {
             writer.append("<!doctype html>\n");
@@ -478,7 +482,7 @@ public final class MarkdownRenderer {
                                 .attr("data-label", "[Image limit reached: " + name + "]"));
                     } else {
                         var image = new Element("img")
-                                .attr("src", EMBED_PREFIX + UriUtils.encodePath(name, StandardCharsets.UTF_8))
+                                .attr("data-embed", name)
                                 .attr("alt", name)
                                 .attr("loading", "eager");
                         if (alias != null && alias.trim().matches("\\d{1,4}(x\\d{1,4})?")) {

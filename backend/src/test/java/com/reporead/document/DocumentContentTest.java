@@ -136,7 +136,7 @@ class DocumentContentTest extends SharedSpringTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.path").value("backend/spring.md"))
                     .andExpect(jsonPath("$.sourceBlobSha").value(sha))
-                    .andExpect(jsonPath("$.commitSha").doesNotExist())
+                    .andExpect(jsonPath("$.snapshotCommitSha").value("c".repeat(40)))
                     .andExpect(
                             jsonPath("$.text").value("Spring\nA transaction groups work.\n<script>alert(1)</script>"))
                     .andExpect(jsonPath("$.renderFormat").value(MarkdownRenderer.FORMAT))
@@ -220,13 +220,14 @@ class DocumentContentTest extends SharedSpringTest {
     @Test
     void contentAtTheCompletePageLimitIsDeliveredButOneMoreMetadataByteIsUnsupported() throws Exception {
         String path = "test-only/測定.md";
-        int fixedBytes = MarkdownRenderer.render("x", Hashes.gitBlobSha(new byte[] {'x'}), path)
-                        .html()
-                        .getBytes(StandardCharsets.UTF_8)
-                        .length
-                - 2
-                + path.getBytes(StandardCharsets.UTF_8).length
-                + 40;
+        int fixedBytes =
+                MarkdownRenderer.pageHtml(MarkdownRenderer.render("x", Hashes.gitBlobSha(new byte[] {'x'}), path)
+                                        .page())
+                                .getBytes(StandardCharsets.UTF_8)
+                                .length
+                        - 2
+                        + path.getBytes(StandardCharsets.UTF_8).length
+                        + 80; // source blob and saved image snapshot
         // Each source character occurs in HTML twice and in search text once; use the title for the remainder.
         int available = MarkdownRenderer.MAX_PAGE_BYTES - fixedBytes - 1;
         byte[] bytes = "x".repeat(available / 3).getBytes(StandardCharsets.UTF_8);
@@ -247,7 +248,7 @@ class DocumentContentTest extends SharedSpringTest {
                     .getContentAsString();
             var content = json.readTree(body);
             long storedBytes = 0;
-            for (String field : List.of("path", "title", "sourceBlobSha", "html", "text")) {
+            for (String field : List.of("path", "title", "sourceBlobSha", "snapshotCommitSha", "html", "text")) {
                 storedBytes += content.get(field).stringValue().getBytes(StandardCharsets.UTF_8).length;
             }
             assertEquals(MarkdownRenderer.MAX_PAGE_BYTES, storedBytes);
@@ -270,13 +271,14 @@ class DocumentContentTest extends SharedSpringTest {
         String sha = "a".repeat(40);
         // Worst-case JSON escaping still fits the existing 8 MiB transport bound.
         String text = "\u0001".repeat(500_000);
-        int metadataBytes = (path + title + sha + text).getBytes(StandardCharsets.UTF_8).length;
+        int metadataBytes = (path + title + sha + sha + text).getBytes(StandardCharsets.UTF_8).length;
         String html = "h".repeat(MarkdownRenderer.MAX_PAGE_BYTES - metadataBytes);
-        var accepted = new DocumentController.Content(1, path, title, sha, html, text, MarkdownRenderer.FORMAT);
+        var accepted = new DocumentController.Content(1, path, title, sha, sha, html, text, MarkdownRenderer.FORMAT);
         assertTrue(json.writeValueAsBytes(accepted).length < 8 * 1_048_576);
         var failure = assertThrows(
                 ApiFailure.class,
-                () -> new DocumentController.Content(1, path, title + "x", sha, html, text, MarkdownRenderer.FORMAT));
+                () -> new DocumentController.Content(
+                        1, path, title + "x", sha, sha, html, text, MarkdownRenderer.FORMAT));
         assertEquals(ApiFailure.Code.UNSUPPORTED_CONTENT, failure.code);
     }
 
@@ -494,23 +496,24 @@ class DocumentContentTest extends SharedSpringTest {
         }
     }
 
-    private ResultActions image(String bearer, long id, String path) throws Exception {
+    private ResultActions image(String bearer, long id, String path, String commitSha) throws Exception {
         return mvc.perform(get("/api/documents/" + id + "/image")
                 .param("path", path)
+                .param("commitSha", commitSha)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
     }
 
     @Test
-    void repositoryImageIsServedAtTheNotesCommitWithItsType() throws Exception {
+    void repositoryImageIsServedAtTheRequestedSnapshotWithItsType() throws Exception {
         long id = document("notes/a.md", Hashes.gitBlobSha(NOTE), false);
         byte[] png = {(byte) 0x89, 'P', 'N', 'G'};
         images.expect(requestTo(
                         "https://api.github.com/repos/test-only/notes/contents/notes/images/flow%20chart.png?ref="
-                                + "c".repeat(40)))
+                                + "b".repeat(40)))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + TOKEN))
                 .andExpect(header(HttpHeaders.ACCEPT, "application/vnd.github.raw+json"))
                 .andRespond(withSuccess(png, MediaType.APPLICATION_OCTET_STREAM));
-        var response = image(alice, id, "notes/images/flow chart.png")
+        var response = image(alice, id, "notes/images/flow chart.png", "b".repeat(40))
                 .andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
                         .string(HttpHeaders.CONTENT_TYPE, "image/png"))
@@ -528,15 +531,12 @@ class DocumentContentTest extends SharedSpringTest {
                     .update();
     }
 
-    private ResultActions embed(long id, String name) throws Exception {
-        return mvc.perform(get("/api/documents/" + id + "/image")
-                .param("embed", name)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice));
-    }
-
     @Test
-    void anObsidianEmbedIsFoundByNamePreferringTheNotesFolder() throws Exception {
-        long id = document("notes/a.md", Hashes.gitBlobSha(NOTE), false);
+    void contentResolvesEmbedsInItsSnapshotAndKeepsMissingOrAmbiguousImagesVisible() throws Exception {
+        String markdown = "![[Pasted image.png]] ![[chart.png]] ![[sub/deep.gif]] ![[missing.png]] ![[deep.gif]]";
+        byte[] bytes = markdown.getBytes(StandardCharsets.UTF_8);
+        String sha = Hashes.gitBlobSha(bytes);
+        long id = document("notes/a.md", sha, false);
         images(
                 "attachments/Pasted image.png",
                 "notes/chart.png",
@@ -544,28 +544,111 @@ class DocumentContentTest extends SharedSpringTest {
                 "notes/sub/deep.gif",
                 "x/deep.gif",
                 "y/deep.gif");
-        byte[] png = {(byte) 0x89, 'P', 'N', 'G'};
-        for (String path : List.of("attachments/Pasted%20image.png", "notes/chart.png", "notes/sub/deep.gif")) {
-            images.expect(requestTo(
-                            "https://api.github.com/repos/test-only/notes/contents/" + path + "?ref=" + "c".repeat(40)))
-                    .andRespond(withSuccess(png, MediaType.APPLICATION_OCTET_STREAM));
+        expectBlob(sha, withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
+        var response = read(alice, id)
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        var content = json.readTree(response);
+        assertEquals("c".repeat(40), content.get("snapshotCommitSha").stringValue());
+        var page = Jsoup.parse(content.get("html").stringValue());
+        assertEquals(
+                List.of(
+                        "/repo-image/attachments/Pasted%20image.png",
+                        "/repo-image/notes/chart.png", "/repo-image/notes/sub/deep.gif"),
+                page.select("img").eachAttr("src"));
+        assertEquals(2, page.select(".image-blocked").size());
+        assertTrue(page.select(".image-blocked").get(0).attr("data-label").contains("No image named missing.png"));
+        assertTrue(page.select(".image-blocked").get(1).attr("data-label").contains("3 images are named deep.gif"));
+        // Image availability must never change the quote/offset contract.
+        assertEquals(markdown, content.get("text").stringValue());
+        assertEquals(markdown, page.selectFirst("[data-block-id=b0]").attr("data-anchor-text"));
+        assertTrue(
+                page.select("[data-embed]").isEmpty(),
+                "all transient embed references are bound or visibly unavailable");
+    }
+
+    @Test
+    void refreshDuringBlobFetchCannotMixNewEmbedResolutionWithAnOldSnapshot() throws Exception {
+        byte[] bytes = "![[chart.png]]".getBytes(StandardCharsets.UTF_8);
+        String sha = Hashes.gitBlobSha(bytes);
+        long id = document("notes/a.md", sha, false);
+        images("old/chart.png");
+        expectBlob(sha, request -> {
+            // Simulate another request publishing an image-only edit after content captured its source.
+            db.sql("delete from repository_images where repository_connection_id = 1")
+                    .update();
+            images("new/chart.png");
+            db.sql("update repository_connections set last_synced_commit_sha = :sha where id = 1")
+                    .param("sha", "d".repeat(40))
+                    .update();
+            return withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM).createResponse(request);
+        });
+        var response = read(alice, id)
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        var content = json.readTree(response);
+        assertEquals("c".repeat(40), content.get("snapshotCommitSha").stringValue());
+        assertEquals(
+                "/repo-image/old/chart.png",
+                Jsoup.parse(content.get("html").stringValue())
+                        .selectFirst("img")
+                        .attr("src"));
+        next();
+        expectBlob(sha, withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
+        response = read(alice, id)
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        content = json.readTree(response);
+        assertEquals("d".repeat(40), content.get("snapshotCommitSha").stringValue());
+        assertEquals(
+                "/repo-image/new/chart.png",
+                Jsoup.parse(content.get("html").stringValue())
+                        .selectFirst("img")
+                        .attr("src"));
+    }
+
+    @Test
+    void imagePathBindingThatExceedsThePageLimitIsTypedUnsupportedContent() throws Exception {
+        String tail = "\n\n![[x.png]]";
+        int fixed = MarkdownRenderer.pageHtml(MarkdownRenderer.render(
+                                        "x" + tail,
+                                        Hashes.gitBlobSha(("x" + tail).getBytes(StandardCharsets.UTF_8)),
+                                        "a.md")
+                                .page())
+                        .getBytes(StandardCharsets.UTF_8)
+                        .length
+                - 2;
+        byte[] bytes = ("x".repeat((MarkdownRenderer.MAX_PAGE_BYTES - fixed - 50) / 2) + tail)
+                .getBytes(StandardCharsets.UTF_8);
+        String sha = Hashes.gitBlobSha(bytes);
+        long id = document("a.md", sha, false);
+        images("long/" + "x".repeat(900) + "/x.png");
+        expectBlob(sha, withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
+        read(alice, id)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
+    }
+
+    @Test
+    void imagesRequireAnExplicitValidSnapshotAndNeverAcceptTheLegacyEmbedContract() throws Exception {
+        long id = document("a.md", Hashes.gitBlobSha(NOTE), false);
+        for (String commit : List.of("", "ABC", "C".repeat(40))) {
+            image(alice, id, "a.png", commit)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_VERSIONS"));
         }
-        embed(id, "Pasted image.png").andExpect(status().isOk());
-        embed(id, "chart.png").andExpect(status().isOk());
-        embed(id, "sub/deep.gif").andExpect(status().isOk());
-        // Not found and ambiguous are answered from the stored list, without GitHub.
-        embed(id, "missing.png")
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("IMAGE_NOT_FOUND"));
-        embed(id, "deep.gif")
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("IMAGE_AMBIGUOUS"));
-        embed(id, "notes.md")
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_IMAGE_PATH"));
         mvc.perform(get("/api/documents/" + id + "/image")
-                        .param("embed", "chart.png")
-                        .param("path", "notes/chart.png")
+                        .param("path", "a.png")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/documents/" + id + "/image")
+                        .param("embed", "a.png")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isBadRequest());
     }
@@ -574,13 +657,13 @@ class DocumentContentTest extends SharedSpringTest {
     void imagePathOwnershipAndDeletionAreCheckedBeforeGitHub() throws Exception {
         long id = document("a.md", Hashes.gitBlobSha(NOTE), false);
         for (String path : new String[] {"../a.png", "/a.png", "a.md", "a//b.png", ""}) {
-            image(alice, id, path)
+            image(alice, id, path, "c".repeat(40))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("INVALID_IMAGE_PATH"));
         }
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
-        image(bob, id, "a.png").andExpect(status().isNotFound());
-        image(alice, document("gone.md", Hashes.gitBlobSha(NOTE), true), "a.png")
+        image(bob, id, "a.png", "c".repeat(40)).andExpect(status().isNotFound());
+        image(alice, document("gone.md", Hashes.gitBlobSha(NOTE), true), "a.png", "c".repeat(40))
                 .andExpect(status().isGone());
     }
 
@@ -593,10 +676,10 @@ class DocumentContentTest extends SharedSpringTest {
         images.expect(requestTo("https://api.github.com/repos/test-only/notes/contents/huge.png?ref=" + "c".repeat(40)))
                 .andRespond(withSuccess(
                         new byte[GitHubHttp.MAX_IMAGE_RESPONSE_BYTES + 1], MediaType.APPLICATION_OCTET_STREAM));
-        image(alice, id, "missing.png")
+        image(alice, id, "missing.png", "c".repeat(40))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("IMAGE_NOT_FOUND"));
-        image(alice, id, "huge.png")
+        image(alice, id, "huge.png", "c".repeat(40))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
     }
