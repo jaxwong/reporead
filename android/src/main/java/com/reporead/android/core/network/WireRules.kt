@@ -24,10 +24,29 @@ private val LOWERCASE_SHA = Regex("[0-9a-f]{40}")
 internal fun checkRules(answer: Any) {
     when (answer) {
         is LibrarySnapshot -> {
+            answer.repositories.uniqueKeys("repository ids") { it.id }
+            val documents = answer.repositories.flatMap { it.documents }.uniqueKeys("document ids") { it.id }
+            require(answer.readingStates.uniqueKeys("reading document ids") { it.documentId }.all { it in documents }) {
+                "Expected every reading state to refer to a document in the snapshot"
+            }
+            require(answer.bookmarks.uniqueKeys("bookmark document ids") { it.documentId }.all { it in documents }) {
+                "Expected every bookmark to refer to a document in the snapshot"
+            }
+            require(answer.notebook.annotations.all { it.documentId in documents }) {
+                "Expected every annotation to refer to a document in the snapshot"
+            }
             answer.readingStates.forEach(::checkRules)
             checkRules(answer.notebook)
         }
         is ReviewsNotebook -> {
+            answer.annotations.uniqueKeys("annotation ids") { it.id }
+            answer.annotations.uniqueKeys("annotation mutation ids") { it.mutationId }
+            answer.reviews.uniqueKeys("review mutation ids") { it.mutationId }
+            val cards =
+                answer.annotations.filter { it.type == AnnotationsAnnotation.Type.CARD }.map { it.mutationId }.toSet()
+            require(answer.reviews.all { it.cardMutationId in cards }) {
+                "Expected every review to refer to a card in the notebook"
+            }
             // The server, not the app, chooses the session ceiling.
             require(answer.sessionLimit > 0) { "Expected a positive notebook sessionLimit" }
             answer.annotations.forEach(::checkRules)
@@ -71,3 +90,7 @@ internal fun checkRules(answer: Any) {
         is AppUser -> require(answer.id > 0) { "Expected a persisted account id" }
     }
 }
+
+/** A duplicate identity would be silently overwritten by Room's REPLACE writes or the library map. */
+private fun <T, K> List<T>.uniqueKeys(name: String, key: (T) -> K): Set<K> =
+    map(key).toSet().also { require(it.size == size) { "Expected unique $name in the snapshot" } }

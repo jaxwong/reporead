@@ -16,6 +16,10 @@ import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.testDisconnected
+import com.reporead.android.core.network.testDocument
+import com.reporead.android.core.network.testLibrary
+import com.reporead.android.core.network.testRepository
+import com.reporead.android.core.network.testReview
 import com.reporead.android.core.network.wire
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.sync.RENDER_FORMAT
@@ -388,7 +392,7 @@ class LocalSyncTest {
                 emptyLibrary +
                     mapOf(
                         "PUT /api/documents/1/reading-state" to (200 to serverReading),
-                        "GET /api/library" to library(readingStates = serverReading),
+                        "GET /api/library" to library(repository(7, document(1)), readingStates = serverReading),
                     )
             ) { request ->
                 if (request == "PUT /api/documents/1/reading-state") {
@@ -1040,6 +1044,17 @@ class LocalSyncTest {
         for ((answer, code) in
             listOf(
                 failure(500, "TEST_ONLY_FAILURE") to "TEST_ONLY_FAILURE",
+                (200 to
+                    wire(
+                        testLibrary(
+                            repositories =
+                                listOf(testRepository(listOf(testDocument(), testDocument().copy(path = "other.md"))))
+                        )
+                    )) to "INVALID_RESPONSE",
+                (200 to
+                    wire(
+                        testLibrary(reviews = listOf(testReview().copy(cardMutationId = "test-only-missing-card")))
+                    )) to "INVALID_RESPONSE",
                 library(repositories, sessionLimit = 0) to "INVALID_RESPONSE",
                 library(repository(7, document(2).replace("false", "\"false\""))) to "INVALID_RESPONSE",
                 library(repository(7, document(2)).replace("\"lastSyncedCommitSha\"", "\"unknownCheckpoint\"")) to
