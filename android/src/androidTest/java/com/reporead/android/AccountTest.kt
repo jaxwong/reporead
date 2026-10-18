@@ -8,6 +8,7 @@ import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.work.ListenableWorker.Result
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
@@ -25,6 +26,7 @@ import com.reporead.android.library.LibraryScreen
 import com.reporead.android.reader.ReaderTestActivity
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.sync.Sync
+import com.reporead.android.sync.saveAllInBackground
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -32,6 +34,7 @@ import java.security.GeneralSecurityException
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -69,6 +72,13 @@ class AccountTest {
     private lateinit var directory: File
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** How many times an Account stopped Save all (its removal hook; WorkManager is the app's, never a test's). */
+    private val saveAllForgotten = AtomicInteger()
+
+    private fun forgetSaveAll() {
+        saveAllForgotten.incrementAndGet()
+    }
+
     @Before
     fun open() {
         sessions = SessionStore(context, prefsName)
@@ -89,7 +99,7 @@ class AccountTest {
 
     private fun api(url: String) = Api(url, sessions::read, sessions::endRefused)
 
-    private fun account(api: Api) = Account(sessions, api, Sync(api, store, directory) {}, scope)
+    private fun account(api: Api) = Account(sessions, api, Sync(api, store, directory) {}, scope, ::forgetSaveAll)
 
     private fun account(url: String) = account(api(url))
 
@@ -135,6 +145,7 @@ class AccountTest {
         assertFalse(sessions.hasSession)
         assertNull(sessions.dataOwner)
         assertFalse(sessions.removalPending)
+        assertTrue("A removal must stop Save all", saveAllForgotten.get() > 0)
     }
 
     private suspend fun assertPhoneKept() {
@@ -146,6 +157,7 @@ class AccountTest {
         assertTrue(File(directory, "images/1/commit-$sha/key").isFile)
         assertEquals(5L, sessions.dataOwner)
         assertFalse(sessions.removalPending)
+        assertEquals("Only a removal stops Save all", 0, saveAllForgotten.get())
     }
 
     @Test
@@ -175,12 +187,16 @@ class AccountTest {
             }
             .use { server ->
                 val account = account(server.url)
+                // As the activity does at start, before any sign-out can be asked for.
+                account.startUp().join()
                 account.signOut()
                 assertTrue(arrived.await(10, SECONDS))
                 try {
                     account.signOut()
                     account.deleteAccount()
                     account.signIn("TEST_ONLY_CODE")
+                    // Save all waits for the removal (which cancels it) without touching the copy.
+                    assertEquals(Result.retry(), saveAllInBackground(account, 7, 0) {})
                 } finally {
                     release.countDown()
                 }
@@ -206,7 +222,7 @@ class AccountTest {
             .use { server ->
                 val api = api(server.url)
                 val sync = Sync(api, store, directory) {}
-                val account = Account(sessions, api, sync, scope)
+                val account = Account(sessions, api, sync, scope, ::forgetSaveAll)
                 account.signOut()
                 assertTrue(arrived.await(10, SECONDS))
                 try {
@@ -272,7 +288,8 @@ class AccountTest {
             }
             .use { server ->
                 val dying = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-                Account(sessions, api(server.url), Sync(api(server.url), store, directory) {}, dying).deleteAccount()
+                Account(sessions, api(server.url), Sync(api(server.url), store, directory) {}, dying, ::forgetSaveAll)
+                    .deleteAccount()
                 assertTrue(arrived.await(10, SECONDS))
                 dying.cancel()
                 val next = account(server.url)
@@ -426,7 +443,7 @@ class AccountTest {
             .use { server ->
                 val api = api(server.url)
                 val sync = Sync(api, store, directory) {}
-                val account = Account(sessions, api, sync, scope)
+                val account = Account(sessions, api, sync, scope, ::forgetSaveAll)
                 account.deleteAccount()
                 val notice = (account.settled() as AccountState.Idle).notice!!
                 val text = noticeText(notice)
@@ -490,7 +507,7 @@ class AccountTest {
             .use { server ->
                 val api = api(server.url)
                 val sync = Sync(api, store, directory) {}
-                val account = Account(sessions, api, sync, scope)
+                val account = Account(sessions, api, sync, scope, ::forgetSaveAll)
                 val started = CompletableDeferred<Unit>()
                 val release = CompletableDeferred<Unit>()
                 val oldReading = reading().copy(progressPercent = 90, lastReadAt = 2_000)
@@ -529,7 +546,10 @@ class AccountTest {
         LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to "{}"))).use { server ->
             val sync = Sync(api(server.url), store, directory) {}
             // The actual worker entry must finish the persisted removal before considering pending changes.
-            com.reporead.android.sync.backgroundSync(Account(sessions, api(server.url), sync, scope), 0)
+            com.reporead.android.sync.backgroundSync(
+                Account(sessions, api(server.url), sync, scope, ::forgetSaveAll),
+                0,
+            )
             assertEquals("Pending removal was bypassed by background sync", emptyList<String>(), server.requests)
             assertPhoneCleared()
         }
@@ -543,7 +563,7 @@ class AccountTest {
         LoopbackServer(mapOf("DELETE /api/app-auth/session" to (204 to ""))).use { server ->
             val api = api(server.url)
             val old = Sync(api, store, directory) {}
-            val account = Account(sessions, api, old, scope)
+            val account = Account(sessions, api, old, scope, ::forgetSaveAll)
             account.startUp().join()
             val exporting = scope.async {
                 old.exportNotebook {
@@ -591,7 +611,7 @@ class AccountTest {
             }
             .use { server ->
                 val api = api(server.url)
-                val account = Account(sessions, api, Sync(api, store, directory) {}, scope)
+                val account = Account(sessions, api, Sync(api, store, directory) {}, scope, ::forgetSaveAll)
                 account.startUp().join()
                 account.signOut()
                 assertTrue(arrived.await(10, SECONDS))

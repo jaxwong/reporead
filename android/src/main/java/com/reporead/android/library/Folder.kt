@@ -20,13 +20,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
+import com.reporead.android.sync.SavingNotes
 import com.reporead.android.sync.Sync
+import com.reporead.android.sync.requestSaveAllNotes
+import com.reporead.android.sync.savingNotes
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
@@ -36,9 +40,6 @@ import com.reporead.android.ui.OverflowMenu
 import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
 import kotlinx.coroutines.launch
-
-/** How far saving every note has got: [done] of the [toFetch] notes whose saved copy was missing or old. */
-private data class SaveProgress(val done: Int, val toFetch: Int)
 
 /** Immediate subfolders and notes of [folder] ("" is the repository root), derived from the document paths. */
 internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<String>, List<DocumentRow>> {
@@ -50,15 +51,25 @@ internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<S
     return folders to notes
 }
 
-/** What saving every note did, for the status line. */
-private fun savedSummary(saved: Sync.SavedAll): String =
-    listOfNotNull(
-            "Saved ${counted(saved.fetched, "note")} on this phone; ${saved.alreadySaved} ${if (saved.alreadySaved == 1) "was" else "were"} already saved.",
-            saved.cannotShow
-                .takeIf { it.isNotEmpty() }
-                ?.let { "${it.size} can't be shown (too large): ${it.joinToString()}" },
-        )
-        .joinToString(" ")
+/** What Save all is doing or did last, for the status line. */
+private fun describe(saving: SavingNotes): String =
+    when (saving) {
+        SavingNotes.Waiting -> "Waiting to save notes on this phone; it needs a network connection."
+        is SavingNotes.Running ->
+            if (saving.toFetch == 0) "Checking which notes need saving…"
+            else "Saving notes on this phone: ${saving.done} of ${saving.toFetch}."
+        is SavingNotes.Saved ->
+            listOfNotNull(
+                    "Saved ${counted(saving.fetched, "note")} on this phone; ${saving.alreadySaved} ${if (saving.alreadySaved == 1) "was" else "were"} already saved.",
+                    saving.cannotShow
+                        .takeIf { it > 0 }
+                        ?.let { "$it can't be shown (too large); opening one says why." },
+                )
+                .joinToString(" ")
+        is SavingNotes.Stopped ->
+            "Saving stopped after ${saving.done} of ${saving.toFetch} notes; those are saved, and saving again continues from there. " +
+                (saving.reason ?: "Something went wrong in RepoRead itself.")
+    }
 
 @Composable
 fun FolderScreen(
@@ -76,9 +87,11 @@ fun FolderScreen(
     var disconnecting by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var listed by remember { mutableStateOf(false) }
-    // Notes fetched so far and to fetch, while saving every note; null otherwise. Leaving the screen stops it.
-    var saving by remember { mutableStateOf<SaveProgress?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    // Runs in the background whether or not this screen is open (requestSaveAllNotes); this only shows it.
+    val saving by remember(screen.repositoryId) { savingNotes(context, screen.repositoryId) }.collectAsState(null)
+    val savingNow = saving is SavingNotes.Waiting || saving is SavingNotes.Running
     val documents by dao.documents(screen.repositoryId).collectAsState(null)
     val repository by dao.repositories().collectAsState(emptyList())
     val neverRefreshed = repository.firstOrNull { it.id == screen.repositoryId }?.lastSyncedCommitSha == null
@@ -106,21 +119,7 @@ fun FolderScreen(
     }
     val saveAll = {
         status = null
-        saving = SaveProgress(0, 0)
-        scope.launch {
-            status =
-                try {
-                    val saved =
-                        sync.saveAllNotes(screen.repositoryId) { done, toFetch -> saving = SaveProgress(done, toFetch) }
-                    listed = true
-                    savedSummary(saved)
-                } catch (failure: ApiException) {
-                    val (done, toFetch) = saving ?: SaveProgress(0, 0)
-                    "Stopped after $done of $toFetch notes; those are saved, and saving again continues from there. ${failure.describe()}"
-                } finally {
-                    saving = null
-                }
-        }
+        requestSaveAllNotes(context, screen.repositoryId)
     }
     // Asks the server what disconnecting would delete, for the confirmation.
     val askToDisconnect = {
@@ -152,7 +151,7 @@ fun FolderScreen(
             }
         }
     }
-    val busy = refreshing || disconnecting || saving != null
+    val busy = refreshing || disconnecting || savingNow
     Scaffold(
         topBar = {
             AppBar(
@@ -182,21 +181,20 @@ fun FolderScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             val progress = saving
             when {
-                progress != null && progress.toFetch > 0 ->
+                progress is SavingNotes.Running && progress.toFetch > 0 ->
                     LinearProgressIndicator(
                         progress = { progress.done.toFloat() / progress.toFetch },
                         modifier = Modifier.fillMaxWidth(),
                         drawStopIndicator = {},
                     )
-                refreshing || disconnecting || progress != null -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                refreshing || disconnecting || savingNow -> LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             StatusLine(
                 when {
                     disconnecting -> "Disconnecting…"
-                    progress != null && progress.toFetch > 0 ->
-                        "Saving notes on this phone: ${progress.done} of ${progress.toFetch}. Leaving this screen stops it."
-                    progress != null -> "Checking which notes need saving…"
-                    else -> status
+                    savingNow -> progress?.let(::describe)
+                    // This screen's own message is newer than the last Save all's outcome.
+                    else -> status ?: progress?.let(::describe)
                 }
             )
             val rows = documents ?: return@Column

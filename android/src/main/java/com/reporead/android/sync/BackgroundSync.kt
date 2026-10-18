@@ -5,16 +5,22 @@ import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker.Result
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.reporead.android.Account
 import com.reporead.android.RepoReadApplication
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.core.network.describe
 import java.time.Duration
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 private const val WORK_NAME = "sync-local-changes"
 
@@ -57,22 +63,151 @@ internal suspend fun backgroundSync(account: Account, attempt: Int): Result {
         try {
             account.syncWaitingChanges()
         } catch (error: ApiException) {
-            return afterFailure(error, attempt)
+            return if (triesAgain("Background sync", error, attempt)) Result.retry() else Result.failure()
         }
     if (synced == null) {
         Log.i("RepoRead", "Background sync: nothing waiting; attempt=$attempt")
         return Result.success()
     }
     synced.notSent?.let {
-        return afterFailure(it, attempt)
+        return if (triesAgain("Background sync", it, attempt)) Result.retry() else Result.failure()
     }
     Log.i("RepoRead", "Background sync done; attempt=$attempt refused=${synced.refused.size}")
     return Result.success()
 }
 
-private fun afterFailure(error: ApiException, attempt: Int): Result {
+/**
+ * Whether WorkManager tries [run] again after [error]: only a passing failure (unreachable, a 5xx, GitHub unavailable),
+ * and only within [MAX_ATTEMPTS]. WorkManager counts every start as an attempt, also one after Android stopped the run.
+ */
+private fun triesAgain(run: String, error: ApiException, attempt: Int): Boolean {
     val passing = error.unreachable || error.status >= 500
     val retry = passing && attempt + 1 < MAX_ATTEMPTS
-    Log.w("RepoRead", "Background sync failed; attempt=$attempt status=${error.status} code=${error.code} retry=$retry")
-    return if (retry) Result.retry() else Result.failure()
+    Log.w("RepoRead", "$run failed; attempt=$attempt status=${error.status} code=${error.code} retry=$retry")
+    return retry
 }
+
+/** Every Save all run, whichever repository, so a removal of the phone's copy can stop them all. */
+private const val SAVE_ALL_TAG = "save-all-notes"
+
+private fun saveAllName(repositoryId: Long) = "save-all-notes-$repositoryId"
+
+private const val REPOSITORY = "repositoryId"
+private const val DONE = "done"
+private const val TO_FETCH = "toFetch"
+private const val FETCHED = "fetched"
+private const val ALREADY_SAVED = "alreadySaved"
+private const val CANNOT_SHOW = "cannotShow"
+private const val REASON = "reason"
+
+/**
+ * Asks for Save all of [repositoryId] once the phone has a network; it runs whether or not any screen is open. While
+ * one is waiting or running, asking again changes nothing.
+ */
+fun requestSaveAllNotes(context: Context, repositoryId: Long) {
+    val request =
+        OneTimeWorkRequestBuilder<SaveAllNotesWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, FIRST_BACKOFF)
+            .setInputData(workDataOf(REPOSITORY to repositoryId))
+            .addTag(SAVE_ALL_TAG)
+            .build()
+    WorkManager.getInstance(context).enqueueUniqueWork(saveAllName(repositoryId), ExistingWorkPolicy.KEEP, request)
+}
+
+/**
+ * Stops every Save all and forgets their outcomes, which describe a copy that is being removed: at sign-out and account
+ * deletion, before the phone is cleared. Pruning forgets every finished background run, which nothing else reads.
+ * WorkManager runs the two in order.
+ */
+fun forgetSaveAllNotes(context: Context) {
+    val workManager = WorkManager.getInstance(context)
+    workManager.cancelAllWorkByTag(SAVE_ALL_TAG)
+    workManager.pruneWork()
+}
+
+class SaveAllNotesWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val repositoryId =
+            checkNotNull(inputData.keyValueMap[REPOSITORY] as? Long) { "Save all enqueued without a repository id" }
+        return saveAllInBackground((applicationContext as RepoReadApplication).account, repositoryId, runAttemptCount) {
+            setProgress(it)
+        }
+    }
+}
+
+/**
+ * One Save all run ([Account.saveAllNotes]), reporting its progress through [report]. A run Android stops part-way
+ * (after about 10 minutes, or when the network goes) is started again by WorkManager, and each run fetches only the
+ * notes not yet saved. Failures are tried again as the background sync's are; the last says how far it got. While
+ * another account operation runs it is tried again later; a removal cancels it. [attempt] counts from 0.
+ */
+internal suspend fun saveAllInBackground(
+    account: Account,
+    repositoryId: Long,
+    attempt: Int,
+    report: suspend (Data) -> Unit,
+): Result {
+    var done = 0
+    var toFetch = 0
+    val saved =
+        try {
+            account.saveAllNotes(repositoryId) { doneNow, toFetchNow ->
+                done = doneNow
+                toFetch = toFetchNow
+                report(workDataOf(DONE to done, TO_FETCH to toFetch))
+            }
+                ?: run {
+                    Log.i("RepoRead", "Saving all notes waits for an account operation; attempt=$attempt")
+                    return Result.retry()
+                }
+        } catch (error: ApiException) {
+            if (triesAgain("Saving all notes", error, attempt)) return Result.retry()
+            return Result.failure(workDataOf(DONE to done, TO_FETCH to toFetch, REASON to error.describe()))
+        }
+    return Result.success(
+        workDataOf(FETCHED to saved.fetched, ALREADY_SAVED to saved.alreadySaved, CANNOT_SHOW to saved.cannotShow)
+    )
+}
+
+/** What Save all of one repository is doing, or did last; WorkManager owns the run, and this only reads it. */
+sealed interface SavingNotes {
+    /** Waiting for a network, for a retry, or for Android to run it. */
+    data object Waiting : SavingNotes
+
+    /** [done] of the [toFetch] notes whose saved copy was missing or old; [toFetch] is 0 until they are known. */
+    data class Running(val done: Int, val toFetch: Int) : SavingNotes
+
+    /** [Sync.SavedAll]. */
+    data class Saved(val fetched: Int, val alreadySaved: Int, val cannotShow: Int) : SavingNotes
+
+    /**
+     * Ended after [done] of [toFetch], those kept; [reason] is null when the run failed in RepoRead itself (a bug, or a
+     * full disk), not in a call to its server.
+     */
+    data class Stopped(val done: Int, val toFetch: Int, val reason: String?) : SavingNotes
+}
+
+/** Save all of [repositoryId], as WorkManager runs it; null before the first and after a removal. */
+fun savingNotes(context: Context, repositoryId: Long): Flow<SavingNotes?> =
+    WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(saveAllName(repositoryId)).map { infos ->
+        // KEEP replaces a finished run with the new one, so a name holds at most one.
+        check(infos.size <= 1) { "Save all of repository $repositoryId has ${infos.size} runs" }
+        infos.singleOrNull()?.let(::savingNotes)
+    }
+
+internal fun savingNotes(info: WorkInfo): SavingNotes? =
+    when (info.state) {
+        WorkInfo.State.ENQUEUED,
+        WorkInfo.State.BLOCKED -> SavingNotes.Waiting
+        WorkInfo.State.RUNNING -> SavingNotes.Running(info.progress.getInt(DONE, 0), info.progress.getInt(TO_FETCH, 0))
+        WorkInfo.State.SUCCEEDED ->
+            info.outputData.let {
+                SavingNotes.Saved(it.getInt(FETCHED, 0), it.getInt(ALREADY_SAVED, 0), it.getInt(CANNOT_SHOW, 0))
+            }
+        WorkInfo.State.FAILED ->
+            info.outputData.let {
+                SavingNotes.Stopped(it.getInt(DONE, 0), it.getInt(TO_FETCH, 0), it.getString(REASON))
+            }
+        WorkInfo.State.CANCELLED -> null
+    }
