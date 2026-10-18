@@ -1,11 +1,14 @@
 package com.reporead.android.library
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -21,7 +24,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.data.LibraryDao
@@ -232,11 +237,49 @@ private fun TopicRow(topic: String?, banks: Banks, scheduled: Set<String>, push:
         }
         // A heading that slipped the format is named, so its questions do not vanish without a trace.
         val problems = if (topic == null) emptyList() else banks.unrecognized.filter { inTopic(it.first) }
-        if (problems.isNotEmpty())
-            StatusLine(
-                "Not questions (each needs one Canonical answer or path line under its own ### heading): " +
-                    problems.joinToString("; ") { (path, heading) -> "${path.substringAfterLast('/')} › $heading" }
+        if (problems.isNotEmpty()) NotQuestions(problems, pages, push)
+    }
+}
+
+/**
+ * The topic's [problems] (bank path to heading) as one row that expands into a list per bank; each heading opens its
+ * bank there, to be fixed.
+ */
+@Composable
+private fun NotQuestions(problems: List<Pair<String, String>>, pages: List<PracticePage>, push: (Screen) -> Unit) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    ListItem(
+        modifier = Modifier.clickable { open = !open },
+        headlineContent = {
+            Text(
+                counted(problems.size, "heading is not a question", "headings are not questions"),
+                color = MaterialTheme.colorScheme.error,
             )
+        },
+        supportingContent = { Text("Each needs one Canonical answer or path line under its own ### heading.") },
+        trailingContent = { Text(if (open) "Hide" else "Show", style = MaterialTheme.typography.labelLarge) },
+    )
+    if (!open) return
+    for ((path, headings) in problems.groupBy({ it.first }, { it.second })) {
+        val page = pages.first { it.path == path }
+        Text(
+            path.substringAfterLast('/'),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+        )
+        for (heading in headings) {
+            Text(
+                heading,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .clickable { push(Screen.Reader(page.documentId, page.title, OpenAt.Heading(heading))) }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
     }
 }
 
