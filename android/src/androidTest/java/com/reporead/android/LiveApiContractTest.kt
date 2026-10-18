@@ -1,3 +1,5 @@
+// Owns: Explicitly opted-in scratch-note integration checks and cleanup against the real Dev backend.
+
 package com.reporead.android
 
 import android.os.Bundle

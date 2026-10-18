@@ -1,3 +1,5 @@
+// Owns: Coverage that temporarily unreadable sessions fail requests unsent without losing their cause.
+
 package com.reporead.android.core.network
 
 import com.reporead.android.auth.StoredSession
@@ -7,6 +9,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
+/** Owns the unsent-request and preserved-session assertions for transient decryption failures. */
 class SessionUnreadableTest {
     @Test
     fun aSessionThePhoneCannotReadNowFailsTheRequestBeforeConnecting() {

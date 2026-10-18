@@ -1,3 +1,5 @@
+// Owns: Producer checks for rendered content and changed/unavailable comparison responses.
+
 package com.reporead.document;
 
 import static com.reporead.ContractFixtures.*;
@@ -8,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns producer checks for rendered content and changed/unavailable comparison responses. */
 class WireContractTest extends SharedSpringTest {
     @Autowired
     JsonMapper json;

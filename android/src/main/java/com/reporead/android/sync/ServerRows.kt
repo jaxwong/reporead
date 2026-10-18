@@ -1,3 +1,5 @@
+// Owns: Pure validated-wire-to-Room mappings and selection request conversion; no I/O or decoding policy.
+
 package com.reporead.android.sync
 
 import com.reporead.android.core.network.Anchor

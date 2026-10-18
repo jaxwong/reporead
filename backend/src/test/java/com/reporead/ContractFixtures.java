@@ -1,3 +1,5 @@
+// Owns: Shared test-only wire constants, resource reads and structural producer/example comparison.
+
 package com.reporead;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

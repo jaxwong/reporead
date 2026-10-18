@@ -1,3 +1,5 @@
+// Owns: Integration coverage of GitHub eligibility and repository connection, with explicit test-only upstream mocks.
+
 package com.reporead.repository;
 
 import static org.hamcrest.Matchers.containsString;
@@ -43,6 +45,9 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * Owns integration coverage of GitHub eligibility and repository connection, with explicit test-only upstream mocks.
+ */
 class AvailableRepositoriesTest extends SharedSpringTest {
     // All identities, repositories, and bearer values below are test-only, never a live integration fallback.
     private static final String ROUTE = "/api/repositories/available";

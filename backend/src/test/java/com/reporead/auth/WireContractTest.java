@@ -1,3 +1,5 @@
+// Owns: Producer checks for issued sessions and explicit-null token-request ownership.
+
 package com.reporead.auth;
 
 import static com.reporead.ContractFixtures.*;
@@ -7,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns producer checks for issued sessions and explicit-null token-request ownership. */
 class WireContractTest extends SharedSpringTest {
     @Autowired
     JsonMapper json;

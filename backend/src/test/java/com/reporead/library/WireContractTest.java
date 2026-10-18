@@ -1,3 +1,5 @@
+// Owns: Producer checks for complete library snapshots and their consumed nullable/variant records.
+
 package com.reporead.library;
 
 import static com.reporead.ContractFixtures.*;
@@ -14,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns producer checks for complete library snapshots and their consumed nullable/variant records. */
 class WireContractTest extends SharedSpringTest {
     @Autowired
     JsonMapper json;

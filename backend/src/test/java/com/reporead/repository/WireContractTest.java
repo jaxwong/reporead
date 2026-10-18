@@ -1,3 +1,5 @@
+// Owns: Producer checks for available repositories and connection-request examples.
+
 package com.reporead.repository;
 
 import static com.reporead.ContractFixtures.*;
@@ -8,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns producer checks for available repositories and connection-request examples. */
 class WireContractTest extends SharedSpringTest {
     @Autowired
     JsonMapper json;

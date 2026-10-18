@@ -1,3 +1,5 @@
+// Owns: Device HTTP-boundary coverage using loopback responses, including actual framing and read timeouts.
+
 package com.reporead.android.core.network
 
 import androidx.test.ext.junit.runners.AndroidJUnit4

@@ -1,3 +1,5 @@
+// Owns: Native PKCE setup and validated token exchange; Account owns the operation lifetime.
+
 package com.reporead.android.auth
 
 import android.content.Context

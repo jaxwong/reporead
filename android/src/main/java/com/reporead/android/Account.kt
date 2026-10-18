@@ -1,3 +1,5 @@
+// Owns: App-lifetime account operations and local-copy admission/removal; persisted session facts stay in SessionStore.
+
 package com.reporead.android
 
 import android.database.sqlite.SQLiteException
@@ -21,11 +23,13 @@ sealed interface AccountNotice {
     /** Signed out on this phone, but the server session could not be revoked ([error]); it expires on its own. */
     data class NotRevoked(val error: ApiException) : AccountNotice
 
+    /** Confirms the server deletion and the completed removal of this phone's copy. */
     data object AccountDeleted : AccountNotice
 
     /** The server did not confirm the deletion ([error], a 401 included), so nothing on the phone was removed. */
     data class DeletionNotConfirmed(val error: ApiException) : AccountNotice
 
+    /** Keeps the failed sign-in outcome until the user dismisses it; it does not own session persistence. */
     data class SignInFailed(val error: ApiException) : AccountNotice
 }
 
@@ -34,6 +38,7 @@ sealed interface AccountState {
     /** Nothing runs; [notice] is what the last operation reported. */
     data class Idle(val notice: AccountNotice?) : AccountState
 
+    /** Reserves the account operation while the app exchanges the validated sign-in code. */
     data object SigningIn : AccountState
 
     /** Waiting for the server: the phone's copy is untouched unless it confirms. */

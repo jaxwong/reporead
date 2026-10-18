@@ -1,3 +1,5 @@
+// Owns: Producer/controller checks for typed reading anchors and save requests.
+
 package com.reporead.reading;
 
 import static com.reporead.ContractFixtures.*;
@@ -19,6 +21,7 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns producer/controller checks for typed reading anchors and save requests. */
 class WireContractTest extends SharedSpringTest {
     @Autowired
     JsonMapper json;

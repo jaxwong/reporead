@@ -1,3 +1,5 @@
+// Owns: Producer/request checks for annotation and review shapes through actual records and controllers.
+
 package com.reporead.annotation;
 
 import static com.reporead.ContractFixtures.*;
@@ -19,6 +21,7 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns producer/request checks for annotation and review shapes through actual records and controllers. */
 class WireContractTest extends SharedSpringTest {
     @Autowired
     JsonMapper json;

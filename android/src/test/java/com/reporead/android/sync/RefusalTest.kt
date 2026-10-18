@@ -1,3 +1,5 @@
+// Owns: Coverage of the client-owned permanent-refusal decision against server-verified status/code pairs.
+
 package com.reporead.android.sync
 
 import com.reporead.android.core.network.ApiException

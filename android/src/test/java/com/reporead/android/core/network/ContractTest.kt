@@ -1,3 +1,5 @@
+// Owns: JVM coverage of wire strictness and producer/consumer agreement using shared test-only examples.
+
 package com.reporead.android.core.network
 
 import com.reporead.android.data.AnnotationType
@@ -11,6 +13,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** Owns regression checks for the decoder and encoded request agreement, independent of Android JSON stubs. */
 class ContractTest {
     private val sha = "a".repeat(40)
     private val at = Instant.parse("2000-01-01T00:00:00Z")
