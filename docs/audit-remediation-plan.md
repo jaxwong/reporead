@@ -1,6 +1,6 @@
 # Codebase audit and root-cause remediation plan
 
-Audited: **2026-10-18**. Status: **steps 1, 2, 5 and 10 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
+Audited: **2026-10-18**. Status: **steps 1, 2, 5, 8 and 10 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
 
 ### Implementation progress
 
@@ -16,6 +16,7 @@ Audited: **2026-10-18**. Status: **steps 1, 2, 5 and 10 complete and verified; t
 - **Step 2 evidence:** **279 backend tests, 72 Android JVM tests and all 87 device tests passed**; four opt-in corpus tests remain skipped. An image-only refresh, refresh during blob fetch, old/new cached reads, legacy namespace isolation, cache-read/deletion interleavings, v13 migration, figure recreation and real navigation saving are covered. Full commands/results and exclusions are in section 10.
 - **Step 5 complete:** `LibraryDao.searchNotes` returns one row per note from `documents` left-joined to `notes`, so the 50-note limit counts distinct notes and names come from the current document; Kotlin's post-query de-duplication is deleted. A removed note still matches while its saved copy is kept, as the existing test asserted. The fixture of a saved copy with no `documents` row was replaced by a removed row: the server deletes document rows only on disconnection, when the phone forgets their saved copies too. Evidence in section 11.
 - **Step 10 complete:** Android CI's test job runs `:app:mergeDebugAssets`, which runs `bundleReader` (`npm run build`: syntax check + bundle) through the packaged app's asset wiring; the workflow also triggers on `Library.java` and `assetlinks.json`. The `MAX_RESPONSE_BYTES` scrape is kept and contained by that trigger: it fails loudly, both files name each other, and a shared config file would be a second mechanism, not a simpler single owner. Deletion wording in both dialogs, ADR-11 and the privacy invariant now names retained server backups. Evidence in section 12.
+- **Step 8 complete:** the five legacy GET routes, their response records, `Documents.list`, `DocumentController`'s unused `connections` and `Reviews`' standalone notebook snapshot are deleted; `Library.read` is the one snapshot owner. Every test assertion that used them reads `GET /api/library`, with no test deleted. ADR-08/24 record that older releases are unsupported once the backend deploys. Evidence in section 13.
 - **Branch:** work is on `fix/saved-page-integrity` (renamed from `audit-root-cause-cleanup` at the user's request before publication). Step 1 is commit `dbf4b10`; the user's approved local-main correction left `main` at `f8ccf82`. No existing remote history was rewritten.
 
 ## Goal and verdict
@@ -662,3 +663,41 @@ The workflow parses as YAML, with identical pull-request and push path lists tha
 - A backend-only change triggering the workflow on GitHub. This pull request changes the workflow file itself, so it runs regardless. Its hosted `test` job did run the new step: `> Task :app:bundleReader`, the four `node --check` calls, `BUILD SUCCESSFUL in 9s` (run 39104986891).
 - The two dialogs' new sentence was compiled and not viewed on the phone.
 - The reader's behaviour in a WebView still runs only in the device tests on the phone; CI checks syntax and bundling only.
+
+
+## 13. Step 8 verification — 2026-10-18
+
+### Callers
+
+Before the change, `git grep` found no Android production caller of `GET /api/repositories`, `/api/repositories/{id}/documents`, `/api/reading-states`, `/api/bookmarks` or `/api/notebook`; only backend handlers and tests in `RepositorySyncTest`, `ReadingStateTest`, `BookmarkTest`, `AnnotationTest`, `AvailableRepositoriesTest`, `DataControlTest` and `ApiErrorsTest`. `Documents.list` and `DocumentController.connections` were called only by the deleted list handler, and `ReviewController.notebook` was the only caller of `Reviews.notebook` other than `Library.read`. After the change, the same search over `backend` and `android` code returns nothing.
+
+### Moved assertions
+
+- `RepositorySyncTest`: a `listed` helper reads the library and asserts that its one repository is the test's connection; checkpoint, path, title, blob, removal and content-change assertions moved under `$.repositories[0]`. Another user's library lists no repositories; the deleted route's 404 for an unknown id has no successor.
+- `ReadingStateTest` and `BookmarkTest`: the library's `readingStates` / `bookmarks` keys are unchanged; their unauthenticated checks now use the write routes. The library's own 401 remains in `LibraryTest`.
+- `AnnotationTest`: notebook assertions moved under `$.notebook`. `AvailableRepositoriesTest` and `DataControlTest`: repository lists come from the library.
+- `ApiErrorsTest`: the trailing-slash and wrong-method fixtures use `/api/library/` and `PUT /api/library`, still 404 and 405.
+
+Production Java: 7 files, 13 insertions and 80 deletions.
+
+### Checks
+
+From the repository root, exit **0**:
+
+```sh
+./gradlew :backend:spotlessApply :backend:spotlessCheck :backend:test --no-daemon
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:mergeDebugAssets :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 27s
+backend {'tests': 282, 'failures': 0, 'errors': 0, 'skipped': 3}
+BUILD SUCCESSFUL in 24s
+```
+
+That is the same 279 passing backend tests as before the change. On the Pixel 8a (Android 14/API 34), the full `am instrument` run printed `OK (88 tests)`; the app code is unchanged.
+
+### Not verified
+
+- No backend was deployed. Once it is, any release older than `/api/library` and the snapshot-pinned images is unsupported.
+- The phone's own release was not checked against a local backend built from this branch; device tests use labelled loopback fixtures.
