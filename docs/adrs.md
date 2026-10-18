@@ -35,6 +35,16 @@ The decisions that shape RepoRead, as built. Each says what was decided, why, an
 
 **Evidence.** Real browser sign-in and user-scoped repository eligibility on 2026-10-02 (Stage 0); `GitHubTokenRefreshTest`, `GitHubTokensTest`.
 
+**Lifecycle amendment (2026-10-18).** Refresh-only per-user locking left OAuth token exchange/storage and last-device
+revocation/account deletion unordered. Revoking a grant invalidates *all* that user's app tokens, so guarding storage
+alone cannot fix the race. `GitHubCredentials` now owns one process-wide gate from callback entry through token
+persistence, and through renewal, app-code exchange, session removal and committed account deletion/revocation. A
+callback's identity is not known before exchange; one gate is simpler than identity discovery plus a lock registry
+for this single-process, allowlisted service. It is entered before SQL transactions, not around entire repository
+operations. Queued session changes revalidate admission; last-device removal also invalidates earlier pending app
+codes atomically. Encrypted storage and external-call ceilings are unchanged. See the backend README for the exact
+runtime contract and the [step 9 record](audit-remediation-plan.md#step-9-verification) for race/failure evidence.
+
 ## ADR-04 — The server renders; an isolated WebView displays
 
 **Decision.** Java (CommonMark with the GFM tables, strikethrough and task-list extensions; escaped raw HTML; a jsoup tag/attribute/URL safelist) is the single owner of parsing, sanitizing, canonical block text, and limits. The phone shows that HTML in a WebView, with Compose for everything around it:
@@ -268,4 +278,4 @@ Amended 2026-10-18: Save all is WorkManager work, unique per repository (needs a
 
 The backend remains the owner of published meanings. Labelled test-only examples under `backend/src/test/resources/api-contract/` are checked against actual backend records/controllers and consumed directly by Android JVM tests. The existing Android CI job runs both checks for changes on either side; app-only changes do not trigger backend deployment. Deliberate incompatible producer/request probes proved these checks fail. This is executable agreement, not a second schema or a claim that Java and Kotlin declarations are magically one source of truth.
 
-**Consequences.** The old public raw verbs, HTTP JSON builders, `ServerJson.kt` and its superseded tests are removed with every caller migrated. Room and the reader bridge are unchanged. Explicit-null request encoding includes `expectedUserId: null`, verified semantically equivalent to omission. Strict decoding can expose previously hidden server/client drift; it leaves saved data and uncertain pending work untouched rather than inventing defaults. Step 9's structured outcomes, token race and database timeouts remain separate. [The implementation record](api-contract-plan.md#implementation-and-verification) owns commands, results, size justification and live exclusions.
+**Consequences.** The old public raw verbs, HTTP JSON builders, `ServerJson.kt` and its superseded tests are removed with every caller migrated. Room and the reader bridge are unchanged. Explicit-null request encoding includes `expectedUserId: null`, verified semantically equivalent to omission. Strict decoding can expose previously hidden server/client drift; it leaves saved data and uncertain pending work untouched rather than inventing defaults. Step 9 also replaces transient Sync refusal sentences with structured operation results rendered by the consuming UI. Existing durable annotation/review rejection text and Room schemas are unchanged; their redesign is not part of this wire-boundary replacement. Credential lifecycle ordering is owned by GitHubCredentials (ADR-03), and fixed runtime SQL/socket deadlines by the backend application configuration. [The implementation record](audit-remediation-plan.md#step-9-verification) owns commands, results, size justification and live exclusions.

@@ -54,7 +54,7 @@ On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https:/
 
 ## HTTP boundary
 
-`core/network/Api.kt` owns every app-used backend route, its success statuses, response cap and echoed identity checks. `Contract.kt` declares consumed fields without defaults; nullable keys are still required. `WireJson.kt` owns strict Boolean/Int/Long tokens and ISO instants representable as epoch milliseconds; unknown extra fields remain compatible. `sync/ServerRows.kt` maps typed records, and `Sync` alone decides which known status/code pairs permanently refuse pending work. No raw HTTP verbs or `org.json` network parser remain; the reader bridge keeps its separately owned JSON protocol. See [ADR-26](../docs/adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
+`core/network/Api.kt` owns every app-used backend route, its success statuses, response cap and echoed identity checks. `Contract.kt` declares consumed fields without defaults; nullable keys are still required. `WireJson.kt` owns strict Boolean/Int/Long tokens and ISO instants representable as epoch milliseconds; unknown extra fields remain compatible. `sync/ServerRows.kt` maps typed records, and `Sync` alone decides which known status/code pairs permanently refuse pending work. `Sync` returns structured refusal facts, disconnect failures and stale-copy fetch failures; Library/Folder/Reader own their UI wording. No raw HTTP verbs or `org.json` network parser remain; the reader bridge keeps its separately owned JSON protocol. See [ADR-26](../docs/adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
 
 `ContractTest` and `RefusalTest` run in the existing JVM test task and read `backend/src/test/resources/api-contract/`; backend producer tests verify those same examples against actual records/controllers. These are test resources/assets only, never production assets. Run both sides before changing a wire declaration:
 
@@ -85,7 +85,7 @@ They need the debug build (RepoRead Dev) installed; the release app is untouched
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w -e liveApiContract true -e class com.reporead.android.LiveApiContractTest#scratchNoteExercisesRealReadsMutationsConflictsAndCleanup com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-The separate offline/replay methods require the reported scratch document id and mutation id, with the tunnel removed/restored between them. Exact executed commands, cleanup and limitations are in [the implementation record](../docs/api-contract-plan.md#implementation-and-verification). These are integration checks through the real app owners, not UI automation or evidence for every live route.
+The separate offline/replay methods require the reported scratch document id and mutation id, with the tunnel removed/restored between them. Exact executed commands, cleanup and limitations are in [the implementation record](../docs/audit-remediation-plan.md#step-9-verification). These are integration checks through the real app owners, not UI automation or evidence for every live route.
 
 ### Real-corpus check
 
