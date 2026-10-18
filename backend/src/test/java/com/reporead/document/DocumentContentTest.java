@@ -7,6 +7,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.reporead.ApiFailure;
 import com.reporead.Hashes;
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
@@ -214,6 +215,91 @@ class DocumentContentTest extends SharedSpringTest {
         read(alice, document("latin1.md", latin1Sha, false))
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
+    }
+
+    @Test
+    void contentAtTheCompletePageLimitIsDeliveredButOneMoreMetadataByteIsUnsupported() throws Exception {
+        String path = "test-only/測定.md";
+        int fixedBytes = MarkdownRenderer.render("x", Hashes.gitBlobSha(new byte[] {'x'}), path)
+                        .html()
+                        .getBytes(StandardCharsets.UTF_8)
+                        .length
+                - 2
+                + path.getBytes(StandardCharsets.UTF_8).length
+                + 40;
+        // Each source character occurs in HTML twice and in search text once; use the title for the remainder.
+        int available = MarkdownRenderer.MAX_PAGE_BYTES - fixedBytes - 1;
+        byte[] bytes = "x".repeat(available / 3).getBytes(StandardCharsets.UTF_8);
+        String title = "T".repeat(1 + available % 3);
+        String sha = Hashes.gitBlobSha(bytes);
+        long id = document(path, sha, false);
+        db.sql("update documents set title = :title where id = :id")
+                .param("title", title)
+                .param("id", id)
+                .update();
+        for (int run = 0; run < 2; run++) {
+            next();
+            expectBlob(sha, withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
+            String body = read(alice, id)
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            var content = json.readTree(body);
+            long storedBytes = 0;
+            for (String field : List.of("path", "title", "sourceBlobSha", "html", "text")) {
+                storedBytes += content.get(field).stringValue().getBytes(StandardCharsets.UTF_8).length;
+            }
+            assertEquals(MarkdownRenderer.MAX_PAGE_BYTES, storedBytes);
+        }
+        db.sql("update documents set title = :title where id = :id")
+                .param("title", title + "x")
+                .param("id", id)
+                .update();
+        next();
+        expectBlob(sha, withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
+        read(alice, id)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
+    }
+
+    @Test
+    void completePageLimitIncludesSearchTextAndEveryMetadataStringInUtf8() {
+        String path = "test-only/測定.md";
+        String title = "測😀";
+        String sha = "a".repeat(40);
+        // Worst-case JSON escaping still fits the existing 8 MiB transport bound.
+        String text = "\u0001".repeat(500_000);
+        int metadataBytes = (path + title + sha + text).getBytes(StandardCharsets.UTF_8).length;
+        String html = "h".repeat(MarkdownRenderer.MAX_PAGE_BYTES - metadataBytes);
+        var accepted = new DocumentController.Content(1, path, title, sha, html, text, MarkdownRenderer.FORMAT);
+        assertTrue(json.writeValueAsBytes(accepted).length < 8 * 1_048_576);
+        var failure = assertThrows(
+                ApiFailure.class,
+                () -> new DocumentController.Content(1, path, title + "x", sha, html, text, MarkdownRenderer.FORMAT));
+        assertEquals(ApiFailure.Code.UNSUPPORTED_CONTENT, failure.code);
+    }
+
+    @Test
+    void smallSourcesWhoseRenderedPagesExpandPastStorageLimitsAreUnsupported() throws Exception {
+        // Synthetic notes: heading paths are repeated on every block, and HTML escaping expands them again.
+        for (String heading : List.of("H".repeat(500), "\"&".repeat(250))) {
+            for (int paragraphs : List.of(1000, 3000)) {
+                var source = new StringBuilder();
+                for (int level = 1; level <= 6; level++) {
+                    source.append("#".repeat(level)).append(' ').append(heading).append("\n\n");
+                }
+                source.append("paragraph\n\n".repeat(paragraphs));
+                byte[] bytes = source.toString().getBytes(StandardCharsets.UTF_8);
+                assertTrue(bytes.length < GitHubHttp.MAX_RESPONSE_BYTES);
+                String sha = Hashes.gitBlobSha(bytes);
+                next();
+                expectBlob(sha, withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
+                read(alice, document("expanding-" + paragraphs + "-" + heading.charAt(0) + ".md", sha, false))
+                        .andExpect(status().isUnprocessableContent())
+                        .andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
+            }
+        }
     }
 
     @Test

@@ -333,6 +333,25 @@ class MarkdownRendererTest {
     }
 
     @Test
+    void htmlSerializationAcceptsItsExactUtf8LimitAndRejectsOneMoreByte() {
+        String basePath = "limit.md";
+        int fixedBytes = MarkdownRenderer.render("x", sha("x"), basePath).html().getBytes(StandardCharsets.UTF_8).length
+                - 2; // The one-character block appears as text and as data-anchor-text.
+        for (String character : java.util.List.of("x", "é", "測", "😀")) {
+            int blockBytes = 2 * character.getBytes(StandardCharsets.UTF_8).length;
+            int available = MarkdownRenderer.MAX_PAGE_BYTES - fixedBytes;
+            String source = character.repeat(available / blockBytes);
+            String path = "p".repeat(available % blockBytes) + basePath;
+            String sha = sha(source);
+            assertEquals(
+                    MarkdownRenderer.MAX_PAGE_BYTES,
+                    MarkdownRenderer.render(source, sha, path).html().getBytes(StandardCharsets.UTF_8).length);
+            assertThrows(
+                    MarkdownRenderer.ContentRejected.class, () -> MarkdownRenderer.render(source, sha, "p" + path));
+        }
+    }
+
+    @Test
     void oversizeAndMismatchedVersionsAreRejected() {
         assertThrows(
                 MarkdownRenderer.ContentRejected.class, () -> render("x".repeat(MarkdownRenderer.MAX_NOTE_BYTES + 1)));

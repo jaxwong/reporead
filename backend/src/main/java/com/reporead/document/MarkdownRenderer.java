@@ -2,6 +2,9 @@ package com.reporead.document;
 
 import com.reporead.Hashes;
 import com.reporead.github.GitHubHttp;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -39,6 +42,13 @@ public final class MarkdownRenderer {
     public static final int MAX_NOTE_BYTES = GitHubHttp.MAX_RESPONSE_BYTES;
     /** {@code MAX_NOTE_BYTES} in MiB, for messages. */
     public static final int MAX_NOTE_MIB = MAX_NOTE_BYTES / 1_048_576;
+
+    /**
+     * UTF-8 bytes across a saved page's HTML, search text, path, title and blob SHA. A complete 1 MiB payload
+     * round-trips through Room on Android 14; 2 MiB fails its CursorWindow. The remaining space covers row overhead.
+     * Even sixfold JSON escaping stays below the phone's 8 MiB content-response ceiling.
+     */
+    public static final int MAX_PAGE_BYTES = 1_048_576;
 
     public static final int MAX_DIAGRAM_CHARS = 20_000;
     public static final int MAX_DIAGRAMS = 16;
@@ -352,9 +362,37 @@ public final class MarkdownRenderer {
         var note = document.body()
                 .appendElement("main")
                 .id("note")
-                .html(clean.body().html());
+                .appendChildren(new ArrayList<>(clean.body().childNodes()));
         if (empty) note.appendElement("p").text("This note is empty.");
-        return "<!doctype html>\n" + document.outerHtml();
+        var bytes = new PageOutput();
+        try (var writer = new OutputStreamWriter(bytes, StandardCharsets.UTF_8)) {
+            writer.append("<!doctype html>\n");
+            document.outerHtml(writer);
+        } catch (IOException error) {
+            throw new IllegalStateException("Writing rendered HTML to an in-memory page failed", error);
+        }
+        return bytes.toString(StandardCharsets.UTF_8);
+    }
+
+    /** Stops escaped HTML generation before it allocates a page the content boundary could never accept. */
+    private static final class PageOutput extends ByteArrayOutputStream {
+        @Override
+        public void write(int value) {
+            reserve(1);
+            super.write(value);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) {
+            reserve(length);
+            super.write(bytes, offset, length);
+        }
+
+        private void reserve(int length) {
+            if (length > MAX_PAGE_BYTES - count) {
+                throw new ContentRejected("Rendered HTML exceeds the " + MAX_PAGE_BYTES + "-byte saved-page limit");
+            }
+        }
     }
 
     /**
