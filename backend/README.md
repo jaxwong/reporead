@@ -70,7 +70,31 @@ Logs: `sudo journalctl -u reporead-backend`. Restarts and deploys keep GitHub si
 
 Only GitHub users listed in `REPOREAD_ALLOWED_GITHUB_USER_IDS` can use the server (`AllowedUsers`). Anyone else's sign-in fails while GitHub's answer is checked, before a RepoRead user or their GitHub token is stored, and ends at `/auth/failed`; a session of a user later removed from the list is 401.
 
-Only SHA-256 hashes of codes and session tokens are stored, and expired ones are deleted whenever a new code or session is issued. The GitHub user token and its refresh token are stored in `github_tokens`, each encrypted with AES-256-GCM under the key in `REPOREAD_GITHUB_TOKEN_KEY_FILE` and bound to its GitHub user (`GitHubTokens`), and are never returned. GitHub App user tokens last 8 hours: before a GitHub-backed operation, a token expiring within a minute is renewed with one call to GitHub's token endpoint (one at a time per user, because GitHub replaces the refresh token on each use; the lock is in-process, and the backend runs as one process by design, ADR-14). If GitHub refuses the refresh token (`bad_refresh_token`, `invalid_grant`), the stored token is dropped and the operation returns 401 `SIGN_IN_REQUIRED`; GitHub answers that with HTTP 200 and an error body, which is read as the error it is. Any other refusal, such as `incorrect_client_credentials` from a wrong client secret, and no answer from GitHub (network failure, timeout, 429, 5xx) return 503 `GITHUB_UNAVAILABLE` and keep the token, so the next operation tries again. Restarts and deploys keep them. A stored token the key cannot decrypt (the key file was replaced, or the wrong file named) reads as no token, and that user signs in again, which overwrites it. It is not deleted, so naming the right key file again restores every sign-in.
+Only SHA-256 hashes of codes and session tokens are stored, and expired ones are deleted whenever a new code or session is issued. The GitHub user token and its refresh token are stored in `github_tokens`, each encrypted with AES-256-GCM under the key in `REPOREAD_GITHUB_TOKEN_KEY_FILE` and bound to its GitHub user (`GitHubTokens`), and are never returned. GitHub App user tokens last 8 hours: before a GitHub-backed operation, a token expiring within a minute is renewed with one call to GitHub's token endpoint (serialized by the credential lifecycle gate, because GitHub replaces the refresh token on each use). If GitHub refuses the refresh token (`bad_refresh_token`, `invalid_grant`), the stored token is dropped and the operation returns 401 `SIGN_IN_REQUIRED`; GitHub answers that with HTTP 200 and an error body, which is read as the error it is. Any other refusal, such as `incorrect_client_credentials` from a wrong client secret, and no answer from GitHub (network failure, timeout, 429, 5xx) return 503 `GITHUB_UNAVAILABLE` and keep the token, so the next operation tries again. Restarts and deploys keep them. A stored token the key cannot decrypt (the key file was replaced, or the wrong file named) reads as no token, and that user signs in again, which overwrites it. It is not deleted, so naming the right key file again restores every sign-in.
+
+`GitHubCredentials` owns one process-wide lifecycle gate shared by the whole OAuth callback (before token exchange),
+renewal, app-code exchange, session revocation and account deletion. The callback's user is unknown before exchange;
+a single gate avoids another lock registry and fits the one-process deployment (ADR-14). It does not serialize whole
+repository reads. Lifecycle admission precedes database transactions; session-changing requests recheck their bearer
+session after waiting. Last-device sign-out invalidates older unexchanged app codes in the same transaction as session
+removal, so a callback ordered before sign-out cannot later issue a session whose GitHub credential was removed.
+A callback ordered after removal performs a fresh exchange. Account deletion holds admission through commit and
+remote revocation; a failed database transaction never revokes the grant. No additional GitHub calls or retries.
+
+### Database runtime deadlines
+
+`application.properties` owns fixed deadlines: **10 s connection login**, **15 s per JdbcTemplate/JdbcClient statement
+(including row-lock waits)** and **20 s per established socket read**. The latter two are approved safety ceilings,
+not measured optimal values. The socket ceiling allows the shorter statement cancellation to answer. These are phase
+limits, not a whole-request deadline; pool admission and multiple statements remain separate waits. No new environment
+knobs, database-server changes or retries are involved.
+
+`DatabaseRuntimeTest` uses the configured application client and real PostgreSQL: long-query and lock cancellation
+roll back earlier writes, and the next transaction works. A raw JDBC read deliberately bypasses the shorter template
+cap to verify the actual socket deadline closes the connection and a subsequent operation works. SQL failures propagate
+to Spring's existing server-error handling, not an item-refusal envelope: the app keeps uncertain work pending. There
+is no alternate database/fallback, because it could not safely acknowledge that work. Programmer and integrity failures
+are not caught as transient failures.
 
 ### Shared HTTP contract checks
 
@@ -80,7 +104,7 @@ Only SHA-256 hashes of codes and session tokens are stored, and expired ones are
 ./gradlew :backend:test --tests '*WireContractTest' --no-daemon
 ```
 
-Full build, device and live verification evidence: [API contract implementation](../docs/api-contract-plan.md#implementation-and-verification).
+Full build, device and live verification evidence: [Step 9 implementation and verification](../docs/audit-remediation-plan.md#step-9-verification).
 
 ## API
 

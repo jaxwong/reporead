@@ -1,10 +1,10 @@
 # Codebase audit and root-cause remediation plan
 
-Audited: **2026-10-18**. Status: **steps 1, 2, 3, 5, 8 and 10 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
+Audited: **2026-10-18**. Status: **steps 1, 2, 3, 5, 8, 9 and 10 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
 
 ### Implementation progress
 
-- **Step 9 partial:** typed responses, request correspondence, safe item-refusal authority and retained transport causes are implemented and verified. [The API contract record](api-contract-plan.md#implementation-and-verification) owns the commands/results; structured operation outcomes, the credential race and database timeouts remain separate.
+- **Step 9 complete and verified:** typed responses, safe item refusals, structured operation results, credential lifecycle ordering and fixed runtime SQL/socket deadlines. The standalone API plan is retired; [step 9 verification](#step-9-verification) owns the evidence.
 
 - **Step 1 complete:** `MarkdownRenderer.MAX_PAGE_BYTES` owns a 1 MiB UTF-8 ceiling. HTML generation stops at that ceiling; `DocumentController.Content` checks the complete HTML + search text + path + title + blob SHA before delivery. These are different checks: bounded generation and complete-row acceptance, not two competing limits. One content request still makes at most **one note-blob request** (credential renewal, when required, is separate); no alternative fetch or retry strategy was added.
 - **Root-cause replacement:** removed the intermediate HTML serialize-and-reparse path and the unbounded final serializer. One bounded serializer now receives the existing DOM nodes directly. Its small private output stream satisfies the named generation-bound requirement; this safety fix adds production lines rather than being a net-line-reducing mechanical refactor. No old renderer, compatibility wrapper, alternate parser, old-only test suite or temporary measurement class remains in the repository. Existing behavior assertions remain.
@@ -215,16 +215,16 @@ The user approved proceeding with this sequence and committing each completed st
 
 ### Step 9 — Complete error boundaries and lifecycle checks (A11)
 
-**Status:** complete for response validation, item-refusal safety and transport causes (2026-10-18); A11 remains **partial** for the separately listed operation outcomes, credential race and database timeouts. [Contract implementation and verification](api-contract-plan.md#implementation-and-verification) owns the evidence.
+**Status:** complete and verified (2026-10-18), within the isolated/runtime/device scope and live/release exclusions recorded below. [Step 9 verification](#step-9-verification) owns the evidence, limits and exclusions.
 
 **Owners:** `Api`/`Contract.kt`/`WireJson.kt` for typed wire validation, correspondence and transport/envelope failures; `ServerRows` for typed row mapping; `Sync` for pending-item disposition; the existing operation owner for other expected failures; UI for wording.
 
 - **Complete:** validate complete server records once: strict scalar types, required-vs-nullable field presence, and cross-field constraints such as CARD requiring a question. Reject a broken response before any replacement transaction. Android's [JSONObject contract](https://developer.android.com/reference/org/json/JSONObject) explicitly permits scalar coercion and treats an absent mapping as null in `isNull`; those methods alone do not enforce RepoRead's stricter contract.
 - **Complete:** define refusal dispositions from the known server contract. Unknown/malformed error envelopes are not evidence that an individual mutation should be permanently dropped.
 - **Complete:** keep the underlying exception and safe method/path/status context for transport failures. Do not log bodies, bearer credentials, quoted passages, or arbitrary response content.
-- Return structured operation outcomes instead of assembling screen-specific refusal sentences inside `Sync`. Keep contextual UI wording at the consuming UI boundary; do not introduce a generic error framework.
-- Characterize concurrent token refresh/callback/sign-out/deletion. Make lifecycle decisions pass through the existing credential owner if the current race is to be removed; preserve encrypted persistence and the stated external-call ceilings. Do not add a second credential store or distributed locking for a single-process deployment.
-- Verify runtime database query/lock failure behavior before selecting any constant deadline. Login-timeout coverage is not query-timeout coverage. Any configuration/infra change remains separately approved.
+- **Complete:** return structured operation outcomes instead of assembling screen-specific refusal sentences inside `Sync`. Keep contextual UI wording at the consuming UI boundary; do not introduce a generic error framework.
+- **Complete:** characterize concurrent token refresh/callback/sign-out/deletion. Make lifecycle decisions pass through the existing credential owner if the current race is to be removed; preserve encrypted persistence and the stated external-call ceilings. Do not add a second credential store or distributed locking for a single-process deployment.
+- **Complete:** verify runtime database query/lock failure behavior before selecting any constant deadline. Login-timeout coverage is not query-timeout coverage. Any configuration/infra change remains separately approved.
 
 **Exit:** expected external failures have one explicit disposition; malformed responses do not become programmer-state crashes or destructive mutation refusals; unrelated programmer errors still raise.
 
@@ -877,3 +877,179 @@ OK (109 tests)
 ```
 
 The terminal test outcome, not `am instrument`'s exit 0, establishes success. Two prior full exclusive runs passed `OK (108 tests)` before the added WebView-retirement regression. That regression failed first and was not weakened; release now always destroys the actual WebView, verified using its public renderer-process handle. `git diff --check` also passed. The old cancellation behavior is not retained as another path or test suite.
+
+## Step 9 verification
+
+The typed HTTP boundary is implemented (ADR-26); the separate API contract plan has been removed. This section owns
+step 9's status and execution evidence. The user approved the coordinated credential lifecycle change and then fixed
+15-second SQL/lock and 20-second socket-read deadlines, without new environment knobs or VM changes.
+
+**Fresh current-workspace baseline**, branch `typed-api-contract`, before the remaining step 9 changes (2026-10-18):
+
+```sh
+DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r android/build/outputs/apk/debug/app-debug.apk
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+All exited **0**. Compiler/test build: `BUILD SUCCESSFUL in 27s`; APK build: `BUILD SUCCESSFUL in 16s`. Both installs
+reported `Success`; no uninstall or clear. The full default device run ended:
+
+```text
+Time: 128.394
+OK (132 tests)
+```
+
+This is 129 executed tests and 3 explicitly opt-in live tests skipped before opening the real store. A final run is
+recorded below after step 9's new code. The current-workspace compile also disproves the IDE's unresolved JSON imports;
+the Kotlin LSP's last recorded successful import predated the new dependency. Reload the IDE workspace, not source imports.
+
+**Earlier contract evidence:** 292 backend tests (3 opt-in corpus skips), 83 JVM tests (1 corpus skip), zero failures;
+producer/request drift probes failed as intended and were restored. The device suite and three opt-in scratch-only
+live checks also passed before the history split. Live checks covered refresh/read/cache, highlight/card mutations,
+conflict, reattachment, confirmation/review, unchanged diff, bookmark on/off, offline pending work and same-id replay
+with test-only cleanup. No existing user annotations/bookmarks were swept; logs remain private.
+
+**Live/release exclusions remain:** no live sign-out, account deletion, disconnect, GitHub write, reconnect, images,
+reading-position UI/restore, changed-version diff or repeat whole-repository Save all in this contract check. No hosted
+workflow, release build/VM deployment or post-release smoke check. Isolated regression tests are not evidence for those
+live operations. The new backend lifecycle/runtime changes were exercised against isolated PostgreSQL and labelled HTTP GitHub fakes,
+not live OAuth or a deployed backend. Their evidence follows.
+
+
+### Remaining step 9 implementation
+
+- `Sync` returns reading/bookmark refusal facts (operation kind, document id, title snapshot and typed failure), typed
+  disconnect failures and typed stale-copy fetch failures. Library/Folder/Reader own the preserved wording. The existing
+  refusal assertion moved to those facts; one JVM test preserves the UI wording. No second sentence-building path.
+  Durable annotation/review rejection text and the reading-refusal resend policy remain their existing Room behavior;
+  the latter belongs to step 4, not this replacement. No schema change.
+- `GitHubCredentials` replaces the per-user refresh-lock map with one process-wide lifecycle gate. The browser filter
+  enters **before** OAuth exchange, not just save: grant revocation invalidates newly issued tokens too. Callback,
+  renewal, app-code exchange, sign-out and deletion share that owner. Queued session changes reauthenticate after
+  admission. Last-device session removal and invalidation of older handoff codes are one existing-owner transaction.
+  Account deletion commits its data/token removal before grant revocation, while still holding admission. Old split
+  capture/revoke/forget helpers are private; there is no legacy lock path, alternate store, retry or wrapper.
+- Lifecycle admission precedes SQL transactions. All production token callers were checked: RepositorySync,
+  RepositoryConnections (discovery/connect), NoteVersions and Attachments acquire the token outside their publishing
+  transaction. Entering admission from an outside transaction is a programmer error, not a deadlock workaround.
+  One global gate deliberately trades cross-user lifecycle concurrency for simple ordering in this one-process,
+  small-allowlist deployment; it does not surround whole repository reads. Renewal remains at most **1** GitHub call;
+  sign-out/deletion at most **2** (renew/revoke). A failed revocation is logged under the existing removal policy.
+- Application configuration now owns SQL **15 s** and socket-read **20 s**, in addition to login **10 s**. These are
+  approved safety ceilings, not measured optimal values or an HTTP request deadline. Real query and lock waits cancel
+  with SQLSTATE `57014`/QueryTimeoutException; both roll back an earlier write and permit the next transaction. The
+  socket-only probe uses raw JDBC deliberately, so the shorter template deadline cannot hide a missing socket cap:
+  it closes with `08006`/SocketTimeoutException, and the next operation gets a working connection. No production probe,
+  alternate strategy, database-server setting or dependency added. SQL failures propagate to existing Spring server
+  errors, not item refusals; uncertain phone work stays pending. Integrity/programmer failures are not swallowed.
+- Changed PR source files now state their ownership at the top, named types state their responsibility, and non-obvious
+  boundaries explain why. JSON fixtures remain valid data without comments; ContractFixtures owns them. No IDE cache,
+  dependency or import workaround: compile resolves serialization; editor reload remains a user-side action.
+
+This correctness slice adds production lines because callback admission, stale-request validation and pending-handoff
+cancellation were missing guarantees, not a mechanical refactor. The old lock map and split public credential actions
+are removed, every caller is updated, and surviving behavior tests run through the replacement. New coverage is **7
+backend cases and 1 JVM case**, plus stronger existing device assertions—not a parallel legacy suite.
+
+### Red/green and final build evidence
+
+Commands from the current workspace; `DEBUG=false` avoids this Mac's inherited verbose framework logging.
+The credential regressions ran against the old implementation first:
+
+```sh
+DEBUG=false ./gradlew :backend:test --tests 'com.reporead.auth.GitHubLoginTest.credentialRemovalWaitsForAnAlreadyAdmittedOAuthCallback' --tests 'com.reporead.auth.AppSignInTest.lastDeviceSignOutInvalidatesAnUnexchangedCodeFromAnEarlierCallback' --no-daemon
+```
+
+Exit **1**, `3 tests completed, 3 failed`. After replacement the four credential/data-control suites passed (49 cases);
+the later admission regression also passed. A new invalid-code assertion initially expected 401; it was corrected to
+the existing contract's 400 `INVALID_SIGN_IN_CODE`, without changing production policy or weakening an old assertion.
+
+Before selecting runtime limits a real PostgreSQL cancellation probe with a **test-only 1-second** deadline established
+rollback/recovery; the injected production template reported `configuredQueryTimeoutSeconds=-1`. That characterization
+was replaced by the configured-client tests, not kept as an alternate implementation. Before adding configuration:
+
+```sh
+DEBUG=false ./gradlew :backend:spotlessApply :backend:test --tests 'com.reporead.DatabaseRuntimeTest' --no-daemon
+```
+
+Exit **1**, `3 tests completed, 3 failed`: actual query timeout was -1 and network timeout 0. With approved configuration,
+the three runtime cases and AppSignInTest passed, exit **0**, `BUILD SUCCESSFUL in 59s`. The whole-build runtime-case
+durations were **15.087 s query**, **15.048 s lock**, **20.050 s socket**, not shortened test-only production values.
+
+Final whole-build command (exit **0**):
+
+```sh
+DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :backend:spotlessApply :app:spotlessApply :backend:spotlessCheck :backend:test :app:spotlessCheck :app:testDebugUnitTest :app:mergeDebugAssets :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 1m 36s
+91 actionable tasks: 25 executed, 66 up-to-date
+backend {'tests': 299, 'failures': 0, 'errors': 0, 'skipped': 3}
+android JVM {'tests': 84, 'failures': 0, 'errors': 0, 'skipped': 1}
+```
+
+After the last stale-copy result/comment edits, the final app check/build also exited **0**:
+
+```sh
+DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 7s
+82 actionable tasks: 4 executed, 78 up-to-date
+```
+
+Historical detailed contract/live/split evidence is retained in Git, not another active plan:
+`git show 9b42c17:docs/api-contract-plan.md`. `.gitignore` and `notes/` are untouched. The untracked Android foundations
+plan keeps its contents with only the retired-plan links and already-shipped serialization status corrected; it is not
+staged as part of this PR.
+
+The final package-scoped credential API was then checked with the whole backend suite, exit **0**:
+
+```sh
+DEBUG=false ./gradlew :backend:spotlessCheck :backend:test --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 1m 19s
+8 actionable tasks: 5 executed, 3 up-to-date
+backend {'tests': 299, 'failures': 0, 'errors': 0, 'skipped': 3}
+```
+
+### Final physical-device run
+
+Pixel 8a, Android 14/API 34; device serial redacted. Wireless debugging disconnected before installation and was
+reconnected by the user; no device test was substituted for that interruption. Both installs and instrumentation
+exited **0**, with no uninstall, clear or real-store reset:
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r android/build/outputs/apk/debug/app-debug.apk
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+Performing Streamed Install
+Success
+Performing Streamed Install
+Success
+Time: 136.307
+OK (132 tests)
+```
+
+The terminal outcome, not the process exit alone, establishes the pass. This includes the strengthened refusal and
+stale-copy assertions, real Room migrations/rollback/publication behavior, account-removal failure/interruption/races,
+background entry, reader lifecycle and image isolation, plus API malformed/status/identity/timeout/truncation cases.
+Three live opt-ins are skipped before real-store access: **129 executed**, no failures. They were not repeated for
+these changes; earlier scratch-only evidence remains historical, and the new backend lifecycle was not deployed.
+No live sign-out, deletion, disconnect, GitHub write or new live fixture data was performed. Release/hosted rollout and
+post-deployment smoke verification remain outside this step's executed checks. Existing step 4 reading-refusal debt,
+Android lifecycle/navigation foundations and dependency advisories are not silently claimed fixed.
+
+`git diff --check` passed for this PR's changes; the unrelated user `.gitignore` edit was excluded. Implementation
+commits are separated into structured outcomes, credential lifecycle, runtime deadlines and ownership comments; this
+record/plan retirement is documentation-only. No old implementation-only test suite is retained.
