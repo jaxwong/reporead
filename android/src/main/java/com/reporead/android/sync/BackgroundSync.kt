@@ -13,6 +13,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.await
 import androidx.work.workDataOf
 import com.reporead.android.Account
 import com.reporead.android.RepoReadApplication
@@ -99,6 +100,8 @@ private const val FETCHED = "fetched"
 private const val ALREADY_SAVED = "alreadySaved"
 private const val CANNOT_SHOW = "cannotShow"
 private const val REASON = "reason"
+// A UTF-16 unit needs at most 3 UTF-8 bytes; reserve the rest of Data's ceiling for fields and encoding.
+private const val MAX_REASON_UNITS = Data.MAX_DATA_BYTES / 4
 
 /**
  * Asks for Save all of [repositoryId] once the phone has a network; it runs whether or not any screen is open. While
@@ -117,13 +120,18 @@ fun requestSaveAllNotes(context: Context, repositoryId: Long) {
 
 /**
  * Stops every Save all and forgets their outcomes, which describe a copy that is being removed: at sign-out and account
- * deletion, before the phone is cleared. Pruning forgets every finished background run, which nothing else reads.
- * WorkManager runs the two in order.
+ * deletion, before the phone is cleared. Pruning forgets every finished background run, which nothing else reads. Both
+ * operations must commit before Account can finish removal, including across process death.
  */
-fun forgetSaveAllNotes(context: Context) {
+suspend fun forgetSaveAllNotes(context: Context) {
     val workManager = WorkManager.getInstance(context)
-    workManager.cancelAllWorkByTag(SAVE_ALL_TAG)
-    workManager.pruneWork()
+    workManager.cancelAllWorkByTag(SAVE_ALL_TAG).await()
+    workManager.pruneWork().await()
+}
+
+/** Cancels this repository's waiting or running Save all, keeping the complete notes it already saved. */
+suspend fun stopSavingNotes(context: Context, repositoryId: Long) {
+    WorkManager.getInstance(context).cancelUniqueWork(saveAllName(repositoryId)).await()
 }
 
 class SaveAllNotesWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -163,7 +171,9 @@ internal suspend fun saveAllInBackground(
                 }
         } catch (error: ApiException) {
             if (triesAgain("Saving all notes", error, attempt)) return Result.retry()
-            return Result.failure(workDataOf(DONE to done, TO_FETCH to toFetch, REASON to error.describe()))
+            val reason = error.describe()
+            val boundedReason = if (reason.length > MAX_REASON_UNITS) reason.take(MAX_REASON_UNITS) + "…" else reason
+            return Result.failure(workDataOf(DONE to done, TO_FETCH to toFetch, REASON to boundedReason))
         }
     return Result.success(
         workDataOf(FETCHED to saved.fetched, ALREADY_SAVED to saved.alreadySaved, CANNOT_SHOW to saved.cannotShow)

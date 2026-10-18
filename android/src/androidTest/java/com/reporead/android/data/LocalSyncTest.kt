@@ -720,6 +720,32 @@ class LocalSyncTest {
             }
     }
 
+    @Test
+    fun aLongServerFailureStillReportsTheSavedNotesAndABoundedReason() = runBlocking {
+        val message = "Test-only server error: " + "界".repeat(11_000)
+        val error = ApiException(403, "GITHUB_ACCESS_DENIED", message)
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3)}")),
+                    "GET /api/documents/1/content" to content(1),
+                    "GET /api/documents/2/content" to
+                        (403 to JSONObject().put("code", error.code).put("message", message).toString()),
+                )
+            )
+            .use { server ->
+                val result = saveAllInBackground(backgroundAccount(sync(server.url)), 7, 0) {} as Result.Failure
+                val stopped = shown(WorkInfo.State.FAILED, output = result.outputData) as SavingNotes.Stopped
+                assertEquals(1, stopped.done)
+                assertEquals(3, stopped.toFetch)
+                val reason = stopped.reason!!
+                assertTrue(reason.endsWith("…"))
+                assertTrue(error.describe().startsWith(reason.removeSuffix("…")))
+                assertTrue(reason.toByteArray(Charsets.UTF_8).size < Data.MAX_DATA_BYTES)
+                assertEquals("n1", dao.note(1)?.title)
+                assertNull(dao.note(2))
+            }
+    }
+
     /**
      * A failure that trying again cannot fix, or a passing one on the last attempt, ends Save all with how far it got.
      */

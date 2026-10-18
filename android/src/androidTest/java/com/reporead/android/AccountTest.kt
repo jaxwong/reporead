@@ -1,6 +1,7 @@
 package com.reporead.android
 
 import android.content.Context
+import android.database.sqlite.SQLiteException
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -75,7 +76,7 @@ class AccountTest {
     /** How many times an Account stopped Save all (its removal hook; WorkManager is the app's, never a test's). */
     private val saveAllForgotten = AtomicInteger()
 
-    private fun forgetSaveAll() {
+    private suspend fun forgetSaveAll() {
         saveAllForgotten.incrementAndGet()
     }
 
@@ -171,6 +172,72 @@ class AccountTest {
             assertTrue(sessions.removalPending)
             val done = account.settled()
             assertTrue(done.toString(), (done as AccountState.Idle).notice is AccountNotice.NotRevoked)
+            assertPhoneCleared()
+            assertEquals(listOf("DELETE /api/app-auth/session"), server.requests)
+        }
+    }
+
+    @Test
+    fun removalCannotPublishAFreshCopyUntilSaveAllCancellationCommits() = runBlocking {
+        signedInWithSavedNotes()
+        LoopbackServer(mapOf("DELETE /api/app-auth/session" to (204 to ""))).use { server ->
+            val cancelling = CompletableDeferred<Unit>()
+            val committed = CompletableDeferred<Unit>()
+            val api = api(server.url)
+            val old = Sync(api, store, directory) {}
+            val account =
+                Account(sessions, api, old, scope) {
+                    forgetSaveAll()
+                    cancelling.complete(Unit)
+                    committed.await()
+                }
+            account.startUp().join()
+            account.signOut()
+            withTimeout(10_000) { cancelling.await() }
+            try {
+                assertTrue(account.state.value is AccountState.Removing)
+                assertTrue(sessions.removalPending)
+                assertEquals(5L, sessions.dataOwner)
+                assertFalse(sessions.hasSession)
+                assertEquals("private text", dao.note(1)?.searchText)
+                assertTrue(account.sync === old)
+                assertRetired { old.saveReading(reading()) }
+                assertEquals(Result.retry(), saveAllInBackground(account, 7, 0) {})
+            } finally {
+                committed.complete(Unit)
+            }
+            assertEquals(AccountState.Idle(null), account.settled())
+            assertTrue(account.sync !== old)
+            assertPhoneCleared()
+        }
+    }
+
+    @Test
+    fun aSaveAllDatabaseFailureKeepsRemovalPendingUntilCancellationCanBeRetried() = runBlocking {
+        signedInWithSavedNotes()
+        LoopbackServer(mapOf("DELETE /api/app-auth/session" to (204 to ""))).use { server ->
+            val failure = SQLiteException("TEST_ONLY_WORKMANAGER_WRITE_REFUSAL")
+            val api = api(server.url)
+            val old = Sync(api, store, directory) {}
+            val account =
+                Account(sessions, api, old, scope) {
+                    forgetSaveAll()
+                    if (saveAllForgotten.get() == 1) throw failure
+                }
+            account.startUp().join()
+            account.signOut()
+            val stopped = account.settled() as AccountState.Removing
+            assertEquals(failure, (stopped.stopped as LocalCleanup.DatabaseFailed).error)
+            assertTrue(sessions.removalPending)
+            assertEquals(5L, sessions.dataOwner)
+            assertFalse(sessions.hasSession)
+            assertEquals("private text", dao.note(1)?.searchText)
+            assertTrue(account.sync === old)
+            account.signIn("TEST_ONLY_CODE")
+            assertEquals(Result.retry(), saveAllInBackground(account, 7, 0) {})
+            account.retryRemoval()
+            assertEquals(AccountState.Idle(null), account.settled())
+            assertEquals(2, saveAllForgotten.get())
             assertPhoneCleared()
             assertEquals(listOf("DELETE /api/app-auth/session"), server.requests)
         }

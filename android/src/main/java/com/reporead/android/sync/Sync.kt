@@ -106,7 +106,7 @@ sealed interface LocalCleanup {
     /** Room's rows are gone; [paths], each file and folder still there (deepest first), are not. */
     data class FilesLeft(val paths: List<File>) : LocalCleanup
 
-    /** Room's rows could not be deleted ([error]); no file was tried. */
+    /** A WorkManager or Room database failure prevented removal ([error]); no file was tried. */
     data class DatabaseFailed(val error: SQLiteException) : LocalCleanup
 }
 

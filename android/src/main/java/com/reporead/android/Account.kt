@@ -1,5 +1,6 @@
 package com.reporead.android
 
+import android.database.sqlite.SQLiteException
 import android.util.Log
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.completeSignIn
@@ -60,7 +61,7 @@ class Account(
     private val api: Api,
     sync: Sync,
     private val scope: CoroutineScope,
-    private val forgetSaveAll: () -> Unit,
+    private val forgetSaveAll: suspend () -> Unit,
 ) {
     var sync: Sync = sync
         private set
@@ -209,9 +210,14 @@ class Account(
     private suspend fun removeCopy(): LocalCleanup {
         check(store.removalPending) { "Removing the phone's copy without a pending removal" }
         sync.retire()
-        // Before the clear: a finished Save all's outcome describes the copy being removed.
-        forgetSaveAll()
         store.clear()
+        // A restarted job must not acquire the next copy after the pending removal is forgotten.
+        try {
+            forgetSaveAll()
+        } catch (error: SQLiteException) {
+            Log.w("RepoRead", "Could not cancel and forget Save all before removing the phone's copy", error)
+            return LocalCleanup.DatabaseFailed(error)
+        }
         val outcome = sync.clearRetiredCopy()
         if (outcome == LocalCleanup.Done) {
             store.finishRemoval()
