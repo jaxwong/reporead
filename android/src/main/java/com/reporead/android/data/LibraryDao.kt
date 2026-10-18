@@ -214,16 +214,16 @@ interface LibraryDao {
     fun waitingCount(): Flow<Int>
 
     /**
-     * Notes in the saved lists whose title or path matches, and saved copies whose title, path, or text matches.
-     * [pattern] is a LIKE pattern with \ as the escape character (ASCII letters match case-insensitively).
+     * One row per matching note, named by its documents row: notes in the saved lists, and notes removed from their
+     * repository whose saved copy is still kept, whose title, path, or saved text matches. [pattern] is a LIKE pattern
+     * with \ as the escape character (ASCII letters match case-insensitively).
      */
     @Query(
-        """select id as documentId, title, path, null as searchText from documents
-              where not deleted and (title like :pattern escape '\' or path like :pattern escape '\')
-              union
-              select documentId, title, path, case when searchText like :pattern escape '\' then searchText end from notes
-              where title like :pattern escape '\' or path like :pattern escape '\' or searchText like :pattern escape '\'
-              order by title limit :limit"""
+        """select d.id as documentId, d.title, d.path, case when n.searchText like :pattern escape '\' then n.searchText end as searchText
+              from documents d left join notes n on n.documentId = d.id
+              where (not d.deleted or n.documentId is not null)
+              and (d.title like :pattern escape '\' or d.path like :pattern escape '\' or n.searchText like :pattern escape '\')
+              order by d.title limit :limit"""
     )
     suspend fun searchNotes(pattern: String, limit: Int): List<NoteMatch>
 

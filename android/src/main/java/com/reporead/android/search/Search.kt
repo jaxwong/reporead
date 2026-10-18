@@ -59,14 +59,8 @@ internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
     val pattern = likePattern(query)
     val notes = dao.searchNotes(pattern, SEARCH_LIMIT)
     val highlights = dao.searchHighlights(pattern, SEARCH_LIMIT)
-    // A note can match as a list entry and as a saved copy; the text match is the more useful one.
-    val byNote =
-        notes
-            .groupBy { it.documentId }
-            .values
-            .map { matches -> matches.firstOrNull { it.searchText != null } ?: matches.first() }
     val results =
-        byNote.map { note ->
+        notes.map { note ->
             SearchResult(
                 note.documentId,
                 note.title,
