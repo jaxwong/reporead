@@ -182,7 +182,7 @@ These come from the original implementation spec's engineering invariants and th
 **A back-stack entry's saved UI state is its own, from its push until it leaves the stack, and saved state is restored only by the build that saved it.**
 
 - Enforced by: Navigation 3's saved-state decorator, keyed by each `Entry`'s id and kept above the account screen (`RepoReadApp`); `MainActivity` drops saved instance state that records another build (`savedByThisBuild`).
-- Checked by: `AppNavigationTest` (a repeated note, recreation, restoration through a Parcel, account screens over the stack, a fresh root after sign-out) and `NavigationTest` (every destination through the saved-state encoding; another build's state).
+- Checked by: `AppNavigationTest` (a repeated note, recreation, restoration through a Parcel, account screens over the stack, a fresh root after sign-out) and `NavigationTest` (every destination through the saved-state encoding; `savedByThisBuild` on another build's state). Its use in `MainActivity` is checked by review only, as launching `MainActivity` in a test would use the dev app's real data.
 - Why: Compose keeps saved state by place, so another build's state can be read in the wrong format; [ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-build).
 
 ## Constraints on reader code
