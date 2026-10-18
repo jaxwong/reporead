@@ -99,6 +99,57 @@ class ContractTest {
     }
 
     @Test
+    fun inconsistentSnapshotIdentitiesAndReferencesCannotAuthorizeReplacement() {
+        val original = testLibrary()
+        val repository = original.repositories.single()
+        val document = repository.documents.single()
+        val notebook = original.notebook
+        val highlight = notebook.annotations.first()
+        val card = notebook.annotations.last()
+        val review = notebook.reviews.single()
+        val reading = original.readingStates.single()
+        val bookmark = original.bookmarks.single()
+        val brokenSnapshots =
+            listOf(
+                original.copy(repositories = listOf(repository, repository)),
+                original.copy(
+                    repositories =
+                        listOf(repository.copy(documents = listOf(document, document.copy(path = "other.md"))))
+                ),
+                original.copy(repositories = listOf(repository, repository.copy(id = 8))),
+                original.copy(readingStates = listOf(reading, reading)),
+                original.copy(bookmarks = listOf(bookmark, bookmark)),
+                original.copy(readingStates = listOf(reading.copy(documentId = 99))),
+                original.copy(bookmarks = listOf(bookmark.copy(documentId = 99))),
+                original.copy(notebook = notebook.copy(annotations = listOf(highlight.copy(documentId = 99), card))),
+                original.copy(notebook = notebook.copy(annotations = listOf(highlight, card.copy(id = highlight.id)))),
+                original.copy(
+                    notebook =
+                        notebook.copy(annotations = listOf(highlight, card.copy(mutationId = highlight.mutationId)))
+                ),
+                original.copy(notebook = notebook.copy(reviews = listOf(review, review))),
+                original.copy(
+                    notebook = notebook.copy(reviews = listOf(review.copy(cardMutationId = "test-only-missing-card")))
+                ),
+                original.copy(
+                    notebook = notebook.copy(reviews = listOf(review.copy(cardMutationId = highlight.mutationId)))
+                ),
+            )
+        for (snapshot in brokenSnapshots) broken<LibrarySnapshot>(wire(snapshot))
+        assertEquals(original, decodeResponse<LibrarySnapshot>(wire(original), 200))
+        val empty =
+            testLibrary(
+                repositories = emptyList(),
+                readingStates = emptyList(),
+                bookmarks = emptyList(),
+                annotations = emptyList(),
+                reviews = emptyList(),
+            )
+        assertEquals(empty, decodeResponse<LibrarySnapshot>(wire(empty), 200))
+        assertEquals(original, decodeResponse<LibrarySnapshot>(wire(original), 200))
+    }
+
+    @Test
     fun aMalformedTimeBreaksTheContractInsteadOfCrashing() {
         val review = json(testReview())
         val error = broken<ReviewsReview>(review.with("reviewedAt", "\"not-a-time\""))
