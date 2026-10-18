@@ -16,12 +16,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.reporead.android.core.network.ChangeStatus
+import com.reporead.android.core.network.ChangedSection
+import com.reporead.android.core.network.Changes
 import com.reporead.android.core.network.Load
+import com.reporead.android.core.network.SectionChange
 import com.reporead.android.core.network.describe
-import com.reporead.android.sync.ChangeStatus
-import com.reporead.android.sync.ChangedSection
-import com.reporead.android.sync.Changes
-import com.reporead.android.sync.SectionChange
 
 private fun lines(added: Int, removed: Int) =
     listOfNotNull(if (added > 0) "+$added" else null, if (removed > 0) "−$removed" else null)

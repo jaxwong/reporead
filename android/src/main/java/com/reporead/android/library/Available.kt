@@ -21,55 +21,24 @@ import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.core.network.Available
+import com.reporead.android.core.network.ConnectRequest
 import com.reporead.android.core.network.LoadContent
-import com.reporead.android.core.network.contract
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.rememberLoad
-import com.reporead.android.core.network.string
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.StatusLine
 import kotlinx.coroutines.launch
-import org.json.JSONObject
-
-/** A repository both this user and the RepoRead GitHub App can read; [connectionId] is set once it is connected. */
-private data class Available(
-    val githubRepositoryId: Long,
-    val installationId: Long,
-    val fullName: String,
-    val privateRepository: Boolean,
-    val connectionId: Long?,
-)
-
-private suspend fun availableRepositories(api: Api): List<Available> {
-    val json = api.get("/api/repositories/available")
-    return contract {
-        val array = json.getJSONArray("repositories")
-        List(array.length()) {
-            val item = array.getJSONObject(it)
-            Available(
-                item.getLong("githubRepositoryId"),
-                item.getLong("installationId"),
-                item.string("fullName"),
-                item.getBoolean("privateRepository"),
-                if (item.isNull("connectionId")) null else item.getLong("connectionId"),
-            )
-        }
-    }
-}
 
 /**
  * Connects [repository] and returns its top folder. Connecting a connected repository again keeps its data and takes
  * GitHub's current name and default branch: the way back after either is renamed on GitHub.
  */
 private suspend fun connect(api: Api, repository: Available): Screen.Folder {
-    val json =
-        api.post(
-            "/api/repositories/${repository.githubRepositoryId}/connect",
-            JSONObject().put("installationId", repository.installationId),
-        )
-    return contract { Screen.Folder(json.getLong("id"), json.string("fullName"), "") }
+    val connected = api.connectRepository(repository.githubRepositoryId, ConnectRequest(repository.installationId))
+    return Screen.Folder(connected.id, connected.fullName, "")
 }
 
 @Composable
@@ -79,7 +48,7 @@ fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit)
     var connecting by remember { mutableStateOf<Long?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    val load by rememberLoad(reload) { availableRepositories(api) }
+    val load by rememberLoad(reload) { api.availableRepositories().repositories }
 
     fun connectTo(repository: Available) {
         connecting = repository.githubRepositoryId

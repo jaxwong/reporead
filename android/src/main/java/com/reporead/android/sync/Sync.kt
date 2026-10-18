@@ -2,12 +2,20 @@ package com.reporead.android.sync
 
 import android.database.sqlite.SQLiteException
 import android.util.Log
-import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.contract
+import com.reporead.android.core.network.Changes
+import com.reporead.android.core.network.CheckRequest
+import com.reporead.android.core.network.CreateAnnotationRequest
+import com.reporead.android.core.network.EditAnnotationRequest
+import com.reporead.android.core.network.ReadingAnchor
+import com.reporead.android.core.network.ReadingRequest
+import com.reporead.android.core.network.ReattachRequest
+import com.reporead.android.core.network.ReviewRequest
+import com.reporead.android.core.network.StoredData
 import com.reporead.android.core.network.describe
-import com.reporead.android.core.network.string
+import com.reporead.android.core.network.invalidResponse
+import com.reporead.android.core.network.wireJson
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
@@ -32,44 +40,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
-
-/** How a section differs between two versions (the server's NoteChanges.Change). */
-enum class SectionChange {
-    ADDED,
-    CHANGED,
-    REMOVED,
-}
-
-/** A changed section; empty [headingPath] is the beginning of the note; [blockId] is in the newer version. */
-data class ChangedSection(
-    val change: SectionChange,
-    val headingPath: List<String>,
-    val blockId: String?,
-    val addedLines: Int,
-    val removedLines: Int,
-)
-
-/** The server's answer to comparing two versions (DocumentController.ChangeStatus). */
-enum class ChangeStatus {
-    /** With [Changes.sections]. */
-    CHANGED,
-    UNCHANGED,
-    /** The older version can't be read any more; [Changes.reason] says why. */
-    SINCE_UNAVAILABLE,
-    TOO_LARGE,
-}
-
-/** The server's comparison of the version last read with the one on screen. */
-data class Changes(
-    val status: ChangeStatus,
-    val reason: String?,
-    val addedLines: Int,
-    val removedLines: Int,
-    val sections: List<ChangedSection>,
-)
 
 /**
  * The page format this app needs from the server (MarkdownRenderer.FORMAT): 2 adds note links and Obsidian embeds, 3
@@ -80,16 +50,29 @@ const val RENDER_FORMAT = 3
 /** Where notebook exports are written; res/xml/export_paths.xml shares exactly this directory and nothing else. */
 fun exportDirectory(filesDir: File) = File(filesDir, "exports")
 
-private val REFUSAL_STATUSES = setOf(400, 404, 409, 410, 422)
-
 /**
  * The server answered and refused this one request for a reason resending it cannot change (invalid, gone, a
  * conflicting edit): the item is marked or dropped and the run goes on. Any other failure — unreachable, signed out,
  * access denied, GitHub or the server failing, a renamed repository that only connecting it again fixes, or an answer
  * that is not RepoRead's — says nothing about the item, which stays pending.
  */
-internal fun ApiException.refusesItem() =
-    status in REFUSAL_STATUSES && !code.startsWith("HTTP_") && code != "REPOSITORY_RENAMED"
+internal fun ApiException.refusesItem(): Boolean =
+    when (code) {
+        "INVALID_REQUEST",
+        "INVALID_ANNOTATION",
+        "INVALID_READING_STATE",
+        "INVALID_REVIEW" -> status == 400
+        "NOT_FOUND",
+        "SOURCE_NOT_FOUND" -> status == 404
+        "ANNOTATION_CONFLICT",
+        "MUTATION_ID_REUSED",
+        "CARD_CHANGED" -> status == 409
+        "ANNOTATION_DELETED",
+        "DOCUMENT_DELETED" -> status == 410
+        "INVALID_ANCHOR",
+        "UNSUPPORTED_CONTENT" -> status == 422
+        else -> false
+    }
 
 /**
  * What one sync could not do. [refused]: reading positions and bookmark changes the server refused; a refused position
@@ -181,57 +164,33 @@ class Sync(
      * with the answer lost), or referred to by nothing ([sweepImages]).
      */
     private suspend fun loadLibrary() {
-        val json = api.get("/api/library", BuildConfig.LIBRARY_MAX_RESPONSE_BYTES)
-        val library = contract {
-            val array = json.getJSONArray("repositories")
-            List(array.length()) {
-                    val item = array.getJSONObject(it)
-                    val id = item.getLong("id")
-                    RepositoryRow(
-                        id,
-                        item.string("fullName"),
-                        item.getInt("documentCount"),
-                        item.nullableString("lastSyncedCommitSha"),
-                    ) to documentRows(id, item.getJSONArray("documents"))
-                }
-                .toMap()
-        }
-        val reading = contract {
-            json.getJSONArray("readingStates").let { array ->
-                List(array.length()) { readingRow(array.getJSONObject(it)) }
+        val answer = api.library()
+        val library =
+            answer.repositories.associate { repository ->
+                RepositoryRow(
+                    repository.id,
+                    repository.fullName,
+                    repository.documentCount,
+                    repository.lastSyncedCommitSha,
+                ) to
+                    repository.documents.map { document ->
+                        DocumentRow(
+                            document.id,
+                            repository.id,
+                            document.path,
+                            document.title,
+                            document.blobSha,
+                            document.contentChangedAt?.toEpochMilli(),
+                            document.deleted,
+                        )
+                    }
             }
-        }
-        val bookmarks = contract {
-            json.getJSONArray("bookmarks").let { array ->
-                List(array.length()) {
-                    val item = array.getJSONObject(it)
-                    BookmarkRow(
-                        item.getLong("documentId"),
-                        bookmarked = true,
-                        pending = false,
-                        Instant.parse(item.string("createdAt")).toEpochMilli(),
-                    )
-                }
-            }
-        }
-        val (annotations, reviews, limit) = notebookRows(contract { json.getJSONObject("notebook") })
-        dao.replaceFromServer(library, reading, bookmarks, annotations, reviews, limit)
+        val reading = answer.readingStates.map { it.toRow() }
+        val bookmarks = answer.bookmarks.map { BookmarkRow(it.documentId, true, false, it.createdAt.toEpochMilli()) }
+        val annotations = answer.notebook.annotations.map { it.toRow() }
+        val reviews = answer.notebook.reviews.map { it.toRow() }
+        dao.replaceFromServer(library, reading, bookmarks, annotations, reviews, answer.notebook.sessionLimit)
         sweepImages()
-    }
-
-    private fun documentRows(repositoryId: Long, array: JSONArray) = contract {
-        List(array.length()) {
-            val item = array.getJSONObject(it)
-            DocumentRow(
-                item.getLong("id"),
-                repositoryId,
-                item.string("path"),
-                item.string("title"),
-                item.string("blobSha"),
-                item.nullableString("contentChangedAt")?.let { Instant.parse(it).toEpochMilli() },
-                item.getBoolean("deleted"),
-            )
-        }
     }
 
     /** Reloads the server's whole library (one request, no GitHub call); pending changes wait for a sync. */
@@ -239,7 +198,7 @@ class Sync(
 
     /** Asks the backend to reconcile with GitHub, then reloads the now-current library. */
     suspend fun refreshFromGitHub(repositoryId: Long) = locked {
-        api.post("/api/repositories/$repositoryId/sync")
+        api.syncRepository(repositoryId)
         loadLibrary()
     }
 
@@ -288,23 +247,19 @@ class Sync(
      * all.
      */
     private suspend fun fetchNote(documentId: Long): NoteRow {
-        val json = api.get("/api/documents/$documentId/content")
-        val note = contract {
+        val answer = api.noteContent(documentId)
+        val note =
             NoteRow(
                 documentId,
-                json.string("sourceBlobSha"),
-                json.string("path"),
-                json.string("title"),
-                json.string("html"),
+                answer.sourceBlobSha,
+                answer.path,
+                answer.title,
+                answer.html,
                 System.currentTimeMillis(),
-                json.string("text"),
-                json.getInt("renderFormat"),
-                json.string("snapshotCommitSha").also {
-                    if (!it.matches(Regex("[0-9a-f]{40}")))
-                        throw JSONException("snapshotCommitSha must be a lowercase Git SHA-1: $it")
-                },
+                answer.text,
+                answer.renderFormat,
+                answer.snapshotCommitSha,
             )
-        }
         dao.saveNote(note)
         // Images left behind are logged and skipped: the page asks only for this version's, and the next sweep deletes
         // them.
@@ -367,36 +322,8 @@ class Sync(
      * nothing is cached.
      */
     suspend fun changes(documentId: Long, since: String, to: String): Changes = locked {
-        val json = api.get("/api/documents/$documentId/changes?since=$since&to=$to")
-        contract {
-            val sections = json.getJSONArray("sections")
-            Changes(
-                json.enumValue<ChangeStatus>("status"),
-                json.nullableString("reason"),
-                json.getInt("addedLines"),
-                json.getInt("removedLines"),
-                List(sections.length()) {
-                    val item = sections.getJSONObject(it)
-                    val path = item.getJSONArray("headingPath")
-                    ChangedSection(
-                        item.enumValue<SectionChange>("change"),
-                        List(path.length()) { index -> path.string(index) },
-                        item.nullableString("blockId"),
-                        item.getInt("addedLines"),
-                        item.getInt("removedLines"),
-                    )
-                },
-            )
-        }
+        api.changes(documentId, since, to)
     }
-
-    data class StoredData(
-        val documents: Int,
-        val readingStates: Int,
-        val bookmarks: Int,
-        val highlights: Int,
-        val cards: Int,
-    )
 
     /**
      * What disconnecting would delete: [stored] on the server, counted after sending what can be sent, and [unsent]
@@ -414,24 +341,15 @@ class Sync(
         val synced = sendPending().also { loadLibrary() }
         val json =
             try {
-                api.get("/api/repositories/$repositoryId/stored-data")
+                api.storedData(repositoryId)
             } catch (error: ApiException) {
-                if (error.code != "NOT_FOUND") throw error
+                if (error.status != 404 || error.code != "NOT_FOUND") throw error
                 Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
                 loadLibrary()
                 deleteExports()
                 return@locked null
             }
-        val stored = contract {
-            StoredData(
-                json.getInt("documents"),
-                json.getInt("readingStates"),
-                json.getInt("bookmarks"),
-                json.getInt("highlights"),
-                json.getInt("cards"),
-            )
-        }
-        DisconnectPreview(stored, dao.unsentInRepository(repositoryId), synced.notSent?.describe())
+        DisconnectPreview(json, dao.unsentInRepository(repositoryId), synced.notSent?.describe())
     }
 
     /**
@@ -444,19 +362,16 @@ class Sync(
     suspend fun disconnect(repositoryId: Long): Unit = locked {
         val json =
             try {
-                api.delete("/api/repositories/$repositoryId")
-                    ?: throw ApiException(204, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
+                api.disconnectRepository(repositoryId)
             } catch (error: ApiException) {
-                if (error.code != "NOT_FOUND") throw error
+                if (error.status != 404 || error.code != "NOT_FOUND") throw error
                 null
             }
         if (json == null) {
             Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
             loadLibrary()
         } else {
-            val documentIds = contract {
-                json.getJSONArray("documentIds").let { array -> List(array.length()) { array.getLong(it) } }
-            }
+            val documentIds = json.documentIds
             dao.forgetRepository(repositoryId, documentIds)
             Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
             sweepImages()
@@ -527,14 +442,15 @@ class Sync(
         val refused = mutableListOf<String>()
         for (row in dao.pendingReading()) {
             val body =
-                JSONObject()
-                    .put("lastReadBlobSha", row.lastReadBlobSha)
-                    .put("progressPercent", row.progressPercent)
-                    .put("anchor", JSONObject(row.anchorJson))
-                    .put("lastReadAt", Instant.ofEpochMilli(row.lastReadAt).toString())
+                ReadingRequest(
+                    row.lastReadBlobSha,
+                    row.progressPercent,
+                    wireJson.decodeFromString<ReadingAnchor>(row.anchorJson),
+                    Instant.ofEpochMilli(row.lastReadAt),
+                )
             val current =
                 try {
-                    api.put("/api/documents/${row.documentId}/reading-state", body)
+                    api.saveReading(row.documentId, body).toRow()
                 } catch (error: ApiException) {
                     if (!error.refusesItem()) throw error
                     Log.w("RepoRead", "Reading state refused; documentId=${row.documentId} code=${error.code}")
@@ -546,15 +462,15 @@ class Sync(
                     continue
                 }
             dao.acknowledgeReading(row.documentId, row.lastReadAt)
-            dao.mergeRemoteReading(readingRow(current))
+            dao.mergeRemoteReading(current)
         }
         for (row in dao.pendingBookmarks()) {
             try {
                 if (row.bookmarked) {
-                    api.put("/api/documents/${row.documentId}/bookmark")
+                    api.setBookmark(row.documentId)
                     dao.acknowledgeBookmarkSet(row.documentId, row.changedAt)
                 } else {
-                    api.delete("/api/documents/${row.documentId}/bookmark")
+                    api.clearBookmark(row.documentId)
                     dao.acknowledgeBookmarkCleared(row.documentId, row.changedAt)
                 }
             } catch (error: ApiException) {
@@ -623,21 +539,19 @@ class Sync(
      */
     private suspend fun sendCreation(row: AnnotationRow, deleting: Boolean): AnnotationRow? {
         val body =
-            JSONObject()
-                .put("mutationId", row.mutationId)
-                .put("type", row.type.name)
-                .put("question", row.question ?: JSONObject.NULL)
-                .put("note", row.note ?: JSONObject.NULL)
-                .put(
-                    "anchor",
-                    Passage(row.sourceBlobSha, row.blockId, row.startOffset, row.endOffset, row.exactText).anchorJson(),
-                )
+            CreateAnnotationRequest(
+                row.mutationId,
+                Passage(row.sourceBlobSha, row.blockId, row.startOffset, row.endOffset, row.exactText).anchor(),
+                row.note,
+                row.type,
+                row.question,
+            )
         val created =
             try {
-                api.post("/api/documents/${row.documentId}/annotations", body)
+                api.createAnnotation(row.documentId, body).toRow()
             } catch (error: ApiException) {
                 when {
-                    error.code == "ANNOTATION_DELETED" || (deleting && error.refusesItem()) ->
+                    (error.status == 410 && error.code == "ANNOTATION_DELETED") || (deleting && error.refusesItem()) ->
                         dao.removeAnnotation(row.mutationId)
                     error.refusesItem() -> dao.rejectAnnotation(row.mutationId, error.describe())
                     else -> {
@@ -654,7 +568,7 @@ class Sync(
                 )
                 return null
             }
-        return annotationRow(created).also { dao.saveServerAnnotation(it) }
+        return created.also { dao.saveServerAnnotation(it) }
     }
 
     /**
@@ -664,7 +578,7 @@ class Sync(
     private suspend fun sendDeletion(row: AnnotationRow) {
         val serverId = checkNotNull(row.serverId) { "Deleting ${row.mutationId} needs its server id" }
         try {
-            api.delete("/api/annotations/$serverId?expectedVersion=${row.version}")
+            api.deleteAnnotation(serverId, row.version)
         } catch (error: ApiException) {
             if (!error.refusesItem()) {
                 Log.w("RepoRead", "Highlight deletions stopped; annotationId=$serverId code=${error.code}")
@@ -684,15 +598,8 @@ class Sync(
     /** Pending creations are sent first, so the server's list already contains them where possible. */
     suspend fun refreshAnnotations(documentId: Long) = locked {
         sendAnnotations()
-        val json = api.get("/api/documents/$documentId/annotations")
-        dao.replaceRemoteAnnotations(
-            documentId,
-            contract {
-                json.getJSONArray("annotations").let { array ->
-                    List(array.length()) { annotationRow(array.getJSONObject(it)) }
-                }
-            },
-        )
+        val rows = api.annotations(documentId).annotations.map { it.toRow() }
+        dao.replaceRemoteAnnotations(documentId, rows)
     }
 
     /** Online only. A 409 ANNOTATION_CONFLICT means another edit landed first; nothing local changes. */
@@ -701,13 +608,7 @@ class Sync(
             checkNotNull(row.serverId) {
                 "Only acknowledged highlights can be edited; ${row.mutationId} is pending"
             }
-        val updated =
-            annotationRow(
-                api.patch(
-                    "/api/annotations/$serverId",
-                    JSONObject().put("note", note ?: JSONObject.NULL).put("expectedVersion", expectedVersion),
-                )
-            )
+        val updated = api.editAnnotation(serverId, EditAnnotationRequest(note, expectedVersion)).toRow()
         dao.saveAnnotation(updated)
         updated
     }
@@ -721,13 +622,7 @@ class Sync(
             checkNotNull(row.serverId) {
                 "Only acknowledged highlights can be reattached; ${row.mutationId} is pending"
             }
-        val updated =
-            annotationRow(
-                api.post(
-                    "/api/annotations/$serverId/reattach",
-                    JSONObject().put("expectedVersion", row.version).put("anchor", passage.anchorJson()),
-                )
-            )
+        val updated = api.reattachAnnotation(serverId, ReattachRequest(row.version, passage.anchor())).toRow()
         dao.saveAnnotation(updated)
         updated
     }
@@ -743,9 +638,9 @@ class Sync(
             AnnotationState.ACKNOWLEDGED -> {
                 val serverId = checkNotNull(row.serverId) { "Acknowledged ${row.mutationId} has no server id" }
                 try {
-                    api.delete("/api/annotations/$serverId?expectedVersion=${row.version}")
+                    api.deleteAnnotation(serverId, row.version)
                 } catch (error: ApiException) {
-                    if (error.code != "NOT_FOUND") throw error
+                    if (error.status != 404 || error.code != "NOT_FOUND") throw error
                 }
                 dao.removeAnnotation(row.mutationId)
             }
@@ -756,21 +651,6 @@ class Sync(
             }
             AnnotationState.DELETING -> error("Highlight ${row.mutationId} is already being deleted; it is not shown")
         }
-    }
-
-    /**
-     * The library's notebook: every acknowledged highlight and card, the review log, and the server's session limit.
-     */
-    private fun notebookRows(json: JSONObject) = contract {
-        val annotations = json.getJSONArray("annotations")
-        val reviews = json.getJSONArray("reviews")
-        val limit = json.getInt("sessionLimit")
-        if (limit <= 0) throw JSONException("Expected a positive server sessionLimit, got $limit")
-        Triple(
-            List(annotations.length()) { annotationRow(annotations.getJSONObject(it)) },
-            List(reviews.length()) { reviewRow(reviews.getJSONObject(it)) },
-            limit,
-        )
     }
 
     private suspend fun sendReviews() {
@@ -787,13 +667,14 @@ class Sync(
             val id = card.serverId ?: continue
             val remote =
                 try {
-                    api.post(
-                        "/api/annotations/$id/reviews",
-                        JSONObject()
-                            .put("mutationId", row.mutationId)
-                            .put("grade", row.grade)
-                            .put("reviewedAt", Instant.ofEpochMilli(row.reviewedAt).toString())
-                            .put("blobSha", row.blobSha),
+                    api.recordReview(
+                        id,
+                        ReviewRequest(
+                            row.mutationId,
+                            row.grade,
+                            Instant.ofEpochMilli(row.reviewedAt),
+                            row.blobSha,
+                        ),
                     )
                 } catch (error: ApiException) {
                     if (!error.refusesItem()) throw error
@@ -801,20 +682,14 @@ class Sync(
                     Log.w("RepoRead", "Review refused; cardId=$id mutationId=${row.mutationId} code=${error.code}")
                     continue
                 }
-            dao.saveReview(reviewRow(remote))
+            if (remote.cardMutationId != row.cardMutationId) throw invalidResponse(200)
+            dao.saveReview(remote.toRow())
         }
     }
 
     suspend fun checkCard(row: AnnotationRow, blobSha: String) = locked {
         val id = checkNotNull(row.serverId) { "Only acknowledged cards can be confirmed; ${row.mutationId} is pending" }
-        dao.saveAnnotation(
-            annotationRow(
-                api.post(
-                    "/api/annotations/$id/check",
-                    JSONObject().put("expectedVersion", row.version).put("blobSha", blobSha),
-                )
-            )
-        )
+        dao.saveAnnotation(api.checkCard(id, CheckRequest(row.version, blobSha)).toRow())
     }
 
     /** Owns export files, not their Markdown formatting or Android sharing. A retired copy cannot publish. */

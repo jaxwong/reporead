@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
     id("com.diffplug.spotless")
 }
@@ -116,6 +117,10 @@ android {
         buildConfig = true
     }
 
+    sourceSets.getByName("test").resources.directories.add(rootProject.file("backend/src/test/resources").absolutePath)
+
+    sourceSets.getByName("androidTest").assets.directories.add(rootProject.file("backend/src/test/resources").absolutePath)
+
     // Migration tests construct the exact previously shipped schema; these assets are test-only.
     sourceSets.getByName("androidTest").assets.directories.add(file("schemas").absolutePath)
 
@@ -147,6 +152,8 @@ androidComponents.onVariants { variant ->
 }
 
 dependencies {
+    // Generated wire shapes replace scattered org.json parsing; scalar strictness stays in our boundary.
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     // Offline study extraction needs a DOM parser for the saved, sanitized pages (including loose/nested lists).
     implementation("org.jsoup:jsoup:${rootProject.extra["jsoupVersion"]}")
     implementation(platform("androidx.compose:compose-bom:2026.08.00"))

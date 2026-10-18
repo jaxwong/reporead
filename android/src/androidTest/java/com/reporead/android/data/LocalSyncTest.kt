@@ -110,7 +110,7 @@ class LocalSyncTest {
     /** The server's page of note [id] at version [sha]. */
     private fun content(id: Int) =
         200 to
-            """{"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
+            """{"documentId":$id,"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
             "renderFormat":$RENDER_FORMAT,"snapshotCommitSha":"$sha"}"""
 
     /** What the folder screen shows for a Save all run in [state] with this [output] and [progress]. */
@@ -150,7 +150,8 @@ class LocalSyncTest {
                 emptyLibrary +
                     mapOf(
                         "PUT /api/documents/1/reading-state" to failure(400, "INVALID_READING_STATE"),
-                        "PUT /api/documents/2/bookmark" to (200 to """{"documentId":2}"""),
+                        "PUT /api/documents/2/bookmark" to
+                            (200 to """{"documentId":2,"createdAt":"1970-01-01T00:00:00Z"}"""),
                     )
             )
             .use { server ->
@@ -486,14 +487,13 @@ class LocalSyncTest {
         val oversized = """{"repositories":[],"padding":"${"x".repeat(8 * 1024 * 1024)}"}"""
         val answered =
             LoopbackServer(mapOf("GET /api/library" to (200 to oversized))).use { server ->
-                runCatching { Api(server.url, { StoredSession.Absent }) {}.get("/api/library") }.exceptionOrNull()
-                    as ApiException
+                runCatching { Api(server.url, { StoredSession.Absent }) {}.library() }.exceptionOrNull() as ApiException
             }
         assertEquals("INVALID_RESPONSE", answered.code)
         assertEquals(200, answered.status)
         assertFalse(answered.unreachable)
         val silent =
-            runCatching { Api("http://127.0.0.1:${closedPort()}", { StoredSession.Absent }) {}.get("/api/library") }
+            runCatching { Api("http://127.0.0.1:${closedPort()}", { StoredSession.Absent }) {}.library() }
                 .exceptionOrNull() as ApiException
         assertEquals(0, silent.status)
         assertTrue(silent.unreachable)
@@ -599,6 +599,7 @@ class LocalSyncTest {
         val html = prefix + "x".repeat(1_048_576 - fixedBytes) + suffix
         val content =
             JSONObject()
+                .put("documentId", 3)
                 .put("sourceBlobSha", sha)
                 .put("path", path)
                 .put("title", title)
@@ -795,6 +796,7 @@ class LocalSyncTest {
         val answer =
             JSONObject()
                 .put("sourceBlobSha", sha)
+                .put("documentId", 1)
                 .put("snapshotCommitSha", newCommit)
                 .put("path", "n1.md")
                 .put("title", "n1")
@@ -838,6 +840,7 @@ class LocalSyncTest {
             val answer =
                 JSONObject()
                     .put("sourceBlobSha", sha)
+                    .put("documentId", 1)
                     .put("path", "n1.md")
                     .put("title", "n1")
                     .put("html", "<main>new</main>")
@@ -882,6 +885,120 @@ class LocalSyncTest {
      * whose last part breaks the contract, writes none of them and deletes no image.
      */
     @Test
+    fun aBrokenReadingSaveNeverAcknowledgesThePendingPosition() = runBlocking {
+        for (answer in
+            listOf(
+                serverReading.replace("1970-01-01T00:00:01Z", "+1000000000-12-31T23:59:59.999999999Z"),
+                serverReading.replace("1970-01-01T00:00:01Z", "not-a-time"),
+                serverReading.replace("\"documentId\":1", "\"documentId\":2"),
+                serverReading.replace("\"blockIndex\":0", "\"blockIndex\":\"0\""),
+                serverReading.replace("\"blockIndex\":0", "\"other\":0"),
+                serverReading.replace("\"progressPercent\":50", "\"progressPercent\":12.7"),
+            )) {
+            val pending = reading(1)
+            dao.saveReading(pending)
+            LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to answer))).use { server ->
+                val error = runCatching { sync(server.url).syncWaitingChanges() }.exceptionOrNull()
+                assertTrue(
+                    "Expected INVALID_RESPONSE, got $error",
+                    error is ApiException && error.code == "INVALID_RESPONSE",
+                )
+                assertEquals(pending, dao.reading(1))
+                assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
+            }
+        }
+    }
+
+    @Test
+    fun anUncertainBookmarkAnswerNeverDropsThePendingToggle() = runBlocking {
+        for ((status, body) in
+            listOf(
+                409 to """{"code":7,"message":"Test-only malformed code"}""",
+                409 to """{"code":"","message":"Test-only blank code"}""",
+                409 to """{"code":"UNKNOWN_TEST_ONLY_CODE","message":"Test-only unknown code"}""",
+                409 to """{"code":"NOT_FOUND","message":"Test-only wrong status"}""",
+                409 to "x".repeat(8 * 1024 * 1024 + 1),
+                200 to """{"documentId":2,"createdAt":"1970-01-01T00:00:00Z"}""",
+            )) {
+            val pending = BookmarkRow(1, bookmarked = true, pending = true, changedAt = 5)
+            dao.saveBookmark(pending)
+            LoopbackServer(mapOf("PUT /api/documents/1/bookmark" to (status to body))).use { server ->
+                val error = runCatching { sync(server.url).syncWaitingChanges() }.exceptionOrNull()
+                assertTrue("Expected an uncertain failure, got $error", error is ApiException)
+                assertEquals(listOf(pending), dao.pendingBookmarks())
+                assertEquals(listOf("PUT /api/documents/1/bookmark"), server.requests)
+            }
+        }
+    }
+
+    @Test
+    fun aReviewAnswerForAnotherLocalCardDoesNotAcknowledgeTheGrade() = runBlocking {
+        dao.saveAnnotation(
+            AnnotationRow(
+                "test-only-card",
+                9,
+                1,
+                sha,
+                "b1",
+                0,
+                4,
+                "text",
+                null,
+                1,
+                0,
+                AnnotationState.ACKNOWLEDGED,
+                type = AnnotationType.CARD,
+                question = "Test-only question?",
+                checkedBlobSha = sha,
+            )
+        )
+        val pending = ReviewRow("test-only-grade", "test-only-card", 4, 1_000, sha, true)
+        dao.saveReview(pending)
+        val body =
+            """{"mutationId":"test-only-grade","cardMutationId":"test-only-other-card","grade":4,"reviewedAt":"1970-01-01T00:00:01Z","blobSha":"$sha"}"""
+        LoopbackServer(mapOf("POST /api/annotations/9/reviews" to (200 to body))).use { server ->
+            val error = runCatching { sync(server.url).syncWaitingChanges() }.exceptionOrNull() as ApiException
+            assertEquals("INVALID_RESPONSE", error.code)
+            assertEquals(listOf(pending), dao.pendingReviews())
+            assertEquals(listOf("POST /api/annotations/9/reviews"), server.requests)
+        }
+    }
+
+    @Test
+    fun anUncertainDeletionStaysHiddenAndPendingUntilAConfirmedSecondRun() = runBlocking {
+        val mutation = "test-only-deletion"
+        dao.saveAnnotation(
+            AnnotationRow(mutation, null, 1, sha, "b1", 0, 4, "text", null, 1, 0, AnnotationState.UNSENT)
+        )
+        sync("http://127.0.0.1:1").deleteAnnotation(checkNotNull(dao.annotation(mutation)))
+        LoopbackServer(mapOf("POST /api/documents/1/annotations" to failure(500, "ANNOTATION_DELETED"))).use { server ->
+            val error = runCatching { sync(server.url).pushAnnotations() }.exceptionOrNull() as ApiException
+            assertEquals(500, error.status)
+            assertEquals(AnnotationState.DELETING, dao.annotation(mutation)?.state)
+            assertEquals(1, server.requests.size)
+        }
+        LoopbackServer(
+                mapOf(
+                    "POST /api/documents/1/annotations" to (200 to serverHighlight(mutation)),
+                    "DELETE /api/annotations/9?expectedVersion=1" to (200 to "{}"),
+                )
+            )
+            .use { server ->
+                val error = runCatching { sync(server.url).pushAnnotations() }.exceptionOrNull() as ApiException
+                assertEquals("INVALID_RESPONSE", error.code)
+                assertEquals(AnnotationState.DELETING, dao.annotation(mutation)?.state)
+                assertTrue(dao.annotations(1).first().isEmpty())
+                assertEquals(2, server.requests.size)
+            }
+        LoopbackServer(mapOf("DELETE /api/annotations/9?expectedVersion=1" to (204 to ""))).use { server ->
+            sync(server.url).pushAnnotations()
+            sync(server.url).pushAnnotations()
+            assertNull(dao.annotation(mutation))
+            assertEquals(listOf("DELETE /api/annotations/9?expectedVersion=1"), server.requests)
+        }
+    }
+
+    @Test
     fun aLibraryRequestThatFailsLeavesEverySavedListAndImageAsItWas() = runBlocking {
         dao.replaceRepositories(
             listOf(RepositoryRow(7, "test-only/kept", 1, sha), RepositoryRow(9, "test-only/gone", 1, sha))
@@ -911,6 +1028,21 @@ class LocalSyncTest {
             listOf(
                 failure(500, "TEST_ONLY_FAILURE") to "TEST_ONLY_FAILURE",
                 library(repositories, sessionLimit = 0) to "INVALID_RESPONSE",
+                library(repository(7, document(2).replace("false", "\"false\""))) to "INVALID_RESPONSE",
+                library(repository(7, document(2)).replace("\"lastSyncedCommitSha\"", "\"unknownCheckpoint\"")) to
+                    "INVALID_RESPONSE",
+                library(
+                    repository(7, document(2)),
+                    readingStates = serverReading.replace("\"blockIndex\":0", "\"other\":0"),
+                ) to "INVALID_RESPONSE",
+                (200 to
+                    JSONObject(library(repositories).second)
+                        .apply {
+                            getJSONObject("notebook")
+                                .getJSONArray("annotations")
+                                .put(JSONObject(serverHighlight("test-only-broken-card")).put("type", "CARD"))
+                        }
+                        .toString()) to "INVALID_RESPONSE",
             )) {
             LoopbackServer(mapOf("GET /api/library" to answer)).use { server ->
                 try {

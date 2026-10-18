@@ -6,7 +6,6 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.data.SavedVersion
 import java.io.File
 import java.io.IOException
-import java.net.URLEncoder
 import java.security.MessageDigest
 
 /**
@@ -63,9 +62,7 @@ class NoteImages(private val api: Api, filesDir: File) {
             }
         val bytes =
             try {
-                api.bytes(
-                    "/api/documents/$documentId/image?commitSha=$snapshotCommitSha&path=${URLEncoder.encode(path, Charsets.UTF_8)}"
-                )
+                api.noteImage(documentId, snapshotCommitSha, path)
             } catch (error: ApiException) {
                 Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
                 return null

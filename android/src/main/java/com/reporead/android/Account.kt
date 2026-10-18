@@ -120,7 +120,7 @@ class Account(
         scope.launch {
             val notRevoked =
                 try {
-                    api.delete("/api/app-auth/session")
+                    api.revokeSession()
                     null
                 } catch (error: ApiException) {
                     // A 401: the server had already ended it, so nothing is left to revoke.
@@ -138,7 +138,7 @@ class Account(
         if (!begin(AccountState.DeletingAccount)) return
         scope.launch {
             try {
-                api.delete("/api/account")
+                api.deleteAccount()
             } catch (error: ApiException) {
                 Log.w("RepoRead", "Account deletion not confirmed; status=${error.status} code=${error.code}")
                 current.value = AccountState.Idle(AccountNotice.DeletionNotConfirmed(error))

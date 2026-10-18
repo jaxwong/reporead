@@ -7,12 +7,10 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.time.format.DateTimeParseException
+import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
+import kotlinx.serialization.encodeToString
 
 /**
  * A failed RepoRead request. [status] is the HTTP status of the server's answer, or 0 when there was none: it was not
@@ -29,50 +27,123 @@ private const val MAX_JSON_BYTES = 8 * 1024 * 1024
 /** The backend's own image ceiling is 5 MiB; anything larger here is a contract violation. */
 const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-/**
- * The RepoRead HTTP/JSON contract client: one request per call, no retries. Each request sends the [session] read then;
- * any 401 hands [onUnauthorized] the refused session.
- */
+/** One request per public route call, no retries; only this class can execute a backend path. */
 class Api(
     private val baseUrl: String,
     private val session: () -> StoredSession,
     private val onUnauthorized: (sent: String?) -> Unit,
 ) {
-    /** [maxBytes]: the largest answer read; a response that sets its own, such as the library's, passes it. */
-    suspend fun get(path: String, maxBytes: Int = MAX_JSON_BYTES): JSONObject =
-        json("GET", path, null, maxBytes) ?: throw unexpected(200)
+    suspend fun library(): Library = json("GET", "/api/library", maxBytes = BuildConfig.LIBRARY_MAX_RESPONSE_BYTES)
 
-    suspend fun post(path: String, body: JSONObject? = null): JSONObject =
-        json("POST", path, body) ?: throw unexpected(200)
+    suspend fun exchangeToken(request: TokenRequest): IssuedSession =
+        json("POST", "/api/app-auth/token", wireJson.encodeToString(request))
 
-    suspend fun put(path: String, body: JSONObject? = null): JSONObject =
-        json("PUT", path, body) ?: throw unexpected(200)
+    suspend fun revokeSession() = noContent("DELETE", "/api/app-auth/session")
 
-    suspend fun patch(path: String, body: JSONObject): JSONObject = json("PATCH", path, body) ?: throw unexpected(200)
+    suspend fun deleteAccount(): AccountDeleted = json("DELETE", "/api/account")
 
-    /** The response body, or null for 204 No Content. */
-    suspend fun delete(path: String): JSONObject? = json("DELETE", path, null)
+    suspend fun availableRepositories(): AvailableList = json("GET", "/api/repositories/available")
 
-    /** Blocking; for callers already on a background thread, such as WebView request interception. */
-    fun bytes(path: String): ByteArray = execute("GET", path, null, MAX_IMAGE_BYTES, "*/*") ?: throw unexpected(204)
-
-    private suspend fun json(
-        method: String,
-        path: String,
-        body: JSONObject?,
-        maxBytes: Int = MAX_JSON_BYTES,
-    ): JSONObject? =
-        withContext(Dispatchers.IO) {
-            val bytes = execute(method, path, body, maxBytes, "application/json") ?: return@withContext null
-            try {
-                JSONObject(bytes.toString(Charsets.UTF_8))
-            } catch (error: JSONException) {
-                throw unexpected(200)
-            }
+    suspend fun connectRepository(githubRepositoryId: Long, request: ConnectRequest): Connection =
+        json("POST", "/api/repositories/$githubRepositoryId/connect", wireJson.encodeToString(request)) {
+            it.githubRepositoryId == githubRepositoryId
         }
 
-    private fun execute(method: String, path: String, body: JSONObject?, maxBytes: Int, accept: String): ByteArray? {
+    suspend fun syncRepository(id: Long): RepositorySynced =
+        json("POST", "/api/repositories/$id/sync") { it.repositoryId == id }
+
+    suspend fun storedData(id: Long): StoredData = json("GET", "/api/repositories/$id/stored-data")
+
+    suspend fun disconnectRepository(id: Long): Disconnected = json("DELETE", "/api/repositories/$id")
+
+    suspend fun noteContent(id: Long): NoteContent = json("GET", "/api/documents/$id/content") { it.documentId == id }
+
+    suspend fun changes(id: Long, since: String, to: String): Changes =
+        json("GET", "/api/documents/$id/changes?since=${query(since)}&to=${query(to)}") {
+            it.documentId == id && it.sinceBlobSha == since && it.toBlobSha == to
+        }
+
+    suspend fun saveReading(id: Long, request: ReadingRequest): ReadingState =
+        json("PUT", "/api/documents/$id/reading-state", wireJson.encodeToString(request)) { it.documentId == id }
+
+    suspend fun setBookmark(id: Long): Bookmark = json("PUT", "/api/documents/$id/bookmark") { it.documentId == id }
+
+    suspend fun clearBookmark(id: Long) = noContent("DELETE", "/api/documents/$id/bookmark")
+
+    suspend fun annotations(id: Long): AnnotationList =
+        json("GET", "/api/documents/$id/annotations") { it.annotations.all { row -> row.documentId == id } }
+
+    suspend fun createAnnotation(id: Long, request: CreateAnnotationRequest): Annotation =
+        json("POST", "/api/documents/$id/annotations", wireJson.encodeToString(request), statuses = setOf(200, 201)) {
+            it.documentId == id && it.mutationId == request.mutationId
+        }
+
+    suspend fun editAnnotation(id: Long, request: EditAnnotationRequest): Annotation =
+        json("PATCH", "/api/annotations/$id", wireJson.encodeToString(request)) { it.id == id }
+
+    suspend fun deleteAnnotation(id: Long, expectedVersion: Int) =
+        noContent("DELETE", "/api/annotations/$id?expectedVersion=$expectedVersion")
+
+    suspend fun reattachAnnotation(id: Long, request: ReattachRequest): Annotation =
+        json("POST", "/api/annotations/$id/reattach", wireJson.encodeToString(request)) { it.id == id }
+
+    suspend fun checkCard(id: Long, request: CheckRequest): Annotation =
+        json("POST", "/api/annotations/$id/check", wireJson.encodeToString(request)) { it.id == id }
+
+    suspend fun recordReview(id: Long, request: ReviewRequest): Review =
+        json("POST", "/api/annotations/$id/reviews", wireJson.encodeToString(request)) {
+            it.mutationId == request.mutationId &&
+                it.grade == request.grade &&
+                it.reviewedAt == request.reviewedAt &&
+                it.blobSha == request.blobSha
+        }
+
+    /** Blocking for WebView resource interception, which already runs on a background thread. */
+    fun noteImage(id: Long, commitSha: String, path: String): ByteArray =
+        execute(
+                "GET",
+                "/api/documents/$id/image?commitSha=${query(commitSha)}&path=${query(path)}",
+                null,
+                MAX_IMAGE_BYTES,
+                "*/*",
+                setOf(200),
+            )
+            .second
+
+    private fun query(value: String) = URLEncoder.encode(value, Charsets.UTF_8)
+
+    private suspend inline fun <reified T> json(
+        method: String,
+        path: String,
+        body: String? = null,
+        statuses: Set<Int> = setOf(200),
+        maxBytes: Int = MAX_JSON_BYTES,
+        crossinline matches: (T) -> Boolean = { true },
+    ): T =
+        withContext(Dispatchers.IO) {
+            val (status, bytes) = execute(method, path, body, maxBytes, "application/json", statuses)
+            val answer = decodeResponse<T>(bytes.toString(Charsets.UTF_8), status)
+            if (!matches(answer)) throw invalidResponse(status)
+            answer
+        }
+
+    private suspend fun noContent(method: String, path: String): Unit =
+        withContext(Dispatchers.IO) {
+            execute(method, path, null, MAX_JSON_BYTES, "application/json", setOf(204))
+            Unit
+        }
+
+    private fun execute(
+        method: String,
+        path: String,
+        body: String?,
+        maxBytes: Int,
+        accept: String,
+        statuses: Set<Int>,
+    ): Pair<Int, ByteArray> {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
+        var status = 0
+        val route = path.substringBefore('?')
         try {
             connection.requestMethod = method
             connection.connectTimeout = 15_000
@@ -85,44 +156,52 @@ class Api(
             if (body != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
-                connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             }
-            val status = connection.responseCode
-            if (status == 204) return null
-            if (status in 200..299) return connection.inputStream.use { readBounded(it, maxBytes, status) }
+            status = connection.responseCode
+            if (status in 200..299) {
+                if (status !in statuses) throw invalidResponse(status)
+                return status to
+                    if (status == 204) byteArrayOf()
+                    else connection.inputStream.use { readBounded(it, maxBytes, status) }
+            }
             if (status == 401) onUnauthorized(token)
-            // A body that is not RepoRead's {code, message} gets code HTTP_<status>, never read as RepoRead's answer.
             val error =
                 connection.errorStream
                     ?.use { readBounded(it, MAX_JSON_BYTES, status) }
                     ?.let { bytes ->
                         try {
-                            JSONObject(bytes.toString(Charsets.UTF_8))
-                        } catch (unreadable: JSONException) {
+                            wireJson.decodeFromString<Failure>(bytes.toString(Charsets.UTF_8))
+                        } catch (unreadable: IllegalArgumentException) {
                             Log.w(
                                 "RepoRead",
-                                "Error response is not RepoRead's JSON; method=$method path=$path status=$status",
+                                "Error response is not RepoRead's JSON; method=$method path=$route status=$status",
                             )
                             null
                         }
                     }
             throw ApiException(
                 status,
-                error?.optString("code")?.ifEmpty { null } ?: "HTTP_$status",
-                error?.optString("message")?.ifEmpty { null } ?: "RepoRead's server returned HTTP $status.",
+                error?.code ?: "HTTP_$status",
+                error?.message ?: "RepoRead's server returned HTTP $status.",
             )
         } catch (error: IOException) {
+            Log.w(
+                "RepoRead",
+                "Backend I/O failed; method=$method path=$route status=$status error=${error.javaClass.simpleName}",
+            )
             throw ApiException(
                 0,
                 "BACKEND_UNAVAILABLE",
                 "RepoRead's server could not be reached (${error.javaClass.simpleName}).",
+                error,
             )
         } finally {
             connection.disconnect()
         }
     }
 
-    /** The session to send, or null when signed out. One the phone cannot read now fails the request unsent. */
+    /** An unreadable session fails before anything is sent, without clearing or replacing it. */
     private fun bearerToken(): String? =
         when (val stored = session()) {
             StoredSession.Absent,
@@ -137,41 +216,12 @@ class Api(
                 )
         }
 
-    private fun unexpected(status: Int) =
-        ApiException(status, "INVALID_RESPONSE", "RepoRead's server returned an unexpected response.")
-
     private fun readBounded(stream: InputStream, maxBytes: Int, status: Int): ByteArray {
         val bytes = stream.readNBytes(maxBytes + 1)
-        if (bytes.size > maxBytes)
-            throw ApiException(status, "INVALID_RESPONSE", "RepoRead's server response exceeded $maxBytes bytes.")
+        if (bytes.size > maxBytes) throw invalidResponse(status)
         return bytes
     }
 }
-
-/**
- * Reads a successful response; a missing or mistyped field, or a malformed time, is a contract violation, not a crash.
- * The cause is kept but not logged: its message can quote the response, and so a note's text.
- */
-inline fun <T> contract(read: () -> T): T =
-    try {
-        read()
-    } catch (error: JSONException) {
-        throw contractBroken(error)
-    } catch (error: DateTimeParseException) {
-        throw contractBroken(error)
-    }
-
-/**
- * The text field [name] of a response. Not getString: Android's reads a JSON null as the text "null" and a number as
- * its digits, which would pass the contract as data.
- */
-fun JSONObject.string(name: String): String = get(name) as? String ?: throw JSONException("$name is not text")
-
-fun JSONArray.string(index: Int): String = get(index) as? String ?: throw JSONException("Item $index is not text")
-
-@PublishedApi
-internal fun contractBroken(cause: Exception) =
-    ApiException(200, "INVALID_RESPONSE", "RepoRead's server response did not match the app's contract.", cause)
 
 /**
  * A short, user-facing explanation of a failure, distinguishing the states the reader must show explicitly. The one

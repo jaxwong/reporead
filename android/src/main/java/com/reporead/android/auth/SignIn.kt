@@ -7,12 +7,10 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.net.toUri
 import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.contract
-import com.reporead.android.core.network.string
+import com.reporead.android.core.network.TokenRequest
+import com.reporead.android.core.network.invalidResponse
 import java.security.MessageDigest
 import java.security.SecureRandom
-import org.json.JSONException
-import org.json.JSONObject
 
 private val RANDOM = SecureRandom()
 
@@ -45,16 +43,10 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
  */
 internal suspend fun completeSignIn(code: String, verifier: String, api: Api, store: SessionStore) {
     val owner = store.dataOwner
-    val request = JSONObject().put("code", code).put("codeVerifier", verifier)
-    if (owner != null) request.put("expectedUserId", owner)
-    val session = api.post("/api/app-auth/token", request)
-    val (token, userId) =
-        contract {
-            val userId = session.getJSONObject("user").getLong("id")
-            if (owner != null && userId != owner)
-                throw JSONException("Session for user $userId; this phone holds $owner's data")
-            session.string("accessToken") to userId
-        }
+    val session = api.exchangeToken(TokenRequest(code, verifier, owner))
+    val userId = session.user.id
+    if (owner != null && userId != owner) throw invalidResponse(200)
+    val token = session.accessToken
     Log.i("RepoRead", "Signed in; userId=$userId firstOnThisPhone=${owner == null}")
     store.recordOwner(userId)
     store.save(token)
