@@ -356,7 +356,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                         "${counted(refused.size, "grade")} not accepted by the server, so not counted: ${refused.last().rejection}",
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { scope.launch { dao.dismissRefusedReviews() } }) { Text("Dismiss") }
+                    TextButton(onClick = { scope.launch { sync.dismissRefusedReviews() } }) { Text("Dismiss") }
                 }
             val pending = log.count { it.pending && it.rejection == null }
             if (pending > 0)

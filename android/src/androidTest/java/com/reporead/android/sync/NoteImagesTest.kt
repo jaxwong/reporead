@@ -123,4 +123,20 @@ class NoteImagesTest {
             assertArrayEquals("PNG".toByteArray(), images.image(1, sha, "a.png"))
         }
     }
+
+    @Test
+    fun aRetiredImageOwnerCannotReadTheNextCopysCacheOrFetchAgain() {
+        LoopbackServer(mapOf("GET /api/documents/1/image?commitSha=$sha&path=a.png" to (200 to "PNG"))).use { server ->
+            val api = Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}
+            val old = NoteImages(api, filesDir)
+            assertArrayEquals("PNG".toByteArray(), old.image(1, sha, "a.png"))
+            old.retire()
+            old.sweep(emptyList())
+            val fresh = NoteImages(api, filesDir)
+            assertArrayEquals("PNG".toByteArray(), fresh.image(1, sha, "a.png"))
+            assertNull(old.image(1, sha, "a.png"))
+            assertNull(old.image(1, sha, "uncached.png"))
+            assertTrue(server.requests.toString(), server.requests.size == 2)
+        }
+    }
 }

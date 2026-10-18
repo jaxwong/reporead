@@ -32,9 +32,12 @@ import java.security.GeneralSecurityException
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -188,8 +191,8 @@ class AccountTest {
     }
 
     /**
-     * A reader released, a bookmark toggled, a grade or highlight saved while sign-out waits for the server lands
-     * before the clear and is cleared; one arriving after it writes nothing.
+     * Retirement cancels new local work immediately, while revocation waits and after cleanup. The retired instance
+     * never regains authority over a fresh local copy.
      */
     @Test
     fun localChangesDuringAndAfterTheRemovalLeaveNothingBehind() = runBlocking {
@@ -207,15 +210,15 @@ class AccountTest {
                 account.signOut()
                 assertTrue(arrived.await(10, SECONDS))
                 try {
-                    assertTrue(sync.saveReading(reading().copy(lastReadAt = 2_000)))
-                    assertTrue(sync.setBookmark(1, bookmarked = true))
+                    assertRetired { sync.saveReading(reading().copy(lastReadAt = 2_000)) }
+                    assertRetired { sync.setBookmark(1, bookmarked = true) }
                 } finally {
                     release.countDown()
                 }
                 assertEquals(AccountState.Idle(null), account.settled())
-                assertFalse(sync.saveReading(reading().copy(lastReadAt = 3_000)))
-                assertFalse(sync.setBookmark(1, bookmarked = false))
-                assertNull(sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, null))
+                assertRetired { sync.saveReading(reading().copy(lastReadAt = 3_000)) }
+                assertRetired { sync.setBookmark(1, bookmarked = false) }
+                assertRetired { sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, null) }
                 assertPhoneCleared()
                 assertEquals(emptyList<Any>(), dao.bookmarks().first())
             }
@@ -467,5 +470,184 @@ class AccountTest {
                     ReaderTestActivity.content = null
                 }
             }
+    }
+
+    @Test
+    fun aPreRemovalWriteCannotSurviveSigningBackIntoTheSameAccount(): Unit = runBlocking {
+        signedInWithSavedNotes()
+        val library =
+            """{"repositories":[{"id":7,"fullName":"test-only/notes","documentCount":1,
+            "lastSyncedCommitSha":"$sha","documents":[{"id":1,"path":"a.md","title":"a","blobSha":"$sha",
+            "contentChangedAt":null,"deleted":false}]}],"readingStates":[],"bookmarks":[],
+            "notebook":{"annotations":[],"reviews":[],"sessionLimit":40}}"""
+        LoopbackServer(
+                mapOf(
+                    "DELETE /api/app-auth/session" to (204 to ""),
+                    "POST /api/app-auth/token" to (200 to """{"accessToken":"TEST_ONLY_NEXT","user":{"id":5}}"""),
+                    "GET /api/library" to (200 to library),
+                )
+            )
+            .use { server ->
+                val api = api(server.url)
+                val sync = Sync(api, store, directory) {}
+                val account = Account(sessions, api, sync, scope)
+                val started = CompletableDeferred<Unit>()
+                val release = CompletableDeferred<Unit>()
+                val oldReading = reading().copy(progressPercent = 90, lastReadAt = 2_000)
+                val oldWrite = scope.async {
+                    started.complete(Unit)
+                    release.await()
+                    sync.saveReading(oldReading)
+                }
+                started.await()
+                try {
+                    account.signOut()
+                    assertEquals(AccountState.Idle(null), account.settled())
+                    assertPhoneCleared()
+                    sessions.pendingVerifier = "test-only-verifier"
+                    account.signIn("TEST_ONLY_CODE")
+                    assertEquals(AccountState.Idle(null), account.settled())
+                    val fresh = account.sync
+                    assertTrue("Removal must publish a different Sync lifetime", fresh !== sync)
+                    fresh.refreshLibrary()
+                    assertTrue(fresh.saveReading(reading().copy(progressPercent = 10, lastReadAt = 3_000)))
+                    release.complete(Unit)
+                    assertRetired { oldWrite.await() }
+                    assertTrue(oldWrite.isCancelled)
+                    assertEquals(10, dao.reading(1)?.progressPercent)
+                } finally {
+                    release.complete(Unit)
+                }
+            }
+    }
+
+    @Test
+    fun backgroundStartCannotUploadWorkAfterRemovalWasPersisted(): Unit = runBlocking {
+        signedInWithSavedNotes()
+        dao.removeAnnotation("unsent")
+        sessions.startRemoval() // Process stopped here: the original token and unsent reading still exist.
+        LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to "{}"))).use { server ->
+            val sync = Sync(api(server.url), store, directory) {}
+            // The actual worker entry must finish the persisted removal before considering pending changes.
+            com.reporead.android.sync.backgroundSync(Account(sessions, api(server.url), sync, scope), 0)
+            assertEquals("Pending removal was bypassed by background sync", emptyList<String>(), server.requests)
+            assertPhoneCleared()
+        }
+    }
+
+    @Test
+    fun anExportAlreadyWritingIsRemovedAndQueuedExportsCannotPublish(): Unit = runBlocking {
+        signedInWithSavedNotes()
+        val writing = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        LoopbackServer(mapOf("DELETE /api/app-auth/session" to (204 to ""))).use { server ->
+            val api = api(server.url)
+            val old = Sync(api, store, directory) {}
+            val account = Account(sessions, api, old, scope)
+            account.startUp().join()
+            val exporting = scope.async {
+                old.exportNotebook {
+                    writing.countDown()
+                    check(release.await(10, SECONDS)) { "Test never released the admitted export" }
+                    "# Test-only private notebook"
+                }
+            }
+            assertTrue(writing.await(10, SECONDS))
+            val queued = scope.async {
+                old.exportNotebook { error("A queued retired export must not format or write") }
+            }
+            try {
+                account.signOut()
+                assertTrue(account.state.value is AccountState.Removing)
+                // Removal cannot finish while the admitted exporter owns the publication lock.
+                assertTrue(sessions.removalPending)
+                assertEquals(5L, sessions.dataOwner)
+            } finally {
+                release.countDown()
+            }
+            val file = exporting.await()
+            assertEquals(AccountState.Idle(null), account.settled())
+            assertFalse(file.exists())
+            assertRetired { queued.await() }
+            assertRetired { old.exportNotebook { error("A retired export must not write") } }
+            assertRetired { old.openNote(1) }
+            assertRetired { old.refreshLibrary() }
+            assertRetired { old.changesSeen(1, sha) }
+            assertRetired { old.dismissRefusedReviews() }
+            assertNull(old.images.image(1, sha, "a.png"))
+            assertEquals(listOf("DELETE /api/app-auth/session"), server.requests)
+            assertPhoneCleared()
+        }
+    }
+
+    @Test
+    fun theRealRootGateSurvivesRotationWhileRemovalWaits(): Unit = runBlocking {
+        signedInWithSavedNotes()
+        val arrived = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        LoopbackServer(mapOf("DELETE /api/app-auth/session" to (204 to ""))) {
+                arrived.countDown()
+                check(release.await(10, SECONDS))
+            }
+            .use { server ->
+                val api = api(server.url)
+                val account = Account(sessions, api, Sync(api, store, directory) {}, scope)
+                account.startUp().join()
+                account.signOut()
+                assertTrue(arrived.await(10, SECONDS))
+                ReaderTestActivity.content = {
+                    MaterialTheme { RepoReadApp(account, sessions, api, dao, scope, null, {}) }
+                }
+                try {
+                    ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+                        awaitText("Removing this phone's copy of your notes…")
+                        assertNull(findText(root(), "Library"))
+                        scenario.recreate()
+                        awaitText("Removing this phone's copy of your notes…")
+                        assertNull(findText(root(), "Library"))
+                        release.countDown()
+                        assertEquals(AccountState.Idle(null), account.settled())
+                        awaitText("Sign in with GitHub")
+                    }
+                    assertPhoneCleared()
+                } finally {
+                    release.countDown()
+                    ReaderTestActivity.content = null
+                }
+            }
+    }
+
+    @Test
+    fun aRealDatabaseWriteRefusalKeepsRemovalStoppedUntilRetry(): Unit = runBlocking {
+        signedInWithSavedNotes()
+        LoopbackServer(mapOf("DELETE /api/app-auth/session" to (204 to ""))).use { server ->
+            val account = account(server.url)
+            store.openHelper.writableDatabase.execSQL("PRAGMA query_only = ON")
+            try {
+                account.signOut()
+                val stopped = account.settled() as AccountState.Removing
+                assertTrue(stopped.toString(), stopped.stopped is LocalCleanup.DatabaseFailed)
+                assertTrue(sessions.removalPending)
+                assertEquals(5L, sessions.dataOwner)
+                assertNotNull(dao.note(1))
+                account.signIn("TEST_ONLY_CODE")
+                assertEquals(listOf("DELETE /api/app-auth/session"), server.requests)
+            } finally {
+                store.openHelper.writableDatabase.execSQL("PRAGMA query_only = OFF")
+            }
+            account.retryRemoval()
+            assertEquals(AccountState.Idle(null), account.settled())
+            assertPhoneCleared()
+        }
+    }
+}
+
+/** A retired copy cancels old work; catching here asserts cancellation without cancelling the test's own job. */
+internal suspend fun assertRetired(work: suspend () -> Unit) {
+    try {
+        work()
+        throw AssertionError("A retired local copy admitted an operation")
+    } catch (expected: CancellationException) {
+        assertTrue(expected.message.orEmpty().contains("local copy was removed"))
     }
 }

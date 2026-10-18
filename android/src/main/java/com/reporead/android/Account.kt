@@ -6,6 +6,7 @@ import com.reporead.android.auth.completeSignIn
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.sync.LocalCleanup
+import com.reporead.android.sync.LocalSync
 import com.reporead.android.sync.Sync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -47,17 +48,20 @@ sealed interface AccountState {
 /**
  * Owns sign-in, sign-out and account deletion for the app's lifetime (RepoReadApplication), so a rotation or a closed
  * screen never stops one part-way or loses what it reported, and screens only show [state] and ask. Persisted facts
- * stay with [store]; the server calls and the clear with [api] and [sync]. A local change that arrives after a clear
- * writes nothing (it has no note to belong to, LibraryDao.saveDisplayedReading), so nothing here waits for screens.
+ * stay with [store]. Each removal retires [sync] permanently before clearing it; only successful cleanup publishes a
+ * fresh copy for new screens. Late work keeps the retired instance, never authority over the next copy.
  *
  * External calls: sign-out 1 (revoke the session), account deletion 1, sign-in 1 (the code exchange); none is retried.
  */
 class Account(
     private val store: SessionStore,
     private val api: Api,
-    private val sync: Sync,
+    sync: Sync,
     private val scope: CoroutineScope,
 ) {
+    var sync: Sync = sync
+        private set
+
     private val current =
         MutableStateFlow<AccountState>(
             if (store.removalPending) AccountState.Removing(null, null) else AccountState.Idle(null)
@@ -72,15 +76,21 @@ class Account(
         return started
     }
 
-    /**
-     * Once per process, before a screen can use the session: a removal left pending (by process death, or a stop) is
-     * finished first, and its clear also does the start's work; otherwise the start's sweep runs.
-     */
-    fun startUp() {
-        val now = current.value
-        // Undispatched: the session ends before the activity draws a screen that could sync with it.
-        if (now is AccountState.Removing) scope.launch(start = CoroutineStart.UNDISPATCHED) { remove(now.notice) }
-        else scope.launch { sync.startUp() }
+    private val startup by lazy {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            val now = current.value
+            if (now is AccountState.Removing) remove(now.notice) else sync.startUp()
+        }
+    }
+
+    /** Both activity and worker enter through the same once-per-process cleanup. */
+    fun startUp() = startup
+
+    /** Pending removal runs first; a busy or stopped account never starts ordinary background work. */
+    suspend fun syncWaitingChanges(): LocalSync? {
+        startUp().join()
+        if (current.value !is AccountState.Idle) return null
+        return sync.syncWaitingChanges()
     }
 
     /** Revokes the session on the server when it can, then removes this phone's copy, unsent changes included. */
@@ -89,6 +99,7 @@ class Account(
         // On disk before the server is asked: the user chose to remove this phone's copy whatever the server answers,
         // so process death from here on still removes it at the next start.
         store.startRemoval()
+        sync.retire()
         scope.launch {
             val notRevoked =
                 try {
@@ -110,7 +121,7 @@ class Account(
         if (!begin(AccountState.DeletingAccount)) return
         scope.launch {
             try {
-                sync.deleteAccount()
+                api.delete("/api/account")
             } catch (error: ApiException) {
                 Log.w("RepoRead", "Account deletion not confirmed; status=${error.status} code=${error.code}")
                 current.value = AccountState.Idle(AccountNotice.DeletionNotConfirmed(error))
@@ -181,9 +192,13 @@ class Account(
      */
     private suspend fun removeCopy(): LocalCleanup {
         check(store.removalPending) { "Removing the phone's copy without a pending removal" }
+        sync.retire()
         store.clear()
-        val outcome = sync.clearAll()
-        if (outcome == LocalCleanup.Done) store.finishRemoval()
+        val outcome = sync.clearRetiredCopy()
+        if (outcome == LocalCleanup.Done) {
+            store.finishRemoval()
+            sync = sync.freshCopy()
+        }
         Log.i("RepoRead", "Phone's copy removed; outcome=${outcome.javaClass.simpleName}")
         return outcome
     }

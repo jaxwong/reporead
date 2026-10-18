@@ -17,8 +17,8 @@ Audited: **2026-10-18**. Status: **steps 1, 2, 3, 5, 8 and 10 complete and verif
 - **Step 5 complete:** `LibraryDao.searchNotes` returns one row per note from `documents` left-joined to `notes`, so the 50-note limit counts distinct notes and names come from the current document; Kotlin's post-query de-duplication is deleted. A removed note still matches while its saved copy is kept, as the existing test asserted. The fixture of a saved copy with no `documents` row was replaced by a removed row: the server deletes document rows only on disconnection, when the phone forgets their saved copies too. Evidence in section 11.
 - **Step 10 complete:** Android CI's test job runs `:app:mergeDebugAssets`, which runs `bundleReader` (`npm run build`: syntax check + bundle) through the packaged app's asset wiring; the workflow also triggers on `Library.java` and `assetlinks.json`. The `MAX_RESPONSE_BYTES` scrape is kept and contained by that trigger: it fails loudly, both files name each other, and a shared config file would be a second mechanism, not a simpler single owner. Deletion wording in both dialogs, ADR-11 and the privacy invariant now names retained server backups. Evidence in section 12.
 - **Step 8 complete:** the five legacy GET routes, their response records, `Documents.list`, `DocumentController`'s unused `connections` and `Reviews`' standalone notebook snapshot are deleted; `Library.read` is the one snapshot owner. Every test assertion that used them reads `GET /api/library`, with no test deleted. ADR-08/24 record that older releases are unsupported once the backend deploys. Evidence in section 13.
-- **Step 3 complete:** `Account`, constructed by `RepoReadApplication`, owns sign-in, sign-out and account deletion in the app's scope, one at a time, with one published state; the composable closures, `removeCopy`/`removal`, the Library deletion coroutine and `SessionStore.cancelRemoval` are deleted. Late local writes are defined out at the DAO: each local change requires its note to be listed, so no admission gate or draining exists. Account deletion records the removal only after the server confirms (decision 3); a sign-in over unowned data removes it first (decision 4). Evidence in section 14.
-- **Branch:** work is on `fix/saved-page-integrity` (renamed from `audit-root-cause-cleanup` at the user's request before publication). Step 1 is commit `dbf4b10`; the user's approved local-main correction left `main` at `f8ccf82`. No existing remote history was rewritten.
+- **Step 3 follow-up:** PR #66's initial DAO existence check was insufficient for a re-created same-account store, exports or background startup. The user approved retiring the old `Sync`/image lifetime and publishing a fresh instance only after successful cleanup. Local writes and exports now share that lifetime's existing lock; stale calls cancel instead of gaining access to a new copy. `Account` owns startup for both activity and worker. Section 15 records the callback/notice fixes; section 16 records lifetime verification and remaining exclusions. The original evidence in section 14 is historical, not proof of the follow-up's acceptance criteria.
+- **Branches:** steps 1–2 were published on `fix/saved-page-integrity` (renamed from `audit-root-cause-cleanup` before publication); step 3 and its audit fixes are on PR #66, `fix/removal-one-owner`. Step 1 is commit `dbf4b10`; the user's approved local-main correction left `main` at `f8ccf82`. No existing remote history was rewritten.
 
 ## Goal and verdict
 
@@ -145,13 +145,13 @@ The user approved proceeding with this sequence and committing each completed st
 
 - Move sign-out/account-removal orchestration out of composable closures into that existing application owner; do not add a `RemovalManager` around it. *As built:* one `Account` class that the Application constructs is that owner (not a wrapper around another one); the Application's own lazy properties open the app's real database, so tests need the owner over isolated stores.
 - On accepted removal intent, close admission to ordinary screens immediately, not only once the session is gone. The one authorized removal request can still use its credential.
-- Prevent a delayed local writer from repopulating the store after successful cleanup. Do not scatter `if (removing)` checks across individual screens. *As built, replacing the drafted "close admission to local mutations, drain/cancel old page work, then clear":* each local change saves in one DAO transaction that requires its note to be listed, so a write arriving after a clear (or a disconnect) has nothing to belong to and writes nothing. Note ids are per account on the server, so it cannot land in another account's data. This removes the failure instead of coordinating around it; no gate, epoch or drain exists.
+- Prevent a delayed local writer from repopulating the store after successful cleanup. Do not scatter `if (removing)` checks across individual screens. *Follow-up after PR #66 audit:* document existence alone was not a lifetime boundary. `Account` retires the old `Sync` and its image owner; local writes, network answers and exports share its lock, so clearing waits for admitted work and all later calls on that instance cancel. Only successful cleanup publishes a fresh instance. The DAO predicates remain for the different concern of a note disconnected within a still-active copy; no epoch is threaded through callers and no screen-job registry is added.
 - Represent operation kind and stage explicitly where restart behavior needs them. A few mutually exclusive states are preferable to independent `signedIn`, `removing`, nullable outcome, and screen-local busy flags.
 - Preserve local data on a refused/unconfirmed account-deletion response unless the user explicitly chose otherwise. A 401 is not evidence that the server deleted an account. *As built (decision 3):* the removal is recorded only after the server confirms, so an interrupted deletion also keeps everything.
 - Resolve the legacy unowned-data assumption explicitly before issuing a session over nonempty unowned storage. *As built (decision 4):* a sign-in with no recorded owner runs the removal first; clearing an empty store is a no-op, so no emptiness check exists.
 - Exercise rotation, process interruption, unreadable session storage, database failure, undeletable files, duplicate taps, delayed reader saves, background sync, and a second cleanup attempt through the real application wiring in an isolated test host.
 
-**Exit:** after removal reports success, no pre-removal operation can write old-account data or artifacts, and another account cannot sign in while removal is unfinished. Tests must cover `SessionStore` + application owner + `Sync`, not only `Sync.clearAll` in isolation.
+**Exit:** after removal reports success, no pre-removal operation can write old-account data or artifacts, and another account cannot sign in while removal is unfinished. Tests must cover `SessionStore` + application owner + `Sync`, not only the Sync clear in isolation.
 
 ### Step 4 — Complete saved-page and reading-state transitions (A4, A6)
 
@@ -704,7 +704,9 @@ That is the same 279 passing backend tests as before the change. On the Pixel 8a
 - The phone's own release was not checked against a local backend built from this branch; device tests use labelled loopback fixtures.
 
 
-## 14. Step 3 verification — 2026-10-18
+## 14. Original PR #66 verification — 2026-10-18
+
+Historical evidence at `539da8e`. The review found gaps despite these passing tests; sections 15–16 replace its incomplete lifetime design and verification exclusions.
 
 ### Plan check before building
 
@@ -786,3 +788,88 @@ OK (13 tests)
 ```
 
 The strengthened notice regression also checks refresh cannot dismiss the account notice and that an explicit dismissal does. Broader lifetime, export and background-entry fixes are the next approved slice, not claimed solved here. No backend, dependency, schema or infrastructure change; no live OAuth or release app access.
+
+
+## 16. PR #66 follow-up — one local-copy lifetime
+
+### Approval, root cause and ownership
+
+The user approved the complete replacement rather than a containment patch that left same-account late writes unresolved. The permanent regressions first reproduced both remaining audited state failures (`Tests run: 15, Failures: 2`): background startup sent `PUT /api/documents/1/reading-state` despite persisted removal, and an old save overwrote new progress 10 with 90 after an actual same-account sign-in and library reload.
+
+`Account` owns the current `Sync` instance. Deciding local removal retires it permanently; old screens keep that retired instance. Its existing lock serializes local mutations, network answers and atomic export publication, and `clearRetiredCopy` waits for an already admitted operation. Later calls cancel with `CancellationException`, not a network fallback or a new identity check against the next store. Only a successful clear forgets pending removal/ownership and publishes a fresh instance. Stopped removals keep the same retired instance for Retry. The image owner is retired under its existing file lock too, so an old WebView cannot read the next copy's files or fetch again; the existing deletion generation still protects in-flight HTTP publication.
+
+The listed-note DAO predicates remain solely for disconnection inside an active copy, now explicitly regression-tested; they are not parallel lifetime authority. No schema, epoch, screen-job registry, second lock, dependency or manager was added. The simple `freshCopy` construction reuses the existing immutable dependencies; it is not a configurable factory or alternate implementation. Local saves can now wait behind an admitted network operation on the existing lock: this is the deliberate simplicity/ordering trade-off, not a claim of unchanged latency.
+
+Exports have one writer in Sync. `NotebookScreen` still owns Markdown formatting and Android sharing, but the old private IO writer is deleted. A real admitted exporter is held before its file write, removal is requested, and only releasing it permits cleanup to finish; its real file is gone afterwards. Both a queued exporter and a later exporter on that old copy cancel without formatting/writing. This is new executable ordering coverage; the original review had only code-derived evidence for the old export race.
+
+`Account.startUp` owns one startup job shared by Activity and worker. Worker entry joins it before considering pending work. The old Application startup flag, direct worker-to-Sync entry, app-lifetime `app.sync` reference and single-use Sync account-deletion transport wrapper are removed. Account performs its one deletion request directly. The real root receives its existing objects explicitly from MainActivity, rather than casting application context; it is exercised with those same types over isolated stores in ReaderTestActivity. Navigation starts afresh when the Sync lifetime changes without adding another generation counter.
+
+All changed callers were searched before replacement: `completeSignIn`, `LibraryScreen`, `RepoReadApp`, `NotebookScreen`, background entry, clear/startup, local saves, image fetches, and all direct screen DAO mutations. Change-summary acknowledgement and dismissal of refused grades also go through the lifetime boundary, rather than letting old screen work mutate a fresh store.
+
+### Permanent behavior coverage
+
+- The unsolicited-callback and persistent-notice tests from section 15 remain; the notice survives recreation and refresh until explicit dismissal.
+- Same-account sign-out/sign-in/library reload leaves the newer reading save intact; the suspended old operation cancels. This replaces the original PR's documented exception, not merely its wording.
+- Persisted removal at the actual background function entry performs cleanup and sends zero ordinary requests.
+- Real root removal text/gate survives Activity recreation; saved preferences/Room/files are cleared before returning to sign-in.
+- A real SQLite `PRAGMA query_only = ON` write refusal returns `LocalCleanup.DatabaseFailed`, keeps ownership/pending removal, blocks sign-in, and succeeds on Retry once writes are restored. No test assertion is mocked away.
+- The old image owner cannot read a fresh owner's cached bytes or request an uncached path. Existing late-fetch and sweep regressions remain.
+- Existing local-save assertions were moved from the superseded “false/null after clear” behavior to cancellation on the retired instance; disconnection in an active instance still returns false/null. Existing remote-result ordering and retry assertions remain.
+
+### Verification and exclusions
+
+The final commands and terminal results are recorded below. An intermediate targeted run was invalidated by concurrent UI automation: Android reported `UiAutomationService already registered`, then its instrumentation process crashed while disconnecting that service. Logcat confirmed repeated external UI-automation launchers. The user paused the other automation; no test or production code was patched around this environment conflict.
+
+After exclusive access, a complete run printed:
+
+```text
+Time: 69.241
+OK (108 tests)
+```
+
+No live OAuth/GitHub, release APK, deployed backend, schema migration, dependency or infrastructure change was involved. The tests use labelled loopback fixtures, isolated preferences, scratch files, in-memory/exported-schema Room and the existing debug-only host. No actual OS process-kill/full-disk experiment was performed; database refusal is real SQLite but deliberately induced via query-only mode. Exact Google-style changes, unrelated remaining plan steps and Add repository's server-only API ownership are out of this local-copy fix. User `.gitignore` and `notes/` changes remain untouched in the main worktree.
+
+
+The lifetime slice adds **194** and removes **159** production Kotlin lines (net **+35**). This is not a net-deletion mechanical refactor: the named requirements are permanent local-copy retirement, one worker/activity startup boundary, serialized export publication and executable root-screen verification. It deletes the replaced entry points and exporter rather than retaining wrappers. Package moves and unrelated cleanup were not mixed in.
+
+
+The coupled caller review found that retiring a final reading save could skip `WebView.destroy()`. `ReaderSession.release` now destroys in `finally`, including cancellation. Its real ReaderLifecycle regression first failed with `TimeoutCancellationException: Timed out waiting for 5000 ms` (`Tests run: 1, Failures: 1`): the released view retained its public renderer-process handle. The unchanged regression checks that destruction releases that handle and no reading row is recreated. This is resource cleanup on the replaced cancellation path, not an alternative save strategy.
+
+
+### Final executed checks for the lifetime replacement
+
+From the `fix/removal-one-owner` worktree, process exit **0**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 11s
+82 actionable tasks: 13 executed, 69 up-to-date
+Android JVM {'tests': 73, 'failures': 0, 'errors': 0, 'skipped': 1}
+```
+
+The JVM count is the generated JUnit XML aggregate: **72 passed**, the opt-in `StudyCorpus` skipped. This verifies the configured formatter, not an exact Google-style migration. No backend code changed and the backend suite was not rerun for these fixes.
+
+On the approved Pixel 8a, Android 14/API 34, installs and both instrumentation commands exited **0**:
+
+```sh
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 install -r android/build/outputs/apk/debug/app-debug.apk
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 shell am instrument -w -e class com.reporead.android.reader.ReaderLifecycleTest#releasingARetiredReaderStillDestroysItsWebView com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+Performing Streamed Install
+Success
+Performing Streamed Install
+Success
+Time: 1.24
+OK (1 test)
+Time: 68.983
+OK (109 tests)
+```
+
+The terminal test outcome, not `am instrument`'s exit 0, establishes success. Two prior full exclusive runs passed `OK (108 tests)` before the added WebView-retirement regression. That regression failed first and was not weakened; release now always destroys the actual WebView, verified using its public renderer-process handle. `git diff --check` also passed. The old cancellation behavior is not retained as another path or test suite.

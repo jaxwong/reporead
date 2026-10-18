@@ -66,7 +66,7 @@ internal class ReaderSession(
     private val note: NoteRow,
     private val sync: Sync,
     private val dao: LibraryDao,
-    /** Never cancelled, so the position saved when the view is released reaches the database. */
+    /** Survives the view; final saves finish unless their Sync lifetime has been retired by removal. */
     private val appScope: CoroutineScope,
     /** Where the page opens; null is where the note was last read. */
     private val openAt: OpenAt?,
@@ -389,8 +389,11 @@ internal class ReaderSession(
         view = null
         outline = null
         appScope.launch {
-            if (wasOpened) save(webView)
-            webView.destroy()
+            try {
+                if (wasOpened) save(webView)
+            } finally {
+                webView.destroy()
+            }
         }
     }
 

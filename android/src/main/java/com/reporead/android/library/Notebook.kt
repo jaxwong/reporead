@@ -1,9 +1,7 @@
 package com.reporead.android.library
 
 import android.content.ActivityNotFoundException
-import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,18 +35,12 @@ import com.reporead.android.data.AnchorStatus
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
-import com.reporead.android.sync.exportDirectory
+import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.StatusLine
-import java.io.File
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.util.UUID
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 private fun Filter(label: String, choices: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
@@ -70,7 +62,7 @@ private fun Filter(label: String, choices: List<Pair<String, String>>, selected:
 }
 
 @Composable
-internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
+internal fun NotebookScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, onBack: () -> Unit) {
     val items by dao.notebook().collectAsState(emptyList())
     var folder by rememberSaveable { mutableStateOf("") }
     var document by rememberSaveable { mutableStateOf("") }
@@ -101,7 +93,8 @@ internal fun NotebookScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () 
     fun export(entries: List<NotebookItem>) {
         scope.launch {
             try {
-                val uri = writeExport(context, entries)
+                val file = sync.exportNotebook { notebookMarkdown(entries) }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
                 val share =
                     Intent(Intent.ACTION_SEND).apply {
                         type = "text/markdown"
@@ -171,26 +164,6 @@ private fun NotebookEntry(item: NotebookItem, onOpen: () -> Unit) {
         TextButton(onClick = onOpen) { Text("Open passage") }
     }
 }
-
-/**
- * Writes [items] as Markdown to a new file in the private export directory and returns a URI another app can read it
- * through. The file is written under a temporary name and moved into place, so a failure never leaves half a file.
- */
-private suspend fun writeExport(context: Context, items: List<NotebookItem>): Uri =
-    withContext(Dispatchers.IO) {
-        val directory = exportDirectory(context.filesDir)
-        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create RepoRead export directory")
-        val file = File(directory, "notebook-${UUID.randomUUID()}.md")
-        val partial = File(directory, "${file.name}.part")
-        try {
-            // Not Files.writeString: it needs API 36.1 and the app supports 34.
-            partial.writeText(notebookMarkdown(items), Charsets.UTF_8)
-            Files.move(partial.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
-        } finally {
-            Files.deleteIfExists(partial.toPath())
-        }
-        FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
-    }
 
 /** Prefixing each source line preserves all characters, including blank lines, trailing spaces and CRLF. */
 internal fun notebookMarkdown(items: List<NotebookItem>): String = buildString {
