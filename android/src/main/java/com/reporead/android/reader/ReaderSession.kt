@@ -309,6 +309,21 @@ internal class ReaderSession(
                     Log.i("RepoRead", "Reader opened at a linked heading; documentId=${note.documentId} found=$found")
                     if (found) null else missing("No heading “${openAt.text}” in this note.")
                 }
+                is OpenAt.Block -> {
+                    val found =
+                        note.blobSha == openAt.blobSha &&
+                            view.evaluate("window.reporead.showBlock(${JSONObject.quote(openAt.blockId)})") == true
+                    Log.i(
+                        "RepoRead",
+                        "Reader opened at a bank warning; documentId=${note.documentId} " +
+                            "blobSha=${openAt.blobSha} blockId=${openAt.blockId} found=$found",
+                    )
+                    if (found) null
+                    else
+                        missing(
+                            "That bank warning is not in this version of the note. Reopen Practice to see its current warnings."
+                        )
+                }
                 is OpenAt.Highlight -> {
                     val found = view.evaluate("window.reporead.reveal(${JSONObject.quote(openAt.mutationId)})") == true
                     Log.i("RepoRead", "Reader opened at a highlight; documentId=${note.documentId} found=$found")

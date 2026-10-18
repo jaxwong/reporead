@@ -73,7 +73,10 @@ internal data class StudyQuestion(
  * [unrecognized]: what looks like a question but is not, listed, never dropped silently: an H3 without exactly one
  * Canonical line (or a path without items), and a Canonical line under no H3.
  */
-internal data class InterviewBank(val questions: List<StudyQuestion>, val unrecognized: List<String>)
+internal data class InterviewBank(val questions: List<StudyQuestion>, val unrecognized: List<BankProblem>)
+
+/** A bank block that makes no question; its identity is kept even when other blocks have the same text. */
+internal data class BankProblem(val blockId: String, val text: String)
 
 /**
  * The Practice topic of the note at [path]: the folder holding its nearest folder named `interview` ("" at the
@@ -96,14 +99,15 @@ internal fun isInterviewBank(path: String): Boolean = interviewTopic(path) != nu
 internal fun interviewBank(html: String, path: String): InterviewBank {
     if (!isInterviewBank(path)) return InterviewBank(emptyList(), emptyList())
     val questions = mutableListOf<StudyQuestion>()
-    val unrecognized = mutableListOf<String>()
+    val unrecognized = mutableListOf<BankProblem>()
     var level: String? = null
     var group: Element? = null
     val section = mutableListOf<Element>()
     fun finishGroup() {
         group?.let { heading ->
             val found = bankQuestions(heading, section, level)
-            if (found.isEmpty()) unrecognized += shownText(heading) else questions += found
+            if (found.isEmpty()) unrecognized += BankProblem(heading.attr("data-block-id"), shownText(heading))
+            else questions += found
         }
         group = null
         section.clear()
@@ -117,7 +121,8 @@ internal fun interviewBank(html: String, path: String): InterviewBank {
             if (depth == 3) group = block
             continue
         }
-        if (group != null) section.add(block) else if (answerLine(block) != null) unrecognized += shownText(block)
+        if (group != null) section.add(block)
+        else if (answerLine(block) != null) unrecognized += BankProblem(block.attr("data-block-id"), shownText(block))
     }
     finishGroup()
     return InterviewBank(questions, unrecognized)

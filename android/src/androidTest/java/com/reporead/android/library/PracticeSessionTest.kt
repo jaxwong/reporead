@@ -11,6 +11,7 @@ import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.awaitText
 import com.reporead.android.click
@@ -140,6 +141,78 @@ class PracticeSessionTest {
         if (::store.isInitialized) store.close()
         if (::files.isInitialized) check(files.deleteRecursively()) { "Cannot delete test-only directory $files" }
     }
+
+    @Test
+    fun aWarningOpensItsOwnBankWhenRepositoriesShareThePath() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val path = "test-only/topic/interview/bank.md"
+            dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
+            dao.saveNote(
+                NoteRow(
+                    3,
+                    bankSha,
+                    path,
+                    "Other bank",
+                    testPage(bankSha, block("b0", "h3", "Other repository's warning")),
+                    0,
+                    renderFormat = RENDER_FORMAT,
+                )
+            )
+            ReaderTestActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
+            ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+                awaitText("1 heading is not a question")
+                click("Show")
+                awaitText("Other repository's warning")
+                scenario.recreate()
+                awaitText("Other repository's warning")
+                click("Other repository's warning")
+                assertEquals(listOf(Screen.Reader(3, "Other bank", OpenAt.Block(bankSha, "b0"))), pushed)
+            }
+        }
+
+    @Test
+    fun repeatedHeadingAndStrayAnswerWarningsOpenTheirExactBlocks() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val path = "test-only/topic/interview/bank.md"
+            dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
+            dao.saveNote(
+                NoteRow(
+                    3,
+                    bankSha,
+                    path,
+                    "Other bank",
+                    testPage(
+                        bankSha,
+                        block("b0", "p", "Canonical answer: Stray") +
+                            block("b1", "h3", "Repeated") +
+                            answer("b2", "First answer", "first-answer") +
+                            block("b3", "h3", "Repeated"),
+                    ),
+                    0,
+                    renderFormat = RENDER_FORMAT,
+                )
+            )
+            ReaderTestActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
+            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+                awaitText("2 headings are not questions")
+                assertNull(findText(root(), "Repeated"))
+                click("Show")
+                click("Canonical answer: Stray")
+                click("Repeated")
+                assertEquals(
+                    listOf(
+                        Screen.Reader(3, "Other bank", OpenAt.Block(bankSha, "b0")),
+                        Screen.Reader(3, "Other bank", OpenAt.Block(bankSha, "b3")),
+                    ),
+                    pushed,
+                )
+                click("Hide")
+                awaitText("Show")
+                assertNull(findText(root(), "Repeated"))
+            }
+        }
 
     @Test
     fun eachQuestionTakesItsOwnAnswerAMissComesBackUnsavedAndTheSessionSurvivesRecreation() =

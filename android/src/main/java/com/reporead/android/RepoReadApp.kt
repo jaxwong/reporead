@@ -79,6 +79,9 @@ sealed interface OpenAt {
 
     /** A highlight or card, from the notebook or a review. */
     data class Highlight(val mutationId: String) : OpenAt
+
+    /** A Practice warning's exact block; block ids are meaningful only within [blobSha]. */
+    data class Block(val blobSha: String, val blockId: String) : OpenAt
 }
 
 private fun encode(screen: Screen): List<String> =
@@ -87,14 +90,14 @@ private fun encode(screen: Screen): List<String> =
         Screen.Available -> listOf("available")
         is Screen.Folder -> listOf("folder", screen.repositoryId.toString(), screen.repositoryName, screen.path)
         is Screen.Reader -> {
-            // One slot per kind of target, so a back stack saved by an earlier version still restores.
-            val (heading, highlight) =
+            // Existing heading/highlight slots stay unchanged for saved, pre-upgrade back stacks.
+            listOf("reader", screen.documentId.toString(), screen.title) +
                 when (val target = screen.openAt) {
-                    null -> "" to ""
-                    is OpenAt.Heading -> target.text to ""
-                    is OpenAt.Highlight -> "" to target.mutationId
+                    null -> listOf("", "")
+                    is OpenAt.Heading -> listOf(target.text, "")
+                    is OpenAt.Highlight -> listOf("", target.mutationId)
+                    is OpenAt.Block -> listOf("", "", target.blobSha, target.blockId)
                 }
-            listOf("reader", screen.documentId.toString(), screen.title, heading, highlight)
         }
         is Screen.Figure ->
             listOf(
@@ -123,6 +126,7 @@ private fun decode(parts: List<String>): Screen =
                 when {
                     parts[3].isNotEmpty() -> OpenAt.Heading(parts[3])
                     parts[4].isNotEmpty() -> OpenAt.Highlight(parts[4])
+                    parts.size > 5 -> OpenAt.Block(parts[5], parts[6])
                     else -> null
                 },
             )

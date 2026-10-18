@@ -5,6 +5,7 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.PracticePage
+import com.reporead.android.reader.BankProblem
 import com.reporead.android.reader.StudyAnswer
 import com.reporead.android.reader.StudyQuestion
 import org.junit.Assert.assertEquals
@@ -156,7 +157,31 @@ class PracticeTest {
         val banks = readBanks(pages)
         assertEquals(listOf(1L, 2L), banks.pages.map { it.documentId })
         assertEquals(listOf("1:$sha:b1"), banks.questions.map { it.key })
-        assertEquals(listOf("core/db/interview/01.md" to "Notes"), banks.unrecognized)
+        assertEquals(
+            listOf(BankProblems(1, "Bank", "core/db/interview/01.md", sha, listOf(BankProblem("b3", "Notes")))),
+            banks.unrecognized,
+        )
+    }
+
+    @Test
+    fun warningsStayWithTheirDocumentWhenBanksShareAPath() {
+        val path = "core/db/interview/01.md"
+        val html = "<main id=note><h3 data-block-id=b0 data-anchor-text='Notes'>Notes</h3></main>"
+        val banks =
+            readBanks(
+                listOf(
+                    PracticePage(1, "First bank", path, html, sha),
+                    PracticePage(2, "Second bank", path, html, "b".repeat(40)),
+                )
+            )
+        assertEquals(
+            listOf(
+                BankProblems(1, "First bank", path, sha, listOf(BankProblem("b0", "Notes"))),
+                BankProblems(2, "Second bank", path, "b".repeat(40), listOf(BankProblem("b0", "Notes"))),
+            ),
+            banks.unrecognized,
+        )
+        assertEquals(Banks(emptyList(), emptyList(), emptyList()), readBanks(emptyList()))
     }
 
     @Test
