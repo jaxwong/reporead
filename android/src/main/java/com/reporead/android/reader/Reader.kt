@@ -1,3 +1,5 @@
+// Owns: Reader screen orchestration and saved overlays; ReaderSession owns the page bridge and readiness.
+
 package com.reporead.android.reader
 
 import android.view.WindowInsets
@@ -71,8 +73,10 @@ private sealed interface ReaderOverlay : Serializable {
     /** A new note is being written for [passage]. */
     data class Note(val passage: Passage) : ReaderOverlay
 
+    /** Keeps the annotation snapshot being edited across recreation. */
     data class EditNote(val row: AnnotationRow) : ReaderOverlay
 
+    /** Keeps the exact annotation whose deletion is awaiting confirmation. */
     data class Delete(val row: AnnotationRow) : ReaderOverlay
 
     /** An edit the server refused because another edit landed first: the user picks which text to keep. */
@@ -84,6 +88,7 @@ private sealed interface ReaderOverlay : Serializable {
     /** Notes sharing the linked name, for the reader to pick one. */
     data class LinkChoices(val heading: String?, val choices: List<DocumentRow>) : ReaderOverlay
 
+    /** Reserves the sole overlay for the page's current outline. */
     data object Outline : ReaderOverlay
 }
 
@@ -365,7 +370,7 @@ fun ReaderScreen(
             val opened = ready.opened
             // The session was created from this same ready load.
             checkNotNull(session) { "No reader session for documentId=${screen.documentId}" }
-            opened.staleReason?.let { Notice("Showing your saved copy. $it") }
+            opened.staleReason?.let { Notice("Showing your saved copy. ${it.describe()}") }
             session.restoreNotice?.let { Notice(it) }
             message?.let { Notice(it) }
             if (since != null && since != opened.note.blobSha && !signedIn)

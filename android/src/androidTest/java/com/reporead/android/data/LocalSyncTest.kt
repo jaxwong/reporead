@@ -1,3 +1,5 @@
+// Owns: Sync/Room/background integration coverage and its test-only loopback server; never the real data store.
+
 package com.reporead.android.data
 
 import androidx.room.Room
@@ -15,6 +17,7 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.sync.RENDER_FORMAT
+import com.reporead.android.sync.RefusedChange
 import com.reporead.android.sync.SavingNotes
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.backgroundSync
@@ -157,7 +160,12 @@ class LocalSyncTest {
             .use { server ->
                 val result = sync(server.url).syncLocalChanges()
                 assertEquals(1, result.refused.size)
-                assertTrue(result.refused.single(), result.refused.single().contains("Long heading note"))
+                val refused = result.refused.single()
+                assertEquals(1L, refused.documentId)
+                assertEquals("Long heading note", refused.title)
+                assertEquals(RefusedChange.Kind.READING, refused.kind)
+                assertEquals(400, refused.error.status)
+                assertEquals("INVALID_READING_STATE", refused.error.code)
                 assertNull(result.notSent)
                 // The bookmark and the complete lists were still synced after the refusal.
                 assertEquals(
@@ -851,6 +859,8 @@ class LocalSyncTest {
                 val opened = sync(server.url).openNote(1)
                 assertEquals(saved, opened.note)
                 assertTrue(opened.staleReason.toString(), opened.staleReason != null)
+                assertEquals(200, opened.staleReason?.status)
+                assertEquals("INVALID_RESPONSE", opened.staleReason?.code)
                 assertEquals(saved, dao.note(1))
                 assertEquals(listOf("GET /api/documents/1/content"), server.requests)
             }

@@ -1,3 +1,5 @@
+// Owns: Library presentation, refresh feedback and account confirmations; Sync owns synchronization decisions.
+
 package com.reporead.android.library
 
 import android.text.format.DateUtils
@@ -43,6 +45,7 @@ import com.reporead.android.core.network.describe
 import com.reporead.android.data.ChangedNote
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.RepositoryRow
+import com.reporead.android.sync.RefusedChange
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
@@ -61,6 +64,17 @@ private fun seenChanged(note: ChangedNote) =
     note.changedAt?.let {
         "Seen changed ${DateUtils.getRelativeTimeSpanString(it, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)}"
     }
+
+/** Renders a refused-operation snapshot; no UI sentence is carried by the synchronization result. */
+internal fun RefusedChange.describe(): String {
+    val note = title?.let { "“$it”" } ?: "a note no longer in your lists"
+    val subject =
+        when (kind) {
+            RefusedChange.Kind.READING -> "Your place in $note"
+            RefusedChange.Kind.BOOKMARK -> "The bookmark on $note"
+        }
+    return "$subject (${error.describe()})"
+}
 
 /**
  * Runs [block] when the screen appears (and on [key] changes) and shows what it returns, or a failure, as the status;
@@ -85,6 +99,7 @@ internal fun RefreshOnEntry(
     }
 }
 
+/** Owns the library's tab labels and icons, not synchronization state. */
 private enum class LibraryTab(val label: String, val icon: Int) {
     READING("Reading", R.drawable.ic_book),
     BOOKMARKS("Bookmarks", R.drawable.ic_bookmark),
@@ -124,7 +139,9 @@ fun LibraryScreen(
                     synced.notSent?.let { "New highlights and cards stay on this phone for now. ${it.describe()}" },
                     synced.refused
                         .takeIf { it.isNotEmpty() }
-                        ?.let { "The server refused: ${it.joinToString("; ")}. A refused place stays on this phone." },
+                        ?.let {
+                            "The server refused: ${it.joinToString("; ") { item -> item.describe() }}. A refused place stays on this phone."
+                        },
                 )
                 .joinToString(" ")
                 .ifEmpty { null }
