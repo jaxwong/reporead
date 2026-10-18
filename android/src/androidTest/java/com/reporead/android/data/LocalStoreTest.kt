@@ -3,6 +3,9 @@ package com.reporead.android.data
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.search.SEARCH_LIMIT
+import com.reporead.android.search.SearchResult
+import com.reporead.android.search.search
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -232,6 +235,8 @@ class LocalStoreTest {
                 DocumentRow(1, 7, "java/Spring.md", "Spring", "a".repeat(40)),
                 DocumentRow(2, 7, "db/Postgres.md", "Postgres", "b".repeat(40)),
                 DocumentRow(3, 7, "misc/100_percent.md", "100_percent", "c".repeat(40)),
+                DocumentRow(9, 7, "gone/Old.md", "Old", "d".repeat(40), deleted = true),
+                DocumentRow(10, 7, "gone/Older.md", "Older", "e".repeat(40), deleted = true),
             ),
         )
         dao.saveNote(
@@ -270,13 +275,33 @@ class LocalStoreTest {
         )
         assertEquals(listOf(1L), dao.searchHighlights("%transaction%", 50).map { it.documentId })
         assertEquals(listOf(1L), dao.searchNotes("%spring%", 50).map { it.documentId })
-        // A saved copy of a note no longer in any list still matches by title; one saved before search has no text.
+        // A note removed from its repository matches while its saved copy is kept (one saved before search has no
+        // text), and not without one.
         assertEquals(listOf(9L), dao.searchNotes("%old%", 50).map { it.documentId })
+        assertNull(dao.searchNotes("%old%", 50).single().searchText)
         // Escaped wildcards are literal: "0\_p" matches "100_percent" only, "0\%" only the text with "100%".
         assertEquals(listOf(3L), dao.searchNotes("%0\\_p%", 50).map { it.documentId })
         assertEquals(listOf(2L), dao.searchNotes("%0\\%%", 50).map { it.documentId })
         assertEquals(emptyList<NoteMatch>(), dao.searchNotes("%nothing like this%", 50))
         assertEquals(2, dao.searchNotes("%s%", 2).size)
+    }
+
+    @Test
+    fun searchListsEachMatchingNoteOnceUnderItsCurrentName() = runBlocking {
+        val sha = "a".repeat(40)
+        val listed = (1L..60L).map { DocumentRow(it, 7, "topics/Topic $it.md", "Topic $it", sha) }
+        dao.replaceDocuments(7, listed + DocumentRow(61, 7, "now/Renamed.md", "Renamed", "b".repeat(40)))
+        // Each note matches by title and by its saved text: one note, not two results competing for the limit.
+        for (row in listed) dao.saveNote(NoteRow(row.id, sha, row.path, row.title, "<html/>", 0, "A topic in detail"))
+        // Saved before the note was renamed and moved: its documents row names it, not the older copy.
+        dao.saveNote(NoteRow(61, "c".repeat(40), "then/Original.md", "Original", "<html/>", 0, "Written about a topic"))
+
+        val found = search(dao, "topic")
+        assertEquals(SEARCH_LIMIT, found.matches.map { it.documentId }.distinct().size)
+        assertEquals(SEARCH_LIMIT, found.matches.size)
+        assertTrue(found.truncated)
+        assertEquals(emptyList<SearchResult>(), search(dao, "original").matches)
+        assertEquals(listOf("Renamed" to "now/Renamed.md"), search(dao, "written").matches.map { it.title to it.path })
     }
 
     @Test
