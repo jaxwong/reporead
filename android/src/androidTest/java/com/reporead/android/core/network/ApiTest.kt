@@ -3,9 +3,18 @@
 package com.reporead.android.core.network
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.data.AnnotationType
+import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
+import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
+import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
+import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
+import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
+import com.reporead.android.core.network.wire.AnnotationServiceSelection
+import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
+import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
+import com.reporead.android.core.network.wire.RepositoryControllerAvailableList
+import com.reporead.android.core.network.wire.RepositoryControllerConnectRequest
+import com.reporead.android.core.network.wire.ReviewControllerGradeRequest
 import com.reporead.android.data.LoopbackServer
 import java.io.IOException
 import java.net.InetAddress
@@ -29,17 +38,41 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class ApiTest {
-    private val sha = "a".repeat(40)
-    private val commit = "b".repeat(40)
-    private val at = Instant.parse("2000-01-01T00:00:00Z")
+    private val selection =
+        AnnotationServiceSelection(
+            blockId = "b1",
+            endOffset = 4,
+            exactText = "text",
+            sourceBlobSha = testSha,
+            startOffset = 0,
+        )
+    private val create =
+        AnnotationControllerCreateRequest(
+            anchor = selection,
+            mutationId = TEST_HIGHLIGHT_MUTATION,
+            note = null,
+            question = null,
+            type = "HIGHLIGHT",
+        )
+    private val edit = AnnotationControllerEditRequest(expectedVersion = 1, note = null)
+    private val reattach = AnnotationControllerReattachRequest(anchor = selection, expectedVersion = 1)
+    private val check = AnnotationControllerCheckRequest(blobSha = testSha, expectedVersion = 1)
+    private val grade =
+        ReviewControllerGradeRequest(
+            blobSha = testSha,
+            grade = 4,
+            mutationId = TEST_REVIEW_MUTATION,
+            reviewedAt = testAt,
+        )
+    private val connect = RepositoryControllerConnectRequest(installationId = 7)
 
-    private fun fixture(name: String) =
-        InstrumentationRegistry.getInstrumentation()
-            .context
-            .assets
-            .open("api-contract/$name.json")
-            .bufferedReader()
-            .use { it.readText() }
+    private fun reading(progressPercent: Int, lastReadAt: Instant) =
+        ReadingControllerSaveRequest(
+            anchor = testReading().anchor,
+            lastReadAt = lastReadAt,
+            lastReadBlobSha = testSha,
+            progressPercent = progressPercent,
+        )
 
     private suspend fun rawAnswer(body: String, declaredBytes: Int, holdOpen: Boolean): ApiException = coroutineScope {
         ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
@@ -74,7 +107,7 @@ class ApiTest {
 
     @Test
     fun validJsonInATruncatedHttpBodyIsNotACompleteAnswer() = runBlocking {
-        val body = fixture("library-empty")
+        val body = wire(testLibrary())
         val error = rawAnswer(body, body.toByteArray(Charsets.UTF_8).size + 1, false)
         // HttpURLConnection rejects truncated framing as I/O, before the valid JSON can be published.
         assertEquals("BACKEND_UNAVAILABLE", error.code)
@@ -93,76 +126,65 @@ class ApiTest {
     fun everyPublicRouteUsesItsDeclaredMethodPathStatusAndResponse() = runBlocking {
         val routes =
             linkedMapOf(
-                "POST /api/app-auth/token" to (200 to fixture("session")),
+                "POST /api/app-auth/token" to (200 to wire(testSession())),
                 "DELETE /api/app-auth/session" to (204 to ""),
-                "DELETE /api/account" to (200 to fixture("account-deleted")),
-                "GET /api/library" to (200 to fixture("library")),
-                "GET /api/repositories/available" to (200 to fixture("available")),
-                "POST /api/repositories/11/connect" to (200 to fixture("connection")),
-                "POST /api/repositories/7/sync" to (200 to fixture("synced")),
-                "GET /api/repositories/7/stored-data" to (200 to fixture("stored-data")),
-                "DELETE /api/repositories/7" to (200 to fixture("disconnected")),
-                "GET /api/documents/1/content" to (200 to fixture("content")),
-                "GET /api/documents/1/image?commitSha=$commit&path=img%2Fa+b.png" to (200 to "TEST_ONLY_BYTES"),
-                "GET /api/documents/1/changes?since=$sha&to=$commit" to (200 to fixture("changes")),
-                "PUT /api/documents/1/reading-state" to (200 to fixture("reading")),
-                "PUT /api/documents/1/bookmark" to (200 to fixture("bookmark")),
+                "DELETE /api/account" to (200 to wire(testAccountDeleted())),
+                "GET /api/library" to (200 to wire(testLibrary())),
+                "GET /api/repositories/available" to
+                    (200 to wire(RepositoryControllerAvailableList(repositories = listOf(testAvailable())))),
+                "POST /api/repositories/11/connect" to (200 to wire(testConnection())),
+                "POST /api/repositories/7/sync" to (200 to wire(testSynced())),
+                "GET /api/repositories/7/stored-data" to (200 to wire(testCounts())),
+                "DELETE /api/repositories/7" to (200 to wire(testDisconnected())),
+                "GET /api/documents/1/content" to (200 to wire(testContent())),
+                "GET /api/documents/1/image?commitSha=$testCommit&path=img%2Fa+b.png" to (200 to "TEST_ONLY_BYTES"),
+                "GET /api/documents/1/changes?since=$testSha&to=$testCommit" to (200 to wire(testChanges())),
+                "PUT /api/documents/1/reading-state" to (200 to wire(testReading())),
+                "PUT /api/documents/1/bookmark" to (200 to wire(testBookmark())),
                 "DELETE /api/documents/1/bookmark" to (204 to ""),
-                "GET /api/documents/1/annotations" to (200 to fixture("annotations")),
-                "POST /api/documents/1/annotations" to (201 to fixture("annotation")),
-                "PATCH /api/annotations/9" to (200 to fixture("annotation")),
+                "GET /api/documents/1/annotations" to
+                    (200 to wire(AnnotationControllerAnnotationList(annotations = listOf(testHighlight())))),
+                "POST /api/documents/1/annotations" to (201 to wire(testHighlight())),
+                "PATCH /api/annotations/9" to (200 to wire(testHighlight())),
                 "DELETE /api/annotations/9?expectedVersion=1" to (204 to ""),
-                "POST /api/annotations/9/reattach" to (200 to fixture("annotation")),
-                "POST /api/annotations/9/check" to (200 to fixture("annotation")),
-                "POST /api/annotations/10/reviews" to (200 to fixture("review")),
+                "POST /api/annotations/9/reattach" to (200 to wire(testHighlight())),
+                "POST /api/annotations/9/check" to (200 to wire(testHighlight())),
+                "POST /api/annotations/10/reviews" to (200 to wire(testReview())),
             )
         LoopbackServer(routes).use { server ->
             val api = Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) { fail("No 401 expected") }
-            val selection = SelectionRequest(sha, "b1", 0, 4, "text")
-            val create =
-                CreateAnnotationRequest(
-                    "00000000-0000-0000-0000-000000000001",
-                    selection,
-                    null,
-                    AnnotationType.HIGHLIGHT,
-                    null,
+            api.exchangeToken(
+                AppAuthControllerTokenRequest(
+                    code = "TEST_ONLY_CODE",
+                    codeVerifier = "TEST_ONLY_VERIFIER",
+                    expectedUserId = null,
                 )
-            api.exchangeToken(TokenRequest("TEST_ONLY_CODE", "TEST_ONLY_VERIFIER", null))
+            )
             api.revokeSession()
             api.deleteAccount()
             api.library()
             api.availableRepositories()
-            api.connectRepository(11, ConnectRequest(7))
+            api.connectRepository(11, connect)
             api.syncRepository(7)
             api.storedData(7)
             api.disconnectRepository(7)
             api.noteContent(1)
-            assertEquals("TEST_ONLY_BYTES", api.noteImage(1, commit, "img/a b.png").toString(Charsets.UTF_8))
-            api.changes(1, sha, commit)
-            api.saveReading(1, ReadingRequest(sha, 50, ReadingAnchor(emptyList(), null, 0), at))
+            assertEquals("TEST_ONLY_BYTES", api.noteImage(1, testCommit, "img/a b.png").toString(Charsets.UTF_8))
+            api.changes(1, testSha, testCommit)
+            api.saveReading(1, reading(50, testAt))
             api.setBookmark(1)
             api.clearBookmark(1)
             api.annotations(1)
             api.createAnnotation(1, create)
-            api.editAnnotation(9, EditAnnotationRequest(null, 1))
+            api.editAnnotation(9, edit)
             api.deleteAnnotation(9, 1)
-            api.reattachAnnotation(9, ReattachRequest(1, selection))
-            api.checkCard(9, CheckRequest(1, sha))
-            api.recordReview(10, ReviewRequest("00000000-0000-0000-0000-000000000002", 4, at, sha))
+            api.reattachAnnotation(9, reattach)
+            api.checkCard(9, check)
+            api.recordReview(10, grade)
             assertEquals(routes.keys.toList(), server.requests)
         }
-        LoopbackServer(mapOf("POST /api/documents/1/annotations" to (200 to fixture("annotation")))).use { server ->
-            Api(server.url, { StoredSession.Absent }) {}
-                .createAnnotation(
-                    1,
-                    CreateAnnotationRequest(
-                        "00000000-0000-0000-0000-000000000001",
-                        SelectionRequest(sha, "b1", 0, 4, "text"),
-                        null,
-                        AnnotationType.HIGHLIGHT,
-                        null,
-                    ),
-                )
+        LoopbackServer(mapOf("POST /api/documents/1/annotations" to (200 to wire(testHighlight())))).use { server ->
+            Api(server.url, { StoredSession.Absent }) {}.createAnnotation(1, create)
             assertEquals(1, server.requests.size)
         }
     }
@@ -172,8 +194,8 @@ class ApiTest {
         for ((status, body) in
             listOf(
                 204 to "",
-                201 to fixture("content"),
-                200 to fixture("content").replace("\"documentId\": 1", "\"documentId\": 2"),
+                201 to wire(testContent()),
+                200 to wire(testContent().copy(documentId = 2)),
             )) {
             LoopbackServer(mapOf("GET /api/documents/1/content" to (status to body))).use { server ->
                 val error =
@@ -198,74 +220,60 @@ class ApiTest {
 
     @Test
     fun aNewerReadingStateForTheRightDocumentIsAValidLastWriteWinsAnswer() = runBlocking {
-        LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to fixture("reading")))).use { server ->
-            val newer =
-                Api(server.url, { StoredSession.Absent }) {}
-                    .saveReading(
-                        1,
-                        ReadingRequest(sha, 0, ReadingAnchor(emptyList(), null, 0), Instant.EPOCH),
-                    )
-            assertEquals(at, newer.lastReadAt)
+        LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to wire(testReading())))).use { server ->
+            val newer = Api(server.url, { StoredSession.Absent }) {}.saveReading(1, reading(0, Instant.EPOCH))
+            assertEquals(testAt, newer.lastReadAt)
             assertEquals(50, newer.progressPercent)
         }
     }
 
     @Test
     fun wellTypedAnswersStillHaveToBelongToTheirRequest() = runBlocking {
-        val wrongAnnotation = JSONObject(fixture("annotation")).put("id", 8).toString()
+        val wrongAnnotation = wire(testHighlight().copy(id = 8))
         val cases: List<Triple<String, String, suspend (Api) -> Any>> =
             listOf(
                 Triple(
                     "POST /api/repositories/11/connect",
-                    JSONObject(fixture("connection")).put("githubRepositoryId", 12).toString(),
-                    { it.connectRepository(11, ConnectRequest(7)) },
+                    wire(testConnection().copy(githubRepositoryId = 12)),
+                    { it.connectRepository(11, connect) },
                 ),
                 Triple(
                     "POST /api/repositories/7/sync",
-                    JSONObject(fixture("synced")).put("repositoryId", 8).toString(),
+                    wire(testSynced().copy(repositoryId = 8)),
                     { it.syncRepository(7) },
                 ),
                 Triple(
                     "GET /api/documents/1/annotations",
-                    fixture("annotations").replace("\"documentId\": 1", "\"documentId\": 2"),
+                    wire(
+                        AnnotationControllerAnnotationList(annotations = listOf(testHighlight().copy(documentId = 2)))
+                    ),
                     { it.annotations(1) },
                 ),
                 Triple(
                     "POST /api/documents/1/annotations",
-                    JSONObject(fixture("annotation")).put("mutationId", "test-only-other-mutation").toString(),
-                    {
-                        it.createAnnotation(
-                            1,
-                            CreateAnnotationRequest(
-                                "00000000-0000-0000-0000-000000000001",
-                                SelectionRequest(sha, "b1", 0, 4, "text"),
-                                null,
-                                AnnotationType.HIGHLIGHT,
-                                null,
-                            ),
-                        )
-                    },
+                    wire(testHighlight().copy(mutationId = "test-only-other-mutation")),
+                    { it.createAnnotation(1, create) },
                 ),
                 Triple(
                     "PATCH /api/annotations/9",
                     wrongAnnotation,
-                    { it.editAnnotation(9, EditAnnotationRequest(null, 1)) },
+                    { it.editAnnotation(9, edit) },
                 ),
                 Triple(
                     "POST /api/annotations/9/reattach",
                     wrongAnnotation,
-                    { it.reattachAnnotation(9, ReattachRequest(1, SelectionRequest(sha, "b1", 0, 4, "text"))) },
+                    { it.reattachAnnotation(9, reattach) },
                 ),
-                Triple("POST /api/annotations/9/check", wrongAnnotation, { it.checkCard(9, CheckRequest(1, sha)) }),
+                Triple("POST /api/annotations/9/check", wrongAnnotation, { it.checkCard(9, check) }),
                 Triple(
-                    "GET /api/documents/1/changes?since=$sha&to=$commit",
-                    fixture("changes").replace(sha, "c".repeat(40)),
-                    { it.changes(1, sha, commit) },
+                    "GET /api/documents/1/changes?since=$testSha&to=$testCommit",
+                    wire(testChanges().copy(sinceBlobSha = "c".repeat(40))),
+                    { it.changes(1, testSha, testCommit) },
                 ),
                 Triple(
                     "POST /api/annotations/10/reviews",
-                    JSONObject(fixture("review")).put("grade", 3).toString(),
-                    { it.recordReview(10, ReviewRequest("00000000-0000-0000-0000-000000000002", 4, at, sha)) },
+                    wire(testReview().copy(grade = 3)),
+                    { it.recordReview(10, grade) },
                 ),
             )
         for ((route, body, call) in cases) {

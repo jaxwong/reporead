@@ -15,6 +15,8 @@ import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
+import com.reporead.android.core.network.testDisconnected
+import com.reporead.android.core.network.wire
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.RefusedChange
@@ -104,7 +106,8 @@ class LocalSyncTest {
 
     /** A library repository [id] with one listed note and these [documents]. */
     private fun repository(id: Int, documents: String, snapshot: String = sha) =
-        """{"id":$id,"fullName":"test-only/r$id","documentCount":1,"lastSyncedCommitSha":"$snapshot","documents":[$documents]}"""
+        """{"id":$id,"githubRepositoryId":$id,"owner":"test-only","name":"r$id","defaultBranch":"main",
+        "fullName":"test-only/r$id","documentCount":1,"lastSyncedCommitSha":"$snapshot","documents":[$documents]}"""
 
     /** A library note [id] at version [sha]. */
     private fun document(id: Int, deleted: Boolean = false) =
@@ -1180,7 +1183,7 @@ class LocalSyncTest {
     @Test
     fun imagesADisconnectCouldNotDeleteGoAtTheNextStart() = runBlocking {
         savedRepository()
-        LoopbackServer(mapOf("DELETE /api/repositories/7" to (200 to """{"documentIds":[1]}"""))).use { server ->
+        LoopbackServer(mapOf("DELETE /api/repositories/7" to (200 to wire(testDisconnected())))).use { server ->
             val sync = sync(server.url)
             withStuckImage(1) { stuck ->
                 sync.disconnect(7)

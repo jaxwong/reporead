@@ -9,8 +9,8 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.net.toUri
 import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.TokenRequest
 import com.reporead.android.core.network.invalidResponse
+import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
 import java.security.MessageDigest
 import java.security.SecureRandom
 
@@ -45,7 +45,8 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
  */
 internal suspend fun completeSignIn(code: String, verifier: String, api: Api, store: SessionStore) {
     val owner = store.dataOwner
-    val session = api.exchangeToken(TokenRequest(code, verifier, owner))
+    val session =
+        api.exchangeToken(AppAuthControllerTokenRequest(code = code, codeVerifier = verifier, expectedUserId = owner))
     val userId = session.user.id
     if (owner != null && userId != owner) throw invalidResponse(200)
     val token = session.accessToken

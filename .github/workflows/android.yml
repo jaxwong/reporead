@@ -1,7 +1,8 @@
 # Android app CI and releases (ADR-15). Pull requests: Lint, unit tests, the reader's check and bundle, and a compile of
 # the device tests, no secrets (packaging needs the signing key; the device tests run on the phone, android/README.md).
-# Backend records and shared test-only fixtures are consumed by the JVM contract checks below; changes on either
-# side must run the producer and consumer checks. Backend deployment retains its own workflow triggers.
+# The app's wire models are generated from backend/openapi.json, which the backend's OpenApiSpecTest derives from its
+# controllers and records, so a backend change runs this workflow and a stale spec fails it. Backend deployment retains
+# its own workflow triggers.
 # Besides android/, the build reads Library.java (the library size cap) and the release check reads assetlinks.json, so a
 # change to either runs this workflow too.
 # Pushes to main: the test job, then a signed release APK published as GitHub Release v0.1.<commit count>, which
@@ -54,8 +55,9 @@ jobs:
       # uses; compiling the device tests does not merge assets, so without this a broken reader.js passes.
       - name: Check and bundle the reader
         run: ./gradlew :app:mergeDebugAssets --no-daemon
-      - name: Verify backend contract producers
-        run: ./gradlew :backend:test --tests '*WireContractTest' --no-daemon
+      # The committed spec the app's models are generated from, and the item-refusal pairs its RefusalTest reads.
+      - name: Verify the published API spec
+        run: ./gradlew :backend:test --tests '*OpenApiSpecTest' --tests '*ItemRefusalsTest' --no-daemon
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
       # The device tests (Room, migrations, sync, the reader) run on a phone, not here; compiling them catches a change

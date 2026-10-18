@@ -36,6 +36,36 @@ val bundleReader = tasks.register<BundleReader>("bundleReader") {
 }
 
 /*
+ * The app's wire models are generated from the backend's published API (backend/openapi.json, which OpenApiSpecTest
+ * derives from the controllers and records), so no shape is declared twice. Numbers and booleans map to WireJson.kt's
+ * aliases, which makes each one @Contextual and decoded by wireJson's strict serializers; times are Instants the same way.
+ */
+val wireModels = tasks.register<org.openapitools.generator.gradle.plugin.tasks.GenerateTask>("wireModels") {
+    generatorName.set("kotlin")
+    inputSpec.set(rootProject.layout.projectDirectory.file("backend/openapi.json"))
+    outputDir.set(layout.buildDirectory.dir("generated/wire"))
+    cleanupOutput.set(true)
+    packageName.set("com.reporead.android.core.network.wire")
+    modelPackage.set("com.reporead.android.core.network.wire")
+    globalProperties.set(mapOf("models" to "", "modelDocs" to "false", "modelTests" to "false"))
+    configOptions.set(
+        mapOf(
+            "serializationLibrary" to "kotlinx_serialization",
+            "enumPropertyNaming" to "UPPERCASE",
+            "sortModelPropertiesByRequiredFlag" to "false",
+            "sourceFolder" to "",
+        )
+    )
+    val strict = "com.reporead.android.core.network"
+    typeMappings.set(
+        mapOf("DateTime" to "java.time.Instant", "integer" to "WireInt", "long" to "WireLong", "boolean" to "WireBoolean")
+    )
+    importMappings.set(
+        mapOf("WireInt" to "$strict.WireInt", "WireLong" to "$strict.WireLong", "WireBoolean" to "$strict.WireBoolean")
+    )
+}
+
+/*
  * Release and development builds are signed with one personal key kept outside the repository, so each release installs
  * over the last and keeps the phone's data (see android/README.md). Packaging without it fails; nothing falls back to
  * the debug key.
@@ -119,9 +149,12 @@ android {
         buildConfig = true
     }
 
+    // The client's refusal decision is checked against the item-refusal pairs the backend's own test verifies.
     sourceSets.getByName("test").resources.directories.add(rootProject.file("backend/src/test/resources").absolutePath)
 
-    sourceSets.getByName("androidTest").assets.directories.add(rootProject.file("backend/src/test/resources").absolutePath)
+    // Test-only wire answers built from the generated models (WireSamples.kt), for both the JVM and device tests.
+    sourceSets.getByName("test").kotlin.directories.add("src/testShared/java")
+    sourceSets.getByName("androidTest").kotlin.directories.add("src/testShared/java")
 
     // Migration tests construct the exact previously shipped schema; these assets are test-only.
     sourceSets.getByName("androidTest").assets.directories.add(file("schemas").absolutePath)
@@ -151,10 +184,11 @@ tasks.matching {
 
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(bundleReader, BundleReader::assetDirectory)
+    variant.sources.kotlin?.addGeneratedSourceDirectory(wireModels) { it.outputDir }
 }
 
 dependencies {
-    // Generated wire shapes replace scattered org.json parsing; scalar strictness stays in our boundary.
+    // The generated wire models' serializers; scalar strictness stays in WireJson.kt.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     // Offline study extraction needs a DOM parser for the saved, sanitized pages (including loose/nested lists).
     implementation("org.jsoup:jsoup:${rootProject.extra["jsoupVersion"]}")

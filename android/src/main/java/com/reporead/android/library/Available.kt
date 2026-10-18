@@ -23,11 +23,11 @@ import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.Available
-import com.reporead.android.core.network.ConnectRequest
 import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.rememberLoad
+import com.reporead.android.core.network.wire.RepositoryConnectionsAvailable
+import com.reporead.android.core.network.wire.RepositoryControllerConnectRequest
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
@@ -38,8 +38,12 @@ import kotlinx.coroutines.launch
  * Connects [repository] and returns its top folder. Connecting a connected repository again keeps its data and takes
  * GitHub's current name and default branch: the way back after either is renamed on GitHub.
  */
-private suspend fun connect(api: Api, repository: Available): Screen.Folder {
-    val connected = api.connectRepository(repository.githubRepositoryId, ConnectRequest(repository.installationId))
+private suspend fun connect(api: Api, repository: RepositoryConnectionsAvailable): Screen.Folder {
+    val connected =
+        api.connectRepository(
+            repository.githubRepositoryId,
+            RepositoryControllerConnectRequest(installationId = repository.installationId),
+        )
     return Screen.Folder(connected.id, connected.fullName, "")
 }
 
@@ -52,7 +56,7 @@ fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit)
     val scope = rememberCoroutineScope()
     val load by rememberLoad(reload) { api.availableRepositories().repositories }
 
-    fun connectTo(repository: Available) {
+    fun connectTo(repository: RepositoryConnectionsAvailable) {
         connecting = repository.githubRepositoryId
         error = null
         scope.launch {
@@ -88,7 +92,7 @@ fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit)
 
 /** A repository with Connect, or Update once connected; [connecting] is the repository being connected, if any. */
 @Composable
-private fun AvailableRow(repository: Available, connecting: Long?, onConnect: () -> Unit) {
+private fun AvailableRow(repository: RepositoryConnectionsAvailable, connecting: Long?, onConnect: () -> Unit) {
     val connected = repository.connectionId != null
     val visibility = if (repository.privateRepository) "Private" else "Public"
     ListItem(

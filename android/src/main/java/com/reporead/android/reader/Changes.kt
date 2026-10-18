@@ -18,48 +18,46 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.reporead.android.core.network.ChangeStatus
-import com.reporead.android.core.network.ChangedSection
-import com.reporead.android.core.network.Changes
 import com.reporead.android.core.network.Load
-import com.reporead.android.core.network.SectionChange
 import com.reporead.android.core.network.describe
+import com.reporead.android.core.network.wire.DocumentControllerChanges
+import com.reporead.android.core.network.wire.NoteChangesSection
 
 private fun lines(added: Int, removed: Int) =
     listOfNotNull(if (added > 0) "+$added" else null, if (removed > 0) "−$removed" else null)
         .joinToString(" ", postfix = " lines")
 
-private fun label(section: ChangedSection): String {
+private fun label(section: NoteChangesSection): String {
     val title = section.headingPath.lastOrNull() ?: "Beginning of the note"
     return when (section.change) {
-        SectionChange.ADDED -> "New section: $title"
-        SectionChange.REMOVED -> "Removed: $title"
-        SectionChange.CHANGED -> "$title (${lines(section.addedLines, section.removedLines)})"
+        NoteChangesSection.Change.ADDED -> "New section: $title"
+        NoteChangesSection.Change.REMOVED -> "Removed: $title"
+        NoteChangesSection.Change.CHANGED -> "$title (${lines(section.addedLines, section.removedLines)})"
     }
 }
 
 /** Where a section sits in the note, e.g. "in Databases › Isolation"; null at the top level. */
-private fun parents(section: ChangedSection) =
+private fun parents(section: NoteChangesSection) =
     section.headingPath.dropLast(1).takeIf { it.isNotEmpty() }?.joinToString(" › ", prefix = "in ")
 
 /** The panel's one line on what changed, or why it is not known yet. */
-private fun summary(changes: Load<Changes>): String =
+private fun summary(changes: Load<DocumentControllerChanges>): String =
     when (changes) {
         Load.Loading -> "Changed since you last read — comparing…"
         is Load.Failed -> "Changed since you last read. Couldn't compare: ${changes.error.describe()}"
         is Load.Ready -> {
             val comparison = changes.value
             when (comparison.status) {
-                ChangeStatus.CHANGED ->
+                DocumentControllerChanges.Status.CHANGED ->
                     if (comparison.sections.isEmpty()) "Changed since you last read: only line endings differ."
                     else
                         "Changed since you last read: ${comparison.sections.size} sections, " +
                             lines(comparison.addedLines, comparison.removedLines)
-                ChangeStatus.SINCE_UNAVAILABLE ->
+                DocumentControllerChanges.Status.SINCE_UNAVAILABLE ->
                     "Changed since you last read, but that version can't be compared. ${comparison.reason}"
-                ChangeStatus.TOO_LARGE ->
+                DocumentControllerChanges.Status.TOO_LARGE ->
                     "Changed since you last read, too much to list by section. Read the full note."
-                ChangeStatus.UNCHANGED -> "Unchanged since you last read."
+                DocumentControllerChanges.Status.UNCHANGED -> "Unchanged since you last read."
             }
         }
     }
@@ -70,11 +68,11 @@ private fun summary(changes: Load<Changes>): String =
  */
 @Composable
 internal fun ChangesPanel(
-    changes: Load<Changes>,
+    changes: Load<DocumentControllerChanges>,
     expanded: Boolean,
     onToggle: () -> Unit,
     onRetry: () -> Unit,
-    onOpen: ((ChangedSection) -> Unit)?,
+    onOpen: ((NoteChangesSection) -> Unit)?,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -92,7 +90,7 @@ internal fun ChangesPanel(
         if (expanded && sections.isNotEmpty()) {
             LazyColumn(Modifier.heightIn(max = 240.dp)) {
                 items(sections) { section ->
-                    val open = onOpen.takeIf { section.change != SectionChange.REMOVED }
+                    val open = onOpen.takeIf { section.change != NoteChangesSection.Change.REMOVED }
                     Column(
                         Modifier.fillMaxWidth()
                             .let { if (open != null) it.clickable { open(section) } else it }
