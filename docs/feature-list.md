@@ -173,6 +173,12 @@ A natural execution deadline and an actual OS process kill during a run remain u
 not repeated; its ordering, interruption and failure paths ran against the isolated loopback fixtures in the full
 device suite. Backend tests were not rerun because no backend implementation changed.
 
+## Typed HTTP boundary (2026-10-18)
+
+Implemented the [API contract plan](api-contract-plan.md#implementation-and-verification): one typed route owner, strict whole-response validation and request matching before local acknowledgement, positive item-refusal pairs, shared producer/consumer checks and retained transport causes. The old raw verbs and network JSON parsers are removed together. Automated malformed/status/identity/time/timeout/truncation/second-run tests and the whole device suite passed; the record distinguishes those from live evidence.
+
+The live Dev check used an existing scratch note and the real Mac backend/GitHub: library and repository refresh, content/cache reads, available repositories, bookmark on/off, highlight create/edit/conflict/reattach/delete, card confirmation/grade, annotation reload, unchanged diff and stored-data counts. Removing the ADB tunnel kept the cached page readable and a labelled highlight pending; restoring it sent the same mutation once, then removed only that test highlight. Existing user annotations/bookmarks were not deleted. Live destructive routes, reconnect, changed-version diff, images and reading-position UI were not exercised by this contract check. No release/VM deployment was performed.
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
@@ -183,7 +189,7 @@ Covered by automated tests only, or not at all:
 - Save all stopped by a real execution limit or by the system killing the process mid-run: only forced job timeouts were tried (ADR-19).
 - An Obsidian image embed on the phone, and process death by the system (only force-stop and `am kill` were tried).
 - Sign-ins surviving a deploy, and GitHub revocation on the last sign-out, with the real phone and hosted backend.
-- Practice and Review with real grades (fixture tests only), a successful **Answer is still right** against the real server, and the Practice tab's due badge.
+- Practice and Review UI with real grades and the Practice tab's due badge. The scratch-only live contract check confirmed a card and submitted a real grade through Sync; that is not verification of the full sessions or their UI.
 - Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
 - Account operations survive screen recreation in the application scope. `AccountTest` now exercises the real root removal gate and its text across Activity recreation; deletion interruption is tested through the isolated operation owner, not an actual OS process kill.
