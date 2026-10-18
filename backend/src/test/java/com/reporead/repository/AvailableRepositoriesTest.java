@@ -350,7 +350,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
     void connectVerifiesEligibilityWithGitHubAndIsIdempotent() throws Exception {
         expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
         expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
-        String first = connect(alice, 11, "{\"installationId\":7}")
+        String first = connect(alice, 11, com.reporead.ContractFixtures.read("requests/connect"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fullName").value("test-only/notes"))
                 .andExpect(jsonPath("$.documentCount").value(0))
@@ -358,7 +358,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
-        String second = connect(alice, 11, "{\"installationId\":7}")
+        String second = connect(alice, 11, com.reporead.ContractFixtures.read("requests/connect"))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()
@@ -381,7 +381,8 @@ class AvailableRepositoriesTest extends SharedSpringTest {
     @Test
     void connectingAgainAfterARenameKeepsTheConnectionAndItsNotesUnderTheNewName() throws Exception {
         expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
-        connect(alice, 11, "{\"installationId\":7}").andExpect(jsonPath("$.id").value(1));
+        connect(alice, 11, com.reporead.ContractFixtures.read("requests/connect"))
+                .andExpect(jsonPath("$.id").value(1));
         db.sql(
                         "insert into documents (repository_connection_id, path, title, current_blob_sha) values (1, 'a.md', 'a', '"
                                 + "a".repeat(40) + "')")
@@ -389,7 +390,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         next();
         String renamed = PAGE.replace("test-only/notes", "test-only/renamed").replace("\"main\"", "\"trunk\"");
         expect(UPSTREAM, TOKEN, withSuccess(renamed, MediaType.APPLICATION_JSON));
-        connect(alice, 11, "{\"installationId\":7}")
+        connect(alice, 11, com.reporead.ContractFixtures.read("requests/connect"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.fullName").value("test-only/renamed"))
@@ -439,8 +440,10 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 }
             }));
             assertTrue(deleted.await(10, TimeUnit.SECONDS));
-            var connecting = executor.submit(() ->
-                    connect(alice, 11, "{\"installationId\":7}").andReturn().getResponse());
+            var connecting =
+                    executor.submit(() -> connect(alice, 11, com.reporead.ContractFixtures.read("requests/connect"))
+                            .andReturn()
+                            .getResponse());
             TestEnvironment.awaitLockWait(db);
             release.countDown();
             assertTrue(deleting.get(10, TimeUnit.SECONDS));
@@ -458,7 +461,8 @@ class AvailableRepositoriesTest extends SharedSpringTest {
     @Test
     void anotherUsersConnectionsAreNotListed() throws Exception {
         expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
-        connect(alice, 11, "{\"installationId\":7}").andExpect(status().isOk());
+        connect(alice, 11, com.reporead.ContractFixtures.read("requests/connect"))
+                .andExpect(status().isOk());
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
         as(bob, get("/api/library"))
                 .andExpect(status().isOk())

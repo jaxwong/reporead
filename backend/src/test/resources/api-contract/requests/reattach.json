@@ -1,0 +1,10 @@
+{
+  "expectedVersion": 1,
+  "anchor": {
+    "sourceBlobSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "blockId": "b1",
+    "startOffset": 0,
+    "endOffset": 4,
+    "exactText": "text"
+  }
+}

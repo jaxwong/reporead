@@ -1,0 +1,13 @@
+{
+  "mutationId": "00000000-0000-0000-0000-000000000001",
+  "anchor": {
+    "sourceBlobSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "blockId": "b1",
+    "startOffset": 0,
+    "endOffset": 4,
+    "exactText": "text"
+  },
+  "note": null,
+  "type": "HIGHLIGHT",
+  "question": null
+}
