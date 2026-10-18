@@ -1,5 +1,7 @@
-# Android app CI and releases (ADR-15). Pull requests: unit tests and a compile of the device tests, no secrets
-# (packaging needs the signing key; the device tests run on the phone, android/README.md).
+# Android app CI and releases (ADR-15). Pull requests: unit tests, the reader's check and bundle, and a compile of the
+# device tests, no secrets (packaging needs the signing key; the device tests run on the phone, android/README.md).
+# Besides android/, the build reads Library.java (the library size cap) and the release check reads assetlinks.json, so a
+# change to either runs this workflow too.
 # Pushes to main: unit tests, then a signed release APK published as GitHub Release v0.1.<commit count>, which
 # Obtainium on the phone installs over the current app. This repository is public, so the APKs and logs are too;
 # nothing prints secrets.
@@ -7,10 +9,10 @@ name: Android
 
 on:
   pull_request:
-    paths: [android/**, '!android/**/*.md', build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/android.yml]
+    paths: [android/**, '!android/**/*.md', build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/android.yml, backend/src/main/java/com/reporead/library/Library.java, backend/src/main/resources/static/.well-known/assetlinks.json]
   push:
     branches: [main]
-    paths: [android/**, '!android/**/*.md', build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/android.yml]
+    paths: [android/**, '!android/**/*.md', build.gradle.kts, settings.gradle.kts, gradle.properties, gradle/**, gradlew, .github/workflows/android.yml, backend/src/main/java/com/reporead/library/Library.java, backend/src/main/resources/static/.well-known/assetlinks.json]
   workflow_dispatch:
 
 permissions:
@@ -44,6 +46,10 @@ jobs:
       - name: Install reader dependencies
         working-directory: android/reader-web
         run: npm ci --ignore-scripts
+      # The reader's syntax check and bundle (bundleReader, npm run build) through the same asset wiring a packaged app
+      # uses; compiling the device tests does not merge assets, so without this a broken reader.js passes.
+      - name: Check and bundle the reader
+        run: ./gradlew :app:mergeDebugAssets --no-daemon
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
       # The device tests (Room, migrations, sync, the reader) run on a phone, not here; compiling them catches a change

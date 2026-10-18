@@ -21,6 +21,7 @@ An Android reading and study layer for technical Markdown notes kept in GitHub: 
 ./gradlew :backend:spotlessCheck --no-daemon              # fails on unformatted code; :backend:spotlessApply fixes it
 ./gradlew :backend:test --no-daemon                       # PostgreSQL via Testcontainers; Docker must be running
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck --no-daemon   # fails on unformatted Kotlin; :app:spotlessApply fixes it
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:mergeDebugAssets --no-daemon   # the reader's syntax check and bundle, as packaged
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --no-daemon
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon   # device tests compile; they run on the phone
 ```
