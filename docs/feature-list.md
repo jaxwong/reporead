@@ -143,7 +143,6 @@ Covered by automated tests only, or not at all:
 - An Obsidian image embed on the phone, and process death by the system (only force-stop and `am kill` were tried).
 - Sign-ins surviving a deploy, and GitHub revocation on the last sign-out, with the real phone and hosted backend.
 - Practice and Review with real grades (fixture tests only), a successful **Answer is still right** against the real server, and the Practice tab's due badge.
-- The Practice tab's list of bank headings that are not questions (2026-10-18): one row per topic that expands into the headings by bank, each opening its bank at that heading. Built and unit-tested, not seen on the phone: RepoRead Dev's database there came from another branch's schema and the app crashes on start.
 - Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
 - Signing out or deleting the account while the phone rotates: both now run in the application's scope, checked by reading the code; the root screen uses the app's own session and database, which tests never touch.
