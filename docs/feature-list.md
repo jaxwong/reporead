@@ -179,10 +179,16 @@ Implemented [audit step 9](audit-remediation-plan.md#step-9-verification): one t
 
 The live Dev check used an existing scratch note and the real Mac backend/GitHub: library and repository refresh, content/cache reads, available repositories, bookmark on/off, highlight create/edit/conflict/reattach/delete, card confirmation/grade, annotation reload, unchanged diff and stored-data counts. Removing the ADB tunnel kept the cached page readable and a labelled highlight pending; restoring it sent the same mutation once, then removed only that test highlight. Existing user annotations/bookmarks were not deleted. Live destructive routes, reconnect, changed-version diff, images and reading-position UI were not exercised by this contract check. No release/VM deployment was performed.
 
+## Navigation 3 (2026-10-19)
+
+Navigation 3 owns the back stack, and saved state is restored only into the build that saved it ([ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-build)). This is PR 3 of the Android foundations plan; screens still own their work through composition until entry-scoped ViewModels (PR 4). Its device tests and phone checks are recorded in the ADR.
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
 
+- Dropping another build's saved state (ADR-27) on the phone: Android 14 discarded it at the update before the app could see it, so only `NavigationTest` exercises the drop. The account screens over a deep stack are tested with loopback only; signing out or deleting the account on the phone removes its data.
+- Connecting a repository and landing on its folder above the Library (ADR-27): covered only by its parts, the return to the Library that a disconnect test checks and an ordinary push; no device test drives Add repository.
 - A branch rewind or a missing old blob against live GitHub (`SINCE_UNAVAILABLE`), and a too-large comparison.
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.
 - Airplane mode itself: it ends wireless debugging, so offline checks removed `adb reverse` instead.

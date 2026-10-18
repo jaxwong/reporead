@@ -263,14 +263,14 @@ Concurrency: syncs, reconnects (whose upsert locks the row), disconnects and eve
 
 ## 4. Android app
 
-One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), with its own back stack of `Screen` values encoded as strings so it survives process death. No navigation library and no DI framework; background work runs only in WorkManager: the background sync of local changes (ADR-08) and Save all (ADR-19).
+One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), whose back stack Navigation 3 owns: `Entry(id, screen)` keys saved with the activity and across process death, each entry keeping its saved UI state while it is in the stack, and saved state restored only by the build that wrote it (ADR-27). No DI framework; background work runs only in WorkManager: the background sync of local changes (ADR-08) and Save all (ADR-19).
 
 ### Screens and layers
 
 ```mermaid
 flowchart TB
     Main["MainActivity<br/>receives the sign-in redirect"]
-    App["RepoReadApp<br/>back stack of Screen"]
+    App["RepoReadApp<br/>Navigation 3 back stack of Entry"]
     Main --> App
 
     subgraph Screens["Screens"]
@@ -324,7 +324,7 @@ flowchart TB
 
 | Package | Owns |
 | --- | --- |
-| (root) | `RepoReadApplication`: the app's long-lived objects; `Account`: sign-in, sign-out, account deletion, current local-copy lifetime and startup for activity/worker, one at a time in the app's scope, and where they stand (ADR-22); `RepoReadApp`: navigation, and the account screen while an operation runs |
+| (root) | `RepoReadApplication`: the app's long-lived objects; `Account`: sign-in, sign-out, account deletion, current local-copy lifetime and startup for activity/worker, one at a time in the app's scope, and where they stand (ADR-22); `RepoReadApp`: the back stack (Navigation 3, ADR-27), and the account screen while an operation runs; `MainActivity`: the sign-in redirect, and restoring saved state only from its own build (ADR-27) |
 | `auth` | PKCE sign-in through a Custom Tab and the code exchange; the encrypted bearer session, deleted only when it can never be read; the data's owner and the pending removal of the phone's copy (`SessionStore`) |
 | `core/network` | `Api`: the only executor of backend paths, with one named function per app-used route, exact success statuses, bounded responses and request/response correspondence; `wire/`: the wire models, generated at build time from `backend/openapi.json` (never committed or edited); `WireRules.kt`: the value rules a generated shape cannot state; `WireJson.kt`: one decoding policy, strict scalar/time serializers and `INVALID_RESPONSE` with its cause. Unknown fields are compatible, missing required-nullable keys are not. `ApiException(status, code)` carries a strictly decoded server error or a local HTTP/I/O failure; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |

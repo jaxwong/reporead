@@ -177,6 +177,14 @@ These come from the original implementation spec's engineering invariants and th
 - Checked by: `LocalStoreTest`, and the Java heap on the phone while the screen opens (Practice peaks at 40 MB).
 - Decisions: [ADR-19](adrs.md#adr-19--every-note-can-be-saved-on-the-phone-one-note-at-a-time-with-no-eviction), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer).
 
+### Saved screen state belongs to its entry and its build
+
+**A back-stack entry's saved UI state is its own, from its push until it leaves the stack, and saved state is restored only by the build that saved it.**
+
+- Enforced by: Navigation 3's saved-state decorator, keyed by each `Entry`'s id and kept above the account screen (`RepoReadApp`); `MainActivity` drops saved instance state that records another build (`savedByThisBuild`).
+- Checked by: `AppNavigationTest` (a repeated note, recreation, restoration through a Parcel, account screens over the stack, a fresh root after sign-out) and `NavigationTest` (every destination through the saved-state encoding; another build's state).
+- Why: Compose keeps saved state by place, so another build's state can be read in the wrong format; [ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-build).
+
 ## Constraints on reader code
 
 These are facts of the platform, not decisions, but breaking them breaks the reader:
