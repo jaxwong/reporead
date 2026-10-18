@@ -52,12 +52,15 @@ sealed interface AccountState {
  * fresh copy for new screens. Late work keeps the retired instance, never authority over the next copy.
  *
  * External calls: sign-out 1 (revoke the session), account deletion 1, sign-in 1 (the code exchange); none is retried.
+ * [forgetSaveAll] stops every Save all and forgets their outcomes at each removal (BackgroundSync.kt), which owns that
+ * work; Account owns when.
  */
 class Account(
     private val store: SessionStore,
     private val api: Api,
     sync: Sync,
     private val scope: CoroutineScope,
+    private val forgetSaveAll: () -> Unit,
 ) {
     var sync: Sync = sync
         private set
@@ -91,6 +94,19 @@ class Account(
         startUp().join()
         if (current.value !is AccountState.Idle) return null
         return sync.syncWaitingChanges()
+    }
+
+    /**
+     * Save all's background run ([Sync.saveAllNotes]), entered like [syncWaitingChanges]; null while another operation
+     * runs, when nothing may write to this phone's copy.
+     */
+    suspend fun saveAllNotes(
+        repositoryId: Long,
+        onProgress: suspend (done: Int, toFetch: Int) -> Unit,
+    ): Sync.SavedAll? {
+        startUp().join()
+        if (current.value !is AccountState.Idle) return null
+        return sync.saveAllNotes(repositoryId, onProgress)
     }
 
     /** Revokes the session on the server when it can, then removes this phone's copy, unsent changes included. */
@@ -193,6 +209,8 @@ class Account(
     private suspend fun removeCopy(): LocalCleanup {
         check(store.removalPending) { "Removing the phone's copy without a pending removal" }
         sync.retire()
+        // Before the clear: a finished Save all's outcome describes the copy being removed.
+        forgetSaveAll()
         store.clear()
         val outcome = sync.clearRetiredCopy()
         if (outcome == LocalCleanup.Done) {

@@ -3,17 +3,23 @@ package com.reporead.android.data
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.work.Data
 import androidx.work.ListenableWorker.Result
+import androidx.work.WorkInfo
 import com.reporead.android.Account
 import com.reporead.android.assertRetired
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.core.network.describe
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.sync.RENDER_FORMAT
+import com.reporead.android.sync.SavingNotes
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.backgroundSync
+import com.reporead.android.sync.saveAllInBackground
+import com.reporead.android.sync.savingNotes
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -60,7 +66,7 @@ class LocalSyncTest {
     private fun backgroundAccount(sync: Sync): Account {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val api = Api("http://127.0.0.1:1", { error("Background tests must use Sync's labelled loopback API") }) {}
-        return Account(SessionStore(context, backgroundPrefs), api, sync, backgroundScope)
+        return Account(SessionStore(context, backgroundPrefs), api, sync, backgroundScope) {}
     }
 
     @Before
@@ -100,6 +106,16 @@ class LocalSyncTest {
     /** A library note [id] at version [sha]. */
     private fun document(id: Int, deleted: Boolean = false) =
         """{"id":$id,"path":"n$id.md","title":"n$id","blobSha":"$sha","contentChangedAt":null,"deleted":$deleted}"""
+
+    /** The server's page of note [id] at version [sha]. */
+    private fun content(id: Int) =
+        200 to
+            """{"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
+            "renderFormat":$RENDER_FORMAT,"snapshotCommitSha":"$sha"}"""
+
+    /** What the folder screen shows for a Save all run in [state] with this [output] and [progress]. */
+    private fun shown(state: WorkInfo.State, output: Data = Data.EMPTY, progress: Data = Data.EMPTY) =
+        savingNotes(WorkInfo(UUID.randomUUID(), state, emptySet(), output, progress))
 
     /** The empty library a sync ends with. */
     private val emptyLibrary = mapOf("GET /api/library" to library())
@@ -540,10 +556,6 @@ class LocalSyncTest {
     @Test
     fun saveAllFetchesOnlyTheNotesNotSavedAsListed() = runBlocking {
         val old = "b".repeat(40)
-        fun content(id: Int) =
-            200 to
-                """{"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
-                "renderFormat":$RENDER_FORMAT,"snapshotCommitSha":"$sha"}"""
         dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, "", RENDER_FORMAT, sha))
         dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", RENDER_FORMAT, old))
         dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", RENDER_FORMAT - 1, sha))
@@ -562,7 +574,7 @@ class LocalSyncTest {
                 )
             )
             .use { server ->
-                assertEquals(Sync.SavedAll(3, 1, emptyList()), sync(server.url).saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SavedAll(3, 1, 0), sync(server.url).saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf(
                         "GET /api/library",
@@ -609,7 +621,7 @@ class LocalSyncTest {
                 val sync = sync(server.url)
                 val progress = mutableListOf<Pair<Int, Int>>()
                 assertEquals(
-                    Sync.SavedAll(1, 0, listOf("n1.md", "n2.md")),
+                    Sync.SavedAll(1, 0, 2),
                     sync.saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
@@ -620,7 +632,7 @@ class LocalSyncTest {
                     assertEquals(expected, dao.note(3)!!.copy(fetchedAt = 0))
                 }
                 assertEquals(
-                    Sync.SavedAll(0, 1, listOf("n1.md", "n2.md")),
+                    Sync.SavedAll(0, 1, 2),
                     sync.saveAllNotes(7) { _, _ -> },
                 )
                 assertEquals(old, dao.note(1))
@@ -638,6 +650,109 @@ class LocalSyncTest {
                     server.requests,
                 )
             }
+    }
+
+    /** Save all runs as background work; what it reports is what the folder screen shows, on any screen. */
+    @Test
+    fun aBackgroundSaveAllReportsItsProgressAndWhatItSaved() = runBlocking {
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(repository(7, "${document(1)},${document(2)}")),
+                    "GET /api/documents/1/content" to content(1),
+                    "GET /api/documents/2/content" to failure(422, "UNSUPPORTED_CONTENT"),
+                )
+            )
+            .use { server ->
+                val progress = mutableListOf<SavingNotes?>()
+                val result =
+                    saveAllInBackground(backgroundAccount(sync(server.url)), 7, 0) {
+                        progress += shown(WorkInfo.State.RUNNING, progress = it)
+                    }
+                assertEquals(
+                    listOf(SavingNotes.Running(0, 2), SavingNotes.Running(1, 2), SavingNotes.Running(2, 2)),
+                    progress,
+                )
+                assertEquals(
+                    SavingNotes.Saved(1, 0, 1),
+                    shown(WorkInfo.State.SUCCEEDED, output = (result as Result.Success).outputData),
+                )
+            }
+    }
+
+    /**
+     * A run that ends part-way — a passing failure here; Android stopping it after about 10 minutes is the same — keeps
+     * what it saved, and the next run fetches only the rest.
+     */
+    @Test
+    fun aBackgroundSaveAllTriedAgainFetchesOnlyTheNotesNotYetSaved() = runBlocking {
+        val listed = "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3)}"))
+        LoopbackServer(
+                mapOf(
+                    listed,
+                    "GET /api/documents/1/content" to content(1),
+                    "GET /api/documents/2/content" to failure(503, "GITHUB_UNAVAILABLE"),
+                )
+            )
+            .use { server ->
+                assertEquals(Result.retry(), saveAllInBackground(backgroundAccount(sync(server.url)), 7, 0) {})
+                assertEquals(
+                    listOf("GET /api/library", "GET /api/documents/1/content", "GET /api/documents/2/content"),
+                    server.requests,
+                )
+            }
+        LoopbackServer(
+                mapOf(
+                    listed,
+                    "GET /api/documents/2/content" to content(2),
+                    "GET /api/documents/3/content" to content(3),
+                )
+            )
+            .use { server ->
+                val result = saveAllInBackground(backgroundAccount(sync(server.url)), 7, 1) {}
+                assertEquals(
+                    SavingNotes.Saved(2, 1, 0),
+                    shown(WorkInfo.State.SUCCEEDED, output = (result as Result.Success).outputData),
+                )
+                assertEquals(
+                    listOf("GET /api/library", "GET /api/documents/2/content", "GET /api/documents/3/content"),
+                    server.requests,
+                )
+            }
+    }
+
+    /**
+     * A failure that trying again cannot fix, or a passing one on the last attempt, ends Save all with how far it got.
+     */
+    @Test
+    fun aBackgroundSaveAllThatCannotGoOnSaysHowFarItGotAndWhy() = runBlocking {
+        val listed = "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3)}"))
+        LoopbackServer(
+                mapOf(
+                    listed,
+                    "GET /api/documents/1/content" to content(1),
+                    "GET /api/documents/2/content" to failure(403, "GITHUB_ACCESS_DENIED"),
+                )
+            )
+            .use { server ->
+                val result = saveAllInBackground(backgroundAccount(sync(server.url)), 7, 0) {}
+                assertEquals(
+                    SavingNotes.Stopped(
+                        1,
+                        3,
+                        ApiException(403, "GITHUB_ACCESS_DENIED", "Test-only GITHUB_ACCESS_DENIED").describe(),
+                    ),
+                    shown(WorkInfo.State.FAILED, output = (result as Result.Failure).outputData),
+                )
+            }
+        val unreachable = backgroundAccount(sync("http://127.0.0.1:${closedPort()}"))
+        assertEquals(Result.retry(), saveAllInBackground(unreachable, 7, 8) {})
+        val last = saveAllInBackground(unreachable, 7, 9) {} as Result.Failure
+        assertEquals(0, (shown(WorkInfo.State.FAILED, output = last.outputData) as SavingNotes.Stopped).toFetch)
+        // A run that failed in RepoRead itself (WorkManager records no output) is shown without a server reason.
+        assertEquals(SavingNotes.Stopped(0, 0, null), shown(WorkInfo.State.FAILED))
+        assertEquals(SavingNotes.Waiting, shown(WorkInfo.State.ENQUEUED))
+        // Sign-out and account deletion cancel Save all: the screen shows nothing of a removed copy.
+        assertNull(shown(WorkInfo.State.CANCELLED))
     }
 
     @Test
@@ -671,7 +786,7 @@ class LocalSyncTest {
                 val sync = sync(server.url)
                 assertEquals(displayed, sync.openNote(1).note)
                 assertTrue(server.requests.isEmpty())
-                assertEquals(Sync.SavedAll(1, 0, emptyList()), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SavedAll(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
                 val saved = dao.note(1)!!
                 assertEquals(sha, saved.blobSha)
                 assertEquals(newCommit, saved.snapshotCommitSha)
@@ -679,7 +794,7 @@ class LocalSyncTest {
                 assertFalse(oldImage.exists())
                 assertEquals(oldCommit, displayed.snapshotCommitSha)
                 assertEquals(saved, sync.openNote(1).note)
-                assertEquals(Sync.SavedAll(0, 1, emptyList()), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SavedAll(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf("GET /api/library", "GET /api/documents/1/content", "GET /api/library"),
                     server.requests,

@@ -5,6 +5,7 @@ import com.reporead.android.auth.SessionStore
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.LocalStore
 import com.reporead.android.sync.Sync
+import com.reporead.android.sync.forgetSaveAllNotes
 import com.reporead.android.sync.requestSync
 import kotlinx.coroutines.MainScope
 
@@ -29,6 +30,8 @@ class RepoReadApplication : Application() {
 
     /** Sign-in, sign-out and account deletion, and where they stand. */
     val account by lazy {
-        Account(sessionStore, api, Sync(api, localStore, filesDir) { requestSync(this) }, scope)
+        Account(sessionStore, api, Sync(api, localStore, filesDir) { requestSync(this) }, scope) {
+            forgetSaveAllNotes(this)
+        }
     }
 }

@@ -313,19 +313,19 @@ class Sync(
     }
 
     /**
-     * [fetched] new or updated copies; [alreadySaved] were current; [cannotShow] are the paths the server refused to
-     * render (too large).
+     * [fetched] new or updated copies; [alreadySaved] were current; [cannotShow] notes the server refused to render
+     * (too large), each logged by id.
      */
-    data class SavedAll(val fetched: Int, val alreadySaved: Int, val cannotShow: List<String>)
+    data class SavedAll(val fetched: Int, val alreadySaved: Int, val cannotShow: Int)
 
     /**
      * Saves every note of [repositoryId] on the phone: reloads the library from the server ([refreshLibrary]), then
      * fetches each note whose saved copy is not [upToDate], one at a time. A note the server refuses to render
-     * (UNSUPPORTED_CONTENT) is listed and skipped; any other failure ends the run, keeping the copies already saved.
-     * Cancelling (leaving the screen) also keeps them, so running again continues where it stopped. Images are not
-     * fetched; they are saved when a note is read online.
+     * (UNSUPPORTED_CONTENT) is counted and skipped; any other failure ends the run, keeping the copies already saved.
+     * Cancelling keeps them too, so running again continues where it stopped. Images are not fetched; they are saved
+     * when a note is read online. Run only by Save all's background work (BackgroundSync.kt).
      */
-    suspend fun saveAllNotes(repositoryId: Long, onProgress: (done: Int, toFetch: Int) -> Unit): SavedAll {
+    suspend fun saveAllNotes(repositoryId: Long, onProgress: suspend (done: Int, toFetch: Int) -> Unit): SavedAll {
         refreshLibrary()
         val documents = dao.listedDocuments(repositoryId)
         val commitSha = dao.repositoryCommitSha(repositoryId)
@@ -337,7 +337,7 @@ class Sync(
             "RepoRead",
             "Saving all notes; repositoryId=$repositoryId documents=${documents.size} toFetch=${missing.size}",
         )
-        val cannotShow = mutableListOf<String>()
+        var cannotShow = 0
         onProgress(0, missing.size)
         missing.forEachIndexed { index, document ->
             try {
@@ -346,20 +346,20 @@ class Sync(
                 if (error.code != "UNSUPPORTED_CONTENT") {
                     Log.w(
                         "RepoRead",
-                        "Saving all notes stopped; repositoryId=$repositoryId fetched=${index - cannotShow.size} documentId=${document.id} code=${error.code}",
+                        "Saving all notes stopped; repositoryId=$repositoryId fetched=${index - cannotShow} documentId=${document.id} code=${error.code}",
                     )
                     throw error
                 }
                 Log.i("RepoRead", "Note cannot be shown; documentId=${document.id} code=${error.code}")
-                cannotShow += document.path
+                cannotShow++
             }
             onProgress(index + 1, missing.size)
         }
         Log.i(
             "RepoRead",
-            "Saved all notes; repositoryId=$repositoryId fetched=${missing.size - cannotShow.size} cannotShow=${cannotShow.size}",
+            "Saved all notes; repositoryId=$repositoryId fetched=${missing.size - cannotShow} cannotShow=$cannotShow",
         )
-        return SavedAll(missing.size - cannotShow.size, documents.size - missing.size, cannotShow)
+        return SavedAll(missing.size - cannotShow, documents.size - missing.size, cannotShow)
     }
 
     /**
