@@ -761,3 +761,28 @@ Production Kotlin: +325 / −176 lines, net +149, of which `Account.kt` is 183 (
 - A phone with a live session and no recorded owner (upgraded without signing in again) keeps its data and is untouched until its next sign-in, which then removes the data first. Whether the user's phone is in that state is unknown.
 - A late change from a stale screen of an account that has since signed out and signed back in as the same account can still land in that account's new store; it cannot reach another account.
 - No backend change; the backend suite was not rerun.
+
+
+## 15. PR #66 follow-up — callback validation and notice ownership
+
+The audit reproduced two failures in permanent `AccountTest` regressions before the fixes: an unstarted callback deleted the legacy page (`expected:<private text> but was:<null>`), and the account-deletion failure notice disappeared on Activity recreation (`Tests run: 13, Failures: 2`). These tests use the production Account/SessionStore/Api/Sync/Room and real LibraryScreen in the existing isolated activity; no app-owned session or database is touched.
+
+`Account` now validates and consumes the pending verifier before authorizing any legacy cleanup, then passes it to the single code-exchange function. The old later validation/consumption is deleted. `LibraryScreen` renders the account-owned notice directly, separately from refresh status, until explicit **Dismiss account message**. The screen-local notice copy and automatic dismissal effect are deleted. Every caller of `completeSignIn`, `LibraryScreen` and the dismissal callback was searched and updated.
+
+Verification, all commands from the PR branch worktree, process exit **0**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 install -r android/build/outputs/apk/debug/app-debug.apk
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+"$HOME/Library/Android/sdk/platform-tools/adb" -s 10.203.4.241:39513 shell am instrument -w -e class com.reporead.android.AccountTest com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+BUILD SUCCESSFUL in 14s
+82 actionable tasks: 18 executed, 64 up-to-date
+Time: 2.902
+OK (13 tests)
+```
+
+The strengthened notice regression also checks refresh cannot dismiss the account notice and that an explicit dismissal does. Broader lifetime, export and background-entry fixes are the next approved slice, not claimed solved here. No backend, dependency, schema or infrastructure change; no live OAuth or release app access.

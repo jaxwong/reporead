@@ -100,7 +100,7 @@ fun LibraryScreen(
     signedIn: Boolean,
     push: (Screen) -> Unit,
     notice: String?,
-    onNoticeShown: () -> Unit,
+    onDismissNotice: () -> Unit,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
@@ -128,13 +128,6 @@ fun LibraryScreen(
                 )
                 .joinToString(" ")
                 .ifEmpty { null }
-        }
-    }
-    // What an account operation reported (a deletion the server did not confirm) joins this screen's status line.
-    LaunchedEffect(notice) {
-        if (notice != null) {
-            status = notice
-            onNoticeShown()
         }
     }
     val deleteAccount = {
@@ -192,6 +185,10 @@ fun LibraryScreen(
                 FilledTonalButton(onClick = onSignIn, modifier = Modifier.padding(horizontal = 16.dp)) {
                     Text("Sign in with GitHub")
                 }
+            }
+            notice?.let {
+                StatusLine(it)
+                TextButton(onClick = onDismissNotice) { Text("Dismiss account message") }
             }
             StatusLine(status)
             if (signedIn && waiting > 0) {

@@ -1,7 +1,11 @@
 package com.reporead.android
 
 import android.content.Context
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.room.Room
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.SessionStore
@@ -17,6 +21,8 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
+import com.reporead.android.library.LibraryScreen
+import com.reporead.android.reader.ReaderTestActivity
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.sync.Sync
 import java.io.File
@@ -37,6 +43,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -374,5 +381,91 @@ class AccountTest {
             assertEquals(AccountState.Idle(null), account.state.value)
             assertPhoneKept()
         }
+    }
+
+    @Test
+    fun anUnstartedSignInCannotDeleteLegacyData(): Unit = runBlocking {
+        signedInWithSavedNotes()
+        sessions.clear()
+        sessions.finishRemoval() // Same legacy ownerless fixture as the PR's existing upgrade test.
+        assertNull(sessions.pendingVerifier)
+        LoopbackServer(emptyMap()).use { server ->
+            val account = account(server.url)
+            account.signIn("TEST_ONLY_UNSOLICITED_CODE")
+            val done = account.settled() as AccountState.Idle
+            assertEquals("SIGN_IN_NOT_STARTED", (done.notice as AccountNotice.SignInFailed).error.code)
+            assertEquals(emptyList<String>(), server.requests)
+            assertEquals(
+                "An unstarted sign-in callback erased the saved legacy page",
+                "private text",
+                dao.note(1)?.searchText,
+            )
+        }
+    }
+
+    @Test
+    fun aDeletionFailureNoticeSurvivesLibraryRecreation(): Unit = runBlocking {
+        signedInWithSavedNotes()
+        dao.removeAnnotation("unsent")
+        dao.saveReading(reading().copy(pending = false))
+        val releaseRefresh = CountDownLatch(1)
+        LoopbackServer(
+                mapOf(
+                    "DELETE /api/account" to failure(503, "TEST_ONLY_DOWN"),
+                    "GET /api/library" to
+                        (200 to
+                            """{"repositories":[],"readingStates":[],"bookmarks":[],
+                "notebook":{"annotations":[],"reviews":[],"sessionLimit":40}}"""),
+                )
+            ) { key ->
+                if (key == "GET /api/library") check(releaseRefresh.await(10, SECONDS))
+            }
+            .use { server ->
+                val api = api(server.url)
+                val sync = Sync(api, store, directory) {}
+                val account = Account(sessions, api, sync, scope)
+                account.deleteAccount()
+                val notice = (account.settled() as AccountState.Idle).notice!!
+                val text = noticeText(notice)
+                ReaderTestActivity.content = {
+                    val state by account.state.collectAsState()
+                    MaterialTheme {
+                        LibraryScreen(
+                            sync,
+                            dao,
+                            true,
+                            {},
+                            (state as? AccountState.Idle)?.notice?.let(::noticeText),
+                            account::dismissNotice,
+                            {},
+                            account::signOut,
+                            account::deleteAccount,
+                        )
+                    }
+                }
+                try {
+                    ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+                        awaitText(text)
+                        assertTrue(
+                            (account.state.value as AccountState.Idle).notice is AccountNotice.DeletionNotConfirmed
+                        )
+                        scenario.recreate()
+                        awaitText("Library")
+                        assertNotNull(
+                            "Account-deletion failure notice disappeared on recreation",
+                            findText(root(), text),
+                        )
+                        releaseRefresh.countDown()
+                        // The refresh may replace the library, but not the separately owned account notice.
+                        withTimeout(5_000) { dao.repositories().first { it.isEmpty() } }
+                        awaitText(text)
+                        click("Dismiss account message")
+                        assertEquals(AccountState.Idle(null), account.state.value)
+                    }
+                } finally {
+                    releaseRefresh.countDown()
+                    ReaderTestActivity.content = null
+                }
+            }
     }
 }
