@@ -1,3 +1,5 @@
+// Owns: Repository-folder presentation and save/disconnect controls; Sync and WorkManager own the operations.
+
 package com.reporead.android.library
 
 import android.database.sqlite.SQLiteException
@@ -258,7 +260,7 @@ private fun DisconnectDialog(
         if (preview.unsent == 0) ""
         else
             "${counted(preview.unsent, "highlight, card, or grade", "highlights, cards, or grades")} only on this phone " +
-                "go too${preview.notSent?.let { " (not sent: $it)" } ?: ""}. "
+                "go too${preview.notSent?.let { " (not sent: ${it.describe()})" } ?: ""}. "
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Disconnect $repositoryName?") },

@@ -1,3 +1,5 @@
+// Owns: Server/local-copy synchronization, pending-change disposition and ordered publication under the existing lock.
+
 package com.reporead.android.sync
 
 import android.database.sqlite.SQLiteException
@@ -79,7 +81,16 @@ internal fun ApiException.refusesItem(): Boolean =
  * stays on this phone only, a refused bookmark change is undone. [notSent]: why pending highlights and cards were not
  * sent this time; they wait for the next sync.
  */
-data class LocalSync(val refused: List<String>, val notSent: ApiException?)
+data class LocalSync(val refused: List<RefusedChange>, val notSent: ApiException?)
+
+/** The title is the document owner's snapshot at refusal, before a subsequent library replacement can remove it. */
+data class RefusedChange(val kind: Kind, val documentId: Long, val title: String?, val error: ApiException) {
+    /** Identifies the refused local operation without choosing any screen wording. */
+    enum class Kind {
+        READING,
+        BOOKMARK,
+    }
+}
 
 /** What clearing this phone's copy did ([Sync.clearRetiredCopy]). */
 sealed interface LocalCleanup {
@@ -202,7 +213,8 @@ class Sync(
         loadLibrary()
     }
 
-    data class Opened(val note: NoteRow, val staleReason: String?)
+    /** Owns an open operation's saved page and optional fetch failure; the reader words the stale-copy notice. */
+    data class Opened(val note: NoteRow, val staleReason: ApiException?)
 
     /**
      * The saved copy is the current version of [document], a listed note: same blob, path and repository snapshot. The
@@ -238,7 +250,7 @@ class Sync(
             if (cached == null) throw error
             val cachedIsCurrent = sameVersion(cached.version, current, commitSha)
             Log.i("RepoRead", "Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
-            Opened(cached, if (cachedIsCurrent) null else error.describe())
+            Opened(cached, if (cachedIsCurrent) null else error)
         }
     }
 
@@ -330,7 +342,7 @@ class Sync(
      * highlights, cards, and grades only on this phone (unsent or refused), deleted too; [notSent] says why some were
      * not sent.
      */
-    data class DisconnectPreview(val stored: StoredData, val unsent: Int, val notSent: String?)
+    data class DisconnectPreview(val stored: StoredData, val unsent: Int, val notSent: ApiException?)
 
     /**
      * Sends pending work, then counts what disconnecting [repositoryId] would delete, for the confirmation. Null when
@@ -349,7 +361,7 @@ class Sync(
                 deleteExports()
                 return@locked null
             }
-        DisconnectPreview(json, dao.unsentInRepository(repositoryId), synced.notSent?.describe())
+        DisconnectPreview(json, dao.unsentInRepository(repositoryId), synced.notSent)
     }
 
     /**
@@ -420,10 +432,6 @@ class Sync(
         if (dao.waitingCount().first() == 0) null else sendPending()
     }
 
-    /** A note named in a message: its title, or what it is when no saved list has it (the server no longer does). */
-    private suspend fun noteName(documentId: Long) =
-        dao.document(documentId)?.let { "“${it.title}”" } ?: "a note no longer in your lists"
-
     /**
      * Sends what waits, each saved as the server answers it. Highlight and card creations need GitHub; when GitHub, or
      * access to it, fails they wait, and the database-only work still runs (ADR-03). A refused item is marked and the
@@ -439,7 +447,7 @@ class Sync(
                 error
             }
         sendReviews()
-        val refused = mutableListOf<String>()
+        val refused = mutableListOf<RefusedChange>()
         for (row in dao.pendingReading()) {
             val body =
                 ReadingRequest(
@@ -458,7 +466,13 @@ class Sync(
                     // next replaced. Any other refusal keeps the position on this phone, pending, and offers it again
                     // at the next sync.
                     if (error.status == 404) dao.acknowledgeReading(row.documentId, row.lastReadAt)
-                    refused += "Your place in ${noteName(row.documentId)} (${error.describe()})"
+                    refused +=
+                        RefusedChange(
+                            RefusedChange.Kind.READING,
+                            row.documentId,
+                            dao.document(row.documentId)?.title,
+                            error,
+                        )
                     continue
                 }
             dao.acknowledgeReading(row.documentId, row.lastReadAt)
@@ -477,7 +491,13 @@ class Sync(
                 if (!error.refusesItem()) throw error
                 Log.w("RepoRead", "Bookmark refused; documentId=${row.documentId} code=${error.code}")
                 dao.dropBookmark(row.documentId, row.changedAt)
-                refused += "The bookmark on ${noteName(row.documentId)} (${error.describe()})"
+                refused +=
+                    RefusedChange(
+                        RefusedChange.Kind.BOOKMARK,
+                        row.documentId,
+                        dao.document(row.documentId)?.title,
+                        error,
+                    )
             }
         }
         return LocalSync(refused, notSent)
