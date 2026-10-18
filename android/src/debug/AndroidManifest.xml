@@ -10,6 +10,6 @@
                 <data android:scheme="${signInScheme}" android:host="auth" />
             </intent-filter>
         </activity>
-        <activity android:name=".reader.ReaderTestActivity" android:exported="false" />
+        <activity android:name=".TestHostActivity" android:exported="false" />
     </application>
 </manifest>

@@ -6,6 +6,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.Screen
+import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.LocalStore
@@ -48,15 +49,15 @@ class FigureSnapshotTest {
                     files,
                 ) {}
             val screen = Screen.Figure(1, sha, "t0", "Test-only figure", "b".repeat(40))
-            ReaderTestActivity.content = { MaterialTheme { FigureScreen(sync, store.library(), screen, onBack = {}) } }
-            ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+            TestHostActivity.content = { MaterialTheme { FigureScreen(sync, store.library(), screen, onBack = {}) } }
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 val message = "This note was updated since it was opened. Go back and open the table or diagram again."
                 awaitText(message)
                 scenario.recreate()
                 awaitText(message)
             }
         } finally {
-            ReaderTestActivity.content = null
+            TestHostActivity.content = null
             store.close()
             check(files.deleteRecursively())
         }

@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.TestHostActivity
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.awaitText
 import com.reporead.android.awaitTextStarting
@@ -20,7 +21,6 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReviewLimitRow
 import com.reporead.android.findText
-import com.reporead.android.reader.ReaderTestActivity
 import com.reporead.android.root
 import com.reporead.android.sync.Sync
 import java.io.File
@@ -61,7 +61,7 @@ class ReviewLifecycleTest {
                 store,
                 File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
             ) {}
-        ReaderTestActivity.content = {
+        TestHostActivity.content = {
             MaterialTheme { ReviewScreen(dao, sync, push = { error("Review fixture must not navigate") }, onBack = {}) }
         }
     }
@@ -69,7 +69,7 @@ class ReviewLifecycleTest {
     @After
     fun close() {
         instrumentation.waitForIdleSync()
-        ReaderTestActivity.content = null
+        TestHostActivity.content = null
         if (::store.isInitialized) store.close()
     }
 
@@ -103,7 +103,7 @@ class ReviewLifecycleTest {
         runBlocking<Unit> {
             val dao = store.library()
             for (i in 1..10) card(i)
-            ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 click("Show answer")
                 awaitText("Good")
                 scenario.recreate()
@@ -141,10 +141,10 @@ class ReviewLifecycleTest {
                     File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
                 ) {}
             val pushed = mutableListOf<Screen>()
-            ReaderTestActivity.content = {
+            TestHostActivity.content = {
                 MaterialTheme { ReviewScreen(dao, sync, push = { pushed += it }, onBack = {}) }
             }
-            ActivityScenario.launch(ReaderTestActivity::class.java).use { click("Open note") }
+            ActivityScenario.launch(TestHostActivity::class.java).use { click("Open note") }
             assertEquals(listOf(Screen.Reader(1, "Test-only review", OpenAt.Highlight("card1"))), pushed)
         }
 
@@ -161,7 +161,7 @@ class ReviewLifecycleTest {
                 NoteRow(1, sha, "test-only/review.md", "Test-only review", html.replace("</main>", "$filler</main>"), 0)
             )
             card(1)
-            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+            ActivityScenario.launch(TestHostActivity::class.java).use {
                 click("Show answer")
                 val unverifiable = "The saved page cannot verify this answer in context. Open the note to check it."
                 withTimeout(10_000) {
@@ -175,7 +175,7 @@ class ReviewLifecycleTest {
         runBlocking<Unit> {
             val dao = store.library()
             card(1)
-            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+            ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText("1 card left · Test-only review")
                 click("Show answer")
                 click("Again")
@@ -197,7 +197,7 @@ class ReviewLifecycleTest {
             val dao = store.library()
             // Checked in an older version of the note: it is due, but must be confirmed before it can be graded.
             card(1, checkedBlobSha = "b".repeat(40))
-            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+            ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText("The note changed since this card was checked. Is this still its answer?")
                 awaitText("Test-only answer 1 in context.")
                 assertNull("No grade before it is confirmed", findText(root(), "Good"))
@@ -233,7 +233,7 @@ class ReviewLifecycleTest {
                     checkedBlobSha = sha,
                 )
             )
-            ActivityScenario.launch(ReaderTestActivity::class.java).use {
+            ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText("Show answer")
                 dao.rejectAnnotation("card1", "Test-only refusal.")
                 awaitTextStarting("The server refused this card")
