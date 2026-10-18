@@ -123,8 +123,9 @@ class Sync(
      * Every operation that writes the server's answers into Room, and clearing the phone, run under this lock, so
      * nothing fetched before sign-out or an account switch is written after it (ADR-22). The app has one Sync
      * (RepoReadApplication), so the screens and the background sync share it. Not reentrant: locked operations call
-     * only private helpers. Local saves and the reader's image fetches ([NoteImages]) do not wait; an image whose fetch
-     * began before a deletion is not written ([NoteImages]).
+     * only private helpers. Local saves and the reader's image fetches ([NoteImages]) do not wait: a local save is
+     * written only for a note Room still lists (LibraryDao.saveDisplayedReading), so one that arrives after a clear or
+     * a disconnect writes nothing, and an image whose fetch began before a deletion is not written ([NoteImages]).
      */
     private val oneSyncAtATime = Mutex()
 
@@ -461,16 +462,22 @@ class Sync(
         api.delete("/api/account")
     }
 
-    /** Only the reader calls this, with the version it actually displayed. */
-    suspend fun saveReading(row: ReadingRow) {
-        dao.saveDisplayedReading(row.copy(pending = true))
-        onPendingChange()
-    }
+    /**
+     * Only the reader calls this, with the version it actually displayed. False when the phone no longer lists the note
+     * (cleared or disconnected meanwhile): nothing is saved.
+     */
+    suspend fun saveReading(row: ReadingRow): Boolean =
+        dao.saveDisplayedReading(row.copy(pending = true)).also { saved ->
+            if (saved) onPendingChange()
+            else Log.i("RepoRead", "Reading position not saved; note gone; documentId=${row.documentId}")
+        }
 
-    suspend fun setBookmark(documentId: Long, bookmarked: Boolean) {
-        dao.saveBookmark(BookmarkRow(documentId, bookmarked, pending = true, System.currentTimeMillis()))
-        onPendingChange()
-    }
+    /** False when the phone no longer lists the note: nothing is saved. */
+    suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean =
+        dao.saveLocalBookmark(BookmarkRow(documentId, bookmarked, pending = true, System.currentTimeMillis())).also {
+            saved ->
+            if (saved) onPendingChange() else Log.i("RepoRead", "Bookmark not saved; note gone; documentId=$documentId")
+        }
 
     /**
      * Saves a grade as a pending local mutation; false when its card changed meanwhile and nothing was saved (see
@@ -557,12 +564,10 @@ class Sync(
 
     /**
      * Saves a new highlight (or, with [question], a card) locally as a pending creation; it is sent with the returned
-     * mutation id until acknowledged.
+     * mutation id until acknowledged. Null when the page it was selected in is no longer saved (cleared or disconnected
+     * meanwhile): nothing is saved.
      */
-    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String {
-        checkNotNull(dao.note(documentId)) {
-            "Cannot create an annotation without its displayed saved note; documentId=$documentId"
-        }
+    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? {
         val row =
             AnnotationRow(
                 mutationId = UUID.randomUUID().toString(),
@@ -581,7 +586,10 @@ class Sync(
                 question = question,
                 checkedBlobSha = if (question == null) null else passage.blobSha,
             )
-        dao.saveAnnotation(row)
+        if (!dao.saveLocalAnnotation(row)) {
+            Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
+            return null
+        }
         onPendingChange()
         return row.mutationId
     }

@@ -361,12 +361,12 @@ internal class ReaderSession(
                 System.currentTimeMillis(),
                 pending = true,
             )
-        sync.saveReading(row)
-        Log.i(
-            "RepoRead",
-            "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} block=$block " +
-                "viewHeight=${view.height}",
-        )
+        if (sync.saveReading(row))
+            Log.i(
+                "RepoRead",
+                "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} block=$block " +
+                    "viewHeight=${view.height}",
+            )
     }
 
     /** Saves the position now, as when the screen stops: process death can follow. */

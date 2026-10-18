@@ -153,7 +153,9 @@ internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: Pra
     }
     val answer = question.question.answer
     val passage = Passage(question.blobSha, answer.blockId, 0, answer.text.length, answer.text)
-    val card = sync.createAnnotation(passage, question.documentId, null, question.question.prompt)
+    val card =
+        sync.createAnnotation(passage, question.documentId, null, question.question.prompt)
+            ?: return "Not saved: this question's bank is no longer saved on this phone."
     val graded =
         sync.recordReview(
             ReviewRow(

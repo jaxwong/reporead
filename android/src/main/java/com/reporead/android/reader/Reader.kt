@@ -172,7 +172,8 @@ fun ReaderScreen(
             val id = sync.createAnnotation(passage, screen.documentId, note, question)
             val kind = if (question == null) "Highlight" else "Card"
             message =
-                if (!signedIn) "$kind saved on this phone; it is sent after you sign in."
+                if (id == null) "$kind not saved: this note is no longer saved on this phone."
+                else if (!signedIn) "$kind saved on this phone; it is sent after you sign in."
                 else
                     try {
                         sync.pushAnnotations()
