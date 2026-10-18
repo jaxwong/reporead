@@ -276,7 +276,7 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                         signedIn,
                         push,
                         notice = notice?.let(::noticeText),
-                        onNoticeShown = account::dismissNotice,
+                        onDismissNotice = account::dismissNotice,
                         onSignIn = signIn,
                         onSignOut = account::signOut,
                         onDeleteAccount = account::deleteAccount,

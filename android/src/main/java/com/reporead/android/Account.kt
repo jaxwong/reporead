@@ -137,21 +137,28 @@ class Account(
     fun signIn(code: String) {
         if (!begin(AccountState.SigningIn)) return
         scope.launch {
-            if (store.dataOwner == null) {
-                store.startRemoval()
-                val outcome = removeCopy()
-                if (outcome != LocalCleanup.Done) {
-                    current.value = AccountState.Removing(outcome, null)
-                    return@launch
+            try {
+                val verifier =
+                    store.pendingVerifier
+                        ?: throw ApiException(
+                            0,
+                            "SIGN_IN_NOT_STARTED",
+                            "This sign-in was not started from this app. Tap Sign in again.",
+                        )
+                store.pendingVerifier = null
+                if (store.dataOwner == null) {
+                    store.startRemoval()
+                    val outcome = removeCopy()
+                    if (outcome != LocalCleanup.Done) {
+                        current.value = AccountState.Removing(outcome, null)
+                        return@launch
+                    }
                 }
+                completeSignIn(code, verifier, api, store)
+                current.value = AccountState.Idle(null)
+            } catch (error: ApiException) {
+                current.value = AccountState.Idle(AccountNotice.SignInFailed(error))
             }
-            current.value =
-                try {
-                    completeSignIn(code, api, store)
-                    AccountState.Idle(null)
-                } catch (error: ApiException) {
-                    AccountState.Idle(AccountNotice.SignInFailed(error))
-                }
         }
     }
 

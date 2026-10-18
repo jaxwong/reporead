@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.browser.customtabs.CustomTabsIntent
 import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.contract
 import com.reporead.android.core.network.string
 import java.security.MessageDigest
@@ -38,21 +37,14 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
 }
 
 /**
- * Exchanges the code from the sign-in redirect for a bearer session and stores it. The verifier is single-use either
- * way. Data saved on this phone belongs to the account that saved it, so the exchange names that account and the server
- * issues no session for another (ACCOUNT_MISMATCH): a sign-in never removes anything from the phone, and switching
- * accounts takes signing out, which says first what it would lose. Account runs it only when no removal is pending, and
- * after removing data with no recorded owner, so an owner of null means nothing is saved here.
+ * Exchanges the code from the sign-in redirect for a bearer session and stores it. Account validates and consumes the
+ * verifier before any cleanup. Data saved on this phone belongs to the account that saved it, so the exchange names
+ * that account and the server issues no session for another (ACCOUNT_MISMATCH): a sign-in never removes anything from
+ * the phone, and switching accounts takes signing out, which says first what it would lose. Account runs it only when
+ * no removal is pending, and after removing data with no recorded owner, so an owner of null means nothing is saved
+ * here.
  */
-suspend fun completeSignIn(code: String, api: Api, store: SessionStore) {
-    val verifier =
-        store.pendingVerifier
-            ?: throw ApiException(
-                0,
-                "SIGN_IN_NOT_STARTED",
-                "This sign-in was not started from this app. Tap Sign in again.",
-            )
-    store.pendingVerifier = null
+internal suspend fun completeSignIn(code: String, verifier: String, api: Api, store: SessionStore) {
     val owner = store.dataOwner
     val request = JSONObject().put("code", code).put("codeVerifier", verifier)
     if (owner != null) request.put("expectedUserId", owner)
