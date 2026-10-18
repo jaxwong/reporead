@@ -54,12 +54,12 @@ On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https:/
 
 ## HTTP boundary
 
-`core/network/Api.kt` owns every app-used backend route, its success statuses, response cap and echoed identity checks. `Contract.kt` declares consumed fields without defaults; nullable keys are still required. `WireJson.kt` owns strict Boolean/Int/Long tokens and ISO instants representable as epoch milliseconds; unknown extra fields remain compatible. `sync/ServerRows.kt` maps typed records, and `Sync` alone decides which known status/code pairs permanently refuse pending work. `Sync` returns structured refusal facts, disconnect failures and stale-copy fetch failures; Library/Folder/Reader own their UI wording. No raw HTTP verbs or `org.json` network parser remain; the reader bridge keeps its separately owned JSON protocol. See [ADR-26](../docs/adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
+`core/network/Api.kt` owns every app-used backend route, its success statuses, response cap and echoed identity checks. Its wire models (`core/network/wire/`) are generated at build time by the `wireModels` task from `backend/openapi.json`, the backend's published API: every field is required and nullable ones are still present. Never edit them; change the backend record and commit the spec its `OpenApiSpecTest` rewrites. `WireRules.kt` owns the value rules a generated shape cannot state. `WireJson.kt` owns strict Boolean/Int/Long tokens and ISO instants representable as epoch milliseconds; unknown extra fields remain compatible. `sync/ServerRows.kt` maps typed records, and `Sync` alone decides which known status/code pairs permanently refuse pending work. `Sync` returns structured refusal facts, disconnect failures and stale-copy fetch failures; Library/Folder/Reader own their UI wording. No raw HTTP verbs or `org.json` network parser remain; the reader bridge keeps its separately owned JSON protocol. See [ADR-26](../docs/adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
 
-`ContractTest` and `RefusalTest` run in the existing JVM test task and read `backend/src/test/resources/api-contract/`; backend producer tests verify those same examples against actual records/controllers. These are test resources/assets only, never production assets. Run both sides before changing a wire declaration:
+`ContractTest` covers what generation cannot promise: strict tokens, required-nullable presence and the value rules. Test answers are built with the generated constructors in `src/testShared/` (`WireSamples.kt`, compiled into both the JVM and device tests), so a backend shape change fails their compilation. `RefusalTest` reads the backend's test-only `api-contract/item-refusals.json`. After a backend wire change:
 
 ```sh
-./gradlew :backend:test --tests '*WireContractTest' --no-daemon
+./gradlew :backend:test --tests '*OpenApiSpecTest' --no-daemon   # rewrites backend/openapi.json once and fails; commit it
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --no-daemon
 ```
 

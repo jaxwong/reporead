@@ -1053,3 +1053,37 @@ Android lifecycle/navigation foundations and dependency advisories are not silen
 `git diff --check` passed for this PR's changes; the unrelated user `.gitignore` edit was excluded. Implementation
 commits are separated into structured outcomes, credential lifecycle, runtime deadlines and ownership comments; this
 record/plan retirement is documentation-only. No old implementation-only test suite is retained.
+
+### Generated wire models (2026-10-18)
+
+The hand-declared app contract and its agreement tests were replaced by a spec the backend derives and models the app
+generates (ADR-26, amended). Before committing to the tools, one slice was proven with scratch tests that were not kept:
+
+- **Actual serialization.** Test-only `Library.Snapshot` samples, serialized by the application's Jackson 3 mapper with
+  their nullable components null and then with values, decoded into the generated `LibrarySnapshot`: the
+  `@JsonUnwrapped` connection's fields sat beside `documents`, `location` arrived as a passage through `@JsonValue`, and
+  explicit nulls decoded. Without the `lastSyncedCommitSha` key decoding failed (`MissingFieldException`); a quoted
+  `documentCount` failed in the strict serializer (`Expected an unquoted scalar`).
+- **A backend change reaches the app.** A test-only `@Nullable String demoField` on `Documents.Summary` (and its one
+  constructor call): `OpenApiSpecTest` rewrote `openapi.json` and failed once, `wireModels` generated
+  `demoField: kotlin.String?`, and `:app:compileDebugKotlin` succeeded with no other edit. Test compilation failed only
+  at `WireSamples.kt:112`, the sample that constructs a summary. Reverted; the spec derived identically again.
+- **Production classpath.** The backend's main runtime classpath holds no swagger or springdoc class;
+  `LibraryController.library()` reflects with only `@GetMapping`, the absent compile-only annotation dropped, and the
+  boot jar contains neither.
+
+Final commands, from the branch worktree:
+
+```sh
+./gradlew :backend:spotlessCheck :backend:test --no-daemon
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:lintDebug :app:mergeDebugAssets :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
+```
+
+Both exited **0**: 292 backend tests and 82 JVM tests, no failures, with the usual opt-in corpus skips (3 and 1). The
+spec commit alone, in a separate worktree, passed 301 backend tests with the old agreement tests still present; its
+first attempt failed 228 because Testcontainers could not reach its Ryuk container, and the unchanged rerun passed.
+Removed with the hand-declared contract: `Contract.kt`, nine `*WireContractTest` classes, `ContractFixtures` and 27
+shape-only examples. Kept: `item-refusals.json`, now checked by `ItemRefusalsTest`.
+
+**Not run for this change:** the device suite on the phone (it compiles; its JSON answers were completed for the fields
+the generated models require), the opt-in live check, and any release build or deployment.
