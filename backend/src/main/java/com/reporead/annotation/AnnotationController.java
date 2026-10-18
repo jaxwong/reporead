@@ -7,6 +7,7 @@ import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.annotation.AnnotationService.Selection;
 import com.reporead.auth.AppUser;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -151,7 +152,7 @@ public class AnnotationController {
     void delete(
             @AuthenticationPrincipal AppUser user,
             @PathVariable long id,
-            @RequestParam(required = false) Integer expectedVersion) {
+            @Parameter(required = true) @RequestParam(required = false) Integer expectedVersion) {
         if (expectedVersion == null || expectedVersion < 1) {
             throw new ApiFailure(Code.INVALID_ANNOTATION, "A deletion needs expectedVersion.");
         }
