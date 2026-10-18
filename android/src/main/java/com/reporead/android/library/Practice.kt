@@ -35,6 +35,7 @@ import com.reporead.android.data.Passage
 import com.reporead.android.data.PracticePage
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.reader.BankAnswer
+import com.reporead.android.reader.BankProblem
 import com.reporead.android.reader.StudyQuestion
 import com.reporead.android.reader.interviewBank
 import com.reporead.android.reader.interviewTopic
@@ -66,27 +67,34 @@ internal data class PracticeQuestion(
         get() = "$documentId:$blobSha:${question.blockId}"
 }
 
-/**
- * The listed interview banks (saved or not), the saved ones' questions, and their H3s that are not questions (path to
- * heading).
- */
+/** One saved bank's warnings, identified by document and version rather than repository-relative path. */
+internal data class BankProblems(
+    val documentId: Long,
+    val title: String,
+    val path: String,
+    val blobSha: String,
+    val blocks: List<BankProblem>,
+)
+
+/** The listed interview banks (saved or not), the saved ones' questions, and their format warnings. */
 internal data class Banks(
     val pages: List<PracticePage>,
     val questions: List<PracticeQuestion>,
-    val unrecognized: List<Pair<String, String>>,
+    val unrecognized: List<BankProblems>,
 )
 
 internal fun readBanks(pages: List<PracticePage>): Banks {
     val banks = pages.filter { isInterviewBank(it.path) }
     val questions = mutableListOf<PracticeQuestion>()
-    val unrecognized = mutableListOf<Pair<String, String>>()
+    val unrecognized = mutableListOf<BankProblems>()
     for (page in banks) {
         val html = page.html ?: continue
         val blobSha =
             checkNotNull(page.blobSha) { "Saved Practice page ${page.documentId} has HTML without its blob SHA" }
         val bank = interviewBank(html, page.path)
         bank.questions.mapTo(questions) { PracticeQuestion(page.documentId, page.title, page.path, blobSha, it) }
-        bank.unrecognized.mapTo(unrecognized) { page.path to it }
+        if (bank.unrecognized.isNotEmpty())
+            unrecognized += BankProblems(page.documentId, page.title, page.path, blobSha, bank.unrecognized)
     }
     return Banks(banks, questions, unrecognized)
 }
@@ -234,23 +242,20 @@ private fun TopicRow(topic: String?, banks: Banks, scheduled: Set<String>, push:
             push(Screen.Practice(topic))
         }
         // A heading that slipped the format is named, so its questions do not vanish without a trace.
-        val problems = if (topic == null) emptyList() else banks.unrecognized.filter { inTopic(it.first) }
-        if (problems.isNotEmpty()) NotQuestions(problems, pages, push)
+        val problems = if (topic == null) emptyList() else banks.unrecognized.filter { inTopic(it.path) }
+        if (problems.isNotEmpty()) NotQuestions(problems, push)
     }
 }
 
-/**
- * The topic's [problems] (bank path to heading) as one row that expands into a list per bank; each heading opens its
- * bank there, to be fixed.
- */
+/** The topic's warnings, grouped by bank; tapping one opens its exact block in the version that was checked. */
 @Composable
-private fun NotQuestions(problems: List<Pair<String, String>>, pages: List<PracticePage>, push: (Screen) -> Unit) {
+private fun NotQuestions(problems: List<BankProblems>, push: (Screen) -> Unit) {
     var open by rememberSaveable { mutableStateOf(false) }
     ListItem(
         modifier = Modifier.clickable { open = !open },
         headlineContent = {
             Text(
-                counted(problems.size, "heading is not a question", "headings are not questions"),
+                counted(problems.sumOf { it.blocks.size }, "heading is not a question", "headings are not questions"),
                 color = MaterialTheme.colorScheme.error,
             )
         },
@@ -258,23 +263,24 @@ private fun NotQuestions(problems: List<Pair<String, String>>, pages: List<Pract
         trailingContent = { Text(if (open) "Hide" else "Show", style = MaterialTheme.typography.labelLarge) },
     )
     if (!open) return
-    for ((path, headings) in problems.groupBy({ it.first }, { it.second })) {
-        val page = pages.first { it.path == path }
+    for (bank in problems) {
         Text(
-            path.substringAfterLast('/'),
+            bank.path.substringAfterLast('/'),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
         )
-        for (heading in headings) {
+        for (block in bank.blocks) {
             Text(
-                heading,
+                block.text,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier =
                     Modifier.fillMaxWidth()
-                        .clickable { push(Screen.Reader(page.documentId, page.title, OpenAt.Heading(heading))) }
+                        .clickable {
+                            push(Screen.Reader(bank.documentId, bank.title, OpenAt.Block(bank.blobSha, block.blockId)))
+                        }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
             )
         }

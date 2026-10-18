@@ -80,7 +80,9 @@ class ReaderLifecycleTest {
                 block(1, "h2", "Start") +
                 (2..5).joinToString("") { block(it, "p", "Test-only opening $it.") } +
                 block(6, "h2", "Answer") +
-                (7..60).joinToString("") { block(it, "p", "Test-only paragraph $it. ".repeat(20)) } +
+                (7..60).joinToString("") {
+                    if (it == 20) block(it, "h3", "Answer") else block(it, "p", "Test-only paragraph $it. ".repeat(20))
+                } +
                 // A same-note link, and a block whose 64-unit prefix would end inside an emoji.
                 """<p data-block-id="b61" data-anchor-text="Back to the answer"><a href="#answer">Back to the answer</a></p>""" +
                 block(62, "p", "x".repeat(63) + "\uD83D\uDE00 after the emoji") +
@@ -152,6 +154,42 @@ class ReaderLifecycleTest {
         scenario.recreate()
         awaitReader(12)
         awaitSaved(12)
+    }
+
+    @Test
+    fun aBankWarningOpensTheLaterIdenticalHeadingOnceAndRecreationKeepsItsPlace() {
+        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, OpenAt.Block(sha, "b20")) }
+        awaitReader(20)
+        awaitSaved(20)
+        evaluate("window.reporead.showBlock('b30'); return {};")
+        awaitSaved(30)
+        scenario.recreate()
+        awaitReader(30)
+        awaitSaved(30)
+    }
+
+    @Test
+    fun aWarningFromAnotherVersionDoesNotJumpToAReusedBlockId() {
+        evaluate("window.reporead.showBlock('b12'); return {};")
+        awaitSaved(12)
+        scenario.onActivity {
+            screenUnderTest.value = Screen.Reader(1, title, OpenAt.Block("b".repeat(40), "b20"))
+        }
+        awaitText("That bank warning is not in this version of the note. Reopen Practice to see its current warnings.")
+        awaitReader(12)
+        awaitSaved(12)
+        assertSavedStays(12)
+    }
+
+    @Test
+    fun aWarningWhoseBlockIsMissingKeepsTheSavedPositionAndExplainsWhy() {
+        evaluate("window.reporead.showBlock('b12'); return {};")
+        awaitSaved(12)
+        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, OpenAt.Block(sha, "gone")) }
+        awaitText("That bank warning is not in this version of the note. Reopen Practice to see its current warnings.")
+        awaitReader(12)
+        awaitSaved(12)
+        assertSavedStays(12)
     }
 
     @Test
@@ -416,6 +454,8 @@ class ReaderLifecycleTest {
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
         scenario.onActivity { screenUnderTest.value = Screen.Reader(2, "Test-only unready") }
+        // The old reader has the same button label; wait for the destination before finding its control.
+        awaitText("Test-only unready")
         click("Highlights and notes")
         assertFalse("Show is offered before the page is ready", control("Show").isEnabled)
         // Back to the fixture's note, whose final save the teardown waits for; back at its place, it has opened.

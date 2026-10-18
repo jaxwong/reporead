@@ -114,7 +114,7 @@ class StudyTest {
             ),
             bank.questions.single().guide,
         )
-        assertEquals(emptyList<String>(), bank.unrecognized)
+        assertEquals(emptyList<BankProblem>(), bank.unrecognized)
     }
 
     @Test
@@ -163,7 +163,7 @@ class StudyTest {
         val bank = interviewBank(html, bank)
         assertEquals(listOf("How?"), bank.questions.map { it.text })
         // A path with no items to ask is a format slip too.
-        assertEquals(listOf("1. Why?", "After you deploy"), bank.unrecognized)
+        assertEquals(listOf(BankProblem("b1", "1. Why?"), BankProblem("b3", "After you deploy")), bank.unrecognized)
     }
 
     @Test
@@ -182,7 +182,24 @@ class StudyTest {
             )
         val bank = interviewBank(html, bank)
         assertEquals(emptyList<StudyQuestion>(), bank.questions)
-        assertEquals(listOf("Canonical answer: X", "Transactions"), bank.unrecognized)
+        assertEquals(
+            listOf(BankProblem("b1", "Canonical answer: X"), BankProblem("b2", "Transactions")),
+            bank.unrecognized,
+        )
+    }
+
+    @Test
+    fun repeatedHeadingsKeepTheirOwnBlocksRatherThanTheFirstMatchingText() {
+        val html =
+            page(
+                heading(0, "Repeated", 3) +
+                    block(1, "Canonical answer: X", "p") +
+                    heading(2, "Repeated", 3) +
+                    heading(3, "Repeated", 3)
+            )
+        val parsed = interviewBank(html, bank)
+        assertEquals(listOf("b0"), parsed.questions.map { it.blockId })
+        assertEquals(listOf(BankProblem("b2", "Repeated"), BankProblem("b3", "Repeated")), parsed.unrecognized)
     }
 
     @Test
