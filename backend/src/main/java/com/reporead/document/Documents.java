@@ -191,19 +191,9 @@ public class Documents {
                 .list());
     }
 
-    /** Every document of the connection, deleted ones too. */
-    public List<Summary> list(long connectionId) {
-        return db.sql("""
-                select id, path, title, current_blob_sha as blob_sha, content_changed_at, deleted_at is not null as deleted
-                from documents where repository_connection_id = :connectionId order by path""")
-                .param("connectionId", connectionId)
-                .query(Summary.class)
-                .list();
-    }
-
     /**
      * Every document of every connection of this user, deleted ones too, by connection id, each connection's ordered by
-     * path as {@link #list} orders them. One query; a connection without documents has no entry.
+     * path. One query; a connection without documents has no entry.
      */
     public Map<Long, List<Summary>> listForUser(long userId) {
         return db

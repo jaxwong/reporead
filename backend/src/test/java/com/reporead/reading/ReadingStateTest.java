@@ -85,8 +85,9 @@ class ReadingStateTest extends SharedSpringTest {
                 .content(json));
     }
 
+    /** The library: its readingStates are this user's reading states. */
     private ResultActions list(String bearer) throws Exception {
-        return mvc.perform(get("/api/reading-states").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+        return mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
     }
 
     @Test
@@ -149,9 +150,9 @@ class ReadingStateTest extends SharedSpringTest {
         save(alice, note, body(SHA_A, 50, Instant.now(), ANCHOR)).andExpect(status().isOk());
         transaction.executeWithoutResult(
                 status -> documents.publishSnapshot(1, List.of(), Instant.now(), List.of(), true));
-        list(alice).andExpect(jsonPath("$.readingStates[0].progressPercent").value(50));
-        mvc.perform(get("/api/repositories/1/documents").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
-                .andExpect(jsonPath("$.documents[0].deleted").value(true));
+        list(alice)
+                .andExpect(jsonPath("$.readingStates[0].progressPercent").value(50))
+                .andExpect(jsonPath("$.repositories[0].documents[0].deleted").value(true));
     }
 
     @Test
@@ -201,6 +202,6 @@ class ReadingStateTest extends SharedSpringTest {
         save(bob, note, body(SHA_A, 10, Instant.now(), ANCHOR)).andExpect(status().isNotFound());
         list(bob).andExpect(jsonPath("$.readingStates").isEmpty());
         save(alice, 999, body(SHA_A, 10, Instant.now(), ANCHOR)).andExpect(status().isNotFound());
-        mvc.perform(get("/api/reading-states")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/documents/" + note + "/reading-state")).andExpect(status().isUnauthorized());
     }
 }
