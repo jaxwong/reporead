@@ -290,10 +290,12 @@ interface LibraryDao {
     /**
      * Saves the reader's position in the version it displayed. Moving to another version keeps the version left behind
      * as the change baseline, unless an older one is still unseen, so the next summary covers every change not yet
-     * seen.
+     * seen. Only for a note this phone lists ([document], removed ones too): a save that arrives after a clear or a
+     * disconnect has no note, writes nothing, and returns false.
      */
     @Transaction
-    suspend fun saveDisplayedReading(row: ReadingRow) {
+    suspend fun saveDisplayedReading(row: ReadingRow): Boolean {
+        if (document(row.documentId) == null) return false
         val previous = reading(row.documentId)
         if (
             previous != null &&
@@ -303,6 +305,7 @@ interface LibraryDao {
             saveBaseline(ChangeBaselineRow(row.documentId, previous.lastReadBlobSha))
         }
         saveReading(row)
+        return true
     }
 
     @Query("select * from reading_states where pending") suspend fun pendingReading(): List<ReadingRow>
@@ -344,6 +347,14 @@ interface LibraryDao {
     @Query("select * from bookmarks where pending") suspend fun pendingBookmarks(): List<BookmarkRow>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBookmark(row: BookmarkRow)
+
+    /** A bookmark change made on this phone, for a note it lists; as [saveDisplayedReading], false writes nothing. */
+    @Transaction
+    suspend fun saveLocalBookmark(row: BookmarkRow): Boolean {
+        if (document(row.documentId) == null) return false
+        saveBookmark(row)
+        return true
+    }
 
     @Query("update bookmarks set pending = 0 where documentId = :documentId and changedAt = :changedAt and bookmarked")
     suspend fun acknowledgeBookmarkSet(documentId: Long, changedAt: Long)
@@ -440,6 +451,17 @@ interface LibraryDao {
     }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveAnnotation(row: AnnotationRow)
+
+    /**
+     * A highlight or card created on this phone, on the saved page it was selected in; false writes nothing when that
+     * page is gone (a clear or a disconnect landed first).
+     */
+    @Transaction
+    suspend fun saveLocalAnnotation(row: AnnotationRow): Boolean {
+        if (note(row.documentId) == null) return false
+        saveAnnotation(row)
+        return true
+    }
 
     /**
      * Saves the server's copy of an annotation, acknowledging a pending creation of it. One the user deleted meanwhile

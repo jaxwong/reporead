@@ -321,11 +321,11 @@ class LocalSyncTest {
         sync.setBookmark(1, true)
         assertEquals(2, requested)
         val passage = Passage(sha, "b1", 0, 4, "text")
-        val highlight = sync.createAnnotation(passage, 1, null)
+        val highlight = sync.createAnnotation(passage, 1, null)!!
         assertEquals(3, requested)
         sync.deleteAnnotation(dao.annotation(highlight)!!)
         assertEquals(4, requested)
-        val card = sync.createAnnotation(passage, 1, null, "Test-only question?")
+        val card = sync.createAnnotation(passage, 1, null, "Test-only question?")!!
         assertTrue(sync.recordReview(ReviewRow("grade", card, 4, 1, sha, pending = true)))
         assertEquals(6, requested)
         sync.deleteAnnotation(dao.annotation(card)!!)
@@ -812,6 +812,27 @@ class LocalSyncTest {
         dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
         dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text", snapshotCommitSha = sha))
+    }
+
+    /**
+     * A reader released, or a grade saved, just before sign-out cleared the phone saves afterwards: the change belongs
+     * to a note the phone no longer lists, so nothing is written and nothing is sent.
+     */
+    @Test
+    fun aLocalChangeArrivingAfterAClearWritesNothing() = runBlocking {
+        savedRepository()
+        val sync = sync("http://127.0.0.1:${closedPort()}")
+        assertEquals(LocalCleanup.Done, sync.clearAll())
+
+        assertFalse(sync.saveReading(reading(1)))
+        assertFalse(sync.setBookmark(1, bookmarked = true))
+        assertNull(sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, "late note"))
+        assertFalse(sync.recordReview(ReviewRow("late-grade", "late-card", 4, 1, sha, pending = true)))
+
+        assertNull(dao.reading(1))
+        assertEquals(emptyList<BookmarkRow>(), dao.bookmarks().first())
+        assertEquals(0, dao.unsentCount())
+        assertEquals(0, dao.waitingCount().first())
     }
 
     @Test
