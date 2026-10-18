@@ -372,6 +372,14 @@ private fun RepositoriesTab(
     }
 }
 
+/**
+ * What a disconnect or account deletion leaves behind: the backups of the server's database already taken. Their
+ * retention is owned by backend/deploy and described in backend/README.md (Backups), so it is not repeated here.
+ */
+internal const val BACKUP_COPIES =
+    "Backups of RepoRead's database taken before now still hold a copy until they are replaced; backups taken by hand " +
+        "before a migration are kept until deleted by hand. "
+
 @Composable
 private fun DeleteAccountDialog(repositories: List<String>, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
@@ -381,7 +389,8 @@ private fun DeleteAccountDialog(repositories: List<String>, onDismiss: () -> Uni
             Text(
                 "RepoRead will delete, on its server and this phone, your connections" +
                     (if (repositories.isEmpty()) "" else " (${repositories.joinToString()})") +
-                    ", note lists, reading progress, bookmarks, highlights and notes, cards and review logs, and sign this phone out. This cannot be undone. " +
+                    ", note lists, reading progress, bookmarks, highlights and notes, cards and review logs, and sign this phone out. RepoRead cannot undo this. " +
+                    BACKUP_COPIES +
                     "Your GitHub repositories are not changed. RepoRead asks GitHub to revoke its authorization; to also uninstall " +
                     "the RepoRead App, use GitHub's Settings → Applications."
             )

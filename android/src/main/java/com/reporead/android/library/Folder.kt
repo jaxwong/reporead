@@ -256,7 +256,9 @@ private fun DisconnectDialog(
                     "${counted(stored.readingStates, "note")}, ${counted(stored.bookmarks, "bookmark")}, ${counted(stored.highlights, "highlight")} with their notes, " +
                     "and ${counted(stored.cards, "card")} with their review logs. " +
                     unsent +
-                    "This cannot be undone. The repository on GitHub is not changed; to remove " +
+                    "RepoRead cannot undo this. " +
+                    BACKUP_COPIES +
+                    "The repository on GitHub is not changed; to remove " +
                     "RepoRead's access to it, uninstall or reconfigure the RepoRead GitHub App on GitHub."
             )
         },
