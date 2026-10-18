@@ -5,10 +5,16 @@ package com.reporead.android
 
 import android.os.Parcel
 import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.SaveableStateRegistry
+import androidx.compose.ui.platform.ViewRootForTest
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getAllSemanticsNodes
 import androidx.lifecycle.Lifecycle
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
@@ -210,6 +216,40 @@ class AppNavigationTest {
     private fun awaitBackLeavesTheApp() = runBlocking {
         pressBack()
         withTimeout(10_000) { while (scenario!!.state != Lifecycle.State.DESTROYED) delay(50) }
+    }
+
+    /**
+     * Waits until the folder's own refresh has finished: until then its other actions start nothing, and Refresh from
+     * GitHub, disabled meanwhile, shows when it is done.
+     */
+    private fun awaitFolderRefreshed(server: LoopbackServer) = runBlocking {
+        withTimeout(10_000) {
+            // The library on entering, then the folder's own refresh.
+            while (server.requests.count { it == "GET /api/library" } < 2) delay(50)
+            while (findText(root(), "Refresh from GitHub")?.isEnabled != true) delay(50)
+        }
+    }
+
+    /**
+     * Runs the shown screen's Back twice in one turn of the main thread, as two taps that both land before the screen
+     * recomposes: the second reaches the same, already removed, screen.
+     */
+    private fun tapBackTwiceBeforeRecomposition() {
+        fun View.composeRoot(): ViewRootForTest? =
+            this as? ViewRootForTest
+                ?: (this as? ViewGroup)?.let { group ->
+                    (0 until group.childCount).firstNotNullOfOrNull { group.getChildAt(it).composeRoot() }
+                }
+        scenario!!.onActivity { activity ->
+            val back =
+                checkNotNull(activity.window.decorView.composeRoot()).semanticsOwner.getAllSemanticsNodes(true).single {
+                    "Back" in it.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() }
+                }
+            val onBack = checkNotNull(back.config[SemanticsActions.OnClick].action)
+            onBack()
+            onBack()
+        }
+        instrumentation.waitForIdleSync()
     }
 
     /** Waits for in-flight screen work to finish, then checks nothing more was sent. */
@@ -432,9 +472,7 @@ class AppNavigationTest {
                 click("Repositories")
                 click("test-only/notes")
                 awaitFolder()
-                // The library on entering, then the folder's own refresh; Disconnect waits until that is done.
-                withTimeout(10_000) { while (server.requests.count { it == "GET /api/library" } < 2) delay(50) }
-                delay(1_000)
+                awaitFolderRefreshed(server)
                 click("More")
                 click("Disconnect…")
                 awaitMatch("the server's counts") {
@@ -450,6 +488,27 @@ class AppNavigationTest {
                 assertEquals(3, dao.documents(7).first().size)
                 assertEquals(listOf("test-only/notes"), dao.repositories().first().map { it.fullName })
             }
+    }
+
+    /** A screen's Back leaves that screen only, however often it is tapped before the next screen shows. */
+    @Test
+    fun aRepeatedBackTapLeavesOnlyItsOwnScreen() {
+        LoopbackServer(emptyMap()).use { server ->
+            val api = api(server)
+            launchApp(account(api), api)
+            awaitText("Library")
+            click("Repositories")
+            click("test-only/notes")
+            awaitFolder()
+            click("Note A")
+            awaitNoteA(panelOpen = false)
+            tapBackTwiceBeforeRecomposition()
+            awaitFolder()
+            pressBack()
+            awaitText("test-only/notes")
+            assertTrue(selected("Repositories"))
+            assertEquals(emptyList<String>(), server.requests)
+        }
     }
 
     /** A confirmed disconnect returns to the Library, in the state it was left, with nothing left above or below it. */
@@ -475,9 +534,7 @@ class AppNavigationTest {
                 click("Repositories")
                 click("test-only/notes")
                 awaitFolder()
-                // Disconnect waits until the folder's own refresh is done.
-                withTimeout(10_000) { while (server.requests.count { it == "GET /api/library" } < 2) delay(50) }
-                delay(1_000)
+                awaitFolderRefreshed(server)
                 click("More")
                 click("Disconnect…")
                 awaitText("Disconnect test-only/notes?")
