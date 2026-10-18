@@ -1,6 +1,6 @@
 # Codebase audit and root-cause remediation plan
 
-Audited: **2026-10-18**. Status: **steps 1, 2, 5, 8 and 10 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
+Audited: **2026-10-18**. Status: **steps 1, 2, 3, 5, 8 and 10 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
 
 ### Implementation progress
 
@@ -17,6 +17,7 @@ Audited: **2026-10-18**. Status: **steps 1, 2, 5, 8 and 10 complete and verified
 - **Step 5 complete:** `LibraryDao.searchNotes` returns one row per note from `documents` left-joined to `notes`, so the 50-note limit counts distinct notes and names come from the current document; Kotlin's post-query de-duplication is deleted. A removed note still matches while its saved copy is kept, as the existing test asserted. The fixture of a saved copy with no `documents` row was replaced by a removed row: the server deletes document rows only on disconnection, when the phone forgets their saved copies too. Evidence in section 11.
 - **Step 10 complete:** Android CI's test job runs `:app:mergeDebugAssets`, which runs `bundleReader` (`npm run build`: syntax check + bundle) through the packaged app's asset wiring; the workflow also triggers on `Library.java` and `assetlinks.json`. The `MAX_RESPONSE_BYTES` scrape is kept and contained by that trigger: it fails loudly, both files name each other, and a shared config file would be a second mechanism, not a simpler single owner. Deletion wording in both dialogs, ADR-11 and the privacy invariant now names retained server backups. Evidence in section 12.
 - **Step 8 complete:** the five legacy GET routes, their response records, `Documents.list`, `DocumentController`'s unused `connections` and `Reviews`' standalone notebook snapshot are deleted; `Library.read` is the one snapshot owner. Every test assertion that used them reads `GET /api/library`, with no test deleted. ADR-08/24 record that older releases are unsupported once the backend deploys. Evidence in section 13.
+- **Step 3 complete:** `Account`, constructed by `RepoReadApplication`, owns sign-in, sign-out and account deletion in the app's scope, one at a time, with one published state; the composable closures, `removeCopy`/`removal`, the Library deletion coroutine and `SessionStore.cancelRemoval` are deleted. Late local writes are defined out at the DAO: each local change requires its note to be listed, so no admission gate or draining exists. Account deletion records the removal only after the server confirms (decision 3); a sign-in over unowned data removes it first (decision 4). Evidence in section 14.
 - **Branch:** work is on `fix/saved-page-integrity` (renamed from `audit-root-cause-cleanup` at the user's request before publication). Step 1 is commit `dbf4b10`; the user's approved local-main correction left `main` at `f8ccf82`. No existing remote history was rewritten.
 
 ## Goal and verdict
@@ -142,12 +143,12 @@ The user approved proceeding with this sequence and committing each completed st
 
 **Owner:** `RepoReadApplication` for the operation and observable outcome; `SessionStore` only for persisted session/ownership/removal facts; `Sync`/DAO only for their I/O and transactions.
 
-- Move sign-out/account-removal orchestration out of composable closures into that existing application owner; do not add a `RemovalManager` around it.
-- On accepted removal intent, close admission to ordinary screens and new local mutations immediately, not only once the session is gone. The one authorized removal request can still use its credential.
-- Drain/cancel old page work according to a defined order, then clear. Prevent a delayed local writer from repopulating the store after successful cleanup. Do not scatter `if (removing)` checks across individual screens.
+- Move sign-out/account-removal orchestration out of composable closures into that existing application owner; do not add a `RemovalManager` around it. *As built:* one `Account` class that the Application constructs is that owner (not a wrapper around another one); the Application's own lazy properties open the app's real database, so tests need the owner over isolated stores.
+- On accepted removal intent, close admission to ordinary screens immediately, not only once the session is gone. The one authorized removal request can still use its credential.
+- Prevent a delayed local writer from repopulating the store after successful cleanup. Do not scatter `if (removing)` checks across individual screens. *As built, replacing the drafted "close admission to local mutations, drain/cancel old page work, then clear":* each local change saves in one DAO transaction that requires its note to be listed, so a write arriving after a clear (or a disconnect) has nothing to belong to and writes nothing. Note ids are per account on the server, so it cannot land in another account's data. This removes the failure instead of coordinating around it; no gate, epoch or drain exists.
 - Represent operation kind and stage explicitly where restart behavior needs them. A few mutually exclusive states are preferable to independent `signedIn`, `removing`, nullable outcome, and screen-local busy flags.
-- Preserve local data on a refused/unconfirmed account-deletion response unless the user explicitly chose otherwise. A 401 is not evidence that the server deleted an account.
-- Resolve the legacy unowned-data assumption explicitly before issuing a session over nonempty unowned storage.
+- Preserve local data on a refused/unconfirmed account-deletion response unless the user explicitly chose otherwise. A 401 is not evidence that the server deleted an account. *As built (decision 3):* the removal is recorded only after the server confirms, so an interrupted deletion also keeps everything.
+- Resolve the legacy unowned-data assumption explicitly before issuing a session over nonempty unowned storage. *As built (decision 4):* a sign-in with no recorded owner runs the removal first; clearing an empty store is a no-op, so no emptiness check exists.
 - Exercise rotation, process interruption, unreadable session storage, database failure, undeletable files, duplicate taps, delayed reader saves, background sync, and a second cleanup attempt through the real application wiring in an isolated test host.
 
 **Exit:** after removal reports success, no pre-removal operation can write old-account data or artifacts, and another account cannot sign in while removal is unfinished. Tests must cover `SessionStore` + application owner + `Sync`, not only `Sync.clearAll` in isolation.
@@ -701,3 +702,62 @@ That is the same 279 passing backend tests as before the change. On the Pixel 8a
 
 - No backend was deployed. Once it is, any release older than `/api/library` and the snapshot-pinned images is unsupported.
 - The phone's own release was not checked against a local backend built from this branch; device tests use labelled loopback fixtures.
+
+
+## 14. Step 3 verification — 2026-10-18
+
+### Plan check before building
+
+The drafted owners, explicit states, screen gate and the two decided policies were kept. Two parts were corrected against the code: the admission gate plus drain for local writes (replaced by the DAO rule above, which deletes the failure instead of coordinating around it), and account deletion's pending removal being recorded before the server call (contradicting decision 3; `cancelRemoval` is deleted).
+
+### Red, then green
+
+`LocalSyncTest.aLocalChangeArrivingAfterAClearWritesNothing`, run first against the old code with its signatures, on the Pixel 8a (Android 14/API 34):
+
+```text
+java.lang.AssertionError: expected null, but was:<ReadingRow(documentId=1, … pending=true)>
+java.lang.AssertionError: A late highlight must not crash: java.lang.IllegalStateException: Cannot create an annotation without its displayed saved note; documentId=1
+```
+
+A late reading position repopulated the cleared store as pending work, and a late highlight crashed. Both now write nothing (false/null). The interruption and ownership policies are new behaviour; their tests assert it rather than reproduce an old failure. The old orchestration ran in composables, which no test could drive.
+
+### Tests through the real wiring
+
+`AccountTest` (11 tests) builds `Account` over a test-only `SessionStore` preferences file, the production `Api`, `Sync` and an in-memory Room, a scratch folder and a loopback server:
+
+- sign-out closes screens at once and removes everything when revocation fails (503) or the session is unreadable (`SESSION_UNREADABLE`, no request sent);
+- a second sign-out, a deletion or a sign-in code while one runs sends nothing;
+- reading and bookmark saves while sign-out waits are cleared, and later ones write nothing;
+- a refused (503), 401 or unreachable deletion keeps notes, unsent work, images and the owner (a 401 also ends the session); a confirmed one removes everything;
+- a deletion cut short before its answer keeps everything at the next start; a sign-out cut short is finished at the next start;
+- files that will not delete stop the removal, sign-in waits, and **Retry** finishes it;
+- sign-in with no recorded owner removes the old data before saving the new session and owner; with an owner, a refused sign-in keeps the data and reports it until dismissed.
+
+The first full run of the new class failed 3 tests on one wrong fixture count (`expected:<1> but was:<2>`): the kept phone holds the unsent highlight and the pending reading position. The helper now asserts both explicitly; no behaviour assertion was weakened.
+
+### Final checks
+
+From the repository root, exit **0**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 10s
+android JVM {'tests': 73, 'failures': 0, 'errors': 0, 'skipped': 1}
+```
+
+On the Pixel, after `adb install -r` / `install -r -t`: `AccountTest` alone printed `OK (11 tests)` four times in a row, and the full `am instrument` run printed `OK (100 tests)`.
+
+Production Kotlin: +325 / −176 lines, net +149, of which `Account.kt` is 183 (44 comment lines). The named requirement is one application-lifetime owner with explicit states that tests can drive over isolated stores; it replaces the composable closures, `RepoReadApplication.removeCopy`/`removal`, the Library deletion coroutine, `SessionStore.cancelRemoval` and `removalPendingChanges`, and the code exchange's `REMOVAL_PENDING` refusal.
+
+**External calls:** sign-out 1 (revoke), account deletion 1, sign-in 1 (code exchange); none retried, and a failure starts no other strategy.
+
+### Not verified
+
+- The root screen's gate, its texts and a rotation during an operation were not exercised on screen; the state they render is app-owned and tested, the composable mapping was read only.
+- No test produces a database failure while clearing.
+- A phone with a live session and no recorded owner (upgraded without signing in again) keeps its data and is untouched until its next sign-in, which then removes the data first. Whether the user's phone is in that state is unknown.
+- A late change from a stale screen of an account that has since signed out and signed back in as the same account can still land in that account's new store; it cannot reach another account.
+- No backend change; the backend suite was not rerun.
