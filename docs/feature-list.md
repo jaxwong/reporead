@@ -187,7 +187,7 @@ Navigation 3 owns the back stack, and saved state is restored only into the buil
 
 Covered by automated tests only, or not at all:
 
-- Dropping another build's saved state (ADR-27) on the phone: Android 14 discarded it at the update before the app could see it, so only `NavigationTest` exercises the drop. The account screens over a deep stack are tested with loopback only; signing out or deleting the account on the phone removes its data.
+- Dropping another build's saved state (ADR-27) on the phone: Android 14 discarded it at the update before the app could see it, so only `NavigationTest` exercises the rule, and `MainActivity`'s use of it is checked by review only. The account screens over a deep stack are tested with loopback only; signing out or deleting the account on the phone removes its data.
 - Connecting a repository and landing on its folder above the Library (ADR-27): covered only by its parts, the return to the Library that a disconnect test checks and an ordinary push; no device test drives Add repository.
 - A branch rewind or a missing old blob against live GitHub (`SINCE_UNAVAILABLE`), and a too-large comparison.
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.
