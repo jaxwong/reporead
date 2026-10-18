@@ -1,5 +1,7 @@
 package com.reporead.android.library
 
+import android.database.sqlite.SQLiteException
+import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +33,7 @@ import com.reporead.android.sync.SavingNotes
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.requestSaveAllNotes
 import com.reporead.android.sync.savingNotes
+import com.reporead.android.sync.stopSavingNotes
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
@@ -54,7 +57,7 @@ internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<S
 /** What Save all is doing or did last, for the status line. */
 private fun describe(saving: SavingNotes): String =
     when (saving) {
-        SavingNotes.Waiting -> "Waiting to save notes on this phone; it needs a network connection."
+        SavingNotes.Waiting -> "Waiting for a network connection, a retry, or Android to run Save all."
         is SavingNotes.Running ->
             if (saving.toFetch == 0) "Checking which notes need saving…"
             else "Saving notes on this phone: ${saving.done} of ${saving.toFetch}."
@@ -121,6 +124,18 @@ fun FolderScreen(
         status = null
         requestSaveAllNotes(context, screen.repositoryId)
     }
+    val stopSaving = {
+        status = "Stopping saving notes…"
+        scope.launch {
+            try {
+                stopSavingNotes(context, screen.repositoryId)
+                status = "Saving stopped; notes already saved are kept. Saving again fetches only what is missing."
+            } catch (error: SQLiteException) {
+                Log.w("RepoRead", "Could not stop Save all; repositoryId=${screen.repositoryId}", error)
+                status = "Couldn't stop saving notes (${error.javaClass.simpleName}); try Stop saving notes again."
+            }
+        }
+    }
     // Asks the server what disconnecting would delete, for the confirmation.
     val askToDisconnect = {
         status = null
@@ -165,8 +180,8 @@ fun FolderScreen(
                         }
                         OverflowMenu(
                             listOf(
-                                MenuAction("Save all notes on this phone") {
-                                    if (!busy) saveAll()
+                                MenuAction(if (savingNow) "Stop saving notes" else "Save all notes on this phone") {
+                                    if (savingNow) stopSaving() else if (!busy) saveAll()
                                 },
                                 MenuAction("Disconnect…") {
                                     if (!busy) askToDisconnect()
@@ -192,8 +207,7 @@ fun FolderScreen(
             StatusLine(
                 when {
                     disconnecting -> "Disconnecting…"
-                    savingNow -> progress?.let(::describe)
-                    // This screen's own message is newer than the last Save all's outcome.
+                    // The screen's own message includes a cancellation failure while Save all still runs.
                     else -> status ?: progress?.let(::describe)
                 }
             )
