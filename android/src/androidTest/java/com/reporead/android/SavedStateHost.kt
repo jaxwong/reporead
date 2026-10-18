@@ -9,9 +9,6 @@ import com.reporead.android.core.network.Api
 import com.reporead.android.data.LibraryDao
 import kotlinx.coroutines.CoroutineScope
 
-// Saved keys come from where composables are called. Keep this file unchanged: AppNavigationTest restores state that
-// an earlier version of the app saved through it, at the keys it had then.
-
 /**
  * The real RepoReadApp saving into [registry] instead of the activity's saved state, so a test can take what the app
  * saves, carry it through a Parcel as process death does, and restore it into a new activity.
