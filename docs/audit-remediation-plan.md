@@ -659,6 +659,6 @@ The workflow parses as YAML, with identical pull-request and push path lists tha
 
 ### Not verified
 
-- GitHub's evaluation of the new path filters and the new step on a hosted runner. This pull request changes the workflow file itself, so it runs regardless; a backend-only change triggering the workflow has not been observed.
+- A backend-only change triggering the workflow on GitHub. This pull request changes the workflow file itself, so it runs regardless. Its hosted `test` job did run the new step: `> Task :app:bundleReader`, the four `node --check` calls, `BUILD SUCCESSFUL in 9s` (run 39104986891).
 - The two dialogs' new sentence was compiled and not viewed on the phone.
 - The reader's behaviour in a WebView still runs only in the device tests on the phone; CI checks syntax and bundling only.
