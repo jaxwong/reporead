@@ -1,3 +1,5 @@
+// Owns: Producer checks for stored-data counts and confirmed disconnect/account-deletion shapes.
+
 package com.reporead.datacontrol;
 
 import static com.reporead.ContractFixtures.*;
@@ -8,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns producer checks for stored-data counts and confirmed disconnect/account-deletion shapes. */
 class WireContractTest extends SharedSpringTest {
     @Autowired
     JsonMapper json;

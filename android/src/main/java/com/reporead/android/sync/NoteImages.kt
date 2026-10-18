@@ -1,3 +1,5 @@
+// Owns: Snapshot-keyed image files and their local-copy lifetime; Api owns authenticated HTTP fetching.
+
 package com.reporead.android.sync
 
 import android.util.Log

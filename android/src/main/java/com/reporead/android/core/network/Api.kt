@@ -1,3 +1,5 @@
+// Owns: Named backend routes, bounded HTTP, response correspondence and transport failures; not sync disposition.
+
 package com.reporead.android.core.network
 
 import android.util.Log
@@ -13,8 +15,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 
 /**
- * A failed RepoRead request. [status] is the HTTP status of the server's answer, or 0 when there was none: it was not
- * reached, or nothing was sent. [code] is the backend's error code.
+ * Owns a failed request's status, code and underlying cause. [status] is the response status, or 0 when no complete
+ * transport answer was available or nothing was sent. [code] is the backend's code or a local failure classification.
  */
 class ApiException(val status: Int, val code: String, override val message: String, cause: Throwable? = null) :
     Exception(message, cause) {
@@ -112,6 +114,7 @@ class Api(
 
     private fun query(value: String) = URLEncoder.encode(value, Charsets.UTF_8)
 
+    /** Publishes an answer only after bounded transport, decoding and request correspondence have all succeeded. */
     private suspend inline fun <reified T> json(
         method: String,
         path: String,
@@ -133,6 +136,7 @@ class Api(
             Unit
         }
 
+    /** The sole HTTP boundary: one attempt, token-aware 401 handling and no durable partial response. */
     private fun execute(
         method: String,
         path: String,
@@ -216,6 +220,7 @@ class Api(
                 )
         }
 
+    /** Reads one byte past the cap to distinguish an exact-limit complete body from an oversized one. */
     private fun readBounded(stream: InputStream, maxBytes: Int, status: Int): ByteArray {
         val bytes = stream.readNBytes(maxBytes + 1)
         if (bytes.size > maxBytes) throw invalidResponse(status)

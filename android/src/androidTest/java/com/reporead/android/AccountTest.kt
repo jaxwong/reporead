@@ -1,3 +1,5 @@
+// Owns: Isolated account/removal integration coverage; never the real user session, database or backend.
+
 package com.reporead.android
 
 import android.content.Context

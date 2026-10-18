@@ -1,3 +1,5 @@
+// Owns: The Add repository screen and its list/connect presentation; Api owns the HTTP contract.
+
 package com.reporead.android.library
 
 import androidx.compose.foundation.layout.Column

@@ -1,3 +1,5 @@
+// Owns: Producer checks for error envelopes and the actual server status of each item-refusal example.
+
 package com.reporead;
 
 import static com.reporead.ContractFixtures.*;
@@ -7,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns producer checks for error envelopes and the actual server status of each item-refusal example. */
 class WireContractTest extends SharedSpringTest {
     @Autowired
     JsonMapper json;

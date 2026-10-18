@@ -1,3 +1,5 @@
+// Owns: Android variants, dependencies, signing inputs, generated reader assets and test-resource wiring.
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -15,7 +17,7 @@ spotless {
     }
 }
 
-// The Variant API needs a typed output directory to wire generated assets to their producer.
+/** Owns the typed generated-asset output required to wire its producer through the Android Variant API. */
 abstract class BundleReader : Exec() {
     @get:OutputDirectory abstract val assetDirectory: DirectoryProperty
 }

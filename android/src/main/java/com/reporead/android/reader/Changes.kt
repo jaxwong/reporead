@@ -1,3 +1,5 @@
+// Owns: Change-summary presentation and acknowledgement after display; the backend owns comparison results.
+
 package com.reporead.android.reader
 
 import androidx.compose.foundation.clickable

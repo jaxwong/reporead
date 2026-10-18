@@ -1,3 +1,5 @@
+// Owns: Room entities and query projections, including local pending state; not HTTP parsing or reconciliation.
+
 package com.reporead.android.data
 
 import androidx.room.ColumnInfo
@@ -8,6 +10,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.io.Serializable
 
+/** Owns the phone's connection/checkpoint projection; document metadata belongs to DocumentRow. */
 @Entity(tableName = "repositories")
 data class RepositoryRow(
     @PrimaryKey val id: Long,
@@ -103,6 +106,7 @@ fun noteLinkQueries(html: String): List<String> =
 )
 data class NoteLinkRow(val documentId: Long, val position: Int, val query: String)
 
+/** Owns the bounded query projection used to recognize questions in saved interview-bank pages. */
 data class PracticePage(
     val documentId: Long,
     val title: String,
@@ -256,6 +260,7 @@ data class AnnotationRow(
         }
 }
 
+/** Owns the first applicable phone-side review restriction, matching AnnotationRow.cardBlock's ordered decision. */
 enum class CardBlock(val reason: String) {
     /** The server refused its creation, which is never sent again ([AnnotationRow.rejection] says why). */
     REFUSED("Refused by the server"),
