@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -91,8 +91,15 @@ class GitHubLoginTest extends SharedSpringTest {
 
     /** Revocation must not pass a callback between GitHub issuing its token and the server publishing that sign-in. */
     @ParameterizedTest
-    @ValueSource(strings = {"/api/app-auth/session", "/api/account"})
-    void credentialRemovalWaitsForAnAlreadyAdmittedOAuthCallback(String path) throws Exception {
+    @CsvSource({
+        "/api/app-auth/session,/login/oauth2/code/github",
+        "/api/account,/login/oauth2/code/github",
+        "/api/app-auth/session,/login/oauth2/code/other",
+        "/api/account,/login/oauth2/code/other",
+        "/api/app-auth/session,/login/oauth2/code/%67ithub",
+        "/api/account,/login/oauth2/code/%67ithub"
+    })
+    void credentialRemovalWaitsForAnAlreadyAdmittedOAuthCallback(String path, String callbackPath) throws Exception {
         TestEnvironment.reset(db);
         String alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_OLD_TOKEN");
         var entered = new CountDownLatch(1);
@@ -133,7 +140,7 @@ class GitHubLoginTest extends SharedSpringTest {
                         .getResponse()
                         .getHeader("Location"));
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var callback = executor.submit(() -> mvc.perform(get("/login/oauth2/code/github")
+            var callback = executor.submit(() -> mvc.perform(get(URI.create(callbackPath))
                             .session(session)
                             .param("code", "TEST_ONLY_CODE")
                             .param("state", query(authorize).get("state")))

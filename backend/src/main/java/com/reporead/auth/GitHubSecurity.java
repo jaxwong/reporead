@@ -3,6 +3,7 @@
 package com.reporead.auth;
 
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
+import static org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.pathPattern;
 
 import com.reporead.RepoReadProperties;
 import com.reporead.github.GitHubHttp;
@@ -103,11 +104,12 @@ public class GitHubSecurity {
 
         // Admission must precede token exchange, not just token storage: deleting a grant invalidates newly issued
         // tokens too. The browser's user is not known yet, so the existing credential owner uses one process gate.
+        var callbacks = pathPattern(OAuth2LoginAuthenticationFilter.DEFAULT_FILTER_PROCESSES_URI);
         http.addFilterBefore(
                 new OncePerRequestFilter() {
                     @Override
                     protected boolean shouldNotFilter(HttpServletRequest request) {
-                        return !request.getRequestURI().equals(request.getContextPath() + "/login/oauth2/code/github");
+                        return !callbacks.matches(request);
                     }
 
                     @Override
