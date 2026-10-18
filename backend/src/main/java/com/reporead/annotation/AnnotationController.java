@@ -7,6 +7,7 @@ import com.reporead.annotation.AnnotationService.Selection;
 import com.reporead.auth.AppUser;
 import java.util.List;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -45,7 +46,12 @@ public class AnnotationController {
         return new AnnotationList(service.list(user, id));
     }
 
-    record CreateRequest(String mutationId, Selection anchor, String note, String type, String question) {}
+    record CreateRequest(
+            String mutationId,
+            Selection anchor,
+            @Nullable String note,
+            String type,
+            @Nullable String question) {}
 
     @PostMapping("/api/documents/{id}/annotations")
     ResponseEntity<Annotations.Annotation> create(
@@ -101,7 +107,7 @@ public class AnnotationController {
         return checked;
     }
 
-    record EditRequest(String note, Integer expectedVersion) {}
+    record EditRequest(@Nullable String note, Integer expectedVersion) {}
 
     @PatchMapping("/api/annotations/{id}")
     Annotations.Annotation edit(

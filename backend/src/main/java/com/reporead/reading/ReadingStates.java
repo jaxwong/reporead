@@ -6,6 +6,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -28,7 +29,7 @@ public class ReadingStates {
     }
 
     /** A semantic location: restored by heading path, then text prefix, then block index, then percent. */
-    public record Anchor(List<String> headingPath, String textPrefix, Integer blockIndex) {}
+    public record Anchor(List<String> headingPath, @Nullable String textPrefix, Integer blockIndex) {}
 
     /** The note's own title, path, version and removal are in its document list, their one source for clients. */
     public record State(

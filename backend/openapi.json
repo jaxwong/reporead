@@ -1,0 +1,1432 @@
+{
+  "openapi" : "3.0.1",
+  "info" : {
+    "title" : "OpenAPI definition",
+    "version" : "v0"
+  },
+  "paths" : {
+    "/api/account" : {
+      "delete" : {
+        "operationId" : "delete_1",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AccountDeletionDeleted"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "data-control-controller" ]
+      }
+    },
+    "/api/annotations/{id}" : {
+      "delete" : {
+        "operationId" : "delete",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "expectedVersion",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "tags" : [ "annotation-controller" ]
+      },
+      "patch" : {
+        "operationId" : "edit",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AnnotationControllerEditRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AnnotationsAnnotation"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "annotation-controller" ]
+      }
+    },
+    "/api/annotations/{id}/check" : {
+      "post" : {
+        "operationId" : "checkCard",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AnnotationControllerCheckRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AnnotationsAnnotation"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "annotation-controller" ]
+      }
+    },
+    "/api/annotations/{id}/reattach" : {
+      "post" : {
+        "operationId" : "reattach",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AnnotationControllerReattachRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AnnotationsAnnotation"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "annotation-controller" ]
+      }
+    },
+    "/api/annotations/{id}/reviews" : {
+      "post" : {
+        "operationId" : "grade",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ReviewControllerGradeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ReviewsReview"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "review-controller" ]
+      }
+    },
+    "/api/app-auth/session" : {
+      "delete" : {
+        "operationId" : "signOut",
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "tags" : [ "app-auth-controller" ]
+      }
+    },
+    "/api/app-auth/token" : {
+      "post" : {
+        "operationId" : "token",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AppAuthControllerTokenRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AppSessionsIssuedSession"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "app-auth-controller" ]
+      }
+    },
+    "/api/auth/me" : {
+      "get" : {
+        "operationId" : "me",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AppUser"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "app-auth-controller" ]
+      }
+    },
+    "/api/documents/{id}/annotations" : {
+      "get" : {
+        "operationId" : "list",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AnnotationControllerAnnotationList"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "annotation-controller" ]
+      },
+      "post" : {
+        "operationId" : "create",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AnnotationControllerCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AnnotationsAnnotation"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "annotation-controller" ]
+      }
+    },
+    "/api/documents/{id}/bookmark" : {
+      "delete" : {
+        "operationId" : "clear",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "tags" : [ "bookmark-controller" ]
+      },
+      "put" : {
+        "operationId" : "set",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BookmarksBookmark"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "bookmark-controller" ]
+      }
+    },
+    "/api/documents/{id}/changes" : {
+      "get" : {
+        "operationId" : "changes",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "since",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/DocumentControllerChanges"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "document-controller" ]
+      }
+    },
+    "/api/documents/{id}/content" : {
+      "get" : {
+        "operationId" : "content",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/DocumentControllerContent"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "document-controller" ]
+      }
+    },
+    "/api/documents/{id}/image" : {
+      "get" : {
+        "operationId" : "image",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "commitSha",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "byte"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "document-controller" ]
+      }
+    },
+    "/api/documents/{id}/reading-state" : {
+      "put" : {
+        "operationId" : "save",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ReadingControllerSaveRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ReadingStatesState"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "reading-controller" ]
+      }
+    },
+    "/api/library" : {
+      "get" : {
+        "operationId" : "library",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/LibrarySnapshot"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "library-controller" ]
+      }
+    },
+    "/api/repositories/available" : {
+      "get" : {
+        "operationId" : "available",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RepositoryControllerAvailableList"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "repository-controller" ]
+      }
+    },
+    "/api/repositories/{githubRepositoryId}/connect" : {
+      "post" : {
+        "operationId" : "connect",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "githubRepositoryId",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RepositoryControllerConnectRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RepositoryConnectionsConnection"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "repository-controller" ]
+      }
+    },
+    "/api/repositories/{id}" : {
+      "delete" : {
+        "operationId" : "disconnect",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConnectionDataDisconnected"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "data-control-controller" ]
+      }
+    },
+    "/api/repositories/{id}/stored-data" : {
+      "get" : {
+        "operationId" : "storedData",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ConnectionDataCounts"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "data-control-controller" ]
+      }
+    },
+    "/api/repositories/{id}/sync" : {
+      "post" : {
+        "operationId" : "sync",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RepositorySyncResult"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "sync-controller" ]
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "AccountDeletionDeleted" : {
+        "required" : [ "bookmarks", "cards", "highlights", "readingStates", "repositories" ],
+        "type" : "object",
+        "properties" : {
+          "bookmarks" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "cards" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "highlights" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "readingStates" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "repositories" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "AnnotationControllerAnnotationList" : {
+        "required" : [ "annotations" ],
+        "type" : "object",
+        "properties" : {
+          "annotations" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AnnotationsAnnotation"
+            }
+          }
+        }
+      },
+      "AnnotationControllerCheckRequest" : {
+        "required" : [ "blobSha", "expectedVersion" ],
+        "type" : "object",
+        "properties" : {
+          "blobSha" : {
+            "type" : "string"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "AnnotationControllerCreateRequest" : {
+        "required" : [ "anchor", "mutationId", "note", "question", "type" ],
+        "type" : "object",
+        "properties" : {
+          "anchor" : {
+            "$ref" : "#/components/schemas/AnnotationServiceSelection"
+          },
+          "mutationId" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "question" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "type" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AnnotationControllerEditRequest" : {
+        "required" : [ "expectedVersion", "note" ],
+        "type" : "object",
+        "properties" : {
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "note" : {
+            "type" : "string",
+            "nullable" : true
+          }
+        }
+      },
+      "AnnotationControllerReattachRequest" : {
+        "required" : [ "anchor", "expectedVersion" ],
+        "type" : "object",
+        "properties" : {
+          "anchor" : {
+            "$ref" : "#/components/schemas/AnnotationServiceSelection"
+          },
+          "expectedVersion" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "AnnotationServiceSelection" : {
+        "required" : [ "blockId", "endOffset", "exactText", "sourceBlobSha", "startOffset" ],
+        "type" : "object",
+        "properties" : {
+          "blockId" : {
+            "type" : "string"
+          },
+          "endOffset" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "exactText" : {
+            "type" : "string"
+          },
+          "sourceBlobSha" : {
+            "type" : "string"
+          },
+          "startOffset" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "AnnotationsAnnotation" : {
+        "required" : [ "anchor", "checkedBlobSha", "createdAt", "documentId", "id", "location", "mutationId", "note", "question", "resolvedBlobSha", "status", "type", "updatedAt", "version" ],
+        "type" : "object",
+        "properties" : {
+          "anchor" : {
+            "$ref" : "#/components/schemas/AnnotationsPassage"
+          },
+          "checkedBlobSha" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "documentId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "location" : {
+            "$ref" : "#/components/schemas/AnnotationsPassage"
+          },
+          "mutationId" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "question" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "resolvedBlobSha" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "ANCHORED", "REANCHORED", "ORPHANED" ]
+          },
+          "type" : {
+            "type" : "string",
+            "enum" : [ "BOOKMARK", "HIGHLIGHT", "CARD" ]
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "version" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "AnnotationsPassage" : {
+        "required" : [ "blockId", "endOffset", "exactText", "headingPath", "prefixText", "sourceBlobSha", "startOffset", "suffixText" ],
+        "type" : "object",
+        "properties" : {
+          "blockId" : {
+            "type" : "string"
+          },
+          "endOffset" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "exactText" : {
+            "type" : "string"
+          },
+          "headingPath" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "prefixText" : {
+            "type" : "string"
+          },
+          "sourceBlobSha" : {
+            "type" : "string"
+          },
+          "startOffset" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "suffixText" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AppAuthControllerTokenRequest" : {
+        "required" : [ "code", "codeVerifier", "expectedUserId" ],
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "codeVerifier" : {
+            "type" : "string"
+          },
+          "expectedUserId" : {
+            "type" : "integer",
+            "format" : "int64",
+            "nullable" : true
+          }
+        }
+      },
+      "AppSessionsIssuedSession" : {
+        "required" : [ "accessToken", "expiresAt", "user" ],
+        "type" : "object",
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "expiresAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "user" : {
+            "$ref" : "#/components/schemas/AppUser"
+          }
+        }
+      },
+      "AppUser" : {
+        "required" : [ "githubUserId", "id", "login" ],
+        "type" : "object",
+        "properties" : {
+          "githubUserId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "login" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BookmarksBookmark" : {
+        "required" : [ "createdAt", "documentId" ],
+        "type" : "object",
+        "properties" : {
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "documentId" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ConnectionDataCounts" : {
+        "required" : [ "bookmarks", "cards", "documents", "highlights", "readingStates" ],
+        "type" : "object",
+        "properties" : {
+          "bookmarks" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "cards" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "documents" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "highlights" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "readingStates" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ConnectionDataDisconnected" : {
+        "required" : [ "bookmarks", "cards", "documentIds", "highlights", "readingStates" ],
+        "type" : "object",
+        "properties" : {
+          "bookmarks" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "cards" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "documentIds" : {
+            "type" : "array",
+            "items" : {
+              "type" : "integer",
+              "format" : "int64"
+            }
+          },
+          "highlights" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "readingStates" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "DocumentControllerChanges" : {
+        "required" : [ "addedLines", "documentId", "reason", "removedLines", "sections", "sinceBlobSha", "status", "toBlobSha" ],
+        "type" : "object",
+        "properties" : {
+          "addedLines" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "documentId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "reason" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "removedLines" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "sections" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/NoteChangesSection"
+            }
+          },
+          "sinceBlobSha" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "CHANGED", "UNCHANGED", "SINCE_UNAVAILABLE", "TOO_LARGE" ]
+          },
+          "toBlobSha" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DocumentControllerContent" : {
+        "required" : [ "documentId", "html", "path", "renderFormat", "snapshotCommitSha", "sourceBlobSha", "text", "title" ],
+        "type" : "object",
+        "properties" : {
+          "documentId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "html" : {
+            "type" : "string"
+          },
+          "path" : {
+            "type" : "string"
+          },
+          "renderFormat" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "snapshotCommitSha" : {
+            "type" : "string"
+          },
+          "sourceBlobSha" : {
+            "type" : "string"
+          },
+          "text" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DocumentsSummary" : {
+        "required" : [ "blobSha", "contentChangedAt", "deleted", "id", "path", "title" ],
+        "type" : "object",
+        "properties" : {
+          "blobSha" : {
+            "type" : "string"
+          },
+          "contentChangedAt" : {
+            "type" : "string",
+            "format" : "date-time",
+            "nullable" : true
+          },
+          "deleted" : {
+            "type" : "boolean"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "path" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          }
+        }
+      },
+      "LibraryRepository" : {
+        "required" : [ "defaultBranch", "documentCount", "documents", "fullName", "githubRepositoryId", "id", "lastSyncedCommitSha", "name", "owner" ],
+        "type" : "object",
+        "properties" : {
+          "defaultBranch" : {
+            "type" : "string"
+          },
+          "documentCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "documents" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/DocumentsSummary"
+            }
+          },
+          "fullName" : {
+            "type" : "string"
+          },
+          "githubRepositoryId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lastSyncedCommitSha" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "owner" : {
+            "type" : "string"
+          }
+        }
+      },
+      "LibrarySnapshot" : {
+        "required" : [ "bookmarks", "notebook", "readingStates", "repositories" ],
+        "type" : "object",
+        "properties" : {
+          "bookmarks" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/BookmarksBookmark"
+            }
+          },
+          "notebook" : {
+            "$ref" : "#/components/schemas/ReviewsNotebook"
+          },
+          "readingStates" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ReadingStatesState"
+            }
+          },
+          "repositories" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/LibraryRepository"
+            }
+          }
+        }
+      },
+      "NoteChangesSection" : {
+        "required" : [ "addedLines", "blockId", "change", "headingPath", "removedLines" ],
+        "type" : "object",
+        "properties" : {
+          "addedLines" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "blockId" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "change" : {
+            "type" : "string",
+            "enum" : [ "ADDED", "CHANGED", "REMOVED" ]
+          },
+          "headingPath" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "removedLines" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ReadingControllerSaveRequest" : {
+        "required" : [ "anchor", "lastReadAt", "lastReadBlobSha", "progressPercent" ],
+        "type" : "object",
+        "properties" : {
+          "anchor" : {
+            "$ref" : "#/components/schemas/ReadingStatesAnchor"
+          },
+          "lastReadAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lastReadBlobSha" : {
+            "type" : "string"
+          },
+          "progressPercent" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ReadingStatesAnchor" : {
+        "required" : [ "blockIndex", "headingPath", "textPrefix" ],
+        "type" : "object",
+        "properties" : {
+          "blockIndex" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "headingPath" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "textPrefix" : {
+            "type" : "string",
+            "nullable" : true
+          }
+        }
+      },
+      "ReadingStatesState" : {
+        "required" : [ "anchor", "documentId", "lastReadAt", "lastReadBlobSha", "progressPercent" ],
+        "type" : "object",
+        "properties" : {
+          "anchor" : {
+            "$ref" : "#/components/schemas/ReadingStatesAnchor"
+          },
+          "documentId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lastReadAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lastReadBlobSha" : {
+            "type" : "string"
+          },
+          "progressPercent" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "RepositoryConnectionsAvailable" : {
+        "required" : [ "connectionId", "defaultBranch", "fullName", "githubRepositoryId", "installationId", "privateRepository" ],
+        "type" : "object",
+        "properties" : {
+          "connectionId" : {
+            "type" : "integer",
+            "format" : "int64",
+            "nullable" : true
+          },
+          "defaultBranch" : {
+            "type" : "string"
+          },
+          "fullName" : {
+            "type" : "string"
+          },
+          "githubRepositoryId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "installationId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "privateRepository" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "RepositoryConnectionsConnection" : {
+        "required" : [ "defaultBranch", "documentCount", "fullName", "githubRepositoryId", "id", "lastSyncedCommitSha", "name", "owner" ],
+        "type" : "object",
+        "properties" : {
+          "defaultBranch" : {
+            "type" : "string"
+          },
+          "documentCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "fullName" : {
+            "type" : "string"
+          },
+          "githubRepositoryId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lastSyncedCommitSha" : {
+            "type" : "string",
+            "nullable" : true
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "owner" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RepositoryControllerAvailableList" : {
+        "required" : [ "repositories" ],
+        "type" : "object",
+        "properties" : {
+          "repositories" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RepositoryConnectionsAvailable"
+            }
+          }
+        }
+      },
+      "RepositoryControllerConnectRequest" : {
+        "required" : [ "installationId" ],
+        "type" : "object",
+        "properties" : {
+          "installationId" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "RepositorySyncResult" : {
+        "required" : [ "commitSha", "documentCount", "repositoryId", "syncedAt" ],
+        "type" : "object",
+        "properties" : {
+          "commitSha" : {
+            "type" : "string"
+          },
+          "documentCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "repositoryId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "syncedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "ReviewControllerGradeRequest" : {
+        "required" : [ "blobSha", "grade", "mutationId", "reviewedAt" ],
+        "type" : "object",
+        "properties" : {
+          "blobSha" : {
+            "type" : "string"
+          },
+          "grade" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "mutationId" : {
+            "type" : "string"
+          },
+          "reviewedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "ReviewsNotebook" : {
+        "required" : [ "annotations", "reviews", "sessionLimit" ],
+        "type" : "object",
+        "properties" : {
+          "annotations" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AnnotationsAnnotation"
+            }
+          },
+          "reviews" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ReviewsReview"
+            }
+          },
+          "sessionLimit" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ReviewsReview" : {
+        "required" : [ "blobSha", "cardMutationId", "grade", "mutationId", "reviewedAt" ],
+        "type" : "object",
+        "properties" : {
+          "blobSha" : {
+            "type" : "string"
+          },
+          "cardMutationId" : {
+            "type" : "string"
+          },
+          "grade" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "mutationId" : {
+            "type" : "string"
+          },
+          "reviewedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -32,7 +33,12 @@ public class Documents {
      * state, bookmark or highlights on it are kept, and this is the one place a client learns its title and path.
      */
     public record Summary(
-            long id, String path, String title, String blobSha, Instant contentChangedAt, boolean deleted) {}
+            long id,
+            String path,
+            String title,
+            String blobSha,
+            @Nullable Instant contentChangedAt,
+            boolean deleted) {}
     /** A document that kept its identity under a new path. */
     public record Move(long documentId, String fromPath, String toPath) {}
 
