@@ -134,6 +134,45 @@ Noticed and deliberately not changed:
 
 The ADRs record further limits: anchors (ADR-05), the unbumped page format (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
 
+## Save all background-work audit — 2026-10-18
+
+The current behavior and ownership are in ADR-19 and ADR-22: removal awaits WorkManager cancellation and pruning,
+the repository menu can stop waiting or running work, and persisted failure display text fits WorkManager's bound.
+No dependency, schema, alternate fetching path or resume checkpoint was added.
+
+Verified from the PR worktree:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:testDebugUnitTest :app:mergeDebugAssets :app:compileDebugAndroidTestKotlin --rerun-tasks --no-daemon
+# Exit 0: BUILD SUCCESSFUL in 22s; 41 actionable tasks: 41 executed.
+# Unit XML: tests=73, failures=0, errors=0, skipped=1 (the opt-in StudyCorpus).
+
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+# Exit 0. Install both APKs as documented in android/README.md, preserving Dev data.
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+# Transport exit 0; terminal test output: OK (115 tests), Time: 53.433.
+```
+
+Before the fix, the new `LocalSyncTest.aLongServerFailureStillReportsTheSavedNotesAndABoundedReason` failed on the
+Pixel with `IllegalStateException: Data cannot occupy more than 10240 bytes when serialized` (1 test, 1 failure).
+Afterwards the full suite passes, including that multibyte error with already-saved progress. Account tests hold the
+existing removal hook until completion and inject a labelled, test-only SQLite failure there: neither can publish a
+fresh copy or forget pending removal early, and Retry completes removal without another revoke request. These hook
+faults are not a real WorkManager disk failure; the separate Room `query_only` refusal remains a real database test.
+
+Live E2E used RepoRead Dev on the Pixel 8a and the real Mac backend, with 841 listed notes. Stop worked during a run
+and during a genuine unreachable-server backoff. Afterwards Disconnect opened its normal confirmation; it was
+cancelled, not executed. Saving continued after entering a subfolder and showing the launcher. A forced
+`cmd jobscheduler timeout` restarted the same work with 659 notes missing instead of 768. It completed with 658
+fetched, 182 already saved and 1 oversized note skipped: 840 of 841 saved. A second run fetched 0, reported 840
+already saved and retried only the unsupported note; its screenshot, UI dump and worker log agreed on the terminal
+outcome. The wireless ADB endpoint changed during testing; the Dev backend tunnel was restored afterwards. No
+release APK, live sign-out, account deletion, dependency or server configuration was changed.
+
+A natural execution deadline and an actual OS process kill during a run remain unverified. Live account removal was
+not repeated; its ordering, interruption and failure paths ran against the isolated loopback fixtures in the full
+device suite. Backend tests were not rerun because no backend implementation changed.
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
