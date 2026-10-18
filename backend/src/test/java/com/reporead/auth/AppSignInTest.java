@@ -1,3 +1,5 @@
+// Owns: Integration coverage of PKCE handoff, account ownership, app sessions and sign-out behavior.
+
 package com.reporead.auth;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -11,7 +13,12 @@ import java.net.SocketTimeoutException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,12 +43,16 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
+/** Owns integration coverage of PKCE handoff, account ownership, app sessions and sign-out behavior. */
 class AppSignInTest extends SharedSpringTest {
     @Autowired
     MockMvc mvc;
 
     @Autowired
     AppSessions sessions;
+
+    @Autowired
+    GitHubCredentials credentials;
 
     @Autowired
     JdbcClient db;
@@ -60,6 +71,54 @@ class AppSignInTest extends SharedSpringTest {
     RestTemplate githubUserApi;
 
     MockRestServiceServer github;
+
+    /** A request authenticated before waiting cannot later remove a new sign-in's credentials. */
+    @Test
+    void aSessionChangeRechecksItsAdmissionAfterWaitingForTheLifecycle() throws Exception {
+        String old = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_OLD_TOKEN");
+        var user = sessions.authenticate(old).orElseThrow();
+        var started = new CountDownLatch(1);
+        var changed = new AtomicBoolean();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var stale = credentials.changing(() -> {
+                var request = executor.submit(() -> {
+                    started.countDown();
+                    return credentials.withSession(old, user, () -> {
+                        changed.set(true);
+                        return true;
+                    });
+                });
+                assertTrue(started.await(5, TimeUnit.SECONDS));
+                assertThrows(TimeoutException.class, () -> request.get(300, TimeUnit.MILLISECONDS));
+                sessions.revoke(old, user.id());
+                TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_NEW_TOKEN");
+                return request;
+            });
+            var failure = assertThrows(ExecutionException.class, () -> stale.get(5, TimeUnit.SECONDS));
+            assertEquals(
+                    com.reporead.ApiFailure.Code.SIGN_IN_REQUIRED,
+                    assertInstanceOf(com.reporead.ApiFailure.class, failure.getCause()).code);
+        }
+        assertFalse(changed.get());
+        assertEquals(
+                "TEST_ONLY_NEW_TOKEN",
+                clients.loadAuthorizedClient("github", "42").getAccessToken().getTokenValue());
+    }
+
+    /** A sign-out ordered after the callback must not let its old code issue a session with no GitHub credential. */
+    @Test
+    void lastDeviceSignOutInvalidatesAnUnexchangedCodeFromAnEarlierCallback() throws Exception {
+        String alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_TOKEN");
+        String verifier = TestSessions.verifier();
+        String redirect = completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-user");
+        String code = redirect.substring(redirect.indexOf("?code=") + 6);
+        TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_TOKEN", withNoContent());
+        mvc.perform(delete("/api/app-auth/session").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isNoContent());
+        exchange(code, verifier)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SIGN_IN_CODE"));
+    }
 
     @BeforeEach
     void reset() {

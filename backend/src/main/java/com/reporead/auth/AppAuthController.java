@@ -1,3 +1,5 @@
+// Owns app-auth HTTP routes; AppSessions owns session facts and GitHubCredentials owns lifecycle serialization.
+
 package com.reporead.auth;
 
 import com.reporead.ApiFailure;
@@ -60,16 +62,20 @@ public class AppAuthController {
         return new RedirectView("/oauth2/authorization/github");
     }
 
-    /** {@code expectedUserId}: the account whose data the app holds, which only that account may sign in to. */
+    /**
+     * Owns the handoff request shape, not issuance policy. {@code expectedUserId} names the account whose data the app
+     * holds; only that account may sign in to it.
+     */
     record TokenRequest(String code, String codeVerifier, Long expectedUserId) {}
 
     @PostMapping("/api/app-auth/token")
     AppSessions.IssuedSession token(@RequestBody TokenRequest body) {
-        var issued = sessions.exchange(body.code(), body.codeVerifier(), body.expectedUserId())
-                .orElseThrow(
-                        () -> new ApiFailure(
-                                Code.INVALID_SIGN_IN_CODE,
-                                "The sign-in code is invalid, expired, already used, or does not match this app; sign in again."));
+        var issued = credentials.changing(
+                () -> sessions.exchange(body.code(), body.codeVerifier(), body.expectedUserId())
+                        .orElseThrow(
+                                () -> new ApiFailure(
+                                        Code.INVALID_SIGN_IN_CODE,
+                                        "The sign-in code is invalid, expired, already used, or does not match this app; sign in again.")));
         LOG.info("App session issued; userId={}", issued.user().id());
         return issued;
     }
@@ -78,17 +84,16 @@ public class AppAuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void signOut(Authentication authentication, @AuthenticationPrincipal AppUser user) {
         // BearerAuthentication, the API's only authenticator, keeps the session token as the credentials.
-        int remaining = sessions.revoke((String) authentication.getCredentials(), user.id());
-        // The stored GitHub token belongs to the GitHub user and serves all their devices. It goes with the last
-        // session, revoked on GitHub and deleted here, so a signed-out user leaves no working credential without
-        // signing their other devices out of GitHub. A device signing in at the same moment can lose its new token;
-        // its next GitHub request then asks for sign-in.
-        if (remaining == 0) credentials.revokeAndForget(user.githubUserId());
-        LOG.info(
-                "App session revoked; userId={} otherSessions={} githubTokenRemoved={}",
-                user.id(),
-                remaining,
-                remaining == 0);
+        credentials.withSession((String) authentication.getCredentials(), user, () -> {
+            int remaining = sessions.revoke((String) authentication.getCredentials(), user.id());
+            if (remaining == 0) credentials.revokeAndForget(user.githubUserId());
+            LOG.info(
+                    "App session revoked; userId={} otherSessions={} githubTokenRemoved={}",
+                    user.id(),
+                    remaining,
+                    remaining == 0);
+            return null;
+        });
     }
 
     @GetMapping("/api/auth/me")

@@ -1,3 +1,5 @@
+// Owns users, single-use PKCE handoff codes and bearer-session persistence; credentials own lifecycle ordering.
+
 package com.reporead.auth;
 
 import com.reporead.ApiFailure;
@@ -15,6 +17,7 @@ import java.util.regex.Pattern;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Owns RepoRead users, single-use sign-in codes, and Android bearer sessions. Codes and session tokens are random
@@ -31,12 +34,15 @@ public class AppSessions {
     private static final SecureRandom RANDOM = new SecureRandom();
     private final JdbcClient db;
     private final AllowedUsers allowed;
+    private final TransactionTemplate transaction;
 
-    AppSessions(JdbcClient db, AllowedUsers allowed) {
+    AppSessions(JdbcClient db, AllowedUsers allowed, TransactionTemplate transaction) {
         this.db = db;
         this.allowed = allowed;
+        this.transaction = transaction;
     }
 
+    /** Owns the issued bearer-session response; only a token hash is retained in the database. */
     public record IssuedSession(String accessToken, Instant expiresAt, AppUser user) {}
 
     long saveUser(long githubUserId, String login) {
@@ -83,6 +89,7 @@ public class AppSessions {
                 || !VERIFIER.matcher(codeVerifier).matches()) {
             return Optional.empty();
         }
+        /** The consumed code's stored binding; validation failure deliberately does not restore it. */
         record Pending(long userId, String codeChallenge, Instant expiresAt) {}
         var pending = db.sql(
                         "delete from app_sign_in_codes where code_hash = :hash returning user_id, code_challenge, expires_at")
@@ -175,17 +182,29 @@ public class AppSessions {
         db.sql("delete from users where id = :userId").param("userId", userId).update();
     }
 
-    /** Deletes this session; returns how many unexpired sessions the user still has on other devices. */
+    /**
+     * Deletes this session and counts remaining devices atomically. Last-device sign-out also cancels older pending
+     * handoffs: a code must never issue a session after the credential it needs has been revoked. The credential owner
+     * holds its lifecycle gate before this transaction, serializing a concurrent code exchange or callback.
+     */
     int revoke(String token, long userId) {
-        if (TOKEN.matcher(token).matches())
-            db.sql("delete from app_sessions where token_hash = :hash")
-                    .param("hash", hash(token))
-                    .update();
-        return db.sql("select count(*) from app_sessions where user_id = :userId and expires_at > :now")
-                .param("userId", userId)
-                .param("now", Timestamp.from(Instant.now()))
-                .query(Integer.class)
-                .single();
+        return transaction.execute(status -> {
+            if (TOKEN.matcher(token).matches())
+                db.sql("delete from app_sessions where token_hash = :hash")
+                        .param("hash", hash(token))
+                        .update();
+            int remaining = db.sql("select count(*) from app_sessions where user_id = :userId and expires_at > :now")
+                    .param("userId", userId)
+                    .param("now", Timestamp.from(Instant.now()))
+                    .query(Integer.class)
+                    .single();
+            if (remaining == 0) {
+                db.sql("delete from app_sign_in_codes where user_id = :userId")
+                        .param("userId", userId)
+                        .update();
+            }
+            return remaining;
+        });
     }
 
     private static String randomToken() {
