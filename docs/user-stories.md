@@ -161,7 +161,7 @@ Added after the MVP (see the [feature list](feature-list.md#after-the-mvp)).
 
 **Acceptance criteria**
 
-- I can save every note of a repository; a later run fetches only notes that changed, and a failure keeps what was saved.
+- I can save every note of a repository, and saving goes on when I leave the screen or the app; a later run fetches only notes that changed, and a failure keeps what was saved.
 - With the backend unreachable, a note I never opened opens and is found by a word in its body.
 - Tapping a link to another note previews it without leaving the page; a name matching two notes asks which.
 - A note shows which saved notes link to it, and says when only some notes are saved.

@@ -91,7 +91,7 @@ Post-MVP work started on 2026-10-07, before the Stage 6 gate. Each stage reverse
 - AI summaries or chat with notes.
 - Other Git providers, arbitrary binary formats, and rich drawing/canvas tools.
 - iOS, Google Play distribution, and LaTeX/math rendering.
-- Webhook-triggered sync, AST-aware diffing, Elasticsearch, Kafka, microservices, a generic sync engine, and cache or retry frameworks (beyond WorkManager's backoff for the phone's background sync, ADR-08).
+- Webhook-triggered sync, AST-aware diffing, Elasticsearch, Kafka, microservices, a generic sync engine, and cache or retry frameworks (beyond WorkManager's backoff for the phone's background sync and Save all, ADR-08, ADR-19).
 
 **Excluded from the MVP, built afterwards:** spaced-repetition review, added as P3 and P4 on 2026-10-09 (ADR-13, ADR-20).
 
@@ -141,6 +141,7 @@ Covered by automated tests only, or not at all:
 - A branch rewind or a missing old blob against live GitHub (`SINCE_UNAVAILABLE`), and a too-large comparison.
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.
 - Airplane mode itself: it ends wireless debugging, so offline checks removed `adb reverse` instead.
+- Save all stopped by a real execution limit or by the system killing the process mid-run: only forced job timeouts were tried (ADR-19).
 - An Obsidian image embed on the phone, and process death by the system (only force-stop and `am kill` were tried).
 - Sign-ins surviving a deploy, and GitHub revocation on the last sign-out, with the real phone and hosted backend.
 - Practice and Review with real grades (fixture tests only), a successful **Answer is still right** against the real server, and the Practice tab's due badge.
