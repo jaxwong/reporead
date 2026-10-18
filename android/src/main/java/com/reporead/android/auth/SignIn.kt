@@ -41,16 +41,10 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
  * Exchanges the code from the sign-in redirect for a bearer session and stores it. The verifier is single-use either
  * way. Data saved on this phone belongs to the account that saved it, so the exchange names that account and the server
  * issues no session for another (ACCOUNT_MISMATCH): a sign-in never removes anything from the phone, and switching
- * accounts takes signing out, which says first what it would lose. Refused while that removal is pending
- * ([SessionStore.removalPending]), before the code is used.
+ * accounts takes signing out, which says first what it would lose. Account runs it only when no removal is pending, and
+ * after removing data with no recorded owner, so an owner of null means nothing is saved here.
  */
 suspend fun completeSignIn(code: String, api: Api, store: SessionStore) {
-    if (store.removalPending)
-        throw ApiException(
-            0,
-            "REMOVAL_PENDING",
-            "This phone is still removing the last account's notes. Remove them first, then sign in.",
-        )
     val verifier =
         store.pendingVerifier
             ?: throw ApiException(
@@ -59,7 +53,6 @@ suspend fun completeSignIn(code: String, api: Api, store: SessionStore) {
                 "This sign-in was not started from this app. Tap Sign in again.",
             )
     store.pendingVerifier = null
-    // A phone that saved data before owners were recorded has owner null; its data is taken to be this account's.
     val owner = store.dataOwner
     val request = JSONObject().put("code", code).put("codeVerifier", verifier)
     if (owner != null) request.put("expectedUserId", owner)

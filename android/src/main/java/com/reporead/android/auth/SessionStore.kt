@@ -98,8 +98,8 @@ private fun keystoreSaysItMayPass(failure: GeneralSecurityException): Boolean =
  * (allowBackup and data_extraction_rules in the manifest). The pending PKCE verifier is short-lived and kept only so
  * sign-in survives process death while the browser is open.
  */
-class SessionStore(context: Context) {
-    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+class SessionStore(context: Context, name: String = PREFS) {
+    private val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
 
     /** Whether a session is stored, without reading it; [read] may still find it unreadable. */
     val hasSession: Boolean
@@ -153,16 +153,13 @@ class SessionStore(context: Context) {
         if (sent != null && (read() as? StoredSession.Readable)?.token == sent) clear()
     }
 
-    /** Whether a session is stored, as it changes through any SessionStore (they all share these preferences). */
-    fun signedIn(): Flow<Boolean> = observed("token") { hasSession }
-
-    /** [key]'s value, read by [read], as it changes; one listener shape for each value a screen follows. */
-    private fun <T> observed(key: String, read: () -> T): Flow<T> = callbackFlow {
+    /** Whether a session is stored, as it changes through any SessionStore of these preferences. */
+    fun signedIn(): Flow<Boolean> = callbackFlow {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changed ->
-            if (changed == key || changed == null) trySend(read())
+            if (changed == "token" || changed == null) trySend(hasSession)
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
-        send(read())
+        send(hasSession)
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
         .distinctUntilChanged()
@@ -174,23 +171,16 @@ class SessionStore(context: Context) {
     fun recordOwner(userId: Long) = prefs.edit().putLong("dataOwner", userId).apply()
 
     /**
-     * Set from just before a sign-out or account deletion asks the server until this phone's copy is gone
-     * (RepoReadApplication.removeCopy); meanwhile the phone signs in as no account (completeSignIn), and the app
-     * finishes the removal when it next starts. A missing session with a known owner cannot say this: a session that
-     * expired keeps its saved notes.
+     * Set once removing this phone's copy is decided until it is gone (Account): before a sign-out asks the server,
+     * after the server confirms an account deletion, and before a sign-in over data with no recorded owner. Meanwhile
+     * the phone signs in as no account, and the app finishes the removal when it next starts. A missing session with a
+     * known owner cannot say this: a session that expired keeps its saved notes.
      */
     val removalPending: Boolean
         get() = prefs.getBoolean("removalPending", false)
 
-    fun removalPendingChanges(): Flow<Boolean> = observed("removalPending") { removalPending }
-
-    /** On disk before the server is asked, so process death after it still removes the phone's copy at next start. */
+    /** On disk before anything is removed, so process death from then on still removes the copy at the next start. */
     fun startRemoval() = commit("record a pending removal") { putBoolean("removalPending", true) }
-
-    /**
-     * The server refused or did not answer an account deletion: nothing on the phone changed, so nothing is removed.
-     */
-    fun cancelRemoval() = commit("cancel the pending removal") { remove("removalPending") }
 
     /** The phone's copy is gone: the pending removal and the data's owner are forgotten in one write. */
     fun finishRemoval() =
