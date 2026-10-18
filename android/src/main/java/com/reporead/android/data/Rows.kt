@@ -187,14 +187,12 @@ enum class AnnotationState {
 }
 
 /** A highlight marks a passage; a card also asks a question that the passage answers. */
-@kotlinx.serialization.Serializable
 enum class AnnotationType {
     HIGHLIGHT,
     CARD,
 }
 
 /** What the server's location for a highlight means in the version it names ([AnnotationRow.resolvedBlobSha]). */
-@kotlinx.serialization.Serializable
 enum class AnchorStatus {
     /** The original selection, in that version. */
     ANCHORED,

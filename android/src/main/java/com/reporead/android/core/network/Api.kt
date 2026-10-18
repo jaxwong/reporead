@@ -5,6 +5,29 @@ package com.reporead.android.core.network
 import android.util.Log
 import com.reporead.android.BuildConfig
 import com.reporead.android.auth.StoredSession
+import com.reporead.android.core.network.wire.AccountDeletionDeleted
+import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
+import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
+import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
+import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
+import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
+import com.reporead.android.core.network.wire.AnnotationsAnnotation
+import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
+import com.reporead.android.core.network.wire.AppSessionsIssuedSession
+import com.reporead.android.core.network.wire.BookmarksBookmark
+import com.reporead.android.core.network.wire.ConnectionDataCounts
+import com.reporead.android.core.network.wire.ConnectionDataDisconnected
+import com.reporead.android.core.network.wire.DocumentControllerChanges
+import com.reporead.android.core.network.wire.DocumentControllerContent
+import com.reporead.android.core.network.wire.LibrarySnapshot
+import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
+import com.reporead.android.core.network.wire.ReadingStatesState
+import com.reporead.android.core.network.wire.RepositoryConnectionsConnection
+import com.reporead.android.core.network.wire.RepositoryControllerAvailableList
+import com.reporead.android.core.network.wire.RepositoryControllerConnectRequest
+import com.reporead.android.core.network.wire.RepositorySyncResult
+import com.reporead.android.core.network.wire.ReviewControllerGradeRequest
+import com.reporead.android.core.network.wire.ReviewsReview
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -12,6 +35,7 @@ import java.net.URL
 import java.net.URLEncoder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 
 /**
@@ -25,6 +49,18 @@ class ApiException(val status: Int, val code: String, override val message: Stri
         get() = code == "BACKEND_UNAVAILABLE"
 }
 
+/**
+ * The error envelope (ApiErrors.Body), the one wire shape not generated: the spec publishes route answers, not the
+ * advice that wraps every failure, and the app reads [code] as text because a newer server may send codes this version
+ * does not know. Only known codes authorize anything (Sync.refusesItem).
+ */
+@Serializable
+private data class Failure(val code: String, val message: String) {
+    init {
+        require(code.isNotBlank()) { "Expected a non-blank failure code" }
+    }
+}
+
 private const val MAX_JSON_BYTES = 8 * 1024 * 1024
 /** The backend's own image ceiling is 5 MiB; anything larger here is a contract violation. */
 const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -35,64 +71,70 @@ class Api(
     private val session: () -> StoredSession,
     private val onUnauthorized: (sent: String?) -> Unit,
 ) {
-    suspend fun library(): Library = json("GET", "/api/library", maxBytes = BuildConfig.LIBRARY_MAX_RESPONSE_BYTES)
+    suspend fun library(): LibrarySnapshot =
+        json("GET", "/api/library", maxBytes = BuildConfig.LIBRARY_MAX_RESPONSE_BYTES)
 
-    suspend fun exchangeToken(request: TokenRequest): IssuedSession =
+    suspend fun exchangeToken(request: AppAuthControllerTokenRequest): AppSessionsIssuedSession =
         json("POST", "/api/app-auth/token", wireJson.encodeToString(request))
 
     suspend fun revokeSession() = noContent("DELETE", "/api/app-auth/session")
 
-    suspend fun deleteAccount(): AccountDeleted = json("DELETE", "/api/account")
+    suspend fun deleteAccount(): AccountDeletionDeleted = json("DELETE", "/api/account")
 
-    suspend fun availableRepositories(): AvailableList = json("GET", "/api/repositories/available")
+    suspend fun availableRepositories(): RepositoryControllerAvailableList = json("GET", "/api/repositories/available")
 
-    suspend fun connectRepository(githubRepositoryId: Long, request: ConnectRequest): Connection =
+    suspend fun connectRepository(
+        githubRepositoryId: Long,
+        request: RepositoryControllerConnectRequest,
+    ): RepositoryConnectionsConnection =
         json("POST", "/api/repositories/$githubRepositoryId/connect", wireJson.encodeToString(request)) {
             it.githubRepositoryId == githubRepositoryId
         }
 
-    suspend fun syncRepository(id: Long): RepositorySynced =
+    suspend fun syncRepository(id: Long): RepositorySyncResult =
         json("POST", "/api/repositories/$id/sync") { it.repositoryId == id }
 
-    suspend fun storedData(id: Long): StoredData = json("GET", "/api/repositories/$id/stored-data")
+    suspend fun storedData(id: Long): ConnectionDataCounts = json("GET", "/api/repositories/$id/stored-data")
 
-    suspend fun disconnectRepository(id: Long): Disconnected = json("DELETE", "/api/repositories/$id")
+    suspend fun disconnectRepository(id: Long): ConnectionDataDisconnected = json("DELETE", "/api/repositories/$id")
 
-    suspend fun noteContent(id: Long): NoteContent = json("GET", "/api/documents/$id/content") { it.documentId == id }
+    suspend fun noteContent(id: Long): DocumentControllerContent =
+        json("GET", "/api/documents/$id/content") { it.documentId == id }
 
-    suspend fun changes(id: Long, since: String, to: String): Changes =
+    suspend fun changes(id: Long, since: String, to: String): DocumentControllerChanges =
         json("GET", "/api/documents/$id/changes?since=${query(since)}&to=${query(to)}") {
             it.documentId == id && it.sinceBlobSha == since && it.toBlobSha == to
         }
 
-    suspend fun saveReading(id: Long, request: ReadingRequest): ReadingState =
+    suspend fun saveReading(id: Long, request: ReadingControllerSaveRequest): ReadingStatesState =
         json("PUT", "/api/documents/$id/reading-state", wireJson.encodeToString(request)) { it.documentId == id }
 
-    suspend fun setBookmark(id: Long): Bookmark = json("PUT", "/api/documents/$id/bookmark") { it.documentId == id }
+    suspend fun setBookmark(id: Long): BookmarksBookmark =
+        json("PUT", "/api/documents/$id/bookmark") { it.documentId == id }
 
     suspend fun clearBookmark(id: Long) = noContent("DELETE", "/api/documents/$id/bookmark")
 
-    suspend fun annotations(id: Long): AnnotationList =
+    suspend fun annotations(id: Long): AnnotationControllerAnnotationList =
         json("GET", "/api/documents/$id/annotations") { it.annotations.all { row -> row.documentId == id } }
 
-    suspend fun createAnnotation(id: Long, request: CreateAnnotationRequest): Annotation =
+    suspend fun createAnnotation(id: Long, request: AnnotationControllerCreateRequest): AnnotationsAnnotation =
         json("POST", "/api/documents/$id/annotations", wireJson.encodeToString(request), statuses = setOf(200, 201)) {
             it.documentId == id && it.mutationId == request.mutationId
         }
 
-    suspend fun editAnnotation(id: Long, request: EditAnnotationRequest): Annotation =
+    suspend fun editAnnotation(id: Long, request: AnnotationControllerEditRequest): AnnotationsAnnotation =
         json("PATCH", "/api/annotations/$id", wireJson.encodeToString(request)) { it.id == id }
 
     suspend fun deleteAnnotation(id: Long, expectedVersion: Int) =
         noContent("DELETE", "/api/annotations/$id?expectedVersion=$expectedVersion")
 
-    suspend fun reattachAnnotation(id: Long, request: ReattachRequest): Annotation =
+    suspend fun reattachAnnotation(id: Long, request: AnnotationControllerReattachRequest): AnnotationsAnnotation =
         json("POST", "/api/annotations/$id/reattach", wireJson.encodeToString(request)) { it.id == id }
 
-    suspend fun checkCard(id: Long, request: CheckRequest): Annotation =
+    suspend fun checkCard(id: Long, request: AnnotationControllerCheckRequest): AnnotationsAnnotation =
         json("POST", "/api/annotations/$id/check", wireJson.encodeToString(request)) { it.id == id }
 
-    suspend fun recordReview(id: Long, request: ReviewRequest): Review =
+    suspend fun recordReview(id: Long, request: ReviewControllerGradeRequest): ReviewsReview =
         json("POST", "/api/annotations/$id/reviews", wireJson.encodeToString(request)) {
             it.mutationId == request.mutationId &&
                 it.grade == request.grade &&
@@ -115,7 +157,7 @@ class Api(
     private fun query(value: String) = URLEncoder.encode(value, Charsets.UTF_8)
 
     /** Publishes an answer only after bounded transport, decoding and request correspondence have all succeeded. */
-    private suspend inline fun <reified T> json(
+    private suspend inline fun <reified T : Any> json(
         method: String,
         path: String,
         body: String? = null,

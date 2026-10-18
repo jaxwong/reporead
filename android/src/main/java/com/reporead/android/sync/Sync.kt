@@ -6,17 +6,17 @@ import android.database.sqlite.SQLiteException
 import android.util.Log
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.Changes
-import com.reporead.android.core.network.CheckRequest
-import com.reporead.android.core.network.CreateAnnotationRequest
-import com.reporead.android.core.network.EditAnnotationRequest
-import com.reporead.android.core.network.ReadingAnchor
-import com.reporead.android.core.network.ReadingRequest
-import com.reporead.android.core.network.ReattachRequest
-import com.reporead.android.core.network.ReviewRequest
-import com.reporead.android.core.network.StoredData
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.invalidResponse
+import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
+import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
+import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
+import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
+import com.reporead.android.core.network.wire.ConnectionDataCounts
+import com.reporead.android.core.network.wire.DocumentControllerChanges
+import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
+import com.reporead.android.core.network.wire.ReadingStatesAnchor
+import com.reporead.android.core.network.wire.ReviewControllerGradeRequest
 import com.reporead.android.core.network.wireJson
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
@@ -333,7 +333,7 @@ class Sync(
      * Which sections changed between [since], the version last read, and [to], the version on screen. Online only;
      * nothing is cached.
      */
-    suspend fun changes(documentId: Long, since: String, to: String): Changes = locked {
+    suspend fun changes(documentId: Long, since: String, to: String): DocumentControllerChanges = locked {
         api.changes(documentId, since, to)
     }
 
@@ -342,7 +342,7 @@ class Sync(
      * highlights, cards, and grades only on this phone (unsent or refused), deleted too; [notSent] says why some were
      * not sent.
      */
-    data class DisconnectPreview(val stored: StoredData, val unsent: Int, val notSent: ApiException?)
+    data class DisconnectPreview(val stored: ConnectionDataCounts, val unsent: Int, val notSent: ApiException?)
 
     /**
      * Sends pending work, then counts what disconnecting [repositoryId] would delete, for the confirmation. Null when
@@ -450,11 +450,11 @@ class Sync(
         val refused = mutableListOf<RefusedChange>()
         for (row in dao.pendingReading()) {
             val body =
-                ReadingRequest(
-                    row.lastReadBlobSha,
-                    row.progressPercent,
-                    wireJson.decodeFromString<ReadingAnchor>(row.anchorJson),
-                    Instant.ofEpochMilli(row.lastReadAt),
+                ReadingControllerSaveRequest(
+                    lastReadBlobSha = row.lastReadBlobSha,
+                    progressPercent = row.progressPercent,
+                    anchor = wireJson.decodeFromString<ReadingStatesAnchor>(row.anchorJson),
+                    lastReadAt = Instant.ofEpochMilli(row.lastReadAt),
                 )
             val current =
                 try {
@@ -559,12 +559,13 @@ class Sync(
      */
     private suspend fun sendCreation(row: AnnotationRow, deleting: Boolean): AnnotationRow? {
         val body =
-            CreateAnnotationRequest(
-                row.mutationId,
-                Passage(row.sourceBlobSha, row.blockId, row.startOffset, row.endOffset, row.exactText).anchor(),
-                row.note,
-                row.type,
-                row.question,
+            AnnotationControllerCreateRequest(
+                mutationId = row.mutationId,
+                anchor =
+                    Passage(row.sourceBlobSha, row.blockId, row.startOffset, row.endOffset, row.exactText).anchor(),
+                note = row.note,
+                type = row.type.name,
+                question = row.question,
             )
         val created =
             try {
@@ -628,7 +629,12 @@ class Sync(
             checkNotNull(row.serverId) {
                 "Only acknowledged highlights can be edited; ${row.mutationId} is pending"
             }
-        val updated = api.editAnnotation(serverId, EditAnnotationRequest(note, expectedVersion)).toRow()
+        val updated =
+            api.editAnnotation(
+                    serverId,
+                    AnnotationControllerEditRequest(note = note, expectedVersion = expectedVersion),
+                )
+                .toRow()
         dao.saveAnnotation(updated)
         updated
     }
@@ -642,7 +648,12 @@ class Sync(
             checkNotNull(row.serverId) {
                 "Only acknowledged highlights can be reattached; ${row.mutationId} is pending"
             }
-        val updated = api.reattachAnnotation(serverId, ReattachRequest(row.version, passage.anchor())).toRow()
+        val updated =
+            api.reattachAnnotation(
+                    serverId,
+                    AnnotationControllerReattachRequest(expectedVersion = row.version, anchor = passage.anchor()),
+                )
+                .toRow()
         dao.saveAnnotation(updated)
         updated
     }
@@ -689,11 +700,11 @@ class Sync(
                 try {
                     api.recordReview(
                         id,
-                        ReviewRequest(
-                            row.mutationId,
-                            row.grade,
-                            Instant.ofEpochMilli(row.reviewedAt),
-                            row.blobSha,
+                        ReviewControllerGradeRequest(
+                            mutationId = row.mutationId,
+                            grade = row.grade,
+                            reviewedAt = Instant.ofEpochMilli(row.reviewedAt),
+                            blobSha = row.blobSha,
                         ),
                     )
                 } catch (error: ApiException) {
@@ -709,7 +720,10 @@ class Sync(
 
     suspend fun checkCard(row: AnnotationRow, blobSha: String) = locked {
         val id = checkNotNull(row.serverId) { "Only acknowledged cards can be confirmed; ${row.mutationId} is pending" }
-        dao.saveAnnotation(api.checkCard(id, CheckRequest(row.version, blobSha)).toRow())
+        dao.saveAnnotation(
+            api.checkCard(id, AnnotationControllerCheckRequest(expectedVersion = row.version, blobSha = blobSha))
+                .toRow()
+        )
     }
 
     /** Owns export files, not their Markdown formatting or Android sharing. A retired copy cannot publish. */

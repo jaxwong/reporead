@@ -2,24 +2,33 @@
 
 package com.reporead.android.sync
 
-import com.reporead.android.core.network.Anchor
-import com.reporead.android.core.network.Annotation
-import com.reporead.android.core.network.ReadingState
-import com.reporead.android.core.network.Review
-import com.reporead.android.core.network.SelectionRequest
+import com.reporead.android.core.network.wire.AnnotationServiceSelection
+import com.reporead.android.core.network.wire.AnnotationsAnnotation
+import com.reporead.android.core.network.wire.AnnotationsPassage
+import com.reporead.android.core.network.wire.ReadingStatesState
+import com.reporead.android.core.network.wire.ReviewsReview
 import com.reporead.android.core.network.wireJson
+import com.reporead.android.data.AnchorStatus
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.ReviewRow
 import kotlinx.serialization.encodeToString
 
-internal fun Passage.anchor() = SelectionRequest(blobSha, blockId, startOffset, endOffset, exactText)
+internal fun Passage.anchor() =
+    AnnotationServiceSelection(
+        sourceBlobSha = blobSha,
+        blockId = blockId,
+        startOffset = startOffset,
+        endOffset = endOffset,
+        exactText = exactText,
+    )
 
-private fun Anchor.passage() = Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
+private fun AnnotationsPassage.passage() = Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
-internal fun Annotation.toRow() =
+internal fun AnnotationsAnnotation.toRow() =
     AnnotationRow(
         mutationId,
         id,
@@ -35,18 +44,28 @@ internal fun Annotation.toRow() =
         state = AnnotationState.ACKNOWLEDGED,
         prefixText = anchor.prefixText,
         suffixText = anchor.suffixText,
-        status = status,
+        status =
+            when (status) {
+                AnnotationsAnnotation.Status.ANCHORED -> AnchorStatus.ANCHORED
+                AnnotationsAnnotation.Status.REANCHORED -> AnchorStatus.REANCHORED
+                AnnotationsAnnotation.Status.ORPHANED -> AnchorStatus.ORPHANED
+            },
         resolvedBlobSha = resolvedBlobSha,
         location = location.passage(),
-        type = type,
+        type =
+            when (type) {
+                AnnotationsAnnotation.Type.HIGHLIGHT -> AnnotationType.HIGHLIGHT
+                AnnotationsAnnotation.Type.CARD -> AnnotationType.CARD
+                AnnotationsAnnotation.Type.BOOKMARK -> error("checkRules admits no BOOKMARK annotation; id=$id")
+            },
         question = question,
         checkedBlobSha = checkedBlobSha,
     )
 
-internal fun Review.toRow() =
+internal fun ReviewsReview.toRow() =
     ReviewRow(mutationId, cardMutationId, grade, reviewedAt.toEpochMilli(), blobSha, pending = false)
 
-internal fun ReadingState.toRow() =
+internal fun ReadingStatesState.toRow() =
     ReadingRow(
         documentId,
         lastReadBlobSha,

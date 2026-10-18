@@ -1,9 +1,0 @@
-{
-  "accessToken": "TEST_ONLY_SESSION",
-  "expiresAt": "2000-01-01T00:00:00Z",
-  "user": {
-    "id": 1,
-    "githubUserId": 42,
-    "login": "test-only"
-  }
-}

@@ -15,6 +15,8 @@ import androidx.work.ListenableWorker.Result
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
+import com.reporead.android.core.network.testSession
+import com.reporead.android.core.network.wire
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
@@ -409,7 +411,7 @@ class AccountTest {
                 mapOf(
                     "DELETE /api/app-auth/session" to (204 to ""),
                     "POST /api/app-auth/token" to
-                        (200 to """{"accessToken":"TEST_ONLY_NEXT","user":{"id":6,"login":"test-only"}}"""),
+                        (200 to wire(testSession(accessToken = "TEST_ONLY_NEXT", userId = 6))),
                 )
             )
             .use { server ->
@@ -454,8 +456,7 @@ class AccountTest {
         assertNull(sessions.dataOwner)
         LoopbackServer(
                 mapOf(
-                    "POST /api/app-auth/token" to
-                        (200 to """{"accessToken":"TEST_ONLY_NEXT","user":{"id":6,"login":"test-only"}}""")
+                    "POST /api/app-auth/token" to (200 to wire(testSession(accessToken = "TEST_ONLY_NEXT", userId = 6)))
                 )
             )
             .use { server ->
@@ -578,14 +579,16 @@ class AccountTest {
     fun aPreRemovalWriteCannotSurviveSigningBackIntoTheSameAccount(): Unit = runBlocking {
         signedInWithSavedNotes()
         val library =
-            """{"repositories":[{"id":7,"fullName":"test-only/notes","documentCount":1,
+            """{"repositories":[{"id":7,"githubRepositoryId":11,"owner":"test-only","name":"notes","defaultBranch":"main",
+            "fullName":"test-only/notes","documentCount":1,
             "lastSyncedCommitSha":"$sha","documents":[{"id":1,"path":"a.md","title":"a","blobSha":"$sha",
             "contentChangedAt":null,"deleted":false}]}],"readingStates":[],"bookmarks":[],
             "notebook":{"annotations":[],"reviews":[],"sessionLimit":40}}"""
         LoopbackServer(
                 mapOf(
                     "DELETE /api/app-auth/session" to (204 to ""),
-                    "POST /api/app-auth/token" to (200 to """{"accessToken":"TEST_ONLY_NEXT","user":{"id":5}}"""),
+                    "POST /api/app-auth/token" to
+                        (200 to wire(testSession(accessToken = "TEST_ONLY_NEXT", userId = 5))),
                     "GET /api/library" to (200 to library),
                 )
             )

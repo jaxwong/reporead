@@ -162,9 +162,7 @@ class AppSignInTest extends SharedSpringTest {
     private org.springframework.test.web.servlet.ResultActions exchange(String code, String verifier) throws Exception {
         return mvc.perform(post("/api/app-auth/token")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(com.reporead.ContractFixtures.read("requests/token")
-                        .replace("TEST_ONLY_CODE", code)
-                        .replace("TEST_ONLY_VERIFIER", verifier)));
+                .content(json.writeValueAsString(Map.of("code", code, "codeVerifier", verifier))));
     }
 
     /** An exchange from an app that holds the data of RepoRead user {@code expectedUserId}. */

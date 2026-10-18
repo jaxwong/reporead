@@ -1,11 +1,24 @@
-// Owns: JVM coverage of wire strictness and producer/consumer agreement using shared test-only examples.
+// Owns: JVM coverage of decoding strictness and value rules for the generated wire models.
 
 package com.reporead.android.core.network
 
-import com.reporead.android.data.AnnotationType
+import com.reporead.android.core.network.wire.AnnotationsAnnotation
+import com.reporead.android.core.network.wire.AppSessionsIssuedSession
+import com.reporead.android.core.network.wire.AppUser
+import com.reporead.android.core.network.wire.ConnectionDataDisconnected
+import com.reporead.android.core.network.wire.DocumentControllerChanges
+import com.reporead.android.core.network.wire.DocumentControllerContent
+import com.reporead.android.core.network.wire.DocumentsSummary
+import com.reporead.android.core.network.wire.LibraryRepository
+import com.reporead.android.core.network.wire.LibrarySnapshot
+import com.reporead.android.core.network.wire.NoteChangesSection
+import com.reporead.android.core.network.wire.ReadingStatesAnchor
+import com.reporead.android.core.network.wire.ReadingStatesState
+import com.reporead.android.core.network.wire.RepositoryConnectionsAvailable
+import com.reporead.android.core.network.wire.ReviewsNotebook
+import com.reporead.android.core.network.wire.ReviewsReview
 import java.time.Instant
 import java.time.format.DateTimeParseException
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
@@ -13,159 +26,95 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Owns regression checks for the decoder and encoded request agreement, independent of Android JSON stubs. */
+/** What generation cannot promise: strict tokens, required-nullable presence and the value rules ([checkRules]). */
 class ContractTest {
-    private val sha = "a".repeat(40)
-    private val at = Instant.parse("2000-01-01T00:00:00Z")
-    private val mutation = "00000000-0000-0000-0000-000000000001"
+    private inline fun <reified T> json(value: T) = wireJson.parseToJsonElement(wire(value)).jsonObject
 
-    private fun fixture(name: String) =
-        checkNotNull(javaClass.getResourceAsStream("/api-contract/$name.json")) {
-                "Missing shared producer fixture $name"
-            }
-            .bufferedReader()
-            .use { it.readText() }
+    /** [key] replaced by a raw JSON value, or removed when [raw] is null. */
+    private fun JsonObject.with(key: String, raw: String?) =
+        JsonObject(if (raw == null) this - key else this + (key to wireJson.parseToJsonElement(raw)))
 
-    private inline fun <reified T> answer(name: String): T = decodeResponse(fixture(name), 200)
-
-    private inline fun <reified T> broken(body: String): ApiException {
-        val error = assertThrows(ApiException::class.java) { decodeResponse<T>(body, 201) }
+    private inline fun <reified T : Any> broken(body: Any): ApiException {
+        val error = assertThrows(ApiException::class.java) { decodeResponse<T>(body.toString(), 201) }
         assertEquals(201, error.status)
         assertEquals("INVALID_RESPONSE", error.code)
         assertTrue(error.cause is IllegalArgumentException)
         return error
     }
 
-    private inline fun <reified T> request(name: String, value: T) {
-        assertEquals(
-            name,
-            wireJson.parseToJsonElement(fixture("requests/$name")),
-            wireJson.parseToJsonElement(wireJson.encodeToString(value)),
-        )
+    /** [key] holding null decodes, and the same answer without the key is broken. */
+    private inline fun <reified T : Any> requiredNullable(answer: JsonObject, key: String) {
+        decodeResponse<T>(answer.with(key, "null").toString(), 200)
+        broken<T>(answer.with(key, null))
     }
 
     @Test
-    fun everyConsumedResponseShapeDecodesTheBackendVerifiedExample() {
-        assertEquals(2, answer<Library>("library").notebook.annotations.size)
-        assertTrue(answer<Library>("library-empty").repositories.isEmpty())
-        assertEquals(null, answer<AvailableList>("available").repositories.single().connectionId)
-        assertEquals(11L, answer<Connection>("connection").githubRepositoryId)
-        assertEquals(7L, answer<RepositorySynced>("synced").repositoryId)
-        assertEquals(1L, answer<NoteContent>("content").documentId)
-        assertEquals(null, answer<Changes>("changes").sections.single().blockId)
-        assertEquals(ChangeStatus.SINCE_UNAVAILABLE, answer<Changes>("changes-unavailable").status)
-        assertEquals(50, answer<ReadingState>("reading").progressPercent)
-        assertEquals(1L, answer<Bookmark>("bookmark").documentId)
-        assertEquals(1, answer<AnnotationList>("annotations").annotations.size)
-        assertEquals(null, answer<Annotation>("annotation").question)
-        assertEquals(AnnotationType.CARD, answer<Annotation>("annotation-card").type)
-        assertEquals(4, answer<Review>("review").grade)
-        assertEquals(1, answer<StoredData>("stored-data").documents)
-        assertEquals(listOf(1L), answer<Disconnected>("disconnected").documentIds)
-        assertEquals(1, answer<AccountDeleted>("account-deleted").repositories)
-        assertEquals("TEST_ONLY_SESSION", answer<IssuedSession>("session").accessToken)
-        assertEquals("NOT_FOUND", answer<Failure>("failure").code)
-    }
-
-    @Test
-    fun requestsMatchTheBodiesVerifiedByBackendControllers() {
-        val anchor = SelectionRequest(sha, "b1", 0, 4, "text")
-        request("token", TokenRequest("TEST_ONLY_CODE", "TEST_ONLY_VERIFIER", null))
-        request("connect", ConnectRequest(7))
-        request("reading", ReadingRequest(sha, 50, ReadingAnchor(emptyList(), null, 0), at))
-        request("create", CreateAnnotationRequest(mutation, anchor, null, AnnotationType.HIGHLIGHT, null))
-        request("edit", EditAnnotationRequest(null, 1))
-        request("reattach", ReattachRequest(1, anchor))
-        request("check", CheckRequest(1, sha))
-        request("review", ReviewRequest("00000000-0000-0000-0000-000000000002", 4, at, sha))
-    }
-
-    @Test
-    fun requiredNullableKeysAreDifferentFromExplicitNull() {
-        broken<Available>(
-            """{"githubRepositoryId":11,"installationId":7,"fullName":"test-only/notes","privateRepository":true}"""
-        )
-        broken<ReadingAnchor>("""{"headingPath":[],"blockIndex":0}""")
-        broken<ReadingAnchor>("""{"textPrefix":null,"blockIndex":0}""")
-        broken<ReadingAnchor>("""{"headingPath":[],"textPrefix":null}""")
-        broken<ReadingAnchor>("""{"headingPath":null,"textPrefix":null,"blockIndex":0}""")
-        broken<Library>(fixture("library").replace("\"lastSyncedCommitSha\": null,", ""))
-        broken<Library>(fixture("library").replace("\"contentChangedAt\": null,", ""))
-        broken<Changes>(fixture("changes").replace("\"reason\": null,", ""))
-        broken<Changes>(fixture("changes").replace("\"blockId\": null,", ""))
-        val annotation = wireJson.parseToJsonElement(fixture("annotation")).jsonObject
-        for (field in listOf("note", "question", "checkedBlobSha")) {
-            broken<Annotation>(JsonObject(annotation - field).toString())
+    fun aNullableKeyMustStillBePresent() {
+        for (key in listOf("note", "question", "checkedBlobSha")) {
+            requiredNullable<AnnotationsAnnotation>(json(testHighlight()), key)
         }
-        assertEquals(null, answer<ReadingState>("reading").anchor.textPrefix)
+        requiredNullable<LibraryRepository>(json(testRepository()), "lastSyncedCommitSha")
+        requiredNullable<DocumentsSummary>(json(testDocument()), "contentChangedAt")
+        requiredNullable<DocumentControllerChanges>(json(testChanges()), "reason")
+        requiredNullable<NoteChangesSection>(json(testChanges().sections.single()), "blockId")
+        requiredNullable<RepositoryConnectionsAvailable>(json(testAvailable()), "connectionId")
+        requiredNullable<ReadingStatesAnchor>(json(testReading().anchor), "textPrefix")
+        broken<ReviewsReview>(json(testReview()).with("grade", null))
     }
 
     @Test
     fun scalarsAreNotCoercedEvenInsideNullableFieldsOrLists() {
         for (bad in listOf("null", "7", "false", "[]", "{}")) {
-            broken<Review>(
-                fixture("review")
-                    .replace("\"mutationId\": \"00000000-0000-0000-0000-000000000002\"", "\"mutationId\": $bad")
-            )
+            broken<ReviewsReview>(json(testReview()).with("mutationId", bad))
         }
         for (bad in listOf("\"50\"", "12.7", "2147483648", "null", "true")) {
-            broken<ReadingState>(fixture("reading").replace("\"progressPercent\": 50", "\"progressPercent\": $bad"))
+            broken<ReadingStatesState>(json(testReading()).with("progressPercent", bad))
         }
         for (bad in listOf("\"1\"", "1.7", "9223372036854775808", "null", "true")) {
-            broken<Disconnected>("""{"documentIds":[$bad]}""")
+            broken<ConnectionDataDisconnected>(json(testDisconnected()).with("documentIds", "[$bad]"))
         }
-        broken<Document>(
-            """{"id":1,"path":"n.md","title":"Test-only","blobSha":"$sha","contentChangedAt":null,"deleted":"false"}"""
-        )
-        broken<Available>(
-            """{"githubRepositoryId":11,"installationId":7,"fullName":"test-only/notes","privateRepository":true,"connectionId":"7"}"""
-        )
+        broken<DocumentsSummary>(json(testDocument()).with("deleted", "\"false\""))
+        broken<RepositoryConnectionsAvailable>(json(testAvailable()).with("connectionId", "\"7\""))
     }
 
     @Test
-    fun consumerValueRulesFailBeforeMapping() {
-        broken<ReadingState>(fixture("reading").replace("\"progressPercent\": 50", "\"progressPercent\": 101"))
-        broken<ReadingAnchor>("""{"headingPath":[],"textPrefix":null,"blockIndex":-1}""")
-        broken<Notebook>("""{"annotations":[],"reviews":[],"sessionLimit":0}""")
-        broken<Review>(fixture("review").replace("\"grade\": 4", "\"grade\": 6"))
-        for (question in listOf("null", "\"\"", "\"  \"")) {
-            broken<Annotation>(
-                fixture("annotation-card").replace("\"question\": \"Test-only question?\"", "\"question\": $question")
-            )
-        }
-        broken<Annotation>(fixture("annotation").replace("\"type\": \"HIGHLIGHT\"", "\"type\": \"FUTURE_TYPE\""))
-        broken<Annotation>(fixture("annotation").replace("\"endOffset\": 4", "\"endOffset\": 3"))
-        broken<Annotation>(fixture("annotation").replace("\"id\": 9", "\"id\": 0"))
-        broken<Annotation>(fixture("annotation").replace("\"version\": 1", "\"version\": 0"))
-        broken<SessionUser>("""{"id":0}""")
-        broken<NoteContent>(fixture("content").replace("b".repeat(40), "INVALID"))
-        broken<IssuedSession>(fixture("session").replace("TEST_ONLY_SESSION", ""))
-        for (code in listOf("7", "null", "\"\"", "\"  \"")) {
-            broken<Failure>("""{"code":$code,"message":"Test-only"}""")
-        }
+    fun valueRulesFailBeforeAnythingIsPublished() {
+        broken<ReadingStatesState>(wire(testReading().copy(progressPercent = 101)))
+        broken<ReadingStatesAnchor>(wire(testReading().anchor.copy(blockIndex = -1)))
+        broken<ReviewsNotebook>(wire(testLibrary().notebook.copy(sessionLimit = 0)))
+        broken<ReviewsReview>(wire(testReview().copy(grade = 6)))
+        for (question in listOf(null, "", "  ")) broken<AnnotationsAnnotation>(
+            wire(testCard().copy(question = question))
+        )
+        broken<AnnotationsAnnotation>(wire(testHighlight().copy(type = AnnotationsAnnotation.Type.BOOKMARK)))
+        broken<AnnotationsAnnotation>(json(testHighlight()).with("type", "\"FUTURE_TYPE\""))
+        broken<AnnotationsAnnotation>(wire(testHighlight().copy(location = testPassage().copy(endOffset = 3))))
+        broken<AnnotationsAnnotation>(wire(testHighlight().copy(id = 0)))
+        broken<AnnotationsAnnotation>(wire(testHighlight().copy(version = 0)))
+        broken<AppUser>(wire(testSession().user.copy(id = 0)))
+        broken<DocumentControllerContent>(wire(testContent().copy(snapshotCommitSha = "INVALID")))
+        broken<AppSessionsIssuedSession>(wire(testSession(accessToken = "")))
+        // Rules reach into what an answer holds: one bad reading state breaks the whole library.
+        broken<LibrarySnapshot>(wire(testLibrary(readingStates = listOf(testReading().copy(progressPercent = -1)))))
     }
 
     @Test
-    fun aMalformedTimeInAResponseBreaksTheContractInsteadOfCrashing() {
-        val error = broken<Review>(fixture("review").replace(at.toString(), "not-a-time"))
+    fun aMalformedTimeBreaksTheContractInsteadOfCrashing() {
+        val review = json(testReview())
+        val error = broken<ReviewsReview>(review.with("reviewedAt", "\"not-a-time\""))
         assertTrue(error.cause?.cause is DateTimeParseException)
-        val overflow = broken<Review>(fixture("review").replace(at.toString(), Instant.MAX.toString()))
+        val overflow = broken<ReviewsReview>(review.with("reviewedAt", "\"${Instant.MAX}\""))
         assertTrue(overflow.cause?.cause is ArithmeticException)
-        assertEquals(
-            at,
-            decodeResponse<Review>(fixture("review").replace(at.toString(), "2000-01-01T01:00:00+01:00"), 200)
-                .reviewedAt,
-        )
-        assertEquals(
-            at.plusNanos(123_456_789),
-            decodeResponse<Review>(fixture("review").replace(at.toString(), "2000-01-01T00:00:00.123456789Z"), 200)
-                .reviewedAt,
-        )
+        val offset = review.with("reviewedAt", "\"2000-01-01T01:00:00+01:00\"")
+        assertEquals(testAt, decodeResponse<ReviewsReview>(offset.toString(), 200).reviewedAt)
+        val nanos = review.with("reviewedAt", "\"2000-01-01T00:00:00.123456789Z\"")
+        assertEquals(testAt.plusNanos(123_456_789), decodeResponse<ReviewsReview>(nanos.toString(), 200).reviewedAt)
     }
 
     @Test
     fun unknownFieldsAreIgnoredWithoutRelaxingKnownFields() {
-        val body = fixture("reading").replace("\"anchor\": {", "\"extra\": 7, \"anchor\": {\"future\": true,")
-        assertEquals(answer<ReadingState>("reading"), decodeResponse<ReadingState>(body, 200))
+        val anchor = json(testReading().anchor).with("future", "true")
+        val body = json(testReading()).with("extra", "7").with("anchor", anchor.toString())
+        assertEquals(testReading(), decodeResponse<ReadingStatesState>(body.toString(), 200))
     }
 }

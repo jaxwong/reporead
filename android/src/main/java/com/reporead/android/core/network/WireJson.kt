@@ -1,4 +1,5 @@
-// Owns: The HTTP JSON policy, strict scalar/time serializers and decoder-to-ApiException translation.
+// Owns: The HTTP JSON policy, the generated models' strict scalar/time serializers and decoder-to-ApiException
+// translation.
 
 package com.reporead.android.core.network
 
@@ -16,13 +17,38 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.modules.SerializersModule
 
-internal val wireJson = Json { ignoreUnknownKeys = true }
+/**
+ * The generated models mark every number, boolean and time @Contextual (android/build.gradle.kts maps them to the
+ * aliases below), so each one decodes through these serializers rather than kotlinx's coercing defaults.
+ */
+internal val wireJson = Json {
+    ignoreUnknownKeys = true
+    serializersModule = SerializersModule {
+        contextual(Int::class, StrictInt)
+        contextual(Long::class, StrictLong)
+        contextual(Boolean::class, StrictBoolean)
+        contextual(Instant::class, WireInstant)
+    }
+}
 
-/** Only external response decoding translates failed wire rules; programmer/caller code is outside this catch. */
-internal inline fun <reified T> decodeResponse(body: String, status: Int): T =
+/**
+ * The generator's names for OpenAPI's integer, int64 and boolean; mapping a type to its own name makes it @Contextual.
+ */
+typealias WireInt = Int
+
+typealias WireLong = Long
+
+typealias WireBoolean = Boolean
+
+/**
+ * Decodes an answer and checks its value rules ([checkRules]). Only external response decoding translates failed wire
+ * rules; programmer/caller code is outside this catch.
+ */
+internal inline fun <reified T : Any> decodeResponse(body: String, status: Int): T =
     try {
-        wireJson.decodeFromString<T>(body)
+        wireJson.decodeFromString<T>(body).also(::checkRules)
     } catch (error: IllegalArgumentException) {
         throw invalidResponse(status, error)
     }
@@ -37,7 +63,7 @@ private fun Decoder.scalar(): JsonPrimitive {
     return value
 }
 
-/** Owns Boolean token strictness, including when generated serializers use it inside nullable fields or lists. */
+/** Owns Boolean token strictness, including inside the generated models' nullable fields and lists. */
 internal object StrictBoolean : KSerializer<Boolean> {
     override val descriptor = PrimitiveSerialDescriptor("WireBoolean", PrimitiveKind.BOOLEAN)
 

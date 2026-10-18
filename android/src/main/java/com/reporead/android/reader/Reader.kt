@@ -40,11 +40,11 @@ import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.Changes
 import com.reporead.android.core.network.Load
 import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.rememberLoad
+import com.reporead.android.core.network.wire.DocumentControllerChanges
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
@@ -128,7 +128,7 @@ fun ReaderScreen(
     // Null when there is nothing to compare: never read, or reading the same version again. The baseline is cleared
     // only after the server's comparison is shown; offline or failing, it stays for the next opening.
     val changes by
-        produceState<Load<Changes>?>(null, since, displayed, signedIn, changesReload) {
+        produceState<Load<DocumentControllerChanges>?>(null, since, displayed, signedIn, changesReload) {
             val from = since
             if (from == null || displayed == null || !signedIn) {
                 value = null
