@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Which heading sections changed between two versions of a note: a minimal line diff of the Markdown source (Myers),
@@ -30,7 +31,12 @@ public final class NoteChanges {
      * A changed section. {@code headingPath} is empty for the beginning of the note. {@code blockId} is the heading
      * block in the newer version, null for a removed section and for the beginning of the note (the top).
      */
-    public record Section(Change change, List<String> headingPath, String blockId, int addedLines, int removedLines) {}
+    public record Section(
+            Change change,
+            List<String> headingPath,
+            @Nullable String blockId,
+            int addedLines,
+            int removedLines) {}
 
     /** Changed sections in the newer version's order; a removed section appears where it used to be. */
     public record Comparison(List<Section> sections, int addedLines, int removedLines) {}

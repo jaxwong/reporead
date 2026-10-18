@@ -8,6 +8,7 @@ import com.reporead.RepoReadProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import org.apache.catalina.session.TooManyActiveSessionsException;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
@@ -66,7 +67,8 @@ public class AppAuthController {
      * Owns the handoff request shape, not issuance policy. {@code expectedUserId} names the account whose data the app
      * holds; only that account may sign in to it.
      */
-    record TokenRequest(String code, String codeVerifier, Long expectedUserId) {}
+    record TokenRequest(
+            String code, String codeVerifier, @Nullable Long expectedUserId) {}
 
     @PostMapping("/api/app-auth/token")
     AppSessions.IssuedSession token(@RequestBody TokenRequest body) {

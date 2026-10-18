@@ -7,6 +7,7 @@ import com.reporead.auth.AppUser;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -135,7 +136,7 @@ public class DocumentController {
             String sinceBlobSha,
             String toBlobSha,
             ChangeStatus status,
-            String reason,
+            @Nullable String reason,
             int addedLines,
             int removedLines,
             List<NoteChanges.Section> sections) {

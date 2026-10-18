@@ -42,6 +42,11 @@ dependencies {
     implementation("org.commonmark:commonmark-ext-gfm-strikethrough:$commonmarkVersion")
     implementation("org.commonmark:commonmark-ext-task-list-items:$commonmarkVersion")
     implementation("org.jsoup:jsoup:${rootProject.extra["jsoupVersion"]}")
+    // Marks the record components that are null on the wire; OpenApiSpecTest publishes them as nullable, all others not.
+    implementation("org.jspecify:jspecify")
+    // Annotations only, absent at runtime, where nothing reads them: LibraryController names the record its measured
+    // bytes hold. OpenApiSpecTest reads them through springdoc.
+    compileOnly("io.swagger.core.v3:swagger-annotations-jakarta:2.2.55")
     testImplementation(enforcedPlatform("org.junit:junit-bom:6.0.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -50,9 +55,13 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:testcontainers-postgresql")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    // Derives openapi.json from the controllers and records (OpenApiSpecTest); never on the production classpath.
+    testImplementation("org.springdoc:springdoc-openapi-starter-webmvc-api:3.1.1")
 }
 
 tasks.test {
     useJUnitPlatform()
+    // OpenApiSpecTest compares the committed spec with the derived one, so editing the file alone must rerun it.
+    inputs.file("openapi.json")
     testLogging.events("passed", "failed", "skipped")
 }

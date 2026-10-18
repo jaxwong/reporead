@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -118,7 +119,7 @@ public class Annotations {
             String mutationId,
             long documentId,
             Type type,
-            String note,
+            @Nullable String note,
             Status status,
             int version,
             Instant createdAt,
@@ -126,8 +127,8 @@ public class Annotations {
             Passage anchor,
             Location location,
             String resolvedBlobSha,
-            String question,
-            String checkedBlobSha) {}
+            @Nullable String question,
+            @Nullable String checkedBlobSha) {}
 
     /** The result of a creation request, and whether it was the replay of an earlier identical request. */
     record Created(Annotation annotation, boolean replayed) {}

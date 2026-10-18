@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -49,7 +50,7 @@ public class RepositoryConnections {
             String owner,
             String name,
             String defaultBranch,
-            String lastSyncedCommitSha,
+            @Nullable String lastSyncedCommitSha,
             int documentCount) {
         @JsonProperty("fullName")
         public String fullName() {
@@ -86,7 +87,7 @@ public class RepositoryConnections {
             String fullName,
             boolean privateRepository,
             String defaultBranch,
-            Long connectionId) {}
+            @Nullable Long connectionId) {}
 
     /**
      * Every repository the user can connect: each installation's complete list (1 + installations GitHub requests, at
