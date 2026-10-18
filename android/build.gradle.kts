@@ -58,6 +58,11 @@ android {
     namespace = "com.reporead.android"
     compileSdk = 37
 
+    lint {
+        warningsAsErrors = true
+        informational += setOf("GradleDependency", "NewerVersionAvailable", "OldTargetApi")
+    }
+
     defaultConfig {
         applicationId = "com.reporead.android"
         minSdk = 34

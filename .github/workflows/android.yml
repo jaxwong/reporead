@@ -1,8 +1,8 @@
-# Android app CI and releases (ADR-15). Pull requests: unit tests, the reader's check and bundle, and a compile of the
-# device tests, no secrets (packaging needs the signing key; the device tests run on the phone, android/README.md).
+# Android app CI and releases (ADR-15). Pull requests: Lint, unit tests, the reader's check and bundle, and a compile of
+# the device tests, no secrets (packaging needs the signing key; the device tests run on the phone, android/README.md).
 # Besides android/, the build reads Library.java (the library size cap) and the release check reads assetlinks.json, so a
 # change to either runs this workflow too.
-# Pushes to main: unit tests, then a signed release APK published as GitHub Release v0.1.<commit count>, which
+# Pushes to main: the test job, then a signed release APK published as GitHub Release v0.1.<commit count>, which
 # Obtainium on the phone installs over the current app. This repository is public, so the APKs and logs are too;
 # nothing prints secrets.
 name: Android
@@ -43,6 +43,8 @@ jobs:
       # Fails on any app Kotlin file ktfmt would change; ./gradlew :app:spotlessApply fixes it.
       - name: Check app formatting
         run: ./gradlew :app:spotlessCheck --no-daemon
+      - name: Android lint
+        run: ./gradlew :app:lintDebug --no-daemon
       - name: Install reader dependencies
         working-directory: android/reader-web
         run: npm ci --ignore-scripts
