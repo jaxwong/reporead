@@ -1,0 +1,10 @@
+{
+  "documentId": 1,
+  "sinceBlobSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "toBlobSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "status": "SINCE_UNAVAILABLE",
+  "reason": "Test-only version unavailable",
+  "addedLines": 0,
+  "removedLines": 0,
+  "sections": []
+}

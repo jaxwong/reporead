@@ -1,0 +1,54 @@
+[
+  {
+    "status": 400,
+    "code": "INVALID_REQUEST"
+  },
+  {
+    "status": 400,
+    "code": "INVALID_ANNOTATION"
+  },
+  {
+    "status": 400,
+    "code": "INVALID_READING_STATE"
+  },
+  {
+    "status": 400,
+    "code": "INVALID_REVIEW"
+  },
+  {
+    "status": 404,
+    "code": "NOT_FOUND"
+  },
+  {
+    "status": 404,
+    "code": "SOURCE_NOT_FOUND"
+  },
+  {
+    "status": 409,
+    "code": "ANNOTATION_CONFLICT"
+  },
+  {
+    "status": 409,
+    "code": "MUTATION_ID_REUSED"
+  },
+  {
+    "status": 409,
+    "code": "CARD_CHANGED"
+  },
+  {
+    "status": 410,
+    "code": "ANNOTATION_DELETED"
+  },
+  {
+    "status": 410,
+    "code": "DOCUMENT_DELETED"
+  },
+  {
+    "status": 422,
+    "code": "INVALID_ANCHOR"
+  },
+  {
+    "status": 422,
+    "code": "UNSUPPORTED_CONTENT"
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "documentId": 1,
+  "sinceBlobSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "toBlobSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "status": "CHANGED",
+  "reason": null,
+  "addedLines": 1,
+  "removedLines": 0,
+  "sections": [
+    {
+      "change": "ADDED",
+      "headingPath": [],
+      "blockId": null,
+      "addedLines": 1,
+      "removedLines": 0
+    }
+  ]
+}

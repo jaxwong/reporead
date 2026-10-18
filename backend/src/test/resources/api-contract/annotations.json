@@ -1,0 +1,38 @@
+{
+  "annotations": [
+    {
+      "id": 9,
+      "mutationId": "00000000-0000-0000-0000-000000000001",
+      "documentId": 1,
+      "type": "HIGHLIGHT",
+      "note": null,
+      "status": "ANCHORED",
+      "version": 1,
+      "createdAt": "2000-01-01T00:00:00Z",
+      "updatedAt": "2000-01-01T00:00:00Z",
+      "anchor": {
+        "sourceBlobSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "blockId": "b1",
+        "exactText": "text",
+        "prefixText": "",
+        "suffixText": "",
+        "startOffset": 0,
+        "endOffset": 4,
+        "headingPath": []
+      },
+      "location": {
+        "sourceBlobSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "blockId": "b1",
+        "exactText": "text",
+        "prefixText": "",
+        "suffixText": "",
+        "startOffset": 0,
+        "endOffset": 4,
+        "headingPath": []
+      },
+      "resolvedBlobSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "question": null,
+      "checkedBlobSha": null
+    }
+  ]
+}
