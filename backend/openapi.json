@@ -310,7 +310,17 @@
                 }
               }
             },
-            "description" : "OK"
+            "description" : "Previously created mutation replayed"
+          },
+          "201" : {
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AnnotationsAnnotation"
+                }
+              }
+            },
+            "description" : "Annotation created"
           }
         },
         "tags" : [ "annotation-controller" ]
@@ -458,10 +468,10 @@
         "responses" : {
           "200" : {
             "content" : {
-              "application/json" : {
+              "image/*" : {
                 "schema" : {
                   "type" : "string",
-                  "format" : "byte"
+                  "format" : "binary"
                 }
               }
             },
@@ -717,7 +727,7 @@
         }
       },
       "AnnotationControllerCreateRequest" : {
-        "required" : [ "anchor", "mutationId", "note", "question", "type" ],
+        "required" : [ "anchor", "mutationId" ],
         "type" : "object",
         "properties" : {
           "anchor" : {
@@ -735,12 +745,13 @@
             "nullable" : true
           },
           "type" : {
-            "type" : "string"
+            "type" : "string",
+            "nullable" : true
           }
         }
       },
       "AnnotationControllerEditRequest" : {
-        "required" : [ "expectedVersion", "note" ],
+        "required" : [ "expectedVersion" ],
         "type" : "object",
         "properties" : {
           "expectedVersion" : {
@@ -883,7 +894,7 @@
         }
       },
       "AppAuthControllerTokenRequest" : {
-        "required" : [ "code", "codeVerifier", "expectedUserId" ],
+        "required" : [ "code", "codeVerifier" ],
         "type" : "object",
         "properties" : {
           "code" : {
@@ -1193,12 +1204,32 @@
           }
         }
       },
+      "ReadingControllerAnchorRequest" : {
+        "required" : [ "blockIndex", "headingPath" ],
+        "type" : "object",
+        "properties" : {
+          "blockIndex" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "headingPath" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "textPrefix" : {
+            "type" : "string",
+            "nullable" : true
+          }
+        }
+      },
       "ReadingControllerSaveRequest" : {
         "required" : [ "anchor", "lastReadAt", "lastReadBlobSha", "progressPercent" ],
         "type" : "object",
         "properties" : {
           "anchor" : {
-            "$ref" : "#/components/schemas/ReadingStatesAnchor"
+            "$ref" : "#/components/schemas/ReadingControllerAnchorRequest"
           },
           "lastReadAt" : {
             "type" : "string",

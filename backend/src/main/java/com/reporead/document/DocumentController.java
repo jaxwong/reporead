@@ -1,9 +1,13 @@
+// Owns note HTTP responses and their schema/media metadata; document, rendering and attachment owners perform the work.
+
 package com.reporead.document;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
@@ -219,6 +223,12 @@ public class DocumentController {
      * whole repository anyway. Not cached on the server.
      */
     @GetMapping("/api/documents/{id}/image")
+    @ApiResponse(
+            responseCode = "200",
+            content =
+                    @io.swagger.v3.oas.annotations.media.Content(
+                            mediaType = "image/*",
+                            schema = @Schema(type = "string", format = "binary")))
     ResponseEntity<byte[]> image(
             @AuthenticationPrincipal AppUser user,
             @PathVariable long id,

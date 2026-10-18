@@ -1,3 +1,5 @@
+// Owns reading-state HTTP input validation; ReadingStates owns persistence and the complete response shape.
+
 package com.reporead.reading;
 
 import com.reporead.ApiFailure;
@@ -6,7 +8,10 @@ import com.reporead.ClientClock;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.document.MarkdownRenderer;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
+import java.util.List;
+import org.jspecify.annotations.Nullable;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -30,15 +35,30 @@ public class ReadingController {
         this.states = states;
     }
 
-    record SaveRequest(
-            String lastReadBlobSha, Integer progressPercent, ReadingStates.Anchor anchor, Instant lastReadAt) {}
+    /** Input may omit textPrefix; the separate ReadingStates.Anchor response always publishes its nullable key. */
+    record AnchorRequest(
+            List<String> headingPath,
+
+            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Nullable
+            String textPrefix,
+
+            Integer blockIndex) {}
+
+    /** Owns the accepted save body, not the persisted state returned after last-write-wins resolution. */
+    record SaveRequest(String lastReadBlobSha, Integer progressPercent, AnchorRequest anchor, Instant lastReadAt) {}
 
     @PutMapping("/api/documents/{id}/reading-state")
     ReadingStates.State save(
             @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SaveRequest body) {
         validate(body);
+        var anchor = body.anchor();
         return states.save(
-                user.id(), id, body.lastReadBlobSha(), body.progressPercent(), body.anchor(), body.lastReadAt());
+                user.id(),
+                id,
+                body.lastReadBlobSha(),
+                body.progressPercent(),
+                new ReadingStates.Anchor(anchor.headingPath(), anchor.textPrefix(), anchor.blockIndex()),
+                body.lastReadAt());
     }
 
     private static void validate(SaveRequest body) {

@@ -14,8 +14,8 @@ import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
 import com.reporead.android.core.network.wire.ConnectionDataCounts
 import com.reporead.android.core.network.wire.DocumentControllerChanges
+import com.reporead.android.core.network.wire.ReadingControllerAnchorRequest
 import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
-import com.reporead.android.core.network.wire.ReadingStatesAnchor
 import com.reporead.android.core.network.wire.ReviewControllerGradeRequest
 import com.reporead.android.core.network.wireJson
 import com.reporead.android.data.AnnotationRow
@@ -453,7 +453,7 @@ class Sync(
                 ReadingControllerSaveRequest(
                     lastReadBlobSha = row.lastReadBlobSha,
                     progressPercent = row.progressPercent,
-                    anchor = wireJson.decodeFromString<ReadingStatesAnchor>(row.anchorJson),
+                    anchor = wireJson.decodeFromString<ReadingControllerAnchorRequest>(row.anchorJson),
                     lastReadAt = Instant.ofEpochMilli(row.lastReadAt),
                 )
             val current =

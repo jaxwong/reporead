@@ -5,6 +5,7 @@ package com.reporead.auth;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.RepoReadProperties;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import org.apache.catalina.session.TooManyActiveSessionsException;
@@ -68,7 +69,11 @@ public class AppAuthController {
      * holds; only that account may sign in to it.
      */
     record TokenRequest(
-            String code, String codeVerifier, @Nullable Long expectedUserId) {}
+            String code,
+            String codeVerifier,
+
+            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Nullable
+            Long expectedUserId) {}
 
     @PostMapping("/api/app-auth/token")
     AppSessions.IssuedSession token(@RequestBody TokenRequest body) {

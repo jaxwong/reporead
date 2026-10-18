@@ -11,6 +11,7 @@ import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
 import com.reporead.android.core.network.wire.AnnotationServiceSelection
 import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
+import com.reporead.android.core.network.wire.ReadingControllerAnchorRequest
 import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
 import com.reporead.android.core.network.wire.RepositoryControllerAvailableList
 import com.reporead.android.core.network.wire.RepositoryControllerConnectRequest
@@ -68,7 +69,7 @@ class ApiTest {
 
     private fun reading(progressPercent: Int, lastReadAt: Instant) =
         ReadingControllerSaveRequest(
-            anchor = testReading().anchor,
+            anchor = ReadingControllerAnchorRequest(blockIndex = 0, headingPath = emptyList(), textPrefix = null),
             lastReadAt = lastReadAt,
             lastReadBlobSha = testSha,
             progressPercent = progressPercent,
