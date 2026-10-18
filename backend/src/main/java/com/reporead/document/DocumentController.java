@@ -6,6 +6,7 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import java.nio.charset.StandardCharsets;
@@ -179,8 +180,8 @@ public class DocumentController {
     Changes changes(
             @AuthenticationPrincipal AppUser user,
             @PathVariable long id,
-            @RequestParam(required = false) String since,
-            @RequestParam(required = false) String to) {
+            @Parameter(required = true) @RequestParam(required = false) String since,
+            @Parameter(required = true) @RequestParam(required = false) String to) {
         if (!Hashes.isGitSha(since) || !Hashes.isGitSha(to)) {
             throw new ApiFailure(Code.INVALID_VERSIONS, "since and to must be lowercase 40-character blob SHAs.");
         }

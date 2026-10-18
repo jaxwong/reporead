@@ -1,3 +1,5 @@
+// Owns backend dependencies, Java/format configuration, build metadata and test inputs.
+
 plugins {
     java
     id("org.springframework.boot")

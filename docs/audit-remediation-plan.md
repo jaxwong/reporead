@@ -880,151 +880,116 @@ The terminal test outcome, not `am instrument`'s exit 0, establishes success. Tw
 
 ## Step 9 verification
 
-The typed HTTP boundary is implemented (ADR-26); the separate API contract plan has been removed. This section owns
-step 9's status and execution evidence. The user approved the coordinated credential lifecycle change and then fixed
-15-second SQL/lock and 20-second socket-read deadlines, without new environment knobs or VM changes.
+### Current implementation and ownership
 
-**Fresh current-workspace baseline**, branch `typed-api-contract`, before the remaining step 9 changes (2026-10-18):
+Step 9 and its 2026-10-19 review fixes are implemented, with automated verification complete. The user confirmed the
+full device suite passed on `d753714`; device verification is no longer blocked. This section is the sole active
+verification record, with live/release exclusions below. The removed API plan and detailed intermediate runs remain
+historical Git evidence:
+`git show 9b42c17:docs/api-contract-plan.md` and `git show cdbc0df:docs/audit-remediation-plan.md`.
 
-```sh
-DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r android/build/outputs/apk/debug/app-debug.apk
-~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
-```
+- Backend controllers/records own the published shapes. `OpenApiSpecTest` derives `backend/openapi.json`, checks actual
+  Jackson serialization (including flattened/value records), and fails/replaces a stale artifact. Android generates
+  models during its build; the spec is committed so Android builds need not start Spring/PostgreSQL. It is marked
+  generated in review diffs, not hand-edited. `Contract.kt`, nine producer-agreement suites, `ContractFixtures`, 27
+  shape-only examples, the old raw verbs, `ServerJson.kt` and its old-only tests are deleted. Item-refusal examples stay
+  because disposition is a client decision, checked against the server's status registry.
+- `Api` owns exact success statuses, bounded/framed transport and echoed request correspondence. `WireJson` owns strict
+  scalar/time decoding and required-nullable response presence. `WireRules` rejects duplicate identities and broken
+  library/notebook references before publication; `ServerRows` maps validated results before the Room transaction.
+  Unknown/malformed error answers cannot authorize permanent refusal. SignIn owns local-account correspondence; Sync
+  owns a review's local card correspondence and positive refusal pairs. No retry or alternate strategy was added.
+- Optional input is not incomplete output. Controller `@Schema` declarations allow omission separately from JSpecify
+  nullability; response keys remain required. Reading has distinct request/response anchor records because only input
+  may omit the prefix; both Kotlin shapes are generated. HTTP tests preserve missing/explicit-null owner and prefix
+  behavior. Metadata declares creation/replay 201/200 and binary `image/*` responses. Mandatory query inputs remain
+  server-validated with their existing typed error codes, while the spec now marks them required. No routing/validation
+  policy changed.
+- `GitHubCredentials` owns one process-wide lifecycle gate before OAuth exchange/storage, renewal, code exchange,
+  last-device sign-out and committed deletion/revocation. Admission precedes SQL transactions; queued session changes
+  reauthenticate. Last-device session removal atomically invalidates older handoff codes. The gate now uses Spring's
+  own callback matcher, including alternate and encoded paths; there is no competing raw-URI check. Existing encrypted
+  storage remains the only token store. Renewal is at most **1** GitHub call; sign-out/deletion at most **2**.
+- Fixed application settings bound SQL/lock waits at **15 s**, established socket reads at **20 s**, and login at **10 s**.
+  These approved safety ceilings are not measured optimal values or a total HTTP deadline. Real PostgreSQL tests prove
+  cancellation/rollback and the next transaction, plus socket closure/recovery. The recorded whole-build measurements
+  were 15.087 s query, 15.048 s lock and 20.050 s socket. SQL failures propagate as server errors, never item refusals;
+  uncertain work stays pending. Programmer/integrity failures are not caught as transient failures.
+- Sync returns transient refusal/fetch facts; Library/Folder/Reader own wording. Existing durable rejection text and
+  step 4's reading-refusal resend policy are unchanged. Changed source/type ownership and non-obvious boundaries are
+  documented. No Room/Flyway migration, dependency upgrade, new environment knob or infrastructure change.
 
-All exited **0**. Compiler/test build: `BUILD SUCCESSFUL in 27s`; APK build: `BUILD SUCCESSFUL in 16s`. Both installs
-reported `Success`; no uninstall or clear. The full default device run ended:
+### Review-driven deletion
 
-```text
-Time: 128.394
-OK (132 tests)
-```
+The **183-line live-write harness and its run instructions are removed**, not guarded by another subsystem: its
+recovery method could flush unrelated pending annotations from the real store. This intentionally removes automated
+live-write replay. Isolated HTTP/Room/credential/failure tests remain. No hidden replacement script or parallel suite.
+Repeated historical build transcripts are consolidated here; the Git references above preserve the full old evidence.
+This is a correctness change, not a mechanical refactor: missing snapshot checks and different input/output presence
+rules add production lines. No old implementation or test-only agreement suite is retained to pad the coverage.
 
-This is 129 executed tests and 3 explicitly opt-in live tests skipped before opening the real store. A final run is
-recorded below after step 9's new code. The current-workspace compile also disproves the IDE's unresolved JSON imports;
-the Kotlin LSP's last recorded successful import predated the new dependency. Reload the IDE workspace, not source imports.
+### Reproductions before fixes — 2026-10-18/19
 
-**Earlier contract evidence:** 292 backend tests (3 opt-in corpus skips), 83 JVM tests (1 corpus skip), zero failures;
-producer/request drift probes failed as intended and were restored. The device suite and three opt-in scratch-only
-live checks also passed before the history split. Live checks covered refresh/read/cache, highlight/card mutations,
-conflict, reattachment, confirmation/review, unchanged diff, bookmark on/off, offline pending work and same-id replay
-with test-only cleanup. No existing user annotations/bookmarks were swept; logs remain private.
-
-**Live/release exclusions remain:** no live sign-out, account deletion, disconnect, GitHub write, reconnect, images,
-reading-position UI/restore, changed-version diff or repeat whole-repository Save all in this contract check. No hosted
-workflow, release build/VM deployment or post-release smoke check. Isolated regression tests are not evidence for those
-live operations. The new backend lifecycle/runtime changes were exercised against isolated PostgreSQL and labelled HTTP GitHub fakes,
-not live OAuth or a deployed backend. Their evidence follows.
-
-
-### Remaining step 9 implementation
-
-- `Sync` returns reading/bookmark refusal facts (operation kind, document id, title snapshot and typed failure), typed
-  disconnect failures and typed stale-copy fetch failures. Library/Folder/Reader own the preserved wording. The existing
-  refusal assertion moved to those facts; one JVM test preserves the UI wording. No second sentence-building path.
-  Durable annotation/review rejection text and the reading-refusal resend policy remain their existing Room behavior;
-  the latter belongs to step 4, not this replacement. No schema change.
-- `GitHubCredentials` replaces the per-user refresh-lock map with one process-wide lifecycle gate. The browser filter
-  enters **before** OAuth exchange, not just save: grant revocation invalidates newly issued tokens too. Callback,
-  renewal, app-code exchange, sign-out and deletion share that owner. Queued session changes reauthenticate after
-  admission. Last-device session removal and invalidation of older handoff codes are one existing-owner transaction.
-  Account deletion commits its data/token removal before grant revocation, while still holding admission. Old split
-  capture/revoke/forget helpers are private; there is no legacy lock path, alternate store, retry or wrapper.
-- Lifecycle admission precedes SQL transactions. All production token callers were checked: RepositorySync,
-  RepositoryConnections (discovery/connect), NoteVersions and Attachments acquire the token outside their publishing
-  transaction. Entering admission from an outside transaction is a programmer error, not a deadlock workaround.
-  One global gate deliberately trades cross-user lifecycle concurrency for simple ordering in this one-process,
-  small-allowlist deployment; it does not surround whole repository reads. Renewal remains at most **1** GitHub call;
-  sign-out/deletion at most **2** (renew/revoke). A failed revocation is logged under the existing removal policy.
-- Application configuration now owns SQL **15 s** and socket-read **20 s**, in addition to login **10 s**. These are
-  approved safety ceilings, not measured optimal values or an HTTP request deadline. Real query and lock waits cancel
-  with SQLSTATE `57014`/QueryTimeoutException; both roll back an earlier write and permit the next transaction. The
-  socket-only probe uses raw JDBC deliberately, so the shorter template deadline cannot hide a missing socket cap:
-  it closes with `08006`/SocketTimeoutException, and the next operation gets a working connection. No production probe,
-  alternate strategy, database-server setting or dependency added. SQL failures propagate to existing Spring server
-  errors, not item refusals; uncertain phone work stays pending. Integrity/programmer failures are not swallowed.
-- Changed PR source files now state their ownership at the top, named types state their responsibility, and non-obvious
-  boundaries explain why. JSON fixtures remain valid data without comments; ContractFixtures owns them. No IDE cache,
-  dependency or import workaround: compile resolves serialization; editor reload remains a user-side action.
-
-This correctness slice adds production lines because callback admission, stale-request validation and pending-handoff
-cancellation were missing guarantees, not a mechanical refactor. The old lock map and split public credential actions
-are removed, every caller is updated, and surviving behavior tests run through the replacement. New coverage is **7
-backend cases and 1 JVM case**, plus stronger existing device assertions—not a parallel legacy suite.
-
-### Red/green and final build evidence
-
-Commands from the current workspace; `DEBUG=false` avoids this Mac's inherited verbose framework logging.
-The credential regressions ran against the old implementation first:
+All commands ran from the current workspace with `DEBUG=false` to avoid inherited verbose framework logging.
 
 ```sh
-DEBUG=false ./gradlew :backend:test --tests 'com.reporead.auth.GitHubLoginTest.credentialRemovalWaitsForAnAlreadyAdmittedOAuthCallback' --tests 'com.reporead.auth.AppSignInTest.lastDeviceSignOutInvalidatesAnUnexchangedCodeFromAnEarlierCallback' --no-daemon
+DEBUG=false ./gradlew :backend:test --tests 'com.reporead.auth.GitHubLoginTest.credentialRemovalWaitsForAnAlreadyAdmittedOAuthCallback' --no-daemon
+DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --tests '*ContractTest.inconsistentSnapshotIdentitiesAndReferencesCannotAuthorizeReplacement' --no-daemon
+DEBUG=false ./gradlew :backend:test --tests '*OpenApiSpecTest.requestOptionalityAndDynamicResponsesMatchTheHttpContract' --no-daemon
 ```
 
-Exit **1**, `3 tests completed, 3 failed`. After replacement the four credential/data-control suites passed (49 cases);
-the later admission regression also passed. A new invalid-code assertion initially expected 401; it was corrected to
-the existing contract's 400 `INVALID_SIGN_IN_CODE`, without changing production policy or weakening an old assertion.
+Each exited **1** on the old code: callback `6 tests completed, 4 failed` (alternate/encoded paths passed removal);
+snapshot `1 test completed, 1 failed` (inconsistent identities accepted); metadata `1 test completed, 1 failed`
+(optional input wrongly required). The earlier isolated audit also proved callback completion resurrected the removed
+credential after both sign-out and account deletion. No live credentials/data were used.
 
-Before selecting runtime limits a real PostgreSQL cancellation probe with a **test-only 1-second** deadline established
-rollback/recovery; the injected production template reported `configuredQueryTimeoutSeconds=-1`. That characterization
-was replaced by the configured-client tests, not kept as an alternate implementation. Before adding configuration:
+After the fixes, existing suites passed with the stronger assertions: credential/data-control checks
+`BUILD SUCCESSFUL in 14s`; snapshot/JVM/device-test compile `BUILD SUCCESSFUL in 14s`; schema, actual HTTP input/image/
+annotation behavior, regenerated model/JVM/device-test compile `BUILD SUCCESSFUL in 28s`; final spec check
+`BUILD SUCCESSFUL in 12s`, all exit **0**. The stale-spec check intentionally rewrote the artifact and failed once before
+its green rerun. Implementation checks also caught a Content annotation name collision and a flattened-accessor lookup;
+both were corrected without relaxing assertions. No generic schema fallback or alternate parsing path was introduced.
 
-```sh
-DEBUG=false ./gradlew :backend:spotlessApply :backend:test --tests 'com.reporead.DatabaseRuntimeTest' --no-daemon
-```
+### Final checks — 2026-10-19
 
-Exit **1**, `3 tests completed, 3 failed`: actual query timeout was -1 and network timeout 0. With approved configuration,
-the three runtime cases and AppSignInTest passed, exit **0**, `BUILD SUCCESSFUL in 59s`. The whole-build runtime-case
-durations were **15.087 s query**, **15.048 s lock**, **20.050 s socket**, not shortened test-only production values.
-
-Final whole-build command (exit **0**):
+Code head: `1e0aaa6`. From the current workspace, the full command exited **0**:
 
 ```sh
-DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :backend:spotlessApply :app:spotlessApply :backend:spotlessCheck :backend:test :app:spotlessCheck :app:testDebugUnitTest :app:mergeDebugAssets :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :backend:spotlessCheck :backend:test :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
 ```
 
 ```text
-BUILD SUCCESSFUL in 1m 36s
-91 actionable tasks: 25 executed, 66 up-to-date
-backend {'tests': 299, 'failures': 0, 'errors': 0, 'skipped': 3}
-android JVM {'tests': 84, 'failures': 0, 'errors': 0, 'skipped': 1}
+BUILD SUCCESSFUL in 1m 47s
+99 actionable tasks: 33 executed, 66 up-to-date
+backend {'tests': 300, 'failures': 0, 'errors': 0, 'skipped': 3}
+android JVM {'tests': 83, 'failures': 0, 'errors': 0, 'skipped': 1}
 ```
 
-After the last stale-copy result/comment edits, the final app check/build also exited **0**:
+Lint: **0 errors, 0 warnings, 4 dependency-version hints**; no versions were upgraded. The query-metadata regression
+also failed first (same `OpenApiSpecTest` method, exit 1), and the artifact checker rewrote/failed once as designed.
+The final full suite above checks that metadata and actual route failure behavior, not only record serialization.
+After the build-file ownership comment, `DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew
+:backend:spotlessCheck :app:spotlessCheck --no-daemon` exited **0**, `BUILD SUCCESSFUL in 6s`,
+`4 actionable tasks: 4 up-to-date`. No executable configuration changed.
 
-```sh
-DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-```
+The approved Pixel 8a (Android 14/API 34) completed the first follow-up run with `Time: 130.769` / `OK (129 tests)`.
+The assistant subsequently lost ADB result streams (exit **255**) and once could not start a run (exit **1**, device
+not found). Those transport outcomes did not establish that on-device instrumentation stopped or failed; the earlier
+report overstated that conclusion. Detailed connection history remains in `d753714`.
+
+**Final device evidence, reported by the user:** the full suite passed on **`d753714`** in **128.7 s**:
 
 ```text
-BUILD SUCCESSFUL in 7s
-82 actionable tasks: 4 executed, 78 up-to-date
+OK (129 tests)
 ```
 
-Historical detailed contract/live/split evidence is retained in Git, not another active plan:
-`git show 9b42c17:docs/api-contract-plan.md`. `.gitignore` and `notes/` are untouched. The untracked Android foundations
-plan keeps its contents with only the retired-plan links and already-shipped serialization status corrected; it is not
-staged as part of this PR.
-
-The final package-scoped credential API was then checked with the whole backend suite, exit **0**:
-
-```sh
-DEBUG=false ./gradlew :backend:spotlessCheck :backend:test --no-daemon
-```
-
-```text
-BUILD SUCCESSFUL in 1m 19s
-8 actionable tasks: 5 executed, 3 up-to-date
-backend {'tests': 299, 'failures': 0, 'errors': 0, 'skipped': 3}
-```
-
-### Final physical-device run
-
-Pixel 8a, Android 14/API 34; device serial redacted. Wireless debugging disconnected before installation and was
-reconnected by the user; no device test was substituted for that interruption. Both installs and instrumentation
-exited **0**, with no uninstall, clear or real-store reset:
+All 129 tests ran, with no failures or skips, including `AccountTest` (20), `ApiTest` (7), `LocalSyncTest` (34), and all
+migration and reader tests. The count is 129, not 132: `671aec8` removed the three previously skipped live tests.
+The user confirmed RepoRead Dev updated from build 347 to 350, built from `d753714`, preserving its data; the test APK
+was byte-identical to the one already installed, and both APKs remained installed after the run. The assistant did not
+independently capture this final terminal result, process exit code or APK comparison; these are explicitly attributed
+to the user's confirmation, not the interrupted ADB logs. No further rerun is needed for this documentation update.
+The documented device commands preserve data:
 
 ```sh
 ~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r android/build/outputs/apk/debug/app-debug.apk
@@ -1032,67 +997,20 @@ exited **0**, with no uninstall, clear or real-store reset:
 ~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-```text
-Performing Streamed Install
-Success
-Performing Streamed Install
-Success
-Time: 136.307
-OK (132 tests)
-```
+### Historical live evidence and exclusions
 
-The terminal outcome, not the process exit alone, establishes the pass. This includes the strengthened refusal and
-stale-copy assertions, real Room migrations/rollback/publication behavior, account-removal failure/interruption/races,
-background entry, reader lifecycle and image isolation, plus API malformed/status/identity/timeout/truncation cases.
-Three live opt-ins are skipped before real-store access: **129 executed**, no failures. They were not repeated for
-these changes; earlier scratch-only evidence remains historical, and the new backend lifecycle was not deployed.
-No live sign-out, deletion, disconnect, GitHub write or new live fixture data was performed. Release/hosted rollout and
-post-deployment smoke verification remain outside this step's executed checks. Existing step 4 reading-refusal debt,
-Android lifecycle/navigation foundations and dependency advisories are not silently claimed fixed.
+The approved scratch-only live sequence passed before generation: real SessionStore/Api/Sync/Room and GitHub reads,
+highlight/card create/edit/conflict/reattach/confirm/grade/delete, bookmark on/off, unchanged diff, cached offline read
+and pending same-id replay, with test-owned cleanup. The pre-existing backend was not restarted or deployed. Detailed
+commands, APK/source comparisons and exclusions remain in the Git records above; those results do not establish safety
+for arbitrary future runs of the deleted harness.
 
-`git diff --check` passed for this PR's changes; the unrelated user `.gitignore` edit was excluded. Implementation
-commits are separated into structured outcomes, credential lifecycle, runtime deadlines and ownership comments; this
-record/plan retirement is documentation-only. No old implementation-only test suite is retained.
+The prior generated-model device run at `c161625` printed `Time: 138.637` / `OK (132 tests)` (129 executed, 3 live opt-ins
+skipped). It is historical, not the final run for this follow-up. No new live writes, live sign-out/deletion/disconnect,
+GitHub push, release APK, hosted deployment or post-deploy smoke check is claimed. Live images, reading-position UI,
+changed-version diff, reconnect and repeated whole-repository Save all were not verified by this contract work.
 
-### Generated wire models (2026-10-18)
-
-The hand-declared app contract and its agreement tests were replaced by a spec the backend derives and models the app
-generates (ADR-26, amended). Before committing to the tools, one slice was proven with scratch tests that were not kept:
-
-- **Actual serialization.** Test-only `Library.Snapshot` samples, serialized by the application's Jackson 3 mapper with
-  their nullable components null and then with values, decoded into the generated `LibrarySnapshot`: the
-  `@JsonUnwrapped` connection's fields sat beside `documents`, `location` arrived as a passage through `@JsonValue`, and
-  explicit nulls decoded. Without the `lastSyncedCommitSha` key decoding failed (`MissingFieldException`); a quoted
-  `documentCount` failed in the strict serializer (`Expected an unquoted scalar`).
-- **A backend change reaches the app.** A test-only `@Nullable String demoField` on `Documents.Summary` (and its one
-  constructor call): `OpenApiSpecTest` rewrote `openapi.json` and failed once, `wireModels` generated
-  `demoField: kotlin.String?`, and `:app:compileDebugKotlin` succeeded with no other edit. Test compilation failed only
-  at `WireSamples.kt:112`, the sample that constructs a summary. Reverted; the spec derived identically again.
-- **Production classpath.** The backend's main runtime classpath holds no swagger or springdoc class;
-  `LibraryController.library()` reflects with only `@GetMapping`, the absent compile-only annotation dropped, and the
-  boot jar contains neither.
-
-Final commands, from the branch worktree:
-
-```sh
-./gradlew :backend:spotlessCheck :backend:test --no-daemon
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:lintDebug :app:mergeDebugAssets :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin --no-daemon
-```
-
-Both exited **0**: 292 backend tests and 82 JVM tests, no failures, with the usual opt-in corpus skips (3 and 1). The
-spec commit alone, in a separate worktree, passed 301 backend tests with the old agreement tests still present; its
-first attempt failed 228 because Testcontainers could not reach its Ryuk container, and the unchanged rerun passed.
-Removed with the hand-declared contract: `Contract.kt`, nine `*WireContractTest` classes, `ContractFixtures` and 27
-shape-only examples. Kept: `item-refusals.json`, now checked by `ItemRefusalsTest`.
-
-Hosted CI passed on the pushed head `c161625` (Backend and Android workflows). The device suite then ran on the Pixel
-with the debug and test APKs built from that head, installed with `adb install -r` / `-r -t` (hashes checked before
-and after the run), using the `am instrument` command above:
-
-```text
-Time: 138.637
-OK (132 tests)
-```
-
-**129 executed**, no failures, including `ApiTest`, `LocalSyncTest` and `AccountTest`; the 3 opt-in live tests skipped
-before opening the real store. **Not run for this change:** the opt-in live check, and any release build or deployment.
+Backend tests use isolated PostgreSQL 17.11 and labelled GitHub HTTP fakes; device tests use isolated stores and loopback
+HTTP, not the user's session/database. Existing reading-refusal debt (step 4), navigation/lifecycle foundations and npm
+advisories are out of scope. IDE serialization imports compile; the editor's own reload/diagnostic state was not
+verified. The user's untracked Android foundations plan remains untouched by this follow-up. No push or deployment.

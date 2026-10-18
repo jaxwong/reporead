@@ -196,6 +196,12 @@ class OpenApiSpecTest {
         assertEquals(
                 Set.of("200", "201"),
                 names(paths.path("/api/documents/{id}/annotations").path("post").path("responses")));
+        var changes = paths.path("/api/documents/{id}/changes").path("get").path("parameters");
+        assertEquals(3, changes.size());
+        for (var parameter : changes) assertTrue(parameter.path("required").asBoolean(), parameter.toString());
+        var deletion = paths.path("/api/annotations/{id}").path("delete").path("parameters");
+        assertEquals(2, deletion.size());
+        for (var parameter : deletion) assertTrue(parameter.path("required").asBoolean(), parameter.toString());
         var image = paths.path("/api/documents/{id}/image")
                 .path("get")
                 .path("responses")
