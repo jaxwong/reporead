@@ -188,11 +188,13 @@ androidComponents.onVariants { variant ->
 }
 
 dependencies {
+    // One Compose version set for the app and its device tests; the test APK does not inherit the app's platform.
+    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     // The generated wire models' serializers; scalar strictness stays in WireJson.kt.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     // Offline study extraction needs a DOM parser for the saved, sanitized pages (including loose/nested lists).
     implementation("org.jsoup:jsoup:${rootProject.extra["jsoupVersion"]}")
-    implementation(platform("androidx.compose:compose-bom:2026.08.00"))
+    implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
@@ -208,4 +210,7 @@ dependencies {
     // Room needs Android's SQLite, so cache rules are tested on the device.
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    // Screen assertions on Compose semantics in TestHostActivity, through createEmptyComposeRule.
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
