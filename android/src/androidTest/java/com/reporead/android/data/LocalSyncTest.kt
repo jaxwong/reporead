@@ -4,6 +4,9 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.ListenableWorker.Result
+import com.reporead.android.Account
+import com.reporead.android.assertRetired
+import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
@@ -21,8 +24,11 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
 import kotlin.concurrent.thread
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -48,6 +54,14 @@ class LocalSyncTest {
     private lateinit var store: LocalStore
     private lateinit var dao: LibraryDao
     private lateinit var directory: File
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val backgroundPrefs = "test-only-background-account-${UUID.randomUUID()}"
+
+    private fun backgroundAccount(sync: Sync): Account {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val api = Api("http://127.0.0.1:1", { error("Background tests must use Sync's labelled loopback API") }) {}
+        return Account(SessionStore(context, backgroundPrefs), api, sync, backgroundScope)
+    }
 
     @Before
     fun open() {
@@ -59,6 +73,8 @@ class LocalSyncTest {
 
     @After
     fun close() {
+        backgroundScope.cancel()
+        InstrumentationRegistry.getInstrumentation().targetContext.deleteSharedPreferences(backgroundPrefs)
         store.close()
         check(directory.deleteRecursively())
     }
@@ -356,7 +372,8 @@ class LocalSyncTest {
                 val sync = sync(server.url)
                 val syncing = async(Dispatchers.IO) { sync.syncLocalChanges() }
                 assertTrue(arrived.await(10, SECONDS))
-                val clearing = async(Dispatchers.IO) { sync.clearAll() }
+                sync.retire()
+                val clearing = async(Dispatchers.IO) { sync.clearRetiredCopy() }
                 delay(500)
                 assertFalse("Clearing the phone must wait for the running sync", clearing.isCompleted)
                 release.countDown()
@@ -364,7 +381,7 @@ class LocalSyncTest {
                 clearing.await()
                 // The sync wrote the server's reading state, then sign-out cleared it.
                 assertNull(dao.reading(1))
-                assertEquals(Result.success(), backgroundSync(sync, 0))
+                assertEquals(Result.success(), backgroundSync(backgroundAccount(sync.freshCopy()), 0))
                 assertEquals(listOf("PUT /api/documents/1/reading-state", "GET /api/library"), server.requests)
             }
     }
@@ -387,7 +404,8 @@ class LocalSyncTest {
                 val sync = sync(server.url)
                 val sending = async(Dispatchers.IO) { sync.pushAnnotations() }
                 assertTrue(arrived.await(10, SECONDS))
-                val clearing = async(Dispatchers.IO) { sync.clearAll() }
+                sync.retire()
+                val clearing = async(Dispatchers.IO) { sync.clearRetiredCopy() }
                 try {
                     delay(500)
                     assertFalse("Clearing the phone must wait for the highlight being sent", clearing.isCompleted)
@@ -423,7 +441,7 @@ class LocalSyncTest {
             )
         )
         LoopbackServer(emptyMap()).use { server ->
-            assertEquals(Result.success(), backgroundSync(sync(server.url), 0))
+            assertEquals(Result.success(), backgroundSync(backgroundAccount(sync(server.url)), 0))
             assertEquals(emptyList<String>(), server.requests)
         }
     }
@@ -438,7 +456,7 @@ class LocalSyncTest {
         dao.saveReading(reading(1))
         LoopbackServer(emptyLibrary + mapOf("PUT /api/documents/1/reading-state" to (200 to serverReading))).use {
             server ->
-            assertEquals(Result.success(), backgroundSync(sync(server.url), 0))
+            assertEquals(Result.success(), backgroundSync(backgroundAccount(sync(server.url)), 0))
             assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
         }
         assertTrue(dao.pendingReading().isEmpty())
@@ -469,9 +487,9 @@ class LocalSyncTest {
     fun anUnreachableServerIsTriedAgainUpToTenAttempts() = runBlocking {
         dao.saveReading(reading(1))
         val sync = sync("http://127.0.0.1:${closedPort()}")
-        assertEquals(Result.retry(), backgroundSync(sync, 0))
-        assertEquals(Result.retry(), backgroundSync(sync, 8))
-        assertEquals(Result.failure(), backgroundSync(sync, 9))
+        assertEquals(Result.retry(), backgroundSync(backgroundAccount(sync), 0))
+        assertEquals(Result.retry(), backgroundSync(backgroundAccount(sync), 8))
+        assertEquals(Result.failure(), backgroundSync(backgroundAccount(sync), 9))
         assertEquals(1, dao.pendingReading().size)
     }
 
@@ -489,7 +507,7 @@ class LocalSyncTest {
                     )
             )
             .use { server ->
-                assertEquals(Result.retry(), backgroundSync(sync(server.url), 0))
+                assertEquals(Result.retry(), backgroundSync(backgroundAccount(sync(server.url)), 0))
                 assertTrue(dao.pendingReading().isEmpty())
                 assertEquals(1, dao.waitingAnnotations().size)
             }
@@ -499,7 +517,7 @@ class LocalSyncTest {
     fun signedOutOrAccessDeniedStopsUntilTheNextChange() = runBlocking {
         dao.saveReading(reading(1))
         LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to failure(401, "SIGN_IN_REQUIRED"))).use { server ->
-            assertEquals(Result.failure(), backgroundSync(sync(server.url), 0))
+            assertEquals(Result.failure(), backgroundSync(backgroundAccount(sync(server.url)), 0))
             assertEquals(1, dao.pendingReading().size)
         }
         dao.saveAnnotation(
@@ -513,7 +531,7 @@ class LocalSyncTest {
                     )
             )
             .use { server ->
-                assertEquals(Result.failure(), backgroundSync(sync(server.url), 0))
+                assertEquals(Result.failure(), backgroundSync(backgroundAccount(sync(server.url)), 0))
                 assertEquals(1, dao.waitingAnnotations().size)
             }
     }
@@ -822,12 +840,13 @@ class LocalSyncTest {
     fun aLocalChangeArrivingAfterAClearWritesNothing() = runBlocking {
         savedRepository()
         val sync = sync("http://127.0.0.1:${closedPort()}")
-        assertEquals(LocalCleanup.Done, sync.clearAll())
+        sync.retire()
+        assertEquals(LocalCleanup.Done, sync.clearRetiredCopy())
 
-        assertFalse(sync.saveReading(reading(1)))
-        assertFalse(sync.setBookmark(1, bookmarked = true))
-        assertNull(sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, "late note"))
-        assertFalse(sync.recordReview(ReviewRow("late-grade", "late-card", 4, 1, sha, pending = true)))
+        assertRetired { sync.saveReading(reading(1)) }
+        assertRetired { sync.setBookmark(1, bookmarked = true) }
+        assertRetired { sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, "late note") }
+        assertRetired { sync.recordReview(ReviewRow("late-grade", "late-card", 4, 1, sha, pending = true)) }
 
         assertNull(dao.reading(1))
         assertEquals(emptyList<BookmarkRow>(), dao.bookmarks().first())
@@ -840,13 +859,14 @@ class LocalSyncTest {
         dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
         val export = export()
         val sync = sync("http://127.0.0.1:${closedPort()}")
+        sync.retire()
         withStuckImage(1) { stuck ->
-            val left = sync.clearAll()
+            val left = sync.clearRetiredCopy()
             assertTrue(left.toString(), left is LocalCleanup.FilesLeft && left.paths.first() == stuck)
         }
         assertNull(dao.note(1))
         assertFalse(export.exists())
-        assertEquals(LocalCleanup.Done, sync.clearAll())
+        assertEquals(LocalCleanup.Done, sync.clearRetiredCopy())
         assertEquals(0, File(directory, "images").list()!!.size)
     }
 
@@ -861,7 +881,13 @@ class LocalSyncTest {
                     "GET /api/library" to library(),
                 )
             )
-            .use { server -> sync(server.url).disconnect(7) }
+            .use { server ->
+                val sync = sync(server.url)
+                sync.disconnect(7)
+                assertFalse(sync.saveReading(reading(1)))
+                assertFalse(sync.setBookmark(1, true))
+                assertNull(sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, "late note"))
+            }
         assertTrue(dao.repositoryIds().isEmpty())
         assertNull(dao.note(1))
         assertFalse(export.exists())

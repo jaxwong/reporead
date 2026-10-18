@@ -21,7 +21,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        (application as RepoReadApplication).startUp()
+        val app = application as RepoReadApplication
+        app.account.startUp()
         // Debug builds only: lets Chrome DevTools inspect the reader over adb. Release builds never expose it.
         WebView.setWebContentsDebuggingEnabled(applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
         if (savedInstanceState == null) receive(intent)
@@ -31,7 +32,15 @@ class MainActivity : ComponentActivity() {
             val colors = if (isSystemInDarkTheme()) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this)
             MaterialTheme(colorScheme = colors) {
                 Surface(Modifier.fillMaxSize()) {
-                    RepoReadApp(signInCode.value, onSignInCodeConsumed = { signInCode.value = null })
+                    RepoReadApp(
+                        app.account,
+                        app.sessionStore,
+                        app.api,
+                        app.localStore.library(),
+                        app.scope,
+                        signInCode.value,
+                        onSignInCodeConsumed = { signInCode.value = null },
+                    )
                 }
             }
         }

@@ -43,6 +43,8 @@ import org.json.JSONTokener
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -55,6 +57,7 @@ class ReaderLifecycleTest {
     private val sha = "a".repeat(40)
     private lateinit var store: LocalStore
     private lateinit var files: File
+    private lateinit var sync: Sync
     private lateinit var scenario: ActivityScenario<ReaderTestActivity>
     private val showingReader = mutableStateOf(true)
     private val title = "Test-only lifecycle fixture"
@@ -93,7 +96,7 @@ class ReaderLifecycleTest {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, path, title, sha)))
         dao.saveNote(NoteRow(1, sha, path, title, html, 0, renderFormat = RENDER_FORMAT, snapshotCommitSha = sha))
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
-        val sync = Sync(api, store, files) {}
+        sync = Sync(api, store, files) {}
         ReaderTestActivity.content = {
             MaterialTheme {
                 if (showingReader.value)
@@ -140,6 +143,23 @@ class ReaderLifecycleTest {
         appScope.cancel()
         if (::store.isInitialized) store.close()
         if (::files.isInitialized) check(files.deleteRecursively()) { "Cannot delete test-only directory $files" }
+    }
+
+    @Test
+    fun releasingARetiredReaderStillDestroysItsWebView(): Unit = runBlocking {
+        var page: WebView? = null
+        scenario.onActivity { page = findWebView(it.window.decorView) }
+        val view = checkNotNull(page)
+        withContext(Dispatchers.Main) { assertNotNull(view.webViewRenderProcess) }
+        sync.retire()
+        assertEquals(com.reporead.android.sync.LocalCleanup.Done, sync.clearRetiredCopy())
+        // Its final save is deliberately cancelled; teardown must not wait for a save into the removed copy.
+        readerReady = false
+        scenario.onActivity { showingReader.value = false }
+        withTimeout(5_000) {
+            while (withContext(Dispatchers.Main) { view.webViewRenderProcess != null }) delay(20)
+        }
+        assertNull(store.library().reading(1))
     }
 
     @Test

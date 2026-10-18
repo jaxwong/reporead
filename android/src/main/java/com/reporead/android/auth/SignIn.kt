@@ -39,10 +39,9 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
 /**
  * Exchanges the code from the sign-in redirect for a bearer session and stores it. Account validates and consumes the
  * verifier before any cleanup. Data saved on this phone belongs to the account that saved it, so the exchange names
- * that account and the server issues no session for another (ACCOUNT_MISMATCH): a sign-in never removes anything from
- * the phone, and switching accounts takes signing out, which says first what it would lose. Account runs it only when
- * no removal is pending, and after removing data with no recorded owner, so an owner of null means nothing is saved
- * here.
+ * that account and the server issues no session for another (ACCOUNT_MISMATCH). A known-owner sign-in preserves its
+ * data; switching accounts requires sign-out with its loss confirmation. Account runs it only when no removal is
+ * pending, and after removing data with no recorded owner, so an owner of null means nothing is saved here.
  */
 internal suspend fun completeSignIn(code: String, verifier: String, api: Api, store: SessionStore) {
     val owner = store.dataOwner

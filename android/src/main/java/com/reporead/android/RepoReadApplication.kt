@@ -20,27 +20,15 @@ class RepoReadApplication : Application() {
 
     val localStore by lazy { LocalStore.open(this, "reporead.db") }
 
-    val sync by lazy { Sync(api, localStore, filesDir) { requestSync(this) } }
-
     /**
      * For work that must finish after the screen that started it is gone, such as saving the reading position when a
-     * note is left or the phone rotates. Never cancelled.
+     * note is left or the phone rotates. The scope survives those screens; a retired Sync cancels operations on removed
+     * data.
      */
     val scope = MainScope()
 
     /** Sign-in, sign-out and account deletion, and where they stand. */
-    val account by lazy { Account(sessionStore, api, sync, scope) }
-
-    private var started = false
-
-    /**
-     * The app's work at start, once per process: called by the activity, not [onCreate], because instrumented tests run
-     * in this process and must never touch the app's files or database, and because a process started only to serve a
-     * shared export must not delete it ([Account.startUp]).
-     */
-    fun startUp() {
-        if (started) return
-        started = true
-        account.startUp()
+    val account by lazy {
+        Account(sessionStore, api, Sync(api, localStore, filesDir) { requestSync(this) }, scope)
     }
 }

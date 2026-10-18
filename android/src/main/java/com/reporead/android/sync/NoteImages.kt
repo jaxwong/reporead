@@ -27,6 +27,14 @@ class NoteImages(private val api: Api, filesDir: File) {
      * no fetch before it.
      */
     private var generation = 0L
+    private var retired = false
+
+    /** Even a request started later by an old WebView must not read or recreate this copy's files. */
+    fun retire() =
+        synchronized(lock) {
+            retired = true
+            generation++
+        }
 
     /**
      * A repository image for the displayed note version: from the cache, else fetched through the backend with the
@@ -40,6 +48,7 @@ class NoteImages(private val api: Api, filesDir: File) {
         val file = File(directory, key)
         val started =
             synchronized(lock) {
+                if (retired) return null
                 try {
                     if (file.isFile) return file.readBytes()
                 } catch (error: IOException) {

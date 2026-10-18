@@ -11,6 +11,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.reporead.android.Account
 import com.reporead.android.RepoReadApplication
 import com.reporead.android.core.network.ApiException
 import java.time.Duration
@@ -43,7 +44,7 @@ internal fun requestSync(context: Context) {
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result =
-        backgroundSync((applicationContext as RepoReadApplication).sync, runAttemptCount)
+        backgroundSync((applicationContext as RepoReadApplication).account, runAttemptCount)
 }
 
 /**
@@ -51,10 +52,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
  * unreachable server, a 5xx, or GitHub unavailable is tried again by WorkManager; anything else (signed out, access
  * denied) waits for the next change or library open, which show it. [attempt] counts from 0.
  */
-internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
+internal suspend fun backgroundSync(account: Account, attempt: Int): Result {
     val synced =
         try {
-            sync.syncWaitingChanges()
+            account.syncWaitingChanges()
         } catch (error: ApiException) {
             return afterFailure(error, attempt)
         }

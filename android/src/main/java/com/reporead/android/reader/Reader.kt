@@ -130,7 +130,7 @@ fun ReaderScreen(
                 return@produceState
             }
             if (from == displayed) {
-                dao.changesSeen(screen.documentId, from)
+                sync.changesSeen(screen.documentId, from)
                 value = null
                 return@produceState
             }
@@ -138,7 +138,7 @@ fun ReaderScreen(
             value =
                 try {
                     Load.Ready(sync.changes(screen.documentId, from, displayed)).also {
-                        dao.changesSeen(screen.documentId, from)
+                        sync.changesSeen(screen.documentId, from)
                     }
                 } catch (error: ApiException) {
                     Load.Failed(error)

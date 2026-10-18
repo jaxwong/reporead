@@ -21,8 +21,12 @@ import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.data.SavedVersion
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -94,7 +98,7 @@ internal fun ApiException.refusesItem() =
  */
 data class LocalSync(val refused: List<String>, val notSent: ApiException?)
 
-/** What clearing this phone's copy did ([Sync.clearAll]). */
+/** What clearing this phone's copy did ([Sync.clearRetiredCopy]). */
 sealed interface LocalCleanup {
     /** Room's rows and every file are gone. */
     data object Done : LocalCleanup
@@ -114,27 +118,33 @@ sealed interface LocalCleanup {
 class Sync(
     private val api: Api,
     private val store: LocalStore,
-    filesDir: File,
+    private val filesDir: File,
     private val onPendingChange: () -> Unit,
 ) {
     private val dao = store.library()
 
-    /**
-     * Every operation that writes the server's answers into Room, and clearing the phone, run under this lock, so
-     * nothing fetched before sign-out or an account switch is written after it (ADR-22). The app has one Sync
-     * (RepoReadApplication), so the screens and the background sync share it. Not reentrant: locked operations call
-     * only private helpers. Local saves and the reader's image fetches ([NoteImages]) do not wait: a local save is
-     * written only for a note Room still lists (LibraryDao.saveDisplayedReading), so one that arrives after a clear or
-     * a disconnect writes nothing, and an image whose fetch began before a deletion is not written ([NoteImages]).
-     */
+    /** One local-copy lifetime: retired instances never admit another operation, even after re-sign-in. */
+    @Volatile private var retired = false
     private val oneSyncAtATime = Mutex()
 
-    /**
-     * Runs [work] under [oneSyncAtATime], off the main thread: it maps whole server lists, which grow with the
-     * notebook, into rows, and reads and deletes files.
-     */
+    /** Local writes, network answers and export publication share the same order as removal. */
     private suspend fun <T> locked(work: suspend () -> T): T = oneSyncAtATime.withLock {
-        withContext(Dispatchers.IO) { work() }
+        withContext(Dispatchers.IO) {
+            if (retired) throw CancellationException("This phone's local copy was removed")
+            work()
+        }
+    }
+
+    /** Closes admission immediately; the clear waits for an already admitted operation, not for screens. */
+    fun retire() {
+        retired = true
+        images.retire()
+    }
+
+    /** Only Account replaces the retired instance, after every row and file is gone. */
+    internal fun freshCopy(): Sync {
+        check(retired) { "Replacing a local copy that has not been retired" }
+        return Sync(api, store, filesDir, onPendingChange)
     }
 
     /** Saved notes' images; deleted here whenever their notes go. */
@@ -258,13 +268,13 @@ class Sync(
      * links, embeds, or footnotes) is fetched once more; if that fails it is still the current version, so it opens
      * without a warning.
      */
-    suspend fun openNote(documentId: Long): Opened {
+    suspend fun openNote(documentId: Long): Opened = locked {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
         val commitSha = current?.let { dao.repositoryCommitSha(it.repositoryId) }
-        if (cached != null && upToDate(cached.version, current, commitSha)) return Opened(cached, null)
-        return try {
-            Opened(locked { fetchNote(documentId) }, null)
+        if (cached != null && upToDate(cached.version, current, commitSha)) return@locked Opened(cached, null)
+        try {
+            Opened(fetchNote(documentId), null)
         } catch (error: ApiException) {
             if (cached == null) throw error
             val cachedIsCurrent = sameVersion(cached.version, current, commitSha)
@@ -356,9 +366,9 @@ class Sync(
      * Which sections changed between [since], the version last read, and [to], the version on screen. Online only;
      * nothing is cached.
      */
-    suspend fun changes(documentId: Long, since: String, to: String): Changes {
+    suspend fun changes(documentId: Long, since: String, to: String): Changes = locked {
         val json = api.get("/api/documents/$documentId/changes?since=$since&to=$to")
-        return contract {
+        contract {
             val sections = json.getJSONArray("sections")
             Changes(
                 json.enumValue<ChangeStatus>("status"),
@@ -455,35 +465,31 @@ class Sync(
     }
 
     /**
-     * Online only: the server deletes the account and everything it stored. The caller then ends the session here and
-     * clears this phone's copy, in sign-out's order (RepoReadApp).
+     * Only the reader calls this, with the version it actually displayed. False for a disconnected note; a retired
+     * local copy cancels the operation before accessing Room.
      */
-    suspend fun deleteAccount() {
-        api.delete("/api/account")
-    }
-
-    /**
-     * Only the reader calls this, with the version it actually displayed. False when the phone no longer lists the note
-     * (cleared or disconnected meanwhile): nothing is saved.
-     */
-    suspend fun saveReading(row: ReadingRow): Boolean =
+    suspend fun saveReading(row: ReadingRow): Boolean = locked {
         dao.saveDisplayedReading(row.copy(pending = true)).also { saved ->
             if (saved) onPendingChange()
             else Log.i("RepoRead", "Reading position not saved; note gone; documentId=${row.documentId}")
         }
+    }
 
     /** False when the phone no longer lists the note: nothing is saved. */
-    suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean =
+    suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = locked {
         dao.saveLocalBookmark(BookmarkRow(documentId, bookmarked, pending = true, System.currentTimeMillis())).also {
             saved ->
             if (saved) onPendingChange() else Log.i("RepoRead", "Bookmark not saved; note gone; documentId=$documentId")
         }
+    }
 
     /**
      * Saves a grade as a pending local mutation; false when its card changed meanwhile and nothing was saved (see
      * recordReview).
      */
-    suspend fun recordReview(row: ReviewRow): Boolean = dao.recordReview(row).also { if (it) onPendingChange() }
+    suspend fun recordReview(row: ReviewRow): Boolean = locked {
+        dao.recordReview(row).also { if (it) onPendingChange() }
+    }
 
     /**
      * The sync run by library open, pull to refresh and Sync now: sends what waits ([sendPending]), then loads the
@@ -493,8 +499,7 @@ class Sync(
 
     /**
      * The background sync's run: sends what waits, and nothing when nothing does (null); each send saves the server's
-     * answer, so the lists are left to the screens. Checked under the lock, so after sign-out has cleared the phone it
-     * makes no request and writes nothing.
+     * answer, so the lists are left to the screens. A retired copy cancels the operation before any request or write.
      */
     suspend fun syncWaitingChanges(): LocalSync? = locked {
         if (dao.waitingCount().first() == 0) null else sendPending()
@@ -564,35 +569,36 @@ class Sync(
 
     /**
      * Saves a new highlight (or, with [question], a card) locally as a pending creation; it is sent with the returned
-     * mutation id until acknowledged. Null when the page it was selected in is no longer saved (cleared or disconnected
-     * meanwhile): nothing is saved.
+     * mutation id until acknowledged. Null for a page disconnected meanwhile; a retired local copy cancels before
+     * accessing Room.
      */
-    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? {
-        val row =
-            AnnotationRow(
-                mutationId = UUID.randomUUID().toString(),
-                serverId = null,
-                documentId = documentId,
-                sourceBlobSha = passage.blobSha,
-                blockId = passage.blockId,
-                startOffset = passage.startOffset,
-                endOffset = passage.endOffset,
-                exactText = passage.exactText,
-                note = note,
-                version = 1,
-                createdAt = System.currentTimeMillis(),
-                state = AnnotationState.UNSENT,
-                type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
-                question = question,
-                checkedBlobSha = if (question == null) null else passage.blobSha,
-            )
-        if (!dao.saveLocalAnnotation(row)) {
-            Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
-            return null
+    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? =
+        locked {
+            val row =
+                AnnotationRow(
+                    mutationId = UUID.randomUUID().toString(),
+                    serverId = null,
+                    documentId = documentId,
+                    sourceBlobSha = passage.blobSha,
+                    blockId = passage.blockId,
+                    startOffset = passage.startOffset,
+                    endOffset = passage.endOffset,
+                    exactText = passage.exactText,
+                    note = note,
+                    version = 1,
+                    createdAt = System.currentTimeMillis(),
+                    state = AnnotationState.UNSENT,
+                    type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
+                    question = question,
+                    checkedBlobSha = if (question == null) null else passage.blobSha,
+                )
+            if (!dao.saveLocalAnnotation(row)) {
+                Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
+                return@locked null
+            }
+            onPendingChange()
+            row.mutationId
         }
-        onPendingChange()
-        return row.mutationId
-    }
 
     /**
      * Sends pending creations; a failure that is not one item's refusal stops it, and the rest wait, unsent, for the
@@ -811,21 +817,46 @@ class Sync(
         )
     }
 
+    /** Owns export files, not their Markdown formatting or Android sharing. A retired copy cannot publish. */
+    suspend fun exportNotebook(markdown: () -> String): File = locked {
+        if (!exportRoot.isDirectory && !exportRoot.mkdirs())
+            throw IOException("Cannot create RepoRead export directory")
+        val file = File(exportRoot, "notebook-${UUID.randomUUID()}.md")
+        val partial = File(exportRoot, "${file.name}.part")
+        try {
+            // Files.writeString requires API 36.1; the app supports API 34.
+            partial.writeText(markdown(), Charsets.UTF_8)
+            Files.move(partial.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        } finally {
+            Files.deleteIfExists(partial.toPath())
+        }
+        file
+    }
+
+    suspend fun changesSeen(documentId: Long, since: String) = locked { dao.changesSeen(documentId, since) }
+
+    suspend fun dismissRefusedReviews() = locked { dao.dismissRefusedReviews() }
+
     /**
      * Explicit sign-out removes every cached note, image, and pending change from this phone; a running sync finishes
      * first. Says what it could not delete; running it again tries again, whenever it runs. A database failure is the
      * expected kind only (SQLiteException: a full or failing disk); any other failure is a bug and is thrown.
      */
-    suspend fun clearAll(): LocalCleanup = locked {
-        val left =
-            try {
-                store.clearAllTables()
-                deleteExports() + sweepImages()
-            } catch (error: SQLiteException) {
-                Log.w("RepoRead", "Could not clear the phone's database", error)
-                return@locked LocalCleanup.DatabaseFailed(error)
+    suspend fun clearRetiredCopy(): LocalCleanup {
+        check(retired) { "Clearing a local copy while operations are still admitted" }
+        return oneSyncAtATime.withLock {
+            withContext(Dispatchers.IO) {
+                val left =
+                    try {
+                        store.clearAllTables()
+                        deleteExports() + sweepImages()
+                    } catch (error: SQLiteException) {
+                        Log.w("RepoRead", "Could not clear the phone's database", error)
+                        return@withContext LocalCleanup.DatabaseFailed(error)
+                    }
+                if (left.isEmpty()) LocalCleanup.Done else LocalCleanup.FilesLeft(left)
             }
-        if (left.isEmpty()) LocalCleanup.Done else LocalCleanup.FilesLeft(left)
+        }
     }
 
     /**

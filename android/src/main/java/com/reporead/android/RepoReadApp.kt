@@ -24,8 +24,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.startSignIn
+import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.describe
+import com.reporead.android.data.LibraryDao
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
@@ -37,6 +40,7 @@ import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
 import com.reporead.android.sync.LocalCleanup
 import com.reporead.android.ui.counted
+import kotlinx.coroutines.CoroutineScope
 
 /** One navigation entry, encoded as strings so the back stack survives process death. */
 sealed interface Screen {
@@ -193,18 +197,21 @@ private fun RemovalStatus(outcome: LocalCleanup?, onRetry: () -> Unit) {
 }
 
 @Composable
-fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
+fun RepoReadApp(
+    account: Account,
+    store: SessionStore,
+    api: Api,
+    dao: LibraryDao,
+    appScope: CoroutineScope,
+    signInCode: String?,
+    onSignInCodeConsumed: () -> Unit,
+) {
     val context = LocalContext.current
-    val app = context.applicationContext as RepoReadApplication
-    val store = app.sessionStore
-    val api = app.api
-    val sync = app.sync
-    val account = app.account
-    val dao = app.localStore.library()
+    val sync = account.sync
     // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
     val signedIn by remember { store.signedIn() }.collectAsState(remember { store.hasSession })
     val accountState by account.state.collectAsState()
-    var stack by rememberSaveable(stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
+    var stack by rememberSaveable(sync, stateSaver = StackSaver) { mutableStateOf(listOf<Screen>(Screen.Repositories)) }
     // Screens below the top keep their saved state (scroll, tabs, one-shot targets already applied, the version a
     // summary starts from) while covered, as they do across recreation; it is dropped once the entry leaves the stack.
     val screenStates = rememberSaveableStateHolder()
@@ -293,9 +300,9 @@ fun RepoReadApp(signInCode: String?, onSignInCodeConsumed: () -> Unit) {
                         onBack = pop,
                         onDisconnected = { stack = listOf(Screen.Repositories) },
                     )
-                is Screen.Reader -> ReaderScreen(sync, dao, app.scope, signedIn, screen, onBack = pop, push = push)
+                is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, screen, onBack = pop, push = push)
                 is Screen.Figure -> FigureScreen(sync, dao, screen, onBack = pop)
-                Screen.Notebook -> NotebookScreen(dao, push, onBack = pop)
+                Screen.Notebook -> NotebookScreen(dao, sync, push, onBack = pop)
                 Screen.Review -> ReviewScreen(dao, sync, push, onBack = pop)
                 is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, push, onBack = pop)
                 Screen.Search -> SearchScreen(dao, push, onBack = pop)
