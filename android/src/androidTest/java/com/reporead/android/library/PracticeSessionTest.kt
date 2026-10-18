@@ -148,17 +148,8 @@ class PracticeSessionTest {
             val dao = store.library()
             val path = "test-only/topic/interview/bank.md"
             dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
-            dao.saveNote(
-                NoteRow(
-                    3,
-                    bankSha,
-                    path,
-                    "Other bank",
-                    testPage(bankSha, block("b0", "h3", "Other repository's warning")),
-                    0,
-                    renderFormat = RENDER_FORMAT,
-                )
-            )
+            val html = testPage(bankSha, block("b0", "h3", "Other repository's warning"))
+            dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = RENDER_FORMAT))
             ReaderTestActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
             ActivityScenario.launch(ReaderTestActivity::class.java).use { scenario ->
                 awaitText("1 heading is not a question")
@@ -177,23 +168,15 @@ class PracticeSessionTest {
             val dao = store.library()
             val path = "test-only/topic/interview/bank.md"
             dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
-            dao.saveNote(
-                NoteRow(
-                    3,
+            val html =
+                testPage(
                     bankSha,
-                    path,
-                    "Other bank",
-                    testPage(
-                        bankSha,
-                        block("b0", "p", "Canonical answer: Stray") +
-                            block("b1", "h3", "Repeated") +
-                            answer("b2", "First answer", "first-answer") +
-                            block("b3", "h3", "Repeated"),
-                    ),
-                    0,
-                    renderFormat = RENDER_FORMAT,
+                    block("b0", "p", "Canonical answer: Stray") +
+                        block("b1", "h3", "Repeated") +
+                        answer("b2", "First answer", "first-answer") +
+                        block("b3", "h3", "Repeated"),
                 )
-            )
+            dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = RENDER_FORMAT))
             ReaderTestActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
             ActivityScenario.launch(ReaderTestActivity::class.java).use {
                 awaitText("2 headings are not questions")

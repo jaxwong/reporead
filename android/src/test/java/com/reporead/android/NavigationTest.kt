@@ -36,26 +36,9 @@ class NavigationTest {
     @Test
     fun preUpgradeReaderDestinationsStillRestoreWithoutBlockIdentity() {
         val old =
-            arrayListOf(
-                "5",
-                "reader",
-                "1",
-                "Ordinary",
-                "",
-                "",
-                "5",
-                "reader",
-                "2",
-                "Linked",
-                "Answer",
-                "",
-                "5",
-                "reader",
-                "3",
-                "Card",
-                "",
-                "mutation",
-            )
+            listOf("5", "reader", "1", "Ordinary", "", "") +
+                listOf("5", "reader", "2", "Linked", "Answer", "") +
+                listOf("5", "reader", "3", "Card", "", "mutation")
         assertEquals(
             listOf(
                 Screen.Reader(1, "Ordinary"),
