@@ -1,5 +1,6 @@
 package com.reporead.android.reader
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Rect
 import android.view.ActionMode
@@ -21,6 +22,7 @@ internal enum class SelectionAction(val id: Int, val label: String) {
  * through evaluateJavascript; the page gains no way to call native code. [onAction] receives the action and a callback
  * that closes the menu once the selection has been read.
  */
+@SuppressLint("ViewConstructor") // Instantiated only from Compose AndroidView; never inflated by layout tools.
 internal class ReaderWebView(
     context: Context,
     private val reattaching: () -> Boolean,

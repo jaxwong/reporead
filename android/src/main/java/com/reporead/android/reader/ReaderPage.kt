@@ -1,5 +1,6 @@
 package com.reporead.android.reader
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
@@ -46,6 +47,9 @@ private const val READY_POLL_LIMIT = 100
 internal fun WebView.isolateReaderPage() {
     // Until the page paints its own background, the app's surface shows through instead of a white flash.
     setBackgroundColor(Color.TRANSPARENT)
+    // The reader runs only bundled scripts in its isolated page; network, file and content access stay blocked
+    // (ADR-04).
+    @SuppressLint("SetJavaScriptEnabled")
     settings.javaScriptEnabled = true
     settings.allowFileAccess = false
     settings.allowContentAccess = false

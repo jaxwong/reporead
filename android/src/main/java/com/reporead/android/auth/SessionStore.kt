@@ -7,6 +7,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Log
+import androidx.core.content.edit
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.UnrecoverableKeyException
@@ -136,7 +137,7 @@ class SessionStore(context: Context, name: String = PREFS) {
             listOf(cipher.iv, cipher.doFinal(token.toByteArray(Charsets.UTF_8))).joinToString(":") {
                 Base64.getEncoder().encodeToString(it)
             }
-        prefs.edit().putString("token", encoded).apply()
+        prefs.edit { putString("token", encoded) }
     }
 
     /**
@@ -168,7 +169,7 @@ class SessionStore(context: Context, name: String = PREFS) {
     val dataOwner: Long?
         get() = if (prefs.contains("dataOwner")) prefs.getLong("dataOwner", 0) else null
 
-    fun recordOwner(userId: Long) = prefs.edit().putLong("dataOwner", userId).apply()
+    fun recordOwner(userId: Long) = prefs.edit { putLong("dataOwner", userId) }
 
     /**
      * Set once removing this phone's copy is decided until it is gone (Account): before a sign-out asks the server,
@@ -194,7 +195,7 @@ class SessionStore(context: Context, name: String = PREFS) {
 
     var pendingVerifier: String?
         get() = prefs.getString("verifier", null)
-        set(value) = prefs.edit().putString("verifier", value).apply()
+        set(value) = prefs.edit { putString("verifier", value) }
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

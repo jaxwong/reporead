@@ -1,10 +1,10 @@
 package com.reporead.android.auth
 
 import android.content.Context
-import android.net.Uri
 import android.util.Base64
 import android.util.Log
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.core.net.toUri
 import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.contract
@@ -32,7 +32,7 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
         .build()
         .launchUrl(
             context,
-            Uri.parse("$baseUrl/app/sign-in?code_challenge=$challenge"),
+            "$baseUrl/app/sign-in?code_challenge=$challenge".toUri(),
         )
 }
 

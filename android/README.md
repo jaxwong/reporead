@@ -15,7 +15,10 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest :app:a
 ~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am start -n com.reporead.android.dev/com.reporead.android.MainActivity
 ```
 
-Spotless with ktfmt (Kotlin coding conventions, 120 columns; `build.gradle.kts`) owns the app's Kotlin layout. CI runs `./gradlew :app:spotlessCheck` before the unit tests; `:app:spotlessApply` rewrites the files instead. `reader-web`'s JavaScript has no formatter.
+Spotless with ktfmt (Kotlin coding conventions, 120 columns; `build.gradle.kts`) owns the app's Kotlin layout. CI runs
+`./gradlew :app:spotlessCheck` and `./gradlew :app:lintDebug` before the unit tests; Android Lint treats warnings as
+errors, while target SDK and dependency-version notices remain informational because those upgrades are approved
+separately. `:app:spotlessApply` rewrites Kotlin files instead. `reader-web`'s JavaScript has no formatter.
 
 Debug builds use the Mac's backend: `adb reverse` makes the phone's `127.0.0.1:8081` reach the Mac's loopback backend, so the registered GitHub callback is unchanged. It is reset when the phone disconnects — including when airplane mode or Wi-Fi loss ends wireless debugging. Re-enable wireless debugging and repeat it before syncing. Only debug builds permit cleartext HTTP, and only to `127.0.0.1` (`src/debug/res/xml/network_security_config.xml` overrides the HTTPS-only `src/main` one). The base URL is a per-build-type `BuildConfig` constant in `build.gradle.kts`.
 
@@ -39,7 +42,13 @@ The release build is not debuggable (no WebView DevTools, no `run-as`) and not m
 
 ## Releases and Obtainium
 
-A push to `main` that changes the app or the build runs `.github/workflows/android.yml` (also when `Library.java` or `assetlinks.json` changes, which the build and release check read): unit tests, the reader's check and bundle (`:app:mergeDebugAssets`) and a compile of the device tests, then a release APK signed with the personal key (repository secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`), checked against the certificate SHA-256 `2049299f…53293f`, and published as GitHub Release `v0.1.<n>` with `reporead-0.1.<n>.apk` and its `.sha256`. Pull requests run the same three checks, without secrets. `versionCode` is `n`, the commit count of `HEAD` (`git rev-list --count HEAD`), and `versionName` is `0.1.<n>`, so releases from `main` only go up.
+A push to `main` that changes the app or the build runs `.github/workflows/android.yml` (also when `Library.java` or
+`assetlinks.json` changes, which the build and release check read): formatting and Lint, unit tests, the reader's check
+and bundle (`:app:mergeDebugAssets`) and a compile of the device tests, then a release APK signed with the personal key
+(repository secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`), checked against the certificate SHA-256
+`2049299f…53293f`, and published as GitHub Release `v0.1.<n>` with `reporead-0.1.<n>.apk` and its `.sha256`. Pull requests
+run the same checks, without secrets. `versionCode` is `n`, the commit count of `HEAD` (`git rev-list --count HEAD`), and
+`versionName` is `0.1.<n>`, so releases from `main` only go up.
 
 On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https://github.com/jaxwong/reporead` (public, so no token) and installs each new release over the current app, keeping its data, because every release is signed with the same key. A release build installed by hand from a branch can carry a higher commit count than the next release from `main`; Android refuses that as a downgrade, so reinstall the release with `adb install -r -d`, and only a release whose database version is at least the hand-installed build's (Room cannot open a newer database).
 
