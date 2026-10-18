@@ -1085,5 +1085,14 @@ first attempt failed 228 because Testcontainers could not reach its Ryuk contain
 Removed with the hand-declared contract: `Contract.kt`, nine `*WireContractTest` classes, `ContractFixtures` and 27
 shape-only examples. Kept: `item-refusals.json`, now checked by `ItemRefusalsTest`.
 
-**Not run for this change:** the device suite on the phone (it compiles; its JSON answers were completed for the fields
-the generated models require), the opt-in live check, and any release build or deployment.
+Hosted CI passed on the pushed head `c161625` (Backend and Android workflows). The device suite then ran on the Pixel
+with the debug and test APKs built from that head, installed with `adb install -r` / `-r -t` (hashes checked before
+and after the run), using the `am instrument` command above:
+
+```text
+Time: 138.637
+OK (132 tests)
+```
+
+**129 executed**, no failures, including `ApiTest`, `LocalSyncTest` and `AccountTest`; the 3 opt-in live tests skipped
+before opening the real store. **Not run for this change:** the opt-in live check, and any release build or deployment.
