@@ -38,6 +38,7 @@ import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.core.network.Changes
 import com.reporead.android.core.network.Load
 import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.describe
@@ -46,7 +47,6 @@ import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.Passage
-import com.reporead.android.sync.Changes
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon

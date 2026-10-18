@@ -1,6 +1,11 @@
 package com.reporead.android.sync
 
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.core.network.wireJson
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -10,18 +15,13 @@ class RefusalTest {
 
     @Test
     fun theServerRefusingThisItemIsFinalForIt() {
-        for ((status, code) in
-            listOf(
-                400 to "INVALID_READING_STATE",
-                400 to "INVALID_REQUEST",
-                404 to "NOT_FOUND",
-                404 to "SOURCE_NOT_FOUND",
-                409 to "MUTATION_ID_REUSED",
-                409 to "CARD_CHANGED",
-                410 to "ANNOTATION_DELETED",
-                422 to "INVALID_ANCHOR",
-                422 to "UNSUPPORTED_CONTENT",
-            )) {
+        val cases =
+            checkNotNull(javaClass.getResourceAsStream("/api-contract/item-refusals.json")).bufferedReader().use {
+                wireJson.parseToJsonElement(it.readText()).jsonArray
+            }
+        for (item in cases) {
+            val status = item.jsonObject.getValue("status").jsonPrimitive.int
+            val code = item.jsonObject.getValue("code").jsonPrimitive.content
             assertEquals("$status $code", true, refuses(status, code))
         }
     }
@@ -43,6 +43,11 @@ class RefusalTest {
                 404 to "HTTP_404",
                 400 to "HTTP_400",
                 200 to "INVALID_RESPONSE",
+                409 to "INVALID_RESPONSE",
+                409 to "UNKNOWN_TEST_ONLY_CODE",
+                400 to "CARD_CHANGED",
+                409 to "NOT_FOUND",
+                500 to "ANNOTATION_DELETED",
             )) {
             assertEquals("$status $code", false, refuses(status, code))
         }

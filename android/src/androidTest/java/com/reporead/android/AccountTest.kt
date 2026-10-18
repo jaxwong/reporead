@@ -310,7 +310,12 @@ class AccountTest {
     @Test
     fun aDeletionTheServerDoesNotConfirmKeepsEverythingOnThePhone() = runBlocking {
         for ((name, answer) in
-            listOf("refused" to failure(503, "TEST_ONLY_DOWN"), "signed out" to failure(401, "UNAUTHENTICATED"))) {
+            listOf(
+                "unconfirmed 204" to (204 to ""),
+                "empty acknowledgement" to (200 to "{}"),
+                "refused" to failure(503, "TEST_ONLY_DOWN"),
+                "signed out" to failure(401, "UNAUTHENTICATED"),
+            )) {
             signedInWithSavedNotes()
             LoopbackServer(mapOf("DELETE /api/account" to answer)).use { server ->
                 val account = account(server.url)
@@ -334,13 +339,19 @@ class AccountTest {
     @Test
     fun aConfirmedDeletionRemovesThePhonesCopy() = runBlocking {
         signedInWithSavedNotes()
-        LoopbackServer(mapOf("DELETE /api/account" to (204 to ""))).use { server ->
-            val account = account(server.url)
-            account.deleteAccount()
-            assertEquals(AccountState.DeletingAccount, account.state.value)
-            assertEquals(AccountState.Idle(AccountNotice.AccountDeleted), account.settled())
-            assertPhoneCleared()
-        }
+        LoopbackServer(
+                mapOf(
+                    "DELETE /api/account" to
+                        (200 to """{"repositories":1,"readingStates":1,"bookmarks":1,"highlights":1,"cards":1}""")
+                )
+            )
+            .use { server ->
+                val account = account(server.url)
+                account.deleteAccount()
+                assertEquals(AccountState.DeletingAccount, account.state.value)
+                assertEquals(AccountState.Idle(AccountNotice.AccountDeleted), account.settled())
+                assertPhoneCleared()
+            }
     }
 
     /** The process dies while the deletion waits for its answer: unknown on the server, so the next start keeps it. */
@@ -349,7 +360,12 @@ class AccountTest {
         signedInWithSavedNotes()
         val arrived = CountDownLatch(1)
         val release = CountDownLatch(1)
-        LoopbackServer(mapOf("DELETE /api/account" to (204 to ""))) {
+        LoopbackServer(
+                mapOf(
+                    "DELETE /api/account" to
+                        (200 to """{"repositories":1,"readingStates":1,"bookmarks":1,"highlights":1,"cards":1}""")
+                )
+            ) {
                 arrived.countDown()
                 check(release.await(10, SECONDS)) { "Test never released the held request" }
             }
