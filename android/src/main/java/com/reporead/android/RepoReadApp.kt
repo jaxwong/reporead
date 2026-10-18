@@ -167,8 +167,8 @@ fun RepoReadApp(
 
     // Each entry keeps its saved UI state (scroll, tabs, one-shot targets already applied, the version a summary starts
     // from) while it is covered, by another screen or by the account screen below, and across recreation; it is dropped
-    // once the entry leaves the stack. Entries are made once, at their push, so their content reads the account and
-    // sign-in state each time it draws, never values captured then.
+    // once the entry leaves the stack. Entries are rebuilt only when the stack changes, so their content reads the
+    // account and sign-in state each time it draws, never values captured when the stack last changed.
     val entries =
         rememberDecoratedNavEntries(backStack, listOf(rememberSaveableStateHolderNavEntryDecorator())) { entry ->
             NavEntry(entry, contentKey = entry.id) {
