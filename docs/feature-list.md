@@ -115,7 +115,6 @@ These are exclusions, not hidden stretch goals.
 | Phone storage eviction | None; every saved note is kept (ADR-19). Revisit if storage matters |
 | Scheduler | Fixed gap ladder (replaced SM-2 on 2026-10-15); consider FSRS only if review data shows a need (ADR-13) |
 | Notebook paging | Not paged; revisit as the review log nears about 40,000 grades, past which the library is refused (422 `LIBRARY_TOO_LARGE`, ADR-13) |
-| Library contract step | Waiting for the release that reads `GET /api/library` to be installed on the phone; then delete `GET /api/repositories`, `/api/repositories/{id}/documents`, `/api/reading-states`, `/api/bookmarks` and `/api/notebook`, with `Documents.list`, `Reviews`' own snapshot and their tests (ADR-08, ADR-24) |
 | KaTeX advisory | npm's only fix is downgrading Mermaid to 10.8.0; not applied, waiting for a Mermaid release |
 | AI-drafted questions | Intent recorded; not designed (ADR-20) |
 
