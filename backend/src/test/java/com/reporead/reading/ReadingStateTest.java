@@ -1,3 +1,5 @@
+// Owns real PostgreSQL/HTTP reading-state validation, last-write-wins and optional-input/complete-output coverage.
+
 package com.reporead.reading;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,6 +21,8 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,6 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 
+/** Owns behavioral coverage of reading state at the authenticated HTTP boundary and its database owner. */
 class ReadingStateTest extends SharedSpringTest {
     // Test-only users, documents, and SHAs; no GitHub call is involved in reading state.
     private static final String SHA_A = "a".repeat(40);
@@ -88,6 +93,15 @@ class ReadingStateTest extends SharedSpringTest {
     /** The library: its readingStates are this user's reading states. */
     private ResultActions list(String bearer) throws Exception {
         return mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", ",\"textPrefix\":null"})
+    void anOptionalInputPrefixIsAlwaysPresentInTheResponse(String prefix) throws Exception {
+        save(alice, note, body(SHA_A, 40, Instant.now(), "{\"headingPath\":[],\"blockIndex\":0" + prefix + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.anchor", org.hamcrest.Matchers.hasKey("textPrefix")))
+                .andExpect(jsonPath("$.anchor.textPrefix").value(org.hamcrest.Matchers.nullValue()));
     }
 
     @Test

@@ -1,3 +1,5 @@
+// Owns annotation HTTP input validation and response metadata; AnnotationService and Annotations own mutations.
+
 package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
@@ -5,6 +7,9 @@ import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.annotation.AnnotationService.Selection;
 import com.reporead.auth.AppUser;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import java.util.List;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
@@ -46,14 +51,29 @@ public class AnnotationController {
         return new AnnotationList(service.list(user, id));
     }
 
+    /** Owns creation input; omitted type defaults to HIGHLIGHT, and omitted note/question mean no optional text. */
     record CreateRequest(
             String mutationId,
             Selection anchor,
-            @Nullable String note,
+
+            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Nullable
+            String note,
+
+            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Nullable
             String type,
-            @Nullable String question) {}
+
+            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Nullable
+            String question) {}
 
     @PostMapping("/api/documents/{id}/annotations")
+    @ApiResponse(
+            responseCode = "200",
+            description = "Previously created mutation replayed",
+            content = @Content(schema = @Schema(implementation = Annotations.Annotation.class)))
+    @ApiResponse(
+            responseCode = "201",
+            description = "Annotation created",
+            content = @Content(schema = @Schema(implementation = Annotations.Annotation.class)))
     ResponseEntity<Annotations.Annotation> create(
             @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CreateRequest body) {
         UUID mutationId = mutationId(body.mutationId());
@@ -107,7 +127,12 @@ public class AnnotationController {
         return checked;
     }
 
-    record EditRequest(@Nullable String note, Integer expectedVersion) {}
+    /** Owns edit input; omitting the optional note clears it just as explicit null does. */
+    record EditRequest(
+            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Nullable
+            String note,
+
+            Integer expectedVersion) {}
 
     @PatchMapping("/api/annotations/{id}")
     Annotations.Annotation edit(

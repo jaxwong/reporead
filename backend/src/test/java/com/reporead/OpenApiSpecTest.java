@@ -11,7 +11,9 @@ import static org.junit.jupiter.api.Assertions.fail;
 import io.swagger.v3.core.jackson.ModelResolver;
 import io.swagger.v3.core.jackson.TypeNameResolver;
 import io.swagger.v3.core.util.Json;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
@@ -51,7 +53,7 @@ import tools.jackson.databind.json.JsonMapper;
  * <ul>
  *   <li>a nested type's schema is named with its enclosing types ({@code Library.Snapshot} is {@code LibrarySnapshot}),
  *       and no two types can publish one name;
- *   <li>every property is required, because the application mapper writes every record component, nulls included;
+ *   <li>properties are required unless the declaring accessor explicitly allows omission for an input;
  *   <li>a property is nullable exactly when its record component's type is JSpecify {@code @Nullable}.
  * </ul>
  */
@@ -81,6 +83,7 @@ class OpenApiSpecTest {
         TestEnvironment.register(properties);
     }
 
+    /** Owns test-only schema derivation policy; these beans are not deployed. */
     @TestConfiguration
     static class Rules {
         @Bean
@@ -92,7 +95,9 @@ class OpenApiSpecTest {
         PropertyCustomizer nullOnlyWhereDeclared() {
             return (property, type) -> {
                 if (type.getParent() != null
-                        && declaredNullable(type.getParent().getName(), type.getPropertyName())) {
+                        && accessor(type.getParent().getName(), type.getPropertyName())
+                                .getAnnotatedReturnType()
+                                .isAnnotationPresent(Nullable.class)) {
                     property.setNullable(true);
                 }
                 return property;
@@ -100,11 +105,18 @@ class OpenApiSpecTest {
         }
 
         @Bean
-        OpenApiCustomizer everyPropertyRequired() {
-            return api -> api.getComponents().getSchemas().values().forEach(schema -> {
-                if (schema.getProperties() != null) {
-                    schema.setRequired(new ArrayList<>(schema.getProperties().keySet()));
+        OpenApiCustomizer requiredUnlessInputAllowsOmission() {
+            return api -> api.getComponents().getSchemas().forEach((name, schema) -> {
+                if (schema.getProperties() == null) return;
+                var required = new ArrayList<>(schema.getProperties().keySet());
+                // Flattened response properties have no wrapper accessor; only explicit input omissions are removed.
+                for (var accessor : PUBLISHED.get(name).getDeclaredMethods()) {
+                    var declaration = accessor.getAnnotation(Schema.class);
+                    if (declaration != null && declaration.requiredMode() == Schema.RequiredMode.NOT_REQUIRED) {
+                        required.remove(accessor.getName());
+                    }
                 }
+                schema.setRequired(required);
             });
         }
 
@@ -132,14 +144,14 @@ class OpenApiSpecTest {
     }
 
     /**
-     * Whether a published property's accessor is {@code @Nullable}: a record component's accessor carries the
-     * component's type annotations, and a computed property such as {@code fullName} is an accessor of its own.
+     * The declaring accessor owns nullability and input omission metadata, including computed properties such as
+     * {@code fullName}. No parallel field registry is maintained by generation.
      */
-    private static boolean declaredNullable(String schema, String property) {
+    private static Method accessor(String schema, String property) {
         Class<?> owner = PUBLISHED.get(schema);
         if (owner == null) throw new IllegalStateException("Property " + property + " of unpublished schema " + schema);
         try {
-            return owner.getDeclaredMethod(property).getAnnotatedReturnType().isAnnotationPresent(Nullable.class);
+            return owner.getDeclaredMethod(property);
         } catch (NoSuchMethodException error) {
             throw new IllegalStateException(
                     "Schema " + schema + " publishes " + property + ", but " + owner + " has no accessor of that name",
@@ -160,6 +172,38 @@ class OpenApiSpecTest {
             fail(COMMITTED.toAbsolutePath() + " was not what the controllers and records publish; it now is. Review "
                     + "the change and commit it with the code that caused it.");
         }
+    }
+
+    /** Request optionality and dynamic HTTP responses cannot be inferred from record serialization. */
+    @Test
+    void requestOptionalityAndDynamicResponsesMatchTheHttpContract() throws IOException {
+        var api = json.readTree(derived());
+        var schemas = api.path("components").path("schemas");
+        assertTrue(!names(schemas.path("AppAuthControllerTokenRequest").path("required"))
+                .contains("expectedUserId"));
+        var creation = schemas.path("AnnotationControllerCreateRequest");
+        assertEquals(Set.of("anchor", "mutationId"), names(creation.path("required")));
+        assertTrue(creation.path("properties").path("type").path("nullable").asBoolean());
+        assertEquals(
+                Set.of("expectedVersion"),
+                names(schemas.path("AnnotationControllerEditRequest").path("required")));
+        assertEquals(
+                Set.of("blockIndex", "headingPath"),
+                names(schemas.path("ReadingControllerAnchorRequest").path("required")));
+        // Responses still require explicit null; making an input optional must not relax the consumer's decoder.
+        assertTrue(names(schemas.path("ReadingStatesAnchor").path("required")).contains("textPrefix"));
+        var paths = api.path("paths");
+        assertEquals(
+                Set.of("200", "201"),
+                names(paths.path("/api/documents/{id}/annotations").path("post").path("responses")));
+        var image = paths.path("/api/documents/{id}/image")
+                .path("get")
+                .path("responses")
+                .path("200")
+                .path("content");
+        assertEquals(Set.of("image/*"), names(image));
+        assertEquals(
+                "binary", image.path("image/*").path("schema").path("format").asString());
     }
 
     /**

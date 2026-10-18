@@ -44,8 +44,8 @@ dependencies {
     implementation("org.jsoup:jsoup:${rootProject.extra["jsoupVersion"]}")
     // Marks the record components that are null on the wire; OpenApiSpecTest publishes them as nullable, all others not.
     implementation("org.jspecify:jspecify")
-    // Annotations only, absent at runtime, where nothing reads them: LibraryController names the record its measured
-    // bytes hold. OpenApiSpecTest reads them through springdoc.
+    // Compile-only schema metadata names optional inputs and dynamic response statuses/media; production does not
+    // interpret it. OpenApiSpecTest reads it through springdoc.
     compileOnly("io.swagger.core.v3:swagger-annotations-jakarta:2.2.55")
     testImplementation(enforcedPlatform("org.junit:junit-bom:6.0.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")

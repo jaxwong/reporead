@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import java.net.SocketTimeoutException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -199,11 +200,23 @@ class AppSignInTest extends SharedSpringTest {
         mvc.perform(get("/app/sign-in")).andExpect(status().isBadRequest());
     }
 
-    @Test
-    void fullHandoffIssuesASessionThatAuthenticatesTheApiAndExposesNoGitHubToken() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void fullHandoffIssuesASessionThatAuthenticatesTheApiAndExposesNoGitHubToken(boolean explicitNullOwner)
+            throws Exception {
         String verifier = TestSessions.verifier();
-        String token = accessToken(
-                code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice")), verifier);
+        var body = new HashMap<String, Object>();
+        body.put("code", code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice")));
+        body.put("codeVerifier", verifier);
+        if (explicitNullOwner) body.put("expectedUserId", null);
+        String answer = mvc.perform(post("/api/app-auth/token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String token = json.readTree(answer).get("accessToken").stringValue();
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.githubUserId").value(42))
