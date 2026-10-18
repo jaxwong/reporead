@@ -130,7 +130,7 @@ Noticed and deliberately not changed:
 - A bank question is matched to its card by bank, prompt and answer line, so renaming its heading or editing its Canonical line makes it a new question; grading it then starts a second card on the same answer.
 - Exports are deleted at each app start, disconnect, sign-out and account deletion, so an app that reads a shared export only after that finds it gone; sharing again writes a new one.
 - A sign-out or account deletion cut short is finished at the next start without saying which it was, or whether the server deleted the account.
-- Room reads a row through a cursor window of about 2 MB, so a saved page over that (HTML plus search text) would save but not open. Not reproduced; the largest real page is 0.6 MB with 0.4 MB of text.
+- Saved pages predating the server's complete-page limit are not rewritten or deleted automatically. New content is limited to 1 MiB of UTF-8 across HTML, search text and metadata; complete 2 MiB string payloads were reproduced as unreadable in Room on the Pixel 8a, Android 14. Cache/page-format evolution is tracked in the [remediation plan](audit-remediation-plan.md#step-4--complete-saved-page-and-reading-state-transitions-a4-a6).
 
 The ADRs record further limits: anchors (ADR-05), the unbumped page format (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
 

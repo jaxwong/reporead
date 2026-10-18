@@ -5,6 +5,7 @@ import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import com.reporead.repository.RepositoryConnections;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
@@ -60,7 +61,19 @@ public class DocumentController {
             String sourceBlobSha,
             String html,
             String text,
-            int renderFormat) {}
+            int renderFormat) {
+        Content {
+            long bytes = List.of(path, title, sourceBlobSha, html, text).stream()
+                    .mapToLong(value -> value.getBytes(StandardCharsets.UTF_8).length)
+                    .sum();
+            if (bytes > MarkdownRenderer.MAX_PAGE_BYTES) {
+                throw new ApiFailure(
+                        Code.UNSUPPORTED_CONTENT,
+                        "Rendered note exceeds the " + MarkdownRenderer.MAX_PAGE_BYTES
+                                + "-byte saved-page limit (HTML, search text and metadata).");
+            }
+        }
+    }
 
     @GetMapping("/api/documents/{id}/content")
     Content content(@AuthenticationPrincipal AppUser user, @PathVariable long id) {

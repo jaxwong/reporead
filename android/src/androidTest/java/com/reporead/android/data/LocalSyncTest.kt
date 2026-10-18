@@ -558,6 +558,70 @@ class LocalSyncTest {
     }
 
     @Test
+    fun saveAllSkipsUnsupportedPagesKeepsOlderCopiesAndReadsTheCompleteSizeLimitOnBothRuns() = runBlocking {
+        // Synthetic page at the server's 1 MiB complete-string limit: HTML, search text, SHA, path and title.
+        val path = "n3.md"
+        val title = "n3"
+        val text = "測😀".repeat(10_000)
+        val prefix = "<main id=note>"
+        val suffix = "</main>"
+        val fixedBytes = (sha + path + title + text + prefix + suffix).toByteArray().size
+        val html = prefix + "x".repeat(1_048_576 - fixedBytes) + suffix
+        val content =
+            JSONObject()
+                .put("sourceBlobSha", sha)
+                .put("path", path)
+                .put("title", title)
+                .put("html", html)
+                .put("text", text)
+                .put("renderFormat", RENDER_FORMAT)
+                .toString()
+        val old = NoteRow(1, "b".repeat(40), "n1.md", "n1", "<main>kept</main>", 0, "kept", RENDER_FORMAT)
+        dao.saveNote(old)
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3)}")),
+                    "GET /api/documents/1/content" to failure(422, "UNSUPPORTED_CONTENT"),
+                    "GET /api/documents/2/content" to failure(422, "UNSUPPORTED_CONTENT"),
+                    "GET /api/documents/3/content" to (200 to content),
+                )
+            )
+            .use { server ->
+                val sync = sync(server.url)
+                val progress = mutableListOf<Pair<Int, Int>>()
+                assertEquals(
+                    Sync.SavedAll(1, 0, listOf("n1.md", "n2.md")),
+                    sync.saveAllNotes(7) { done, total -> progress += done to total },
+                )
+                assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
+                val expected = NoteRow(3, sha, path, title, html, 0, text, RENDER_FORMAT)
+                repeat(2) {
+                    assertEquals(old, dao.note(1))
+                    assertNull(dao.note(2))
+                    assertEquals(expected, dao.note(3)!!.copy(fetchedAt = 0))
+                }
+                assertEquals(
+                    Sync.SavedAll(0, 1, listOf("n1.md", "n2.md")),
+                    sync.saveAllNotes(7) { _, _ -> },
+                )
+                assertEquals(old, dao.note(1))
+                assertEquals(expected, dao.note(3)!!.copy(fetchedAt = 0))
+                assertEquals(
+                    listOf(
+                        "GET /api/library",
+                        "GET /api/documents/1/content",
+                        "GET /api/documents/2/content",
+                        "GET /api/documents/3/content",
+                        "GET /api/library",
+                        "GET /api/documents/1/content",
+                        "GET /api/documents/2/content",
+                    ),
+                    server.requests,
+                )
+            }
+    }
+
+    @Test
     fun aSyncLoadsEveryRepositorysNotesSoARemovedNoteWithKeptDataIsNamed() = runBlocking {
         val readingOfTheRemovedNote = serverReading.replace("\"documentId\":1", "\"documentId\":2")
         LoopbackServer(
