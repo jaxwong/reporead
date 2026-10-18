@@ -9,6 +9,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.SaveableStateRegistry
+import androidx.lifecycle.Lifecycle
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,6 +17,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.testCounts
+import com.reporead.android.core.network.testDisconnected
 import com.reporead.android.core.network.testLibrary
 import com.reporead.android.core.network.testRepository
 import com.reporead.android.core.network.testSession
@@ -35,6 +37,7 @@ import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
 import kotlinx.coroutines.MainScope
@@ -119,17 +122,22 @@ class AppNavigationTest {
         check(directory.deleteRecursively())
     }
 
-    /** What the server lists: the same three notes at the same versions as this phone's copies. */
-    private fun library() =
+    /**
+     * What the server lists: while [connected], the same three notes at the same versions as this phone's copies;
+     * otherwise nothing.
+     */
+    private fun library(connected: Boolean = true) =
         200 to
             wire(
                 testLibrary(
                     repositories =
-                        listOf(
-                            testRepository(
-                                notes.map { DocumentsSummary(testSha, null, false, it.id, it.path, it.title) }
-                            )
-                        ),
+                        if (!connected) emptyList()
+                        else
+                            listOf(
+                                testRepository(
+                                    notes.map { DocumentsSummary(testSha, null, false, it.id, it.path, it.title) }
+                                )
+                            ),
                     readingStates = emptyList(),
                     bookmarks = emptyList(),
                     annotations = emptyList(),
@@ -196,6 +204,12 @@ class AppNavigationTest {
         awaitNoteA(panelOpen = false)
         click("Highlights and notes")
         awaitNoteA(panelOpen = true)
+    }
+
+    /** Presses Back and waits for it to finish the activity: nothing was left below the screen shown. */
+    private fun awaitBackLeavesTheApp() = runBlocking {
+        pressBack()
+        withTimeout(10_000) { while (scenario!!.state != Lifecycle.State.DESTROYED) delay(50) }
     }
 
     /** Waits for in-flight screen work to finish, then checks nothing more was sent. */
@@ -435,6 +449,43 @@ class AppNavigationTest {
                 assertNothingMoreSent(server, before)
                 assertEquals(3, dao.documents(7).first().size)
                 assertEquals(listOf("test-only/notes"), dao.repositories().first().map { it.fullName })
+            }
+    }
+
+    /** A confirmed disconnect returns to the Library, in the state it was left, with nothing left above or below it. */
+    @Test
+    fun aConfirmedDisconnectReturnsToTheLibrary() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val routes =
+            ConcurrentHashMap(
+                mapOf(
+                    "GET /api/library" to library(),
+                    "GET /api/repositories/7/stored-data" to (200 to wire(testCounts())),
+                    "DELETE /api/repositories/7" to (200 to wire(testDisconnected(notes.map { it.id }))),
+                )
+            )
+        // Once disconnected, the server no longer lists the repository.
+        LoopbackServer(routes) { key ->
+                if (key == "DELETE /api/repositories/7") routes["GET /api/library"] = library(connected = false)
+            }
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                awaitText("Library")
+                click("Repositories")
+                click("test-only/notes")
+                awaitFolder()
+                // Disconnect waits until the folder's own refresh is done.
+                withTimeout(10_000) { while (server.requests.count { it == "GET /api/library" } < 2) delay(50) }
+                delay(1_000)
+                click("More")
+                click("Disconnect…")
+                awaitText("Disconnect test-only/notes?")
+                click("Disconnect")
+                awaitScreen("Library", hidden = listOf("test-only/notes", "Disconnect test-only/notes?"))
+                assertTrue(selected("Repositories"))
+                assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
+                awaitBackLeavesTheApp()
             }
     }
 }
