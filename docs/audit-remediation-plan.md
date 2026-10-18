@@ -1,6 +1,6 @@
 # Codebase audit and root-cause remediation plan
 
-Audited: **2026-10-18**. Status: **steps 1 and 2 complete and verified; step 3 awaits the account-removal and legacy-ownership policies in section 5**.
+Audited: **2026-10-18**. Status: **steps 1, 2 and 5 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
 
 ### Implementation progress
 
@@ -14,6 +14,7 @@ Audited: **2026-10-18**. Status: **steps 1 and 2 complete and verified; step 3 a
 - **Approved retirement:** the user approved the coordinated image contract, Room migration and legacy-cache deletion, preserving saved text, annotations and pending changes. Room v14 leaves legacy image identity null; images are unavailable until refreshed. The old embed endpoint shape, URI, client method, fetch-time resolver, ambiguity error code and blob-keyed cache lookup are removed. Existing behavioral assertions moved onto snapshot/content tests; historical schema files remain migration evidence, not parallel implementations.
 - **Simplicity trade-off:** any repository commit makes a saved page outdated, even if its Markdown did not change. This may refetch unchanged pages but avoids another image-dependency index. Snapshot identity is a required fact, not another mutable copy of “latest.” The first draft's extra HTML parse/serialize pass was removed after the user approved returning a DOM; canonical-only consumers no longer serialize unused HTML. A replacement review also updated the opt-in corpus writer to bind paths from its Git tree before serialization.
 - **Step 2 evidence:** **279 backend tests, 72 Android JVM tests and all 87 device tests passed**; four opt-in corpus tests remain skipped. An image-only refresh, refresh during blob fetch, old/new cached reads, legacy namespace isolation, cache-read/deletion interleavings, v13 migration, figure recreation and real navigation saving are covered. Full commands/results and exclusions are in section 10.
+- **Step 5 complete:** `LibraryDao.searchNotes` returns one row per note from `documents` left-joined to `notes`, so the 50-note limit counts distinct notes and names come from the current document; Kotlin's post-query de-duplication is deleted. A removed note still matches while its saved copy is kept, as the existing test asserted. The fixture of a saved copy with no `documents` row was replaced by a removed row: the server deletes document rows only on disconnection, when the phone forgets their saved copies too. Evidence in section 11.
 - **Branch:** work is on `fix/saved-page-integrity` (renamed from `audit-root-cause-cleanup` at the user's request before publication). Step 1 is commit `dbf4b10`; the user's approved local-main correction left `main` at `f8ccf82`. No existing remote history was rewritten.
 
 ## Goal and verdict
@@ -286,11 +287,11 @@ Google's [Compose state-hoisting guidance](https://developer.android.com/develop
 
 ## 5. Decisions/approvals required before implementation
 
-1. **Old app support:** confirm the installed APK reads `/api/library`, or approve dropping the legacy read contract. Do not infer deployment state from the checkout.
-2. **Persistence/API changes:** image identity, Room v14, retiring the image contract/cache and the single-serialization DOM refactor were explicitly approved and completed in step 2. The reading-refusal schema/contract in step 4 still needs concrete approval.
-3. **Account-deletion interruption:** choose restart behavior when the server result is unknown. Current persisted removal can cause local cleanup after interruption even though a normally received failed deletion cancels it. Preserve data or finish removal only under an explicit agreed policy; report server uncertainty honestly.
-4. **Legacy unowned data:** decide how a nonempty database without a recorded owner is claimed or removed. Do not guess the account.
-5. **Study semantics:** choose stable-question continuity and whether linked answer content participates in confirmation, including image-only changes. Snapshot-correct images do not by themselves make blob-only card confirmation cover image changes. These choices produce different implementations.
+1. **Old app support:** decided 2026-10-18: drop the legacy read routes. Step 2 already replaced the image contract without backward compatibility, so an older APK is unsupported against the current backend either way.
+2. **Persistence/API changes:** image identity, Room v14, retiring the image contract/cache and the single-serialization DOM refactor were explicitly approved and completed in step 2. The reading-refusal schema/contract in step 4 was approved 2026-10-18.
+3. **Account-deletion interruption:** decided 2026-10-18: keep local data. Only a server acknowledgement of the deletion leads to local cleanup; an interrupted or unknown result does not.
+4. **Legacy unowned data:** decided 2026-10-18: delete nonempty local data with no recorded owner before a session is issued over it.
+5. **Study semantics:** decided 2026-10-18: editing a prompt does not create a new question; a card follows its Canonical line through the server's existing re-anchoring and shows the bank's current prompt. The linked answer section is not part of confirmation: only the bank's Canonical line is confirmed, and the linked section is shown as currently saved. Keeping a bank and its linked notes in step is the author's rule when pushing to GitHub. Whether Review can show an outdated saved copy of the linked note is checked in step 6.
 6. **Refactor scope:** approve the targeted package moves separately from correctness slices. Each move removes its old location/import path; no forwarding wrappers. Where a refactor adds production lines, explain the named requirement or shrink it.
 7. **Style:** choose exact Google Java/Android Kotlin style versus the repository's current Palantir/Kotlinlang variants. The current formatters intentionally do not enforce the requested exact guides. Use one mechanical change after functional fixes, not a manual reformat mixed into them.
 
@@ -573,3 +574,38 @@ This uses a pre-fix renderer only in `/tmp`, not a retained repository implement
 - Account-removal admission/ownership, historical canonical compatibility, reading refusals, search duplication and answer-confirmation policy remain open plan items. Correct snapshot identity does not solve those separately owned defects.
 - Step 3 needs two explicit policies before implementation: what happens locally after an interrupted account-deletion call whose server result is unknown, and what to do with nonempty legacy local data whose account owner cannot be proven. No policy is inferred from a missing credential or a 401.
 - Unrelated `.gitignore` and untracked `notes/` edits are excluded from the cleanup commits.
+
+
+## 11. Step 5 verification — 2026-10-18
+
+### Red, then green
+
+`LocalStoreTest.searchListsEachMatchingNoteOnceUnderItsCurrentName` lists 60 notes matching by title and saved text, plus a note whose saved copy predates its rename and move. Against the old query it failed on the Pixel 8a (Android 14/API 34):
+
+```text
+java.lang.AssertionError: expected:<50> but was:<26>
+Tests run: 1,  Failures: 1
+```
+
+It now passes, together with the existing search test, whose removed-note fixture now has the `documents` row that production always has, plus a removed note without a saved copy that must not match.
+
+### Final checks
+
+From the repository root, exit **0**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 17s
+android JVM {'tests': 73, 'failures': 0, 'errors': 0, 'skipped': 1}
+```
+
+Installed the Dev app and test APKs with `adb install -r` / `install -r -t` (both `Success`) and ran the full device suite with `am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner`:
+
+```text
+OK (88 tests)
+```
+
+No backend, schema, route or dependency changed; the backend suite was not rerun. Search's UI wording and highlight search are unchanged.

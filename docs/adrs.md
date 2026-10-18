@@ -111,6 +111,8 @@ Amended 2026-10-09 (Room v8): moving to a newer version keeps the version left b
 
 **Decision** (Stage 6). Search runs on the phone over note titles and paths in the saved lists, the canonical text of saved notes (sent with each note), and highlights — SQLite `LIKE` with escaped wildcards, no full-text index or server search. The phone's saved data belongs to one account: the server issues no session for another (ADR-22; amended 2026-10-16: before, signing in as another cleared it first).
 
+Amended 2026-10-18: one query returns one row per matching note before the 50-note limit, named by its `documents` row (current title and path), with its saved text when that matched; a note removed from its repository matches while its saved copy is kept. Before, listed and saved rows were unioned, limited, then de-duplicated in Kotlin, so 60 matching notes showed as 25–26 and a copy saved before a rename was listed by its old name.
+
 **Consequences.** Notes not saved on the phone match by title only; since ADR-19 every note can be saved. Non-ASCII letters match case-sensitively. Adequate for one person's repository; revisit with FTS if it is slow or too literal.
 
 ## ADR-11 — Disconnecting deletes everything stored for that repository; account deletion deletes everything
