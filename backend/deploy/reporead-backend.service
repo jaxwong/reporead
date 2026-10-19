@@ -1,0 +1,28 @@
+# Installed as /etc/systemd/system/reporead-backend.service (systemctl enable --now reporead-backend); restarted by
+# reporead-deploy after each jar install.
+[Unit]
+Description=RepoRead backend
+# reporead-postgres is Type=notify gated on its health check, so it is "started" only once it accepts connections.
+Requires=reporead-postgres.service
+After=reporead-postgres.service network-online.target
+Wants=network-online.target
+
+[Service]
+User=reporead
+Group=reporead
+EnvironmentFile=/etc/reporead/backend.env
+# Oracle may reclaim an Always Free A1 VM whose CPU, network and memory all stay under 20% for 7 days; RepoRead
+# alone uses ~16% of memory. A 1 GB heap committed and touched at startup keeps memory near 30% (ADR-14).
+ExecStart=/usr/bin/java -Xms1g -XX:+AlwaysPreTouch -jar /opt/reporead/backend.jar
+# The JVM exits 143 on SIGTERM; a normal stop or deploy is not a failure.
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target
