@@ -123,7 +123,7 @@ These are exclusions, not hidden stretch goals.
 Noticed and deliberately not changed:
 
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
-- Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
+- Save all image saving is best effort: its completion counts pages, not guaranteed image availability. A failed fetch, unreadable cache or full disk can still leave an image unavailable offline; see ADR-19.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
 - Bank-question identity is local to this phone's bank document and drawn Canonical text; a re-anchored line edit can retain its card, while a larger edit can leave an orphan beside a new question. Independently created cross-device cards can remain duplicates; no cross-device deduplication is promised (ADR-20).
 - After a bank prompt edit, Review uses the current saved-bank prompt, but Notebook and the reader's notes panel still show the prompt saved on the card. Review also parses all saved bank pages before its first card, including for hand-written-only sessions; accepted in the PR4 branch audit, not changed by PR5.
@@ -168,6 +168,8 @@ Initial closure checks passed: main CI/hosted health at `b6e3c82`, local backend
 
 ## Mechanical moves — Local verification (2026-10-20)
 
+**Current status:** the user confirmed this work merged and pending deployment on 2026-10-20. The local evidence below remains historical; no subsequent deployment or release install is claimed.
+
 ### Initial implementation (`92ee00f`)
 
 Implemented locally on `mechanical-moves`, code commit `92ee00f`: Compose load UI moves to `ui/`; Practice, Review, recognition, answer views, scheduling and session progression move to `study/`; folder helpers move to `library/Folder.kt`. Their callers and JVM/device tests follow, without aliases or duplicate implementations. Production Kotlin is net **+3 lines**, solely the imports needed across the new package boundaries; all 38 production file bodies were compared before/after, allowing only the three helper relocations and the approved saved-state format change. All existing test bodies/assertions are preserved, with the two folder tests moved to `FolderTest`.
@@ -201,7 +203,7 @@ OK (172 tests)
 
 `git diff --check` also exited **0** with no output. Device coverage uses the existing isolated Room/loopback fixtures, not the live account; no production stub was introduced.
 
-**Limits:** backend tests and opt-in private-corpus measurements were not rerun because their code/rules did not change. Actual `MainActivity` restoration across a release update remains unverified; format tests use a constructed marker, not captured old-APK state. Images in Save all and the remaining Section 5 work stay deferred. Ignored local `notes/` files are outside this change. No push or deployment was performed.
+**Limits:** backend tests and opt-in private-corpus measurements were not rerun because their code/rules did not change. Actual `MainActivity` restoration across a release update remains unverified; format tests use a constructed marker, not captured old-APK state. Images in Save all now proceed below; the remaining Section 5 work stays deferred. Ignored local `notes/` files are outside this change. No push or deployment was performed.
 
 ### Audit correction (2026-10-20)
 
@@ -245,6 +247,20 @@ OK (169 tests)
 SHA-256 of the installed APK artifacts: app `c9ca05befecd88ad0829512545cbcbfe06c9c73d60f0176e25a81d22c8f7ce63`; device tests `956a515e52204fe00d92086038f7aa170edf3cf4ef2a606d43c4dccf97df9356`. This was the isolated Room/loopback suite, with no live-account smoke test or release install. No production/test source changed for this verification run.
 
 **Deferred/not touched:** class-name-independent session persistence remains a separate follow-up decision; Java-Serializable state and the approved format-4 gate stay. `Load`/`LoadContent`'s pre-existing public visibility is unchanged. Backend tests and private-corpus measurements were not rerun; no dependency, migration, production fixture, release install, push or deployment is part of this correction.
+
+## Images in Save all (2026-10-20)
+
+Implemented locally on `save-all-images`, code commit `bf43647`. Save all checks the images of every listed saved page, including already-current pages (user decision), before reporting that page's progress. Current text is not fetched again. `NoteImages` reuses its existing snapshot-pinned files under the app's private `filesDir`, not SQLite BLOBs; no schema, dependency or new download/retry mechanism. The unused metadata-only `savedVersions` query is removed. ADR-19 owns limits, per-page ordering, cancellation and image-failure behavior; completion still counts pages, not guaranteed image availability.
+
+The new offline-reader regression first failed on the unchanged implementation with `Images must precede progress` (`Tests run: 1, Failures: 1`; ADB exit **0** does not mean a passing suite). After implementation, focused sync/image/committed-mutation suites passed (`OK (54 tests)`, 21.889 s). Five new device tests cover Save all then offline resource access, encoded/duplicate paths, current-page backfill, partial image failure, cancellation/restart, empty input and disconnect during prefetch; the existing legacy-snapshot and image-only-refresh assertions are retained and extended.
+
+Local Gradle gates passed (exit **0**): format, Lint, JVM tests, Kotlin/device-test compilation, reader packaging and debug/device-test/release assemblies (`BUILD SUCCESSFUL in 26s`). A subsequent fresh run of format/Lint/JVM/device-test compilation/reader packaging passed with all 51 tasks executed (`BUILD SUCCESSFUL in 45s`): **82 JVM tests, 0 failures, 0 errors, 1 opt-in skip**; Lint **0 errors, 0 warnings, 7 informational hints**. The initial new-code KTX lint error and final-comment formatting failure were corrected without rule changes. Exact commands and terminal results stay in this change's git evidence.
+
+The first full Pixel run ended **`Tests run: 174, Failures: 1`** (266.234 s): `PracticeSessionTest.doubleTappingTheGradeWritesOneCardAndOneGrade` failed at the second accessibility-click assertion, before its card/grade assertions. All 41 `LocalSyncTest` methods, including all five new regressions, and both image/committed-mutation suites passed. The unchanged Practice test passed alone (`OK (1 test)`, 1.613 s). Its intermittent failure's cause is not established; no assertion, timeout or production behavior was changed to hide it. ADB exited **0** for both runs, which does not itself establish success.
+
+The second full run passed without source/test changes (exit **0**): **`OK (174 tests)`**, 255.82 s. Debug and test APKs were installed with data-preserving `install -r` / `install -r -t`; the release app was not installed. `git diff --check` also exited **0** with no output. The passing rerun does not explain the earlier Practice failure; that evidence remains above and in git.
+
+**Limits:** tests use labelled isolated Room/loopback fixtures, not the live account; no production stub was introduced. Backend tests and opt-in private-corpus measurements were not rerun because their code/rules did not change. Real-account image-prefetch timing/storage, actual image HTTP timeouts and off-screen WorkManager lifecycle remain unverified for this image pass. No push, deployment or release installation was performed. PR5 and the mechanical moves are merged and pending deployment, per the user's confirmation; other Section 5 work remains deferred.
 
 ## Not yet verified on the real system
 
