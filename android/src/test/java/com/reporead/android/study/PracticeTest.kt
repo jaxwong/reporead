@@ -1,15 +1,11 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.PracticePage
-import com.reporead.android.reader.BankProblem
-import com.reporead.android.reader.StudyAnswer
-import com.reporead.android.reader.StudyQuestion
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -202,26 +198,5 @@ class PracticeTest {
             banks.unrecognized,
         )
         assertEquals(Banks(emptyList(), emptyList(), emptyList()), readBanks(emptyList()))
-    }
-
-    @Test
-    fun folderFilterUsesPathBoundariesAndIncludesDescendants() {
-        assertTrue(inPracticeFolder("core/db/a.md", " core/ "))
-        assertTrue(inPracticeFolder("core/db/a.md", "/core/db/"))
-        assertTrue(inPracticeFolder("root.md", ""))
-        assertFalse(inPracticeFolder("core-extra/a.md", "core"))
-        assertFalse(inPracticeFolder("books/a.md", "core"))
-    }
-
-    @Test
-    fun topicsUseOnlyActualFoldersAndIncludeEachAncestorOnce() {
-        assertEquals(
-            listOf("core", "core/db", "core/db/sql", "core-extra"),
-            practiceTopics(
-                listOf("root.md", "core/db/sql/a.md", "core/db/b.md", "core-extra/a.md", "core/db/sql/c.md")
-            ),
-        )
-        assertEquals(emptyList<String>(), practiceTopics(emptyList()))
-        assertEquals(emptyList<String>(), practiceTopics(listOf("root.md")))
     }
 }

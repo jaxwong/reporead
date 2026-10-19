@@ -1,4 +1,4 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.reporead.android.ui.counted
 import java.io.Serializable
+import kotlin.random.Random
 
 /**
  * One Practice or Review session's progress, and the one owner of how a session moves: the items it [started] with, the
@@ -48,6 +49,18 @@ internal data class StudySession(
 
     /** How many of the items it started with have a saved first grade, given the [graded] ones in storage. */
     fun completed(graded: Set<String>) = started.count { it in graded }
+}
+
+/**
+ * Practice and Review sessions alternate notes: shuffled note groups, then one item per note per round, so remaining
+ * items never disappear. [note] is each item's document.
+ */
+internal fun <T> interleaveByNote(items: List<T>, seed: Int, note: (T) -> Long): List<T> {
+    val random = Random(seed)
+    val groups = items.groupBy(note).values.shuffled(random).map { it.shuffled(random) }
+    return (0 until (groups.maxOfOrNull { it.size } ?: 0)).flatMap { round ->
+        groups.mapNotNull { it.getOrNull(round) }
+    }
 }
 
 /** A session's first row: what is left and what the item asked now is ([label]), and [skip] to move past it. */

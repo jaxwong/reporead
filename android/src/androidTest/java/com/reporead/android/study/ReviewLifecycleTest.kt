@@ -1,4 +1,4 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import androidx.compose.material3.MaterialTheme
 import androidx.room.Room

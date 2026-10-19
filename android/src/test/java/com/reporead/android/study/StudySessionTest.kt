@@ -1,4 +1,4 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream

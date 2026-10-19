@@ -49,6 +49,7 @@ import com.reporead.android.ui.MenuAction
 import com.reporead.android.ui.OverflowMenu
 import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
+import com.reporead.android.ui.folderOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -64,6 +65,21 @@ internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<S
     val notes = inside.filter { '/' !in it.path.removePrefix(prefix) }.sortedBy { it.title.lowercase() }
     return folders to notes
 }
+
+internal fun inPracticeFolder(path: String, folder: String): Boolean {
+    val prefix = folder.trim().trim('/')
+    return prefix.isEmpty() || path.startsWith("$prefix/")
+}
+
+/** Every real ancestor folder is a topic, including folders whose notes have not been saved yet. */
+internal fun practiceTopics(paths: List<String>): List<String> =
+    paths
+        .flatMap { path ->
+            val parts = folderOf(path).split('/').filter { it.isNotEmpty() }
+            parts.indices.map { parts.take(it + 1).joinToString("/") }
+        }
+        .distinct()
+        .sortedBy { it.replace('/', '\u0000') }
 
 /** What Save all is doing or did last, for the status line. */
 private fun describe(saving: SavingNotes): String =

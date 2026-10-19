@@ -26,6 +26,8 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
+import com.reporead.android.study.StudyNote
+import com.reporead.android.study.json
 import com.reporead.android.sync.Sync
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineScope

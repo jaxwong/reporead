@@ -1,4 +1,4 @@
-package com.reporead.android.core.network
+package com.reporead.android.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,6 +10,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.reporead.android.core.network.ApiException
+import com.reporead.android.core.network.describe
 
 sealed interface Load<out T> {
     data object Loading : Load<Nothing>

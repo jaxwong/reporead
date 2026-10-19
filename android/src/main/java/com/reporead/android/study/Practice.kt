@@ -1,4 +1,4 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import android.util.Log
 import androidx.compose.foundation.clickable
@@ -40,19 +40,12 @@ import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.PracticePage
 import com.reporead.android.data.scheduledLines
-import com.reporead.android.reader.BankAnswer
-import com.reporead.android.reader.BankProblem
-import com.reporead.android.reader.StudyQuestion
-import com.reporead.android.reader.interviewBank
-import com.reporead.android.reader.interviewTopic
-import com.reporead.android.reader.isInterviewBank
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
-import com.reporead.android.ui.folderOf
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -106,38 +99,11 @@ internal fun readBanks(pages: List<PracticePage>): Banks {
     return Banks(banks, questions, unrecognized)
 }
 
-/**
- * Practice and Review sessions alternate notes: shuffled note groups, then one item per note per round, so remaining
- * items never disappear. [note] is each item's document.
- */
-internal fun <T> interleaveByNote(items: List<T>, seed: Int, note: (T) -> Long): List<T> {
-    val random = Random(seed)
-    val groups = items.groupBy(note).values.shuffled(random).map { it.shuffled(random) }
-    return (0 until (groups.maxOfOrNull { it.size } ?: 0)).flatMap { round ->
-        groups.mapNotNull { it.getOrNull(round) }
-    }
-}
-
 /** Question keys already on this phone's review schedule, matched by [scheduledLines]. */
 internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<NotebookItem>): Set<String> {
     val made = scheduledLines(cards)
     return questions.filter { (it.documentId to it.question.answer.text) in made }.map { it.key }.toSet()
 }
-
-internal fun inPracticeFolder(path: String, folder: String): Boolean {
-    val prefix = folder.trim().trim('/')
-    return prefix.isEmpty() || path.startsWith("$prefix/")
-}
-
-/** Every real ancestor folder is a topic, including folders whose notes have not been saved yet. */
-internal fun practiceTopics(paths: List<String>): List<String> =
-    paths
-        .flatMap { path ->
-            val parts = folderOf(path).split('/').filter { it.isNotEmpty() }
-            parts.indices.map { parts.take(it + 1).joinToString("/") }
-        }
-        .distinct()
-        .sortedBy { it.replace('/', '\u0000') }
 
 private fun topicName(topic: String?) =
     when (topic) {

@@ -1,4 +1,4 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import com.reporead.android.data.AnchorStatus
 import com.reporead.android.data.AnnotationRow
@@ -7,9 +7,6 @@ import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
-import com.reporead.android.reader.AnswerLink
-import com.reporead.android.reader.StudyAnswer
-import com.reporead.android.reader.StudyQuestion
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId

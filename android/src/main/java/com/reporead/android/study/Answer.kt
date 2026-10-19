@@ -1,4 +1,4 @@
-package com.reporead.android.reader
+package com.reporead.android.study
 
 import android.content.Context
 import android.util.Log
@@ -36,6 +36,8 @@ import com.reporead.android.Screen
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
+import com.reporead.android.reader.resolveNoteLink
+import com.reporead.android.reader.showIsolatedPage
 import com.reporead.android.sync.Sync
 import org.json.JSONObject
 

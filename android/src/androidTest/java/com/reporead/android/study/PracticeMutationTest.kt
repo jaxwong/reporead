@@ -1,4 +1,4 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
@@ -9,8 +9,6 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
-import com.reporead.android.reader.StudyAnswer
-import com.reporead.android.reader.StudyQuestion
 import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.UUID
