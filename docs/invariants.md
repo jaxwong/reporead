@@ -22,7 +22,7 @@ These come from the original implementation spec's engineering invariants and th
 | --- | --- |
 | Note content and history | GitHub |
 | Users, sessions, connections, document identity, reading state, annotations, the review log, the session limit, every reconciliation decision | Backend and PostgreSQL |
-| Saved copies, pending changes, change baselines, the review schedule | Phone (Room) |
+| Saved copies, pending changes, the review schedule | Phone (Room) |
 | Metrics and logs | Projections only, never read back as state |
 
 - Enforced by: Room replaces server lists only with complete responses; the server stores no due dates; the phone computes no reconciliation.
@@ -110,22 +110,22 @@ These come from the original implementation spec's engineering invariants and th
 
 **Note content never runs as code and never reaches native code.**
 
-- Enforced by: raw HTML is escaped and output passes a jsoup safelist; the WebView loads only bundled assets and the note's own images, with network, file and content access blocked; Mermaid runs in strict mode within server-owned bounds; there is no JavaScript bridge, and the page reaches native code only through intercepted same-origin links (`/note-link`, `/copy-code`, `/full-screen`).
+- Enforced by: raw HTML is escaped and output passes a jsoup safelist; the WebView loads only bundled assets and the note's own images, with network, file and content access blocked; Mermaid runs in strict mode within server-owned bounds; there is no JavaScript bridge, and the page reaches native code only through intercepted same-origin links (`/note-link`, `/copy-code`).
 - Why: [ADR-04](adrs.md#adr-04--the-server-renders-an-isolated-webview-displays), [ADR-18](adrs.md#adr-18--rendering-changes-never-change-an-unchanged-blobs-canonical-text).
 
 ### A displayed page never borrows another snapshot's images
 
 **Every repository image belongs to the displayed page's immutable repository commit and resolved path, even when only images changed.**
 
-- Enforced by: the content boundary captures document/checkpoint and image paths together, binds embeds once, and returns `snapshotCommitSha`; `NoteRow`, shared reader resources and figure navigation preserve it; image requests require that commit, and `NoteImages` uses one commit-keyed layout. An unknown legacy identity means unavailable images, never a latest-snapshot fallback.
-- Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `LocalSyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest`, `FigureSnapshotTest` and `NavigationTest` (image-only refresh, repeat reads, cache/deletion interleavings, preserved legacy data and saved navigation).
+- Enforced by: the content boundary captures document/checkpoint and image paths together, binds embeds once, and returns `snapshotCommitSha`; `NoteRow` and shared reader resources preserve it; image requests require that commit, and `NoteImages` uses one commit-keyed layout. An unknown legacy identity means unavailable images, never a latest-snapshot fallback.
+- Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `LocalSyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest` and `NavigationTest` (image-only refresh, repeat reads, cache/deletion interleavings, preserved legacy data and saved navigation).
 - Why: [Images contract](../backend/README.md#images), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
 
 ### The user's data leaves only when the user sends it
 
 **Notes and annotations are not backed up off the phone, transferred, logged, or kept in live data after the user removes them; the server's database backups keep their copies until replaced.**
 
-- Enforced by: Android backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them in the live database and on the phone, and their dialogs say that existing backups keep a copy until replaced (retention in backend/README.md, Backups); exports exist only in a private folder until shared, and are deleted at each start, disconnect and clear; a sign-out, or an account deletion the server confirmed, stays pending on disk until Room's rows and every file are gone, and only then forgets the data's owner; Account permanently retires the old Sync/image lifetime before clearing and publishes a new one only after successful cleanup; local writes, server answers and exports share that lifetime's lock, so no stale caller can recreate rows or files, including after same-account re-sign-in; worker and activity share Account startup before sending; a sign-in over unowned data requires a pending verifier before cleanup; saved images are derived from Room's saved snapshots, cache reads share the deletion lock, and a fetch that began before a deletion does not write.
+- Enforced by: Android backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them in the live database and on the phone, and their dialogs say that existing backups keep a copy until replaced (retention in backend/README.md, Backups); a sign-out, or an account deletion the server confirmed, stays pending on disk until Room's rows and every file are gone, and only then forgets the data's owner; Account permanently retires the old Sync/image lifetime before clearing and publishes a new one only after successful cleanup; local writes and server answers share that lifetime's lock, so no stale caller can recreate rows or files, including after same-account re-sign-in; worker and activity share Account startup before sending; a sign-in over unowned data requires a pending verifier before cleanup; saved images are derived from Room's saved snapshots, cache reads share the deletion lock, and a fetch that began before a deletion does not write.
 - Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
 
 ## Failure behaviour
@@ -187,15 +187,15 @@ These come from the original implementation spec's engineering invariants and th
 
 ### A screen's work belongs to its entry; a confirmed change belongs to Sync
 
-**Rotation or covering neither cancels nor repeats a screen's work, and leaving a screen never abandons a change the server confirmed or a local write it accepted. Only the resumed current entry navigates or shares, once; a removed local copy refuses late work.**
+**Rotation or covering neither cancels nor repeats a screen's work, and leaving a screen never abandons a change the server confirmed or a local write it accepted. Only the resumed current entry navigates, once; a removed local copy refuses late work.**
 
 - Enforced by: one ViewModel per screen that starts work, owning its loads, operations (admitted synchronously, one per exclusion group) and outcomes; `isChangingConfigurations` telling a return from a rotation; results claimed once by the resumed screen; `Sync.committed` for the screens' mutations, under the lock that retirement closes.
 - Checks: `AppNavigationTest` (recreation, covering, pop, double taps, restoration and a real read timeout through the real app); `CommittedMutationTest` (each mutation committed after its caller is cancelled, queued writes, retirement); `ReaderViewModelTest`; `PracticeSessionTest`, `ReviewLifecycleTest`, `ReaderLifecycleTest` and `AccountTest` in decorated entries. Execution evidence is recorded in ADR-28.
 - Why: [ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync).
 
 A submitted Practice grade survives its validation reads as well as Sync's write. Reader edit/delete dialogs close
-only after admission; rejected input remains editable. A presented change acknowledgement survives sign-out/pop,
-subject to copy retirement. Restored submitted edits reload their saved annotation and never replay a mutation.
+only after admission; rejected input remains editable. Restored submitted edits reload their saved annotation and never
+replay a mutation.
 
 ## Constraints on reader code
 

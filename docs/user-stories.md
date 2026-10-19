@@ -107,16 +107,15 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 - A probable rename with changed content is accepted only when evidence is strong enough; a weak match does not merge unrelated notes.
 - A genuinely deleted note is marked deleted without silently destroying its reading history or annotations.
 
-### US-09 — Review what changed since I last read
+### US-09 — Find recently updated notes
 
-**As a** returning reader, **I want** to see which notes and sections changed since my last study session, **so that** I can focus on new or revised material.
+**As a** returning reader, **I want** to see which notes changed since my last study session, **so that** I can focus on new or revised material.
 
 **Acceptance criteria**
 
-- RepoRead compares the version I last read with the current version.
+- RepoRead compares the version I last read with the current version to identify updated notes.
 - The library identifies notes updated since I read them.
-- A note shows a mobile-friendly section-level change summary and lets me open a changed section or the full note.
-- A note I have never read does not pretend to have a “since last read” baseline.
+- Opening an updated note shows the full note; section change summaries were retired on 2026-10-19 (ADR-09).
 
 ### US-10 — Search my notes
 
@@ -151,7 +150,7 @@ Added after the MVP (see the [feature list](feature-list.md#after-the-mvp)).
 - I can open an outline of the note's headings, see which section I am in, and jump to any heading.
 - A footnote reference shows its definition without leaving the passage.
 - I can copy a code block exactly, and wrap one that is wider than the screen.
-- A wide table or a diagram opens full screen with zoom and landscape.
+- Wide tables and diagrams scroll sideways in the page; the unused full-screen view was retired on 2026-10-19.
 - The bars hide while I read and come back when I scroll up.
 - None of this changes where existing highlights are anchored.
 
@@ -189,7 +188,7 @@ Added after the MVP (see the [feature list](feature-list.md#after-the-mvp)).
 - The Practice tab says how many cards are due now, how many fall due next and in the coming week; a session asks each due card, each grade shows when the card comes back, and my grade schedules it.
 - Grades made offline sync once, even when sent again.
 - A card whose note changed is not drilled until I confirm or reattach its answer.
-- I can see every highlight and card in one notebook, filter it, and export it as Markdown.
+- I can see every highlight and card in one notebook and filter it; unused Markdown export was retired on 2026-10-19.
 - Disconnecting a repository or deleting my account removes its cards and review history.
 
 ## Later, not MVP

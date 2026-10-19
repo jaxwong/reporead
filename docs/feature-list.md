@@ -16,7 +16,7 @@ This is the scope, priority and status checklist. User value and acceptance crit
 | F-08 | Offline annotation mutation persistence and idempotent sync | US-06 | 2 — Remember |
 | F-09 | Source-version tracking, file-move recognition, and conservative annotation re-anchoring | US-07, US-08 | 3 — Survive edits |
 | F-10 | Orphan state with original context and manual reattachment | US-07 | 3 — Survive edits |
-| F-11 | Recently changed notes and section-level “changed since last read” | US-02, US-09 | 4 — Git-aware reading |
+| F-11 | Recently changed notes and notes updated since last read | US-02, US-09 | 4 — Git-aware reading |
 | F-12 | Basic search over cached note titles and content | US-10 | MVP; schedule after core reading path |
 | F-13 | Repository disconnect and account-deletion path | US-11 | MVP; before external use |
 
@@ -44,9 +44,9 @@ Track Git versions; resolve exact/context anchors; conservatively handle fuzzy m
 
 ### 4 — Git-aware reading
 
-Add recently changed notes and section-level changes since the last-read version.
+List recently changed notes and notes updated since the last-read version. Section summaries were retired on 2026-10-19 (ADR-09).
 
-**Evidence:** The developer can go directly to material changed since the previous study session.
+**Evidence:** The developer can find notes changed since the previous study session and reread them.
 
 ### 5 — Polish and demonstrate
 
@@ -65,7 +65,7 @@ The milestones were built as vertical slices (GitHub → backend → PostgreSQL 
 | 2 | Dependable reading, including offline | F-05, F-06 | Passed 2026-10-06 |
 | 3 | Durable online and offline annotations | F-07, F-08 | Passed 2026-10-06 |
 | 4 | Annotations survive edits or become explicit orphans | F-09, F-10 | Passed 2026-10-07 |
-| 5 | Changes since the version actually read | F-11 | Passed 2026-10-07 |
+| 5 | Notes changed since the version actually read | F-11 | Passed 2026-10-07; section summaries retired 2026-10-19 |
 | 6 | Search, data controls, metrics, signed release, ADRs | F-12, F-13 | **Pending** |
 
 Stage 6 is built and checked on the phone, along with two additions: a dark theme with a redesigned reader and app shell, and Obsidian `[[links]]` and `![[embeds]]`. Its gate still needs two weeks of voluntary use, at least 20 real highlights, the labelled fixture demo (deferred until after the two weeks), and a full review against F-01–F-13 and US-01–US-11.
@@ -76,10 +76,10 @@ Post-MVP work started on 2026-10-07, before the Stage 6 gate. Each stage reverse
 
 | Stage | What | Story | Status |
 | --- | --- | --- | --- |
-| P1 | Long and wide notes: outline and current section, footnotes, code Copy and Wrap, full-screen tables and diagrams, bars that hide while reading | US-12 | Built 2026-10-07; gate pending: reading long notes on the phone without switching to GitHub or the laptop because of layout |
+| P1 | Long and wide notes: outline and current section, footnotes, code Copy and Wrap, bars that hide while reading | US-12 | Built 2026-10-07; unused full-screen figures retired 2026-10-19 (audit PR1), in-page sideways scrolling retained; gate pending: reading long notes on the phone without switching to GitHub or the laptop because of layout |
 | P2 | Every note saved on the phone, link previews, Linked from (ADR-19) | US-13 | Gate passed 2026-10-07 for the cases tried |
 | P3 | LeetCode study view and Practice (ADR-20) | US-14 | Built 2026-10-09; its question source was replaced by interview banks (2026-10-13) and its question list by Practice sessions (2026-10-14). Gate pending: the developer uses it in real sessions and says whether it beats rereading |
-| P4 | Review cards with phone-side scheduling, the Notebook, Markdown export (ADR-13) | US-15 | Built 2026-10-09; review moved into the Practice tab 2026-10-14; SM-2 replaced by a fixed gap ladder 2026-10-15. Gate pending: two weeks of real review sessions |
+| P4 | Review cards with phone-side scheduling, the Notebook (ADR-13) | US-15 | Built 2026-10-09; unused Markdown export retired 2026-10-19 (audit PR1); review moved into the Practice tab 2026-10-14; SM-2 replaced by a fixed gap ladder 2026-10-15. Gate pending: two weeks of real review sessions |
 | — | GitHub sign-ins renewed, stored encrypted, and revoked on the last sign-out (ADR-03); hosted backend (ADR-14); releases through Obtainium (ADR-15) | — | Built 2026-10-13/14 |
 
 ## Out of scope
@@ -127,7 +127,6 @@ Noticed and deliberately not changed:
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
 - A reading position the server refuses (for example, with the phone's clock more than 5 minutes ahead) stays pending, counted as waiting, until a newer one replaces it: reading rows have no refusal mark, unlike highlights and grades. Fixing it is a Room migration.
 - A bank question is matched to its card by bank, prompt and answer line, so renaming its heading or editing its Canonical line makes it a new question; grading it then starts a second card on the same answer.
-- Exports are deleted at each app start, disconnect, sign-out and account deletion, so an app that reads a shared export only after that finds it gone; sharing again writes a new one.
 - A sign-out cut short, or an account deletion cut short after the server confirmed it, is finished at the next start without saying which it was. A deletion cut short before its answer keeps the phone's copy, and the next start says nothing about it; deleting again shows whether the account still exists (a 401 if it is gone).
 - An operation on a retired local copy is cancelled, including after signing back into the same account; a change for a disconnected note in a still-active copy saves nothing. Neither resurrects removed phone data.
 - Saved pages predating the server's complete-page limit are not rewritten or deleted automatically. New content is limited to 1 MiB of UTF-8 across HTML, search text and metadata; complete 2 MiB string payloads were reproduced as unreadable in Room on the Pixel 8a, Android 14. Cache/page-format evolution is tracked in the [remediation plan](audit-remediation-plan.md#step-4--complete-saved-page-and-reading-state-transitions-a4-a6).
@@ -185,12 +184,61 @@ Navigation 3 owns the back stack and each entry's saved state/ViewModel store; c
 
 ## Screen work in its entry (2026-10-19)
 
-Each screen that starts work keeps it in its back-stack entry's ViewModel: a rotation or a covering screen no longer cancels or repeats a refresh, preview, connect, export, grade, card confirmation or highlight change, or loses what it reported; a mutation the server confirmed, or a local write accepted, is committed even if its screen is left, and only the screen shown navigates or shares, once ([ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync)). Library and the folder root still sync on return (B1 not approved). This is PR 4 of the Android foundations plan; the ADR records the evidence and what remains unverified.
+Each screen that starts work keeps it in its back-stack entry's ViewModel: a rotation or a covering screen no longer cancels or repeats a refresh, preview, connect, grade, card confirmation or highlight change, or loses what it reported; a mutation the server confirmed, or a local write accepted, is committed even if its screen is left, and only the screen shown navigates, once ([ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync)). Library and the folder root still sync on return (B1 not approved). This is PR 4 of the Android foundations plan; the ADR records the evidence and what remains unverified.
 
-PR4's audit follow-up protects Practice's pre-write validation, retains rejected/submitted reader drafts, and separates
-summary-fetch cancellation from committed acknowledgement. Format 2 explicitly resets incompatible pre-PR4 UI state;
-Room and pending changes stay. Audit steps 4 (baseline ordering) and 6 (matching and transactional first grade) remain
-separate, as approved; this follow-up does not claim either complete. ADR-28 records the regression evidence.
+PR4's audit follow-up protects Practice's pre-write validation and retains rejected/submitted reader drafts. Audit PR1
+retires summary loading/acknowledgement and advances the saved UI format to 3 for the removed figure destination;
+Room v15 drops only summary baselines, preserving saved pages and user-owned work. Reattachment restoration stays.
+Question matching and transactional first grade remain PR4 of the audit plan. ADR-28 records the foundations evidence.
+
+## Audit PR1 — Feature retirements (2026-10-19)
+
+Code: `8685dec`. Section change summaries, full-screen figures and Notebook export are removed with their callers,
+wire models, feature-only tests and sharing resources. Production diff: +56 / −1,027 lines. Room v15 drops only
+`change_baselines`; every retained table is identical to v14. Reattachment and submitted-edit restoration, updated-note
+lists, in-page sideways scrolling and `ContentMoves` remain. Saved UI format 3 rejects the removed destination.
+Decisions: ADR-09, ADR-13, ADR-18, ADR-22 and ADR-28.
+
+The new migration test ran first against unchanged production code:
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s 10.203.7.137:43717 shell am instrument -w -e class com.reporead.android.data.FeatureRemovalMigrationTest com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+# Transport exit 0; terminal result (expected red):
+# java.lang.AssertionError: expected:<15> but was:<14>
+# FAILURES!!!
+# Tests run: 1,  Failures: 1
+```
+
+Completed checks, with terminal output:
+
+```sh
+./gradlew :backend:spotlessApply :backend:spotlessCheck :backend:test --no-daemon
+# Exit 0: BUILD SUCCESSFUL in 1m 21s
+# XML: 281 tests, 0 failures, 0 errors, 3 skipped (opt-in corpus harnesses).
+
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+# Exit 0: BUILD SUCCESSFUL in 27s
+# JVM XML: 78 tests, 0 failures, 0 errors, 1 skipped (opt-in StudyCorpus).
+
+~/Library/Android/sdk/platform-tools/adb -s 10.203.7.137:43717 install -r android/build/outputs/apk/debug/app-debug.apk
+~/Library/Android/sdk/platform-tools/adb -s 10.203.7.137:43717 install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# Each exit 0: Success
+~/Library/Android/sdk/platform-tools/adb -s 10.203.7.137:43717 shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+# Transport exit 0; terminal output:
+# Time: 255.525
+# OK (173 tests)
+
+git diff --check
+# Exit 0; no output.
+```
+
+OpenAPI was regenerated by `OpenApiSpecTest` (its expected first failure), then passed in the complete backend suite;
+the Android build regenerated wire models with no retired changes models. Lint caught the figure-only close icon,
+which was deleted, then passed. The retired-symbol sweep finds no remaining production/test callers; historical
+schemas and explicit retirement/migration records remain. The device suite precedes three final stale-comment removals;
+the combined Android check above ran again afterwards. All tests use isolated stores and labelled loopback fixtures;
+no production integration is stubbed. No live GitHub check, corpus measurement, release install or backend deployment
+was performed. PR2–PR5 are unchanged in scope.
 
 ## Not yet verified on the real system
 
@@ -198,7 +246,6 @@ Covered by automated tests only, or not at all:
 
 - The format reset in the live `MainActivity` across an app update (ADR-27): Android 14 discarded state before the earlier update could exercise it. Isolated tests use the debug Activity boundary; `MainActivity` wiring is reviewed only. Deep account gates and cleanup are tested with loopback data, never by deleting the live phone copy.
 - Connecting a repository and landing on its folder above the Library against live GitHub (ADR-27, ADR-28): a device test drives Add repository against a loopback server only.
-- A branch rewind or a missing old blob against live GitHub (`SINCE_UNAVAILABLE`), and a too-large comparison.
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.
 - Airplane mode itself: it ends wireless debugging, so offline checks removed `adb reverse` instead.
 - Save all stopped by a real execution limit or by the system killing the process mid-run: only forced job timeouts were tried (ADR-19).
@@ -208,7 +255,7 @@ Covered by automated tests only, or not at all:
 - Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
 - Account operations survive screen recreation in the application scope. `AccountTest` now exercises the real root removal gate and its text across Activity recreation; deletion interruption is tested through the isolated operation owner, not an actual OS process kill.
-- The pending removal and startup sweep: `AccountTest` drives Account/SessionStore/Api/Sync/Room through loopback, including duplicate taps, unreadable session, refused/401/unreachable/interrupted deletion, persisted removal at worker startup, SQLite write refusal and Retry, undeletable files, unsolicited callbacks, notice recreation/refresh, old work after same-account re-sign-in, and admitted/queued exports. The real root screen gates removal across Activity recreation. Together with Sync, migration and reader tests the full device suite passed `OK (109 tests)` on the Pixel 8a, Android 14 (2026-10-18). The SQLite failure is an actual `query_only` write refusal, not a full-disk measurement; OS process death remains simulated through fresh owners over persisted preferences.
+- The pending removal and startup sweep: `AccountTest` drives Account/SessionStore/Api/Sync/Room through loopback, including duplicate taps, unreadable session, refused/401/unreachable/interrupted deletion, persisted removal at worker startup, SQLite write refusal and Retry, undeletable files, unsolicited callbacks, notice recreation/refresh, old work after same-account re-sign-in. The real root screen gates removal across Activity recreation. Together with Sync, migration and reader tests the full device suite passed `OK (109 tests)` on the Pixel 8a, Android 14 (2026-10-18). The SQLite failure is an actual `query_only` write refusal, not a full-disk measurement; OS process death remains simulated through fresh owners over persisted preferences.
 - Reading the stored session (2026-10-18, ADR-22): unit tests cover the stored-text checks, which Keystore exceptions delete it, and an unreadable one failing the request unsent; reading Keystore's transient and system-error marks from the exception is untested, since JVM tests cannot build a `KeyStoreException`; the exceptions were read in Android's sources, not provoked: the device suite passes with this change (79 of 79 on the phone, 2026-10-18), but none of its tests makes the Keystore fail.
 - A deploy that fails on the VM: the deploy and backup scripts were installed there on 2026-10-17 and the deploy dump ran there, but a failing deploy was only checked in a container with stubbed services.
 - The reading-position restore check (`android/reader-web/check-restore.mjs`) since it became a round trip through the reader's own `restore` and `position` (2026-10-17): not yet run on the phone's WebView. On 2026-10-18 it ran in headless Chrome 155 at 412×915 on three server-rendered notes from zw_obsidian (127, 582 and 422 blocks, with tables, lists, code and an emoji): exit 0, no `wrong` or `approximate` block, `sameRow` only for table cells. With the page's `position()` deliberately broken on every tenth block it exited 1 and named exactly those blocks.
@@ -223,12 +270,12 @@ Covered by automated tests only, or not at all:
 6. At least 20 real highlights or annotations are created; source Markdown remains untouched.
 7. A real note edit exercises re-anchoring without silently misplacing an annotation.
 8. Offline reading and annotation work, including synchronization after reconnect.
-9. A laptop edit appears in the mobile changed-since-last-read workflow.
+9. A laptop edit marks its note as updated in the library.
 10. Backend integration tests run against PostgreSQL; important decisions are documented as ADRs.
 11. A local demo can run with clearly labeled fixtures if GitHub is unavailable.
 
 ## Demo evidence and interview focus
 
-A short demo should show the same note in GitHub Mobile and RepoRead; folder browsing; Markdown, code, and Mermaid; a new annotation without a source-file change; re-anchoring after a real edit; an orphan after an ambiguous rewrite; changed-since-last-read; and offline annotation followed by one successful sync. Then show the GitHub/source, Spring Boot/durable state, and Room/offline-cache boundaries.
+A short demo should show the same note in GitHub Mobile and RepoRead; folder browsing; Markdown, code, and Mermaid; a new annotation without a source-file change; re-anchoring after a real edit; an orphan after an ambiguous rewrite; the updated-note lists; and offline annotation followed by one successful sync. Then show the GitHub/source, Spring Boot/durable state, and Room/offline-cache boundaries.
 
 The most useful code and tests to show are anchor resolution, complete-snapshot sync, idempotent mutation handling, optimistic annotation updates, GitHub permission and token handling, safe rendering, and annotation-survival integration tests—not generic CRUD. The demo should also answer why GitHub remains canonical, why a backend is needed, how duplicates, moves, force-pushes, conflicts, malicious Markdown, and GitHub outages are handled, what would fail at much larger scale, and what was deliberately not built.

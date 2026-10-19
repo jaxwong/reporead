@@ -2,7 +2,7 @@
 
 How RepoRead is built today: the parts, who owns what, and how data moves between them. The *why* behind each decision is in the [ADRs](adrs.md); the exact HTTP contract, limits and error codes are in the [backend README](../backend/README.md); phone behaviour is in the [Android README](../android/README.md). The rules every change keeps are in [invariants](invariants.md). This document links to them instead of repeating them.
 
-As built, 2026-10-18; the typed HTTP boundary is recorded in ADR-26.
+As built, 2026-10-19; the typed HTTP boundary is recorded in ADR-26.
 
 ## 1. The system in one picture
 
@@ -111,7 +111,7 @@ flowchart TB
     sync["sync<br/>RepositorySync: snapshot publish<br/>ContentMoves: moved-and-edited"]
     annotation["annotation<br/>Annotations, Anchoring,<br/>Bookmarks, Reviews"]
     reading["reading<br/>ReadingStates"]
-    document["document<br/>MarkdownRenderer, NoteVersions,<br/>NoteChanges, Attachments"]
+    document["document<br/>MarkdownRenderer, NoteVersions,<br/>Attachments"]
     repository["repository<br/>connections, per-connection lock"]
     auth["auth<br/>sign-in, app sessions,<br/>bearer auth, GitHub token renewal"]
     github["github<br/>GitHubApi: every GitHub read<br/>GitHubHttp: timeouts, size limits"]
@@ -158,7 +158,7 @@ flowchart TB
 | `github` | Every GitHub REST read, with the user's token; the HTTP clients every GitHub call goes through: 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttp` |
 | `repository` | Which repositories a user may connect (GitHub decides, through the user's token) and has connected; the connection row lock every write shares | `RepositoryConnections` |
 | `sync` | Publishing a complete tree snapshot of the default branch; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySync`, `ContentMoves` |
-| `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; changes since last read ([ADR-09](adrs.md#adr-09--changed-since-last-read-compares-the-version-actually-read-by-source-lines)); images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `NoteChanges`, `Attachments` |
+| `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `Attachments` |
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
 | `datacontrol` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionData`, `AccountDeletion`, `DataControlController` |
@@ -267,9 +267,9 @@ One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), whose back stack 
 
 ### Screens and layers
 
-The reader's summary has fixed inputs for its entry; sign-out cancels only its fetch, while Sync commits a presented
-acknowledgement. Submitted edit/conflict state belongs to the ViewModel, restoring only the submitted id/text and
-reloading the annotation. Unsubmitted overlays remain UI-owned; rejection cannot close their editor (ADR-28).
+Submitted edit/conflict state belongs to the reader's ViewModel, restoring only the submitted id/text and reloading
+the annotation. In-progress reattachment also restores through its SavedStateHandle. Unsubmitted overlays remain
+UI-owned; rejection cannot close their editor (ADR-28).
 
 ```mermaid
 flowchart TB
@@ -282,7 +282,6 @@ flowchart TB
         Folder["Folder"]
         Available["Available repositories"]
         Reader["Reader<br/>one saved overlay (ADR-25)"]
-        Figure["Full-screen figure"]
         Notebook["Notebook"]
         Practice["Practice session"]
         Review["Review session"]
@@ -290,7 +289,7 @@ flowchart TB
     end
     App --> Screens
 
-    Models["Their entries' ViewModels (ADR-28)<br/>Library · Folder · Available · Notebook · Practice · Review · Reader"]
+    Models["Their entries' ViewModels (ADR-28)<br/>Library · Folder · Available · Practice · Review · Reader"]
     Screens -- "state ↑ · actions ↓" --> Models
 
     subgraph Core["Shared code"]
@@ -319,7 +318,6 @@ flowchart TB
     Practice --> StudyS
     Review --> StudyS
     Reader --> Page
-    Figure --> Page
     Sync --> Api
     App -- "sign-in, sign-out" --> Api
     Models -- "Add repository's list" --> Api
@@ -336,9 +334,9 @@ flowchart TB
 | `auth` | PKCE sign-in through a Custom Tab and the code exchange; the encrypted bearer session, deleted only when it can never be read; the data's owner and the pending removal of the phone's copy (`SessionStore`) |
 | `core/network` | `Api`: the only executor of backend paths, with one named function per app-used route, exact success statuses, bounded responses and request/response correspondence; `wire/`: the wire models, generated at build time from `backend/openapi.json` (never committed or edited); `WireRules.kt`: the value rules a generated shape cannot state; `WireJson.kt`: one decoding policy, strict scalar/time serializers and `INVALID_RESPONSE` with its cause. Unknown fields are compatible, missing required-nullable keys are not. `ApiException(status, code)` carries a strictly decoded server error or a local HTTP/I/O failure; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
-| `sync` | `Sync`: refreshes, opening notes, pending and local changes, annotation/card mutations, disconnect, exports and startup sweeps for one local-copy lifetime. Account retires it and its `NoteImages` before clearing (`clearRetiredCopy`, returning `LocalCleanup`); its existing lock serializes all local mutations, server answers and export publication. Late operations cancel permanently; only successful cleanup publishes a fresh instance. Images retain their separate blocking file lock and deletion generation. DAO note-existence predicates cover disconnection, not lifetime authority. `ServerRows.kt` maps already validated wire records into local rows before acknowledgement or a replacement transaction; `Sync.refusesItem()` alone decides permanent item refusal from known status/code pairs; `BackgroundSync.kt`: the WorkManager jobs, the sync after each local change and Save all, each entering through `Account`, and what the folder screens read of Save all. Repository-level Stop awaits cancellation there; Account removal awaits cancellation and pruning before a fresh copy can be published. WorkManager database failures use the existing removal/Retry outcome, not another cleanup path. `Sync.committed` keeps a screen's mutations, from waiting for the lock to their local commit, from being cancelled by their screen (ADR-28). Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through `Sync.connect` |
-| `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), both moved by `StudySession.kt`, the folder screen (`Folder.kt`), and Add repository (`Available.kt`); each screen's ViewModel is in its file (ADR-28) |
-| `reader` | The reader screen and its ViewModel, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
+| `sync` | `Sync`: refreshes, opening notes, pending and local changes, annotation/card mutations, disconnect and startup sweeps for one local-copy lifetime. Account retires it and its `NoteImages` before clearing (`clearRetiredCopy`, returning `LocalCleanup`); its existing lock serializes all local mutations and server answers. Late operations cancel permanently; only successful cleanup publishes a fresh instance. Images retain their separate blocking file lock and deletion generation. DAO note-existence predicates cover disconnection, not lifetime authority. `ServerRows.kt` maps already validated wire records into local rows before acknowledgement or a replacement transaction; `Sync.refusesItem()` alone decides permanent item refusal from known status/code pairs; `BackgroundSync.kt`: the WorkManager jobs, the sync after each local change and Save all, each entering through `Account`, and what the folder screens read of Save all. Repository-level Stop awaits cancellation there; Account removal awaits cancellation and pruning before a fresh copy can be published. WorkManager database failures use the existing removal/Retry outcome, not another cleanup path. `Sync.committed` keeps a screen's mutations, from waiting for the lock to their local commit, from being cancelled by their screen (ADR-28). Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through `Sync.connect` |
+| `library` | Library tabs, Notebook (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), both moved by `StudySession.kt`, the folder screen (`Folder.kt`), and Add repository (`Available.kt`); each work-owning screen's ViewModel is in its file (ADR-28) |
+| `reader` | The reader screen and its ViewModel, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, study view, answer views |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
 
@@ -355,7 +353,6 @@ Room never decides anything the server owns; it mirrors complete server response
 | `annotations` | Notebook and per-note listings | Yes: creations (with mutation id) and deletions of unacknowledged creations |
 | `review_log` | Server's durable log | Yes: grades (with mutation id) |
 | `review_limits` | Server-owned session limit (40) | No |
-| `change_baselines` | Phone only: the oldest read version whose changes haven't been shown yet | n/a |
 
 ## 5. Key flows
 
@@ -458,11 +455,11 @@ sequenceDiagram
     Note over WV: no JS bridge, no credentials,<br/>network/file/content access blocked,<br/>Mermaid in strict mode
 ```
 
-Links the page needs native help with (`/note-link`, `/copy-code`, `/full-screen`) are same-origin URLs the app intercepts; the page itself can't call native code.
+Links the page needs native help with (`/note-link`, `/copy-code`) are same-origin URLs the app intercepts; the page itself can't call native code.
 
 ### Highlights, cards and the sync
 
-Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh and **Sync now** also send them, then load the server's library in one request, which the background sync leaves alone; opening a note sends the waiting highlight and card creations. All local mutations, server answers and export publication use the current local copy's `Sync` lock. Sign-out retires that instance and clears it after admitted work finishes; old screen calls cannot acquire authority over the fresh instance. Activity and worker share Account's once-per-process startup, so pending removal precedes background sends. Mutation ids make resending safe.
+Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh and **Sync now** also send them, then load the server's library in one request, which the background sync leaves alone; opening a note sends the waiting highlight and card creations. All local mutations and server answers use the current local copy's `Sync` lock. Sign-out retires that instance and clears it after admitted work finishes; old screen calls cannot acquire authority over the fresh instance. Activity and worker share Account's once-per-process startup, so pending removal precedes background sends. Mutation ids make resending safe.
 
 ```mermaid
 sequenceDiagram
