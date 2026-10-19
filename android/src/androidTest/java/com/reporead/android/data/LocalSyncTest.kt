@@ -609,36 +609,33 @@ class LocalSyncTest {
             }
     }
 
-    /** Save all fetches a listed note unless its saved copy is its listed version and path, in this page format. */
     @Test
-    fun saveAllSweepsReplacedImagesAfterTheBatchEvenWhenTheBatchFails() = runBlocking {
+    fun saveAllSweepsReplacedImagesOnlyAfterTheBatchSucceeds() = runBlocking {
         val old = "b".repeat(40)
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 2, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha), DocumentRow(2, 7, "n2.md", "n2", sha)))
-        for (fails in listOf(false, true)) {
-            dao.saveNote(NoteRow(1, old, "n1.md", "n1", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
-            dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
-            val replaced = image(1, old)
-            LoopbackServer(
-                    mapOf(
-                        "GET /api/library" to library(repository(7, "${document(1)},${document(2)}")),
-                        "GET /api/documents/1/content" to content(1),
-                        "GET /api/documents/2/content" to if (fails) failure(503, "GITHUB_UNAVAILABLE") else content(2),
-                    )
+        dao.saveNote(NoteRow(1, old, "n1.md", "n1", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
+        dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
+        val replaced = image(1, old)
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(repository(7, "${document(1)},${document(2)}")),
+                    "GET /api/documents/1/content" to content(1),
+                    "GET /api/documents/2/content" to content(2),
                 )
-                .use { server ->
-                    val result = runCatching {
-                        sync(server.url).saveAllNotes(7) { done, _ ->
-                            assertTrue("Image sweep must wait until the batch ends; done=$done", replaced.exists())
-                        }
-                    }
-                    if (fails) assertEquals("GITHUB_UNAVAILABLE", (result.exceptionOrNull() as ApiException).code)
-                    else assertEquals(Sync.SavedAll(2, 0, 0), result.getOrThrow())
-                    assertFalse("A completed or failed batch must retire the replaced snapshot", replaced.exists())
-                }
-        }
+            )
+            .use { server ->
+                assertEquals(
+                    Sync.SavedAll(2, 0, 0),
+                    sync(server.url).saveAllNotes(7) { done, _ ->
+                        assertTrue("Image sweep must wait until the batch ends; done=$done", replaced.exists())
+                    },
+                )
+                assertFalse("A successful batch must retire the replaced snapshot", replaced.exists())
+            }
     }
 
+    /** Save all fetches a listed note unless its saved copy is its listed version and path, in this page format. */
     @Test
     fun saveAllFetchesOnlyTheNotesNotSavedAsListed() = runBlocking {
         val old = "b".repeat(40)
@@ -932,13 +929,22 @@ class LocalSyncTest {
     fun cancellingSaveAllDuringAnImageKeepsItAndTheNextRunFetchesOnlyTheRemainingImage() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/first.png"><img src="/repo-image/second.png"></main>"""
         val current = NoteRow(1, sha, "n1.md", "n1", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
-        dao.saveNote(current)
+        val old = "b".repeat(40)
+        dao.saveNote(current.copy(snapshotCommitSha = old))
+        val replaced = image(1, old)
         val listed = "GET /api/library" to library(repository(7, document(1)))
+        val contentRequest = "GET /api/documents/1/content"
         val first = "GET /api/documents/1/image?commitSha=$sha&path=first.png"
         val second = "GET /api/documents/1/image?commitSha=$sha&path=second.png"
         val arrived = CountDownLatch(1)
         val release = CountDownLatch(1)
-        LoopbackServer(mapOf(listed, first to (200 to "TEST_ONLY_FIRST"))) { request ->
+        LoopbackServer(
+                mapOf(
+                    listed,
+                    contentRequest to (200 to JSONObject(content(1).second).put("html", html).toString()),
+                    first to (200 to "TEST_ONLY_FIRST"),
+                )
+            ) { request ->
                 if (request == first) {
                     arrived.countDown()
                     check(release.await(10, SECONDS)) { "Test never released the held image" }
@@ -946,21 +952,27 @@ class LocalSyncTest {
             }
             .use { server ->
                 val saving = launch(Dispatchers.IO) { sync(server.url).saveAllNotes(7) { _, _ -> } }
+                val saved: NoteRow
                 try {
                     assertTrue("The image was never requested", arrived.await(10, SECONDS))
+                    saved = checkNotNull(dao.note(1))
+                    assertEquals(sha, saved.snapshotCommitSha)
+                    assertEquals(html, saved.html)
                     saving.cancel()
                 } finally {
                     release.countDown()
                 }
                 saving.join()
                 assertTrue(saving.isCancelled)
-                assertEquals(listOf("GET /api/library", first), server.requests)
-                assertEquals(current, dao.note(1))
+                assertEquals(listOf("GET /api/library", contentRequest, first), server.requests)
+                assertEquals(saved, dao.note(1))
+                assertTrue("Cancellation must leave the orphan for a later sweep", replaced.exists())
             }
         LoopbackServer(mapOf(listed, second to (200 to "TEST_ONLY_SECOND"))).use { server ->
             val sync = sync(server.url)
             assertEquals(Sync.SavedAll(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
             assertEquals(listOf("GET /api/library", second), server.requests)
+            assertFalse("The next run's library refresh sweeps the replaced snapshot", replaced.exists())
             assertEquals("TEST_ONLY_FIRST", sync.images.image(1, sha, "first.png")!!.toString(Charsets.UTF_8))
         }
     }

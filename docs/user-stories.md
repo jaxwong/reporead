@@ -84,7 +84,7 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 
 - A previously cached note opens when GitHub or the backend is unavailable, with a visible stale/offline state.
 - A highlight or annotation created offline remains visible locally and is pending synchronization.
-- Reconnecting synchronizes a pending mutation without creating duplicates, including when the same mutation is sent again. A capacity refusal keeps a creation pending; after deleting other annotations I can sync the same mutation again.
+- Reconnecting synchronizes a pending mutation without creating duplicates, including when the same mutation is sent again. A capacity refusal keeps that creation and later creations/their grades pending; after deleting existing annotations to free capacity I can sync the same mutation again (queue/call cost under [Known gaps](feature-list.md#known-gaps)).
 - An unresolved edit conflict in annotation text is surfaced to me; it is not silently overwritten.
 
 ### US-07 — Keep annotations trustworthy after edits

@@ -268,44 +268,40 @@ class Sync(
         var alreadySaved = 0
         var cannotShow = 0
         onProgress(0, documents.size)
-        try {
-            documents.forEachIndexed { index, document ->
-                try {
-                    locked {
-                        val cached = dao.note(document.id)
-                        if (cached != null && upToDate(cached.version, document, commitSha)) {
-                            images.save(cached)
-                            alreadySaved++
-                        } else {
-                            images.save(fetchNote(document.id))
-                            fetched++
-                        }
+        documents.forEachIndexed { index, document ->
+            try {
+                locked {
+                    val cached = dao.note(document.id)
+                    if (cached != null && upToDate(cached.version, document, commitSha)) {
+                        images.save(cached)
+                        alreadySaved++
+                    } else {
+                        images.save(fetchNote(document.id))
+                        fetched++
                     }
-                } catch (error: ApiException) {
-                    // Unlike refusesItem(), this classifies page failures after a fresh library load, not mutations.
-                    val skipped =
-                        when (error.code) {
-                            "UNSUPPORTED_CONTENT" -> error.status == 422
-                            "IMAGE_NOT_FOUND" -> error.status == 404
-                            "INVALID_IMAGE_PATH" -> error.status == 400
-                            else -> false
-                        }
-                    if (!skipped) {
-                        Log.w(
-                            "RepoRead",
-                            "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}",
-                        )
-                        throw error
-                    }
-                    Log.i("RepoRead", "Page skipped; documentId=${document.id} code=${error.code}")
-                    cannotShow++
                 }
-                onProgress(index + 1, documents.size)
+            } catch (error: ApiException) {
+                // Unlike refusesItem(), this classifies page failures after a fresh library load, not mutations.
+                val skipped =
+                    when (error.code) {
+                        "UNSUPPORTED_CONTENT" -> error.status == 422
+                        "IMAGE_NOT_FOUND" -> error.status == 404
+                        "INVALID_IMAGE_PATH" -> error.status == 400
+                        else -> false
+                    }
+                if (!skipped) {
+                    Log.w(
+                        "RepoRead",
+                        "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}",
+                    )
+                    throw error
+                }
+                Log.i("RepoRead", "Page skipped; documentId=${document.id} code=${error.code}")
+                cannotShow++
             }
-        } finally {
-            // Pages already saved survive failures and cancellation; retire their replaced images once, not per page.
-            committed { sweepImages() }
+            onProgress(index + 1, documents.size)
         }
+        locked { sweepImages() }
         Log.i(
             "RepoRead",
             "Saved all notes; repositoryId=$repositoryId fetched=$fetched alreadySaved=$alreadySaved cannotShow=$cannotShow",

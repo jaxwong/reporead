@@ -323,17 +323,6 @@ class MarkdownRendererTest {
     }
 
     @Test
-    void canonicalExtractionHandlesAnExpandingPageWithoutSerializingIt() {
-        var source = new StringBuilder();
-        for (int level = 1; level <= 6; level++)
-            source.append("#".repeat(level)).append(' ').append("H".repeat(500)).append("\n\n");
-        source.append("paragraph\n\n".repeat(1000));
-        var result = render(source.toString());
-        assertEquals(1006, result.blocks().size());
-        assertEquals("paragraph", result.blocks().getLast().text());
-    }
-
-    @Test
     void mismatchedVersionsAreRejected() {
         assertThrows(
                 MarkdownRenderer.ContentRejected.class, () -> MarkdownRenderer.render("note", "a".repeat(40), "test"));

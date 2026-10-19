@@ -24,8 +24,11 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -39,6 +42,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestTemplate;
 
+@ExtendWith(OutputCaptureExtension.class)
 class RepositorySyncTest extends SharedSpringTest {
     // Test-only repository, SHAs, and tokens; no live GitHub call is made or claimed.
     private static final String TOKEN = "TEST_ONLY_ALICE_USER_TOKEN";
@@ -432,7 +436,7 @@ class RepositorySyncTest extends SharedSpringTest {
     }
 
     @Test
-    void pathOnlyMoveWithTheSameBlobKeepsTheDocumentAndItsReadingState() throws Exception {
+    void pathOnlyMoveWithTheSameBlobKeepsTheDocumentAndItsReadingState(CapturedOutput log) throws Exception {
         expectSync(
                 COMMIT_A,
                 TREE_A,
@@ -475,6 +479,14 @@ class RepositorySyncTest extends SharedSpringTest {
                 db.sql("select document_id from reading_states")
                         .query(Long.class)
                         .single());
+        var moveLogs = log.getOut()
+                .lines()
+                .filter(line -> line.contains("Document moved;"))
+                .toList();
+        assertEquals(1, moveLogs.size(), "only the first sync moves the document");
+        assertTrue(moveLogs.getFirst().contains("connectionId=" + connection + " documentId=" + spring));
+        assertFalse(moveLogs.getFirst().contains("backend/spring.md"));
+        assertFalse(moveLogs.getFirst().contains("java/spring/transactions.md"));
     }
 
     @Test
@@ -817,7 +829,7 @@ class RepositorySyncTest extends SharedSpringTest {
     }
 
     @Test
-    void anOldVersionGitHubNoLongerHasOnlyExcludesThatCandidate() throws Exception {
+    void anOldVersionGitHubNoLongerHasOnlyExcludesThatCandidate(CapturedOutput log) throws Exception {
         byte[] before = note("ingest", "reads");
         long id = syncedNote("backend/ingest.md", before);
         readSomething(id);
@@ -837,6 +849,14 @@ class RepositorySyncTest extends SharedSpringTest {
         sync(alice, connection).andExpect(status().isOk());
         assertNotEquals(id, documentId("pipelines/ingest.md"));
         assertEquals(COMMIT_B, checkpoint());
+        var skipped = log.getOut()
+                .lines()
+                .filter(line -> line.contains("Content move candidate skipped;"))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(skipped.contains("connectionId=" + connection));
+        assertTrue(skipped.contains("blobSha=" + sha(before) + " code=SOURCE_NOT_FOUND"));
+        assertFalse(skipped.contains("backend/ingest.md"));
     }
 
     @Test
