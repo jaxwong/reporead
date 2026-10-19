@@ -6,6 +6,7 @@ package com.reporead.android.sync
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.BuildConfig
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.TEST_CARD_MUTATION
@@ -73,7 +74,15 @@ class CommittedMutationTest {
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 1, testSha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", testSha)))
         dao.saveNote(
-            NoteRow(1, testSha, "n.md", "Test-only note", "<main id=note></main>", 0, renderFormat = RENDER_FORMAT)
+            NoteRow(
+                1,
+                testSha,
+                "n.md",
+                "Test-only note",
+                "<main id=note></main>",
+                0,
+                renderFormat = BuildConfig.RENDER_FORMAT,
+            )
         )
         dao.saveServerAnnotation(testHighlight().toRow())
         dao.saveServerAnnotation(testCard().toRow())

@@ -3,10 +3,10 @@ package com.reporead.android.reader
 import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.NoteImages
-import com.reporead.android.sync.RENDER_FORMAT
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -39,7 +39,8 @@ class IsolatedPageTest {
         val context = instrumentation.targetContext
         val sha = "a".repeat(40)
         val html = testPage(sha, body)
-        val note = NoteRow(1, sha, "test-only/page.md", "Test-only page", html, 0, renderFormat = RENDER_FORMAT)
+        val note =
+            NoteRow(1, sha, "test-only/page.md", "Test-only page", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
         val images =
             NoteImages(
                 Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {},
@@ -82,7 +83,8 @@ class IsolatedPageTest {
         val context = instrumentation.targetContext
         val sha = "a".repeat(40)
         val html = testPage(sha, """<p data-block-id="b0" data-anchor-text="Test-only page">Test-only page</p>""")
-        val note = NoteRow(1, sha, "test-only/page.md", "Test-only page", html, 0, renderFormat = RENDER_FORMAT)
+        val note =
+            NoteRow(1, sha, "test-only/page.md", "Test-only page", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
         val api = Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {}
         val images = NoteImages(api, File(context.cacheDir, "isolated-page-test"))
         val shown = CountDownLatch(1)

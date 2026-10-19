@@ -3,6 +3,7 @@
 package com.reporead.android.sync
 
 import android.util.Log
+import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
@@ -39,12 +40,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-
-/**
- * The page format this app needs from the server (MarkdownRenderer.FORMAT): 2 adds note links and Obsidian embeds, 3
- * footnotes; 4 capped heading paths, BOM handling and URL-only footnotes.
- */
-const val RENDER_FORMAT = 4
 
 /**
  * The server answered and refused this one request for a reason resending it cannot change (invalid, gone, a
@@ -197,7 +192,7 @@ class Sync(
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
     private fun upToDate(cached: SavedVersion, document: DocumentRow?, commitSha: String?) =
-        sameVersion(cached, document, commitSha) && cached.renderFormat >= RENDER_FORMAT
+        sameVersion(cached, document, commitSha) && cached.renderFormat >= BuildConfig.RENDER_FORMAT
 
     /**
      * A cached copy of the document's current version, path and repository snapshot opens without a network call.

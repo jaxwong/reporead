@@ -86,7 +86,9 @@ val ANNOTATION_STATE_10_11 =
 /** v16: retire pages proven too large for the Pixel's 2 MiB CursorWindow, without loading them into one. */
 class RetireUnreadablePages : AutoMigrationSpec {
     override fun onPostMigrate(db: SupportSQLiteDatabase) {
-        db.execSQL("delete from notes where length(html) + coalesce(length(searchText), 0) >= 2097152")
+        db.execSQL(
+            "delete from notes where length(cast(html as blob)) + coalesce(length(cast(searchText as blob)), 0) >= 2097152"
+        )
         // Room enables foreign keys after migration, so the page deletion cannot cascade here.
         db.execSQL("delete from note_links where documentId not in (select documentId from notes)")
     }

@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.BuildConfig
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.TEST_HIGHLIGHT_MUTATION
@@ -21,7 +22,6 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.LoopbackServer
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.RepositoryRow
-import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.toRow
 import java.io.File
@@ -64,7 +64,7 @@ class ReaderViewModelTest {
                 "Test-only note",
                 "<main id=note></main>",
                 0,
-                renderFormat = RENDER_FORMAT,
+                renderFormat = BuildConfig.RENDER_FORMAT,
                 snapshotCommitSha = testSha,
             )
         )

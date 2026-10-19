@@ -9,6 +9,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.Data
 import androidx.work.ListenableWorker.Result
 import androidx.work.WorkInfo
+import com.reporead.android.BuildConfig
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
@@ -20,7 +21,6 @@ import com.reporead.android.core.network.testRepository
 import com.reporead.android.core.network.testReview
 import com.reporead.android.core.network.wire
 import com.reporead.android.core.network.wireJson
-import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.SavingNotes
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.backgroundSync
@@ -101,7 +101,7 @@ class LocalSyncTest {
     private fun content(id: Int) =
         200 to
             """{"documentId":$id,"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
-            "renderFormat":$RENDER_FORMAT,"snapshotCommitSha":"$sha"}"""
+            "renderFormat":${BuildConfig.RENDER_FORMAT},"snapshotCommitSha":"$sha"}"""
 
     /** What the folder screen shows for a Save all run in [state] with this [output] and [progress]. */
     private fun shown(state: WorkInfo.State, output: Data = Data.EMPTY, progress: Data = Data.EMPTY) =
@@ -133,14 +133,13 @@ class LocalSyncTest {
 
     @Test
     fun aFormatThreeCurrentPageIsFetchedOnlyOnceOnline() = runBlocking {
-        assertEquals(4, RENDER_FORMAT)
         savedRepository()
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
         dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, "saved", 3, sha))
         LoopbackServer(mapOf("GET /api/documents/1/content" to content(1))).use { server ->
             val sync = sync(server.url)
             val first = sync.openNote(1)
-            assertEquals(4, first.note.renderFormat)
+            assertEquals(BuildConfig.RENDER_FORMAT, first.note.renderFormat)
             assertNull(first.staleReason)
             assertEquals(first, sync.openNote(1))
             assertEquals(listOf("GET /api/documents/1/content"), server.requests)
@@ -585,9 +584,9 @@ class LocalSyncTest {
     @Test
     fun saveAllFetchesOnlyTheNotesNotSavedAsListed() = runBlocking {
         val old = "b".repeat(40)
-        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, "", RENDER_FORMAT, sha))
-        dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", RENDER_FORMAT, old))
-        dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", RENDER_FORMAT - 1, sha))
+        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, sha))
+        dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
+        dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT - 1, sha))
         LoopbackServer(
                 mapOf(
                     "GET /api/library" to
@@ -637,10 +636,10 @@ class LocalSyncTest {
                 .put("title", title)
                 .put("html", html)
                 .put("text", text)
-                .put("renderFormat", RENDER_FORMAT)
+                .put("renderFormat", BuildConfig.RENDER_FORMAT)
                 .put("snapshotCommitSha", sha)
                 .toString()
-        val old = NoteRow(1, "b".repeat(40), "n1.md", "n1", "<main>kept</main>", 0, "kept", RENDER_FORMAT)
+        val old = NoteRow(1, "b".repeat(40), "n1.md", "n1", "<main>kept</main>", 0, "kept", BuildConfig.RENDER_FORMAT)
         dao.saveNote(old)
         LoopbackServer(
                 mapOf(
@@ -658,7 +657,7 @@ class LocalSyncTest {
                     sync.saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
-                val expected = NoteRow(3, sha, path, title, html, 0, text, RENDER_FORMAT, sha)
+                val expected = NoteRow(3, sha, path, title, html, 0, text, BuildConfig.RENDER_FORMAT, sha)
                 repeat(2) {
                     assertEquals(old, dao.note(1))
                     assertNull(dao.note(2))
@@ -821,7 +820,17 @@ class LocalSyncTest {
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, oldCommit)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
         val displayed =
-            NoteRow(1, sha, "n1.md", "n1", "<main>saved text</main>", 0, "saved text", RENDER_FORMAT, oldCommit)
+            NoteRow(
+                1,
+                sha,
+                "n1.md",
+                "n1",
+                "<main>saved text</main>",
+                0,
+                "saved text",
+                BuildConfig.RENDER_FORMAT,
+                oldCommit,
+            )
         dao.saveNote(displayed)
         val oldImage = image(1, oldCommit)
         val html = "<main>saved text<img src=\"/repo-image/new/chart.png\"></main>"
@@ -834,7 +843,7 @@ class LocalSyncTest {
                 .put("title", "n1")
                 .put("html", html)
                 .put("text", "saved text")
-                .put("renderFormat", RENDER_FORMAT)
+                .put("renderFormat", BuildConfig.RENDER_FORMAT)
                 .toString()
         LoopbackServer(
                 mapOf(
@@ -864,7 +873,7 @@ class LocalSyncTest {
 
     @Test
     fun missingOrMalformedImageSnapshotMetadataCannotReplaceALegacySavedPage() = runBlocking {
-        val saved = NoteRow(1, sha, "n1.md", "n1", "<main>kept</main>", 0, "kept", RENDER_FORMAT)
+        val saved = NoteRow(1, sha, "n1.md", "n1", "<main>kept</main>", 0, "kept", BuildConfig.RENDER_FORMAT)
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
         dao.saveNote(saved)
@@ -877,7 +886,7 @@ class LocalSyncTest {
                     .put("title", "n1")
                     .put("html", "<main>new</main>")
                     .put("text", "new")
-                    .put("renderFormat", RENDER_FORMAT)
+                    .put("renderFormat", BuildConfig.RENDER_FORMAT)
             if (value != null) answer.put("snapshotCommitSha", value)
             LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer.toString()))).use { server ->
                 val opened = sync(server.url).openNote(1)

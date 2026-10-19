@@ -9,11 +9,6 @@ import org.jsoup.Jsoup;
 import org.junit.jupiter.api.Test;
 
 class MarkdownRendererTest {
-    @Test
-    void thePresentationFormatIsFour() {
-        assertEquals(4, MarkdownRenderer.FORMAT);
-    }
-
     private MarkdownRenderer.RenderedNote render(String source) {
         return MarkdownRenderer.render(source, sha(source), "notes/backend/test.md");
     }

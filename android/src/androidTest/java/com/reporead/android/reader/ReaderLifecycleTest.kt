@@ -8,6 +8,7 @@ import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.BuildConfig
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.TestEntries
@@ -24,7 +25,6 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.findText
 import com.reporead.android.root
-import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import com.reporead.android.type
 import java.io.File
@@ -95,7 +95,9 @@ class ReaderLifecycleTest {
                 """<p data-block-id="b82" data-anchor-text="[^n]: Back to the answer"><span class="fn-def" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]:</span></span> <a href="#answer">Back to the answer</a></p>"""
         val html = testPage(sha, body)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, path, title, sha)))
-        dao.saveNote(NoteRow(1, sha, path, title, html, 0, renderFormat = RENDER_FORMAT, snapshotCommitSha = sha))
+        dao.saveNote(
+            NoteRow(1, sha, path, title, html, 0, renderFormat = BuildConfig.RENDER_FORMAT, snapshotCommitSha = sha)
+        )
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
         sync = Sync(api, store, files) {}
         TestHostActivity.content = entries.content { entry ->
@@ -449,7 +451,7 @@ class ReaderLifecycleTest {
                     "Test-only unready",
                     html,
                     0,
-                    renderFormat = RENDER_FORMAT,
+                    renderFormat = BuildConfig.RENDER_FORMAT,
                     snapshotCommitSha = sha,
                 )
             )

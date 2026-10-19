@@ -84,6 +84,16 @@ val libraryMaxResponseBytes =
         }
         .get()
 
+// The renderer owns the page format; the app's fetch gate derives it from that declaration, never a hand copy.
+val renderFormat =
+    providers.fileContents(rootProject.layout.projectDirectory.file("backend/src/main/java/com/reporead/document/MarkdownRenderer.java"))
+        .asText
+        .map { source ->
+            Regex("""public static final int FORMAT = ([0-9]+);""").find(source)?.groupValues?.get(1)
+                ?: error("MarkdownRenderer.java has no line `public static final int FORMAT = <digits>;`")
+        }
+        .get()
+
 val signingStore = providers.gradleProperty("reporead.signing.storeFile").orNull
 val signingPasswordFile = providers.gradleProperty("reporead.signing.passwordFile").orNull
 
@@ -105,6 +115,7 @@ android {
         versionName = "0.1.$commitCount"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("int", "LIBRARY_MAX_RESPONSE_BYTES", libraryMaxResponseBytes)
+        buildConfigField("int", "RENDER_FORMAT", renderFormat)
     }
 
     signingConfigs {

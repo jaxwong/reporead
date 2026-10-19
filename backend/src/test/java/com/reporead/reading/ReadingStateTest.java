@@ -125,7 +125,7 @@ class ReadingStateTest extends SharedSpringTest {
 
     @Test
     void olderOrEqualWritesDoNotReplaceNewerProgress() throws Exception {
-        Instant newer = Instant.now().minusSeconds(2).truncatedTo(ChronoUnit.MILLIS);
+        Instant newer = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         save(alice, note, body(SHA_A, 80, newer, ANCHOR)).andExpect(status().isOk());
         save(alice, note, body(SHA_A, 10, newer.minusSeconds(60), ANCHOR))
                 .andExpect(status().isOk())

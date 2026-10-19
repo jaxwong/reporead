@@ -2,6 +2,7 @@
 
 package com.reporead.android.core.network
 
+import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.wire.AccountDeletionDeleted
 import com.reporead.android.core.network.wire.AnnotationsAnnotation
 import com.reporead.android.core.network.wire.AnnotationsPassage
@@ -21,7 +22,6 @@ import com.reporead.android.core.network.wire.RepositoryConnectionsConnection
 import com.reporead.android.core.network.wire.RepositorySyncResult
 import com.reporead.android.core.network.wire.ReviewsNotebook
 import com.reporead.android.core.network.wire.ReviewsReview
-import com.reporead.android.sync.RENDER_FORMAT
 import java.time.Instant
 import kotlinx.serialization.encodeToString
 
@@ -159,7 +159,7 @@ internal fun testContent() =
         documentId = 1,
         html = "<main id=\"note\"><p>text</p></main>",
         path = "n.md",
-        renderFormat = RENDER_FORMAT,
+        renderFormat = BuildConfig.RENDER_FORMAT,
         snapshotCommitSha = testCommit,
         sourceBlobSha = testSha,
         text = "text",
