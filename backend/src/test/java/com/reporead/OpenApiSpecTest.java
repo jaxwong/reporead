@@ -179,8 +179,9 @@ class OpenApiSpecTest {
     void requestOptionalityAndDynamicResponsesMatchTheHttpContract() throws IOException {
         var api = json.readTree(derived());
         var schemas = api.path("components").path("schemas");
-        assertTrue(!names(schemas.path("AppAuthControllerTokenRequest").path("required"))
-                .contains("expectedUserId"));
+        var handoff = schemas.path("AppAuthControllerTokenRequest");
+        assertEquals(Set.of("code", "codeVerifier"), names(handoff.path("required")));
+        assertEquals(Set.of("code", "codeVerifier"), names(handoff.path("properties")));
         var creation = schemas.path("AnnotationControllerCreateRequest");
         assertEquals(Set.of("anchor", "mutationId"), names(creation.path("required")));
         assertTrue(creation.path("properties").path("type").path("nullable").asBoolean());

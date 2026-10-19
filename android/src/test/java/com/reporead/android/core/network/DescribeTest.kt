@@ -12,7 +12,6 @@ class DescribeTest {
     fun codesWhoseFixIsInThisAppAreWordedWithItsControls() {
         assertTrue(describe(404, "DEFAULT_BRANCH_NOT_FOUND").contains("tap Update on it under Add repository"))
         assertTrue(describe(409, "REPOSITORY_RENAMED").contains("tap Update on it under Add repository"))
-        assertTrue(describe(409, "ACCOUNT_MISMATCH").contains("sign out first to remove them from this phone"))
         assertTrue(describe(409, "SYNC_SUPERSEDED").contains("refresh again"))
         assertTrue(describe(409, "ANNOTATION_CONFLICT").contains("reopen the note"))
     }

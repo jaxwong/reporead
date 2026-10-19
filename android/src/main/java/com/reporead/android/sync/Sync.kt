@@ -2,7 +2,6 @@
 
 package com.reporead.android.sync
 
-import android.database.sqlite.SQLiteException
 import android.util.Log
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
@@ -34,7 +33,6 @@ import com.reporead.android.data.SavedVersion
 import java.io.File
 import java.time.Instant
 import java.util.UUID
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
@@ -88,18 +86,6 @@ data class RefusedChange(val kind: Kind, val documentId: Long, val title: String
     }
 }
 
-/** What clearing this phone's copy did ([Sync.clearRetiredCopy]). */
-sealed interface LocalCleanup {
-    /** Room's rows and every file are gone. */
-    data object Done : LocalCleanup
-
-    /** Room's rows are gone; [paths], each file and folder still there (deepest first), are not. */
-    data class FilesLeft(val paths: List<File>) : LocalCleanup
-
-    /** A WorkManager or Room database failure prevented removal ([error]); no file was tried. */
-    data class DatabaseFailed(val error: SQLiteException) : LocalCleanup
-}
-
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
  * cache untouched. Nothing here retries; every local change calls [onPendingChange], which asks for a background sync
@@ -107,48 +93,31 @@ sealed interface LocalCleanup {
  */
 class Sync(
     private val api: Api,
-    private val store: LocalStore,
-    private val filesDir: File,
+    store: LocalStore,
+    filesDir: File,
     private val onPendingChange: () -> Unit,
 ) {
     private val dao = store.library()
 
-    /** One local-copy lifetime: retired instances never admit another operation, even after re-sign-in. */
-    @Volatile private var retired = false
     private val oneSyncAtATime = Mutex()
 
-    /** Local writes and network answers share the same order as removal. */
+    /** Orders local writes and server answers for the process's one local copy. */
     private suspend fun <T> locked(work: suspend () -> T): T = oneSyncAtATime.withLock {
-        withContext(Dispatchers.IO) {
-            if (retired) throw CancellationException("This phone's local copy was removed")
-            work()
-        }
+        withContext(Dispatchers.IO) { work() }
     }
 
     /**
      * [locked], but its caller's cancellation does not stop it, from waiting for the lock to its local commit: a screen
-     * left while a local write waits, or while the server confirms a change, does not lose that change here. Retirement
-     * still refuses it. Only for one local write, or one mutation and its commit (at most two calls, each within Api's
-     * timeouts); read-only loads and the pending-change passes stay cancellable.
+     * left while a local write waits, or while the server confirms a change, does not lose that change here. Only for
+     * one local write, or one mutation and its commit (at most two calls, each within Api's timeouts); read-only loads
+     * and the pending-change passes stay cancellable.
      */
     private suspend fun <T> committed(work: suspend () -> T): T = withContext(NonCancellable) { locked(work) }
-
-    /** Closes admission immediately; the clear waits for an already admitted operation, not for screens. */
-    fun retire() {
-        retired = true
-        images.retire()
-    }
-
-    /** Only Account replaces the retired instance, after every row and file is gone. */
-    internal fun freshCopy(): Sync {
-        check(retired) { "Replacing a local copy that has not been retired" }
-        return Sync(api, store, filesDir, onPendingChange)
-    }
 
     /** Saved notes' images; deleted here whenever their notes go. */
     val images = NoteImages(api, filesDir)
 
-    /** The [paths] a deletion [after] something left, logged; a later sweep or clear deletes them again. */
+    /** The [paths] a deletion [after] something left, logged; a later sweep deletes them again. */
     private fun logged(after: String, paths: List<File>): List<File> {
         if (paths.isNotEmpty())
             Log.w("RepoRead", "Files left on the phone; after=$after count=${paths.size} paths=$paths")
@@ -158,8 +127,7 @@ class Sync(
     /**
      * Deletes the images of every version Room holds no page of: forgotten notes' and replaced versions'. Derived from
      * Room each time, so nothing remembers what to delete. Run wherever a saved page may have gone or been replaced:
-     * after a page is saved, after the server's lists replace the saved ones, after a disconnect, at a clear and at
-     * start.
+     * after a page is saved, after the server's lists replace the saved ones, after a disconnect and at start.
      */
     private suspend fun sweepImages(): List<File> = logged("sweeping images", images.sweep(dao.allSavedVersions()))
 
@@ -388,10 +356,7 @@ class Sync(
         }
     }
 
-    /**
-     * Only the reader calls this, with the version it actually displayed. False for a disconnected note; a retired
-     * local copy cancels the operation before accessing Room.
-     */
+    /** Only the reader calls this, with the version it actually displayed. False for a disconnected note. */
     suspend fun saveReading(row: ReadingRow): Boolean = committed {
         dao.saveDisplayedReading(row.copy(pending = true)).also { saved ->
             if (saved) onPendingChange()
@@ -423,7 +388,7 @@ class Sync(
 
     /**
      * The background sync's run: sends what waits, and nothing when nothing does (null); each send saves the server's
-     * answer, so the lists are left to the screens. A retired copy cancels the operation before any request or write.
+     * answer, so the lists are left to the screens.
      */
     suspend fun syncWaitingChanges(): LocalSync? = locked {
         if (dao.waitingCount().first() == 0) null else sendPending()
@@ -502,8 +467,7 @@ class Sync(
 
     /**
      * Saves a new highlight (or, with [question], a card) locally as a pending creation; it is sent with the returned
-     * mutation id until acknowledged. Null for a page disconnected meanwhile; a retired local copy cancels before
-     * accessing Room.
+     * mutation id until acknowledged. Null for a page disconnected meanwhile.
      */
     suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? =
         committed {
@@ -752,28 +716,6 @@ class Sync(
     }
 
     suspend fun dismissRefusedReviews() = locked { dao.dismissRefusedReviews() }
-
-    /**
-     * Explicit sign-out removes every cached note, image, and pending change from this phone; a running sync finishes
-     * first. Says what it could not delete; running it again tries again, whenever it runs. A database failure is the
-     * expected kind only (SQLiteException: a full or failing disk); any other failure is a bug and is thrown.
-     */
-    suspend fun clearRetiredCopy(): LocalCleanup {
-        check(retired) { "Clearing a local copy while operations are still admitted" }
-        return oneSyncAtATime.withLock {
-            withContext(Dispatchers.IO) {
-                val left =
-                    try {
-                        store.clearAllTables()
-                        sweepImages()
-                    } catch (error: SQLiteException) {
-                        Log.w("RepoRead", "Could not clear the phone's database", error)
-                        return@withContext LocalCleanup.DatabaseFailed(error)
-                    }
-                if (left.isEmpty()) LocalCleanup.Done else LocalCleanup.FilesLeft(left)
-            }
-        }
-    }
 
     /**
      * Once per process, when the app opens: deletes images Room holds no page of, such as those a deletion cut short by

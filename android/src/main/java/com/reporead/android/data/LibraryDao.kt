@@ -191,17 +191,7 @@ interface LibraryDao {
     )
     suspend fun unsentInRepository(repositoryId: Long): Int
 
-    /** Every change on this phone that the server has not acknowledged (unsent or refused): what signing out loses. */
-    @Query(
-        """select (select count(*) from annotations where state <> 'ACKNOWLEDGED') + (select count(*) from review_log where pending)
-              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)"""
-    )
-    suspend fun unsentCount(): Int
-
-    /**
-     * Changes waiting to be sent: [unsentCount] without the ones the server refused, which sending again cannot
-     * deliver.
-     */
+    /** Changes waiting to be sent, excluding work the server already refused. */
     @Query(
         """select (select count(*) from annotations where state in ('UNSENT', 'DELETING'))
               + (select count(*) from review_log where pending and rejection is null)

@@ -59,7 +59,7 @@ public final class TestSessions {
         String verifier = verifier();
         long userId = sessions.saveUser(githubUserId, "test-only-user-" + githubUserId);
         String code = sessions.issueSignInCode(userId, challenge(verifier));
-        return sessions.exchange(code, verifier, null).orElseThrow().accessToken();
+        return sessions.exchange(code, verifier).orElseThrow().accessToken();
     }
 
     /**

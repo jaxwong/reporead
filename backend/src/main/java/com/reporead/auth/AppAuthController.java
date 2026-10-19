@@ -5,11 +5,9 @@ package com.reporead.auth;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.RepoReadProperties;
-import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
 import org.apache.catalina.session.TooManyActiveSessionsException;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
@@ -64,21 +62,13 @@ public class AppAuthController {
         return new RedirectView("/oauth2/authorization/github");
     }
 
-    /**
-     * Owns the handoff request shape, not issuance policy. {@code expectedUserId} names the account whose data the app
-     * holds; only that account may sign in to it.
-     */
-    record TokenRequest(
-            String code,
-            String codeVerifier,
-
-            @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED) @Nullable
-            Long expectedUserId) {}
+    /** Owns the PKCE handoff request shape, not session issuance policy. */
+    record TokenRequest(String code, String codeVerifier) {}
 
     @PostMapping("/api/app-auth/token")
     AppSessions.IssuedSession token(@RequestBody TokenRequest body) {
         var issued = credentials.changing(
-                () -> sessions.exchange(body.code(), body.codeVerifier(), body.expectedUserId())
+                () -> sessions.exchange(body.code(), body.codeVerifier())
                         .orElseThrow(
                                 () -> new ApiFailure(
                                         Code.INVALID_SIGN_IN_CODE,

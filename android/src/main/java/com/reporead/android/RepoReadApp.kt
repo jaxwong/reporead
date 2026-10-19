@@ -41,8 +41,7 @@ import com.reporead.android.library.PracticeScreen
 import com.reporead.android.library.ReviewScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
-import com.reporead.android.sync.LocalCleanup
-import com.reporead.android.ui.counted
+import com.reporead.android.sync.Sync
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.Serializable
@@ -98,44 +97,23 @@ internal val BackStackSerializer = NavBackStackSerializer(Entry.serializer())
 /** What an account operation reported, in the words of the screen it ends on. */
 internal fun noticeText(notice: AccountNotice): String =
     when (notice) {
-        is AccountNotice.NotRevoked ->
-            "Signed out on this phone, but the server session could not be revoked (${notice.error.describe()}). It expires within 30 days."
         AccountNotice.AccountDeleted ->
             "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
         is AccountNotice.DeletionNotConfirmed ->
             if (notice.error.status == 401)
                 // A lost answer to an earlier deletion also ends the session; the two look the same.
-                "Couldn't confirm: this phone is no longer signed in, so nothing was deleted on it. If you already deleted " +
-                    "your account, it is gone; sign out to remove this phone's copy, or sign in to check."
+                "Couldn't confirm: this phone is no longer signed in. If you already deleted your account, it is gone; " +
+                    "sign in to check. Saved notes and changes stay on this phone."
             // The server may have deleted it with the answer lost; trying again then gets the 401 above.
             else
-                "Couldn't confirm the account deletion, so nothing was deleted on this phone; try again. ${notice.error.describe()}"
+                "Couldn't confirm the account deletion. Saved notes and changes stay on this phone; try again. ${notice.error.describe()}"
         is AccountNotice.SignInFailed -> notice.error.describe()
     }
-
-/** Where removing this phone's copy stands while it is pending: running, or what stopped it, with [onRetry]. */
-@Composable
-private fun RemovalStatus(outcome: LocalCleanup?, onRetry: () -> Unit) {
-    when (outcome) {
-        // Done is reported as the end of the removal, never shown here.
-        null,
-        LocalCleanup.Done -> Text("Removing this phone's copy of your notes…")
-        is LocalCleanup.FilesLeft ->
-            Text(
-                "Signed out, but ${counted(outcome.paths.size, "file or folder", "files and folders")} could not be removed from this phone. Signing in waits until they are."
-            )
-        is LocalCleanup.DatabaseFailed ->
-            Text(
-                "Signed out, but this phone's saved notes could not be deleted (${outcome.error.javaClass.simpleName}). Signing in waits until they are."
-            )
-    }
-    if (outcome is LocalCleanup.FilesLeft || outcome is LocalCleanup.DatabaseFailed)
-        TextButton(onClick = onRetry) { Text("Retry") }
-}
 
 @Composable
 fun RepoReadApp(
     account: Account,
+    sync: Sync,
     store: SessionStore,
     api: Api,
     dao: LibraryDao,
@@ -147,11 +125,7 @@ fun RepoReadApp(
     // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
     val signedIn by remember { store.signedIn() }.collectAsState(remember { store.hasSession })
     val accountState by account.state.collectAsState()
-    // Account publishes a new copy after every cleanup, including ownerless sign-in, which never enters Removing.
-    val backStack =
-        rememberSerializable(account.sync, serializer = BackStackSerializer) {
-            NavBackStack(entry(Screen.Repositories))
-        }
+    val backStack = rememberSerializable(serializer = BackStackSerializer) { NavBackStack(entry(Screen.Repositories)) }
     val savedRepositories by dao.repositories().collectAsState(null)
 
     val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
@@ -164,7 +138,6 @@ fun RepoReadApp(
     // draws, never values captured when the stack last changed.
     val entries =
         rememberEntries(backStack) { entry ->
-            val sync = account.sync
             // Removes this entry, never another: a second tap on a screen already left does nothing.
             val onBack: () -> Unit = { backStack.remove(entry) }
             when (val screen = entry.screen) {
@@ -208,20 +181,9 @@ fun RepoReadApp(
         account.signIn(code)
         onSignInCodeConsumed()
     }
-    // A removal leaves nothing the old screens showed: their entries and saved state go, and the next account starts at
-    // a new root. The account screen covers it until the removal is done, so it is first drawn with the fresh Sync.
-    val removing = accountState is AccountState.Removing
-    LaunchedEffect(removing) {
-        if (removing) {
-            backStack.clear()
-            backStack += entry(Screen.Repositories)
-        }
-    }
-
     val saved = savedRepositories ?: return
     val notice = (accountState as? AccountState.Idle)?.notice
-    // While an account operation runs, only this screen shows, so nothing reads or changes what it removes. Signed
-    // out, saved notes stay readable, unless there are none or the last operation has something to say.
+    // Account operations cover the entries without resetting them. Saved notes remain readable signed out.
     val showAccount =
         when (accountState) {
             is AccountState.Idle -> !signedIn && (saved.isEmpty() || notice != null)
@@ -231,8 +193,8 @@ fun RepoReadApp(
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("RepoRead", style = MaterialTheme.typography.headlineMedium)
             Text("Read your GitHub notes. RepoRead only reads repositories you grant to its GitHub App.")
-            when (val now = accountState) {
-                is AccountState.Removing -> RemovalStatus(now.stopped, account::retryRemoval)
+            when (accountState) {
+                AccountState.SigningOut -> Text("Signing out…")
                 AccountState.DeletingAccount -> Text("Deleting your RepoRead account…")
                 AccountState.SigningIn -> Text("Finishing sign-in…")
                 is AccountState.Idle -> Button(onClick = signIn) { Text("Sign in with GitHub") }

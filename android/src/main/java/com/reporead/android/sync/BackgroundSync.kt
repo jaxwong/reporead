@@ -15,7 +15,6 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.await
 import androidx.work.workDataOf
-import com.reporead.android.Account
 import com.reporead.android.RepoReadApplication
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
@@ -51,7 +50,7 @@ internal fun requestSync(context: Context) {
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result =
-        backgroundSync((applicationContext as RepoReadApplication).account, runAttemptCount)
+        backgroundSync((applicationContext as RepoReadApplication).sync, runAttemptCount)
 }
 
 /**
@@ -59,10 +58,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
  * unreachable server, a 5xx, or GitHub unavailable is tried again by WorkManager; anything else (signed out, access
  * denied) waits for the next change or library open, which show it. [attempt] counts from 0.
  */
-internal suspend fun backgroundSync(account: Account, attempt: Int): Result {
+internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
     val synced =
         try {
-            account.syncWaitingChanges()
+            sync.syncWaitingChanges()
         } catch (error: ApiException) {
             return if (triesAgain("Background sync", error, attempt)) Result.retry() else Result.failure()
         }
@@ -88,9 +87,6 @@ private fun triesAgain(run: String, error: ApiException, attempt: Int): Boolean 
     return retry
 }
 
-/** Every Save all run, whichever repository, so a removal of the phone's copy can stop them all. */
-private const val SAVE_ALL_TAG = "save-all-notes"
-
 private fun saveAllName(repositoryId: Long) = "save-all-notes-$repositoryId"
 
 private const val REPOSITORY = "repositoryId"
@@ -113,20 +109,8 @@ fun requestSaveAllNotes(context: Context, repositoryId: Long) {
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, FIRST_BACKOFF)
             .setInputData(workDataOf(REPOSITORY to repositoryId))
-            .addTag(SAVE_ALL_TAG)
             .build()
     WorkManager.getInstance(context).enqueueUniqueWork(saveAllName(repositoryId), ExistingWorkPolicy.KEEP, request)
-}
-
-/**
- * Stops every Save all and forgets their outcomes, which describe a copy that is being removed: at sign-out and account
- * deletion, before the phone is cleared. Pruning forgets every finished background run, which nothing else reads. Both
- * operations must commit before Account can finish removal, including across process death.
- */
-suspend fun forgetSaveAllNotes(context: Context) {
-    val workManager = WorkManager.getInstance(context)
-    workManager.cancelAllWorkByTag(SAVE_ALL_TAG).await()
-    workManager.pruneWork().await()
 }
 
 /** Cancels this repository's waiting or running Save all, keeping the complete notes it already saved. */
@@ -138,20 +122,20 @@ class SaveAllNotesWorker(context: Context, params: WorkerParameters) : Coroutine
     override suspend fun doWork(): Result {
         val repositoryId =
             checkNotNull(inputData.keyValueMap[REPOSITORY] as? Long) { "Save all enqueued without a repository id" }
-        return saveAllInBackground((applicationContext as RepoReadApplication).account, repositoryId, runAttemptCount) {
+        return saveAllInBackground((applicationContext as RepoReadApplication).sync, repositoryId, runAttemptCount) {
             setProgress(it)
         }
     }
 }
 
 /**
- * One Save all run ([Account.saveAllNotes]), reporting its progress through [report]. A run Android stops part-way
- * (after about 10 minutes, or when the network goes) is started again by WorkManager, and each run fetches only the
- * notes not yet saved. Failures are tried again as the background sync's are; the last says how far it got. While
- * another account operation runs it is tried again later; a removal cancels it. [attempt] counts from 0.
+ * One Save all run ([Sync.saveAllNotes]), reporting its progress through [report]. A run Android stops part-way (after
+ * about 10 minutes, or when the network goes) is started again by WorkManager, and each run fetches only the notes not
+ * yet saved. Failures are tried again as the background sync's are; the last says how far it got. [attempt] counts
+ * from 0.
  */
 internal suspend fun saveAllInBackground(
-    account: Account,
+    sync: Sync,
     repositoryId: Long,
     attempt: Int,
     report: suspend (Data) -> Unit,
@@ -160,15 +144,11 @@ internal suspend fun saveAllInBackground(
     var toFetch = 0
     val saved =
         try {
-            account.saveAllNotes(repositoryId) { doneNow, toFetchNow ->
+            sync.saveAllNotes(repositoryId) { doneNow, toFetchNow ->
                 done = doneNow
                 toFetch = toFetchNow
                 report(workDataOf(DONE to done, TO_FETCH to toFetch))
             }
-                ?: run {
-                    Log.i("RepoRead", "Saving all notes waits for an account operation; attempt=$attempt")
-                    return Result.retry()
-                }
         } catch (error: ApiException) {
             if (triesAgain("Saving all notes", error, attempt)) return Result.retry()
             val reason = error.describe()
@@ -198,7 +178,7 @@ sealed interface SavingNotes {
     data class Stopped(val done: Int, val toFetch: Int, val reason: String?) : SavingNotes
 }
 
-/** Save all of [repositoryId], as WorkManager runs it; null before the first and after a removal. */
+/** Save all of [repositoryId], as WorkManager runs it; null before the first or after Stop. */
 fun savingNotes(context: Context, repositoryId: Long): Flow<SavingNotes?> =
     WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(saveAllName(repositoryId)).map { infos ->
         // KEEP replaces a finished run with the new one, so a name holds at most one.

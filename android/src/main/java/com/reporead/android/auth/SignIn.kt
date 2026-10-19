@@ -9,7 +9,6 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.net.toUri
 import com.reporead.android.BuildConfig
 import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.invalidResponse
 import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -36,21 +35,9 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
         )
 }
 
-/**
- * Exchanges the code from the sign-in redirect for a bearer session and stores it. Account validates and consumes the
- * verifier before any cleanup. Data saved on this phone belongs to the account that saved it, so the exchange names
- * that account and the server issues no session for another (ACCOUNT_MISMATCH). A known-owner sign-in preserves its
- * data; switching accounts requires sign-out with its loss confirmation. Account runs it only when no removal is
- * pending, and after removing data with no recorded owner, so an owner of null means nothing is saved here.
- */
+/** Exchanges the validated sign-in code and stores the session without changing saved notes. */
 internal suspend fun completeSignIn(code: String, verifier: String, api: Api, store: SessionStore) {
-    val owner = store.dataOwner
-    val session =
-        api.exchangeToken(AppAuthControllerTokenRequest(code = code, codeVerifier = verifier, expectedUserId = owner))
-    val userId = session.user.id
-    if (owner != null && userId != owner) throw invalidResponse(200)
-    val token = session.accessToken
-    Log.i("RepoRead", "Signed in; userId=$userId firstOnThisPhone=${owner == null}")
-    store.recordOwner(userId)
-    store.save(token)
+    val session = api.exchangeToken(AppAuthControllerTokenRequest(code = code, codeVerifier = verifier))
+    Log.i("RepoRead", "Signed in; userId=${session.user.id}")
+    store.save(session.accessToken)
 }

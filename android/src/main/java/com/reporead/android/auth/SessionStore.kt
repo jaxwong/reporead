@@ -140,10 +140,7 @@ class SessionStore(context: Context, name: String = PREFS) {
         prefs.edit { putString("token", encoded) }
     }
 
-    /**
-     * Ends the session on this phone, on disk before it returns: sign-out runs it before deleting the phone's copy, and
-     * apply() writes 100 ms later, so process death meanwhile would leave the phone signed in.
-     */
+    /** Ends the session on disk before returning, so process death cannot leave this phone signed in. */
     fun clear() = commit("remove the stored session") { remove("token") }
 
     /**
@@ -164,31 +161,6 @@ class SessionStore(context: Context, name: String = PREFS) {
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
         .distinctUntilChanged()
-
-    /** The RepoRead user id whose data is saved on this phone; null when nothing is known to be saved. */
-    val dataOwner: Long?
-        get() = if (prefs.contains("dataOwner")) prefs.getLong("dataOwner", 0) else null
-
-    fun recordOwner(userId: Long) = prefs.edit { putLong("dataOwner", userId) }
-
-    /**
-     * Set once removing this phone's copy is decided until it is gone (Account): before a sign-out asks the server,
-     * after the server confirms an account deletion, and before a sign-in over data with no recorded owner. Meanwhile
-     * the phone signs in as no account, and the app finishes the removal when it next starts. A missing session with a
-     * known owner cannot say this: a session that expired keeps its saved notes.
-     */
-    val removalPending: Boolean
-        get() = prefs.getBoolean("removalPending", false)
-
-    /** On disk before anything is removed, so process death from then on still removes the copy at the next start. */
-    fun startRemoval() = commit("record a pending removal") { putBoolean("removalPending", true) }
-
-    /** The phone's copy is gone: the pending removal and the data's owner are forgotten in one write. */
-    fun finishRemoval() =
-        commit("finish the removal") {
-            remove("removalPending")
-            remove("dataOwner")
-        }
 
     private fun commit(what: String, change: SharedPreferences.Editor.() -> Unit) =
         check(prefs.edit().apply(change).commit()) { "Could not $what in $PREFS" }
