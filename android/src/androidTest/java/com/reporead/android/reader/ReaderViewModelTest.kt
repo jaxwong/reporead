@@ -1,0 +1,132 @@
+// Owns: ReaderViewModel's admission of server changes to highlights, at its action boundary rather than through taps.
+
+package com.reporead.android.reader
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.room.Room
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.auth.StoredSession
+import com.reporead.android.core.network.Api
+import com.reporead.android.core.network.TEST_HIGHLIGHT_MUTATION
+import com.reporead.android.core.network.testHighlight
+import com.reporead.android.core.network.testSha
+import com.reporead.android.core.network.wire
+import com.reporead.android.data.DocumentRow
+import com.reporead.android.data.LocalStore
+import com.reporead.android.data.LoopbackServer
+import com.reporead.android.data.NoteRow
+import com.reporead.android.data.RepositoryRow
+import com.reporead.android.sync.RENDER_FORMAT
+import com.reporead.android.sync.Sync
+import com.reporead.android.sync.toRow
+import java.io.File
+import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit.SECONDS
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/** A test-only note with one acknowledged highlight; production Sync, Api and Room against a loopback server. */
+@RunWith(AndroidJUnit4::class)
+class ReaderViewModelTest {
+    private lateinit var store: LocalStore
+    private lateinit var directory: File
+    /** The owner a back-stack entry would be; clearing it is the entry leaving. */
+    private val owners = ViewModelStore()
+
+    @Before
+    fun open() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
+        directory = File(context.cacheDir, "test-only-reader-model-${UUID.randomUUID()}").also { check(it.mkdirs()) }
+        val dao = store.library()
+        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 1, testSha)))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", testSha)))
+        dao.saveNote(
+            NoteRow(
+                1,
+                testSha,
+                "n.md",
+                "Test-only note",
+                "<main id=note></main>",
+                0,
+                renderFormat = RENDER_FORMAT,
+                snapshotCommitSha = testSha,
+            )
+        )
+        dao.saveServerAnnotation(testHighlight().toRow())
+    }
+
+    @After
+    fun close() {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { owners.clear() }
+        store.close()
+        check(directory.deleteRecursively())
+    }
+
+    /** T14: a second change while one runs starts nothing; once it has finished, the next one runs. */
+    @Test
+    fun oneServerChangeToAHighlightRunsAtATime() = runBlocking {
+        val arrived = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val edited = testHighlight().copy(note = "Test-only first", version = 2)
+        LoopbackServer(
+                mapOf(
+                    "PATCH /api/annotations/9" to (200 to wire(edited)),
+                    "DELETE /api/annotations/9?expectedVersion=2" to (204 to ""),
+                )
+            ) { key ->
+                if (key == "PATCH /api/annotations/9") {
+                    arrived.countDown()
+                    check(release.await(10, SECONDS)) { "Test never released the edit" }
+                }
+            }
+            .use { server ->
+                val sync =
+                    Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
+                val dao = store.library()
+                val row = checkNotNull(dao.annotation(TEST_HIGHLIGHT_MUTATION))
+                val model =
+                    withContext(Dispatchers.Main) {
+                        val factory = viewModelFactory {
+                            initializer { ReaderViewModel(sync, dao, SavedStateHandle(), 1, "test-only-entry") }
+                        }
+                        ViewModelProvider.create(owners, factory)[ReaderViewModel::class].also {
+                            it.editNote(row, "Test-only first", row.version)
+                            it.editNote(row, "Test-only second", row.version)
+                            it.delete(row)
+                        }
+                    }
+                try {
+                    assertTrue(arrived.await(10, SECONDS))
+                } finally {
+                    release.countDown()
+                }
+                withTimeout(10_000) { while (model.state.value.changing) delay(20) }
+                assertEquals(listOf("PATCH /api/annotations/9"), server.requests)
+                assertEquals("Test-only first", dao.annotation(TEST_HIGHLIGHT_MUTATION)?.note)
+                // The second run: a change asked for after the first finished runs.
+                val now = checkNotNull(dao.annotation(TEST_HIGHLIGHT_MUTATION))
+                withContext(Dispatchers.Main) { model.delete(now) }
+                withTimeout(10_000) { while (dao.annotation(TEST_HIGHLIGHT_MUTATION) != null) delay(20) }
+                assertEquals(
+                    listOf("PATCH /api/annotations/9", "DELETE /api/annotations/9?expectedVersion=2"),
+                    server.requests,
+                )
+            }
+    }
+}

@@ -23,20 +23,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
-import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.describe
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.CardBlock
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
-import com.reporead.android.sync.Sync
 import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.folderOf
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -64,11 +59,10 @@ internal fun NotesPanel(
     displayedBlobSha: String,
     notShown: Set<String>,
     pageReady: Boolean,
-    sync: Sync,
     dao: LibraryDao,
-    scope: CoroutineScope,
     onReveal: (AnnotationRow) -> Unit,
-    onMessage: (String?) -> Unit,
+    /** Online only: the server checks the card's answer against the version on screen. */
+    onConfirmCard: (AnnotationRow) -> Unit,
     onMakeQuestion: (AnnotationRow) -> Unit,
     onReattach: (AnnotationRow) -> Unit,
     onEdit: (AnnotationRow) -> Unit,
@@ -100,16 +94,6 @@ internal fun NotesPanel(
             value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
         }
 
-    // Online only: the server checks the card's answer against the version on screen.
-    fun confirmCard(row: AnnotationRow) = scope.launch {
-        try {
-            sync.checkCard(row, displayedBlobSha)
-            onMessage("Card confirmed for this version.")
-        } catch (error: ApiException) {
-            onMessage("Card not confirmed. ${error.describe()}")
-        }
-    }
-
     Column(modifier) {
         HorizontalDivider()
         if (annotations.isEmpty()) {
@@ -127,7 +111,7 @@ internal fun NotesPanel(
                         else null,
                     onReveal = { onReveal(row) },
                     onMakeQuestion = { onMakeQuestion(row) },
-                    onConfirmCard = { confirmCard(row) },
+                    onConfirmCard = { onConfirmCard(row) },
                     onReattach = { onReattach(row) },
                     onEdit = { onEdit(row) },
                     onDelete = { onDelete(row) },

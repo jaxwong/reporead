@@ -205,7 +205,7 @@ fun RepoReadApp(
                     )
                 is Screen.Folder ->
                     FolderScreen(sync, dao, signedIn, entry.id, screen, push, onBack, onDisconnected = popToRoot)
-                is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, screen, onBack, push)
+                is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, entry.id, screen, onBack, push)
                 is Screen.Figure -> FigureScreen(sync, dao, screen, onBack)
                 Screen.Notebook -> NotebookScreen(dao, sync, entry.id, push, onBack)
                 Screen.Review -> ReviewScreen(dao, sync, entry.id, push, onBack)
