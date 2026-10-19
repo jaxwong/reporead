@@ -1,24 +1,24 @@
 # Codebase audit and remediation plan
 
-Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five planned pull requests (PRs 1–3 are merged; PR3's evidence is on [#78](https://github.com/jaxwong/reporead/pull/78)), the decisions they rest on, the final check, and the complexity reductions that follow. The user reported deployment in Actions running when PR4 began; this change does not deploy or install the release app.
+Audited **2026-10-18**. The foundations and earlier audit steps are closed; their evidence is in merged PRs #62–#66 and #69–#73 and this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). Audit PRs 1–4 are merged (#75, #76, #78, #80); PR5's executed checks and remaining known limits are in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19). **Retain this file after PR5**, as the user explicitly requested on 2026-10-19: Section 5 still owns images in Save all, the mechanical moves, the grade-write ownership follow-up and the other post-audit work. PR5 does not implement those items.
 
 [Invariants](invariants.md), [ADRs](adrs.md), [architecture](architecture.md) and [feature status](feature-list.md) keep their owners; this plan links to them and does not restate them. ADR-27 and ADR-28 own the Android foundations; the uncommitted `docs/android-foundations-plan.md` is superseded by them and is deleted, not committed.
 
-## 1. What is still open
+## 1. Audit baseline and disposition
 
-Line numbers are on `main` at `35af494`.
+Findings and line numbers below describe `main` at `35af494`, not the current implementation. The disposition column records what closed them; A9 remains deferred.
 
-| ID | Finding | Root cause | Closes in |
+| ID | Finding at audit baseline | Root cause | Disposition |
 | --- | --- | --- | --- |
-| A6 | A reading position the server refuses stays pending: `Sync.kt:481–487` keeps non-404 refusals, `LibraryDao.kt:201,212,311` count and resend them, and `LocalSyncTest.kt:187` asserts it. Highlights (`AnnotationState.REFUSED`) and grades (`review_log.rejection`) already have a refusal mark; reading rows do not. | The server refuses positions it could accept (a clock up to 5 minutes ahead, an anchor over its limits), and the phone has no state for a refusal. | PR 3 |
-| A4 | Saved pages are judged usable by `renderFormat >= RENDER_FORMAT` (`Sync.kt:254`), but the heading cap (ADR-18), BOM and URL-only-footnote changes shipped without bumping `MarkdownRenderer.FORMAT` (`3`). Pages saved before the 1 MiB complete-page cap can exceed the 2 MiB row Room can read on the Pixel 8a. | Presentation changes were not recorded in the one format number the gate already checks. | PR 3 |
-| A7 | `Practice.kt:126–136` identifies a question by document, prompt and answer text, so editing a prompt creates a second card. `gradeNewQuestion` (`Practice.kt:166`) validates outside Sync, then `Sync.gradeNewCard` (`Sync.kt:542`) writes the card and its grade in two Room transactions; ADR-28 records that cancellation protection does not make them atomic. | No stable question identity, and no single transaction for "card plus first grade". | PR 4 |
-| A8 | The bank's Canonical line is the confirmed answer, but Practice/Review wording and the linked note's saved section do not say which is which. | Product boundary decided (decision 5) but not stated in the UI. | PR 4 |
+| A6 | A reading position the server refuses stays pending: `Sync.kt:481–487` keeps non-404 refusals, `LibraryDao.kt:201,212,311` count and resend them, and `LocalSyncTest.kt:187` asserts it. Highlights (`AnnotationState.REFUSED`) and grades (`review_log.rejection`) already have a refusal mark; reading rows do not. | The server refuses positions it could accept (a clock up to 5 minutes ahead, an anchor over its limits), and the phone has no state for a refusal. | Closed in PR3 ([#78](https://github.com/jaxwong/reporead/pull/78)) |
+| A4 | Saved pages are judged usable by `renderFormat >= RENDER_FORMAT` (`Sync.kt:254`), but the heading cap (ADR-18), BOM and URL-only-footnote changes shipped without bumping `MarkdownRenderer.FORMAT` (`3`). Pages saved before the 1 MiB complete-page cap can exceed the 2 MiB row Room can read on the Pixel 8a. | Presentation changes were not recorded in the one format number the gate already checks. | Closed in PR3 ([#78](https://github.com/jaxwong/reporead/pull/78)) |
+| A7 | `Practice.kt:126–136` identifies a question by document, prompt and answer text, so editing a prompt creates a second card. `gradeNewQuestion` (`Practice.kt:166`) validates outside Sync, then `Sync.gradeNewCard` (`Sync.kt:542`) writes the card and its grade in two Room transactions; ADR-28 records that cancellation protection does not make them atomic. | No stable question identity, and no single transaction for "card plus first grade". | Closed in PR4 ([#80](https://github.com/jaxwong/reporead/pull/80)) |
+| A8 | The bank's Canonical line is the confirmed answer, but Practice/Review wording and the linked note's saved section do not say which is which. | Product boundary decided (decision 5) but not stated in the UI. | Closed in PR4 ([#80](https://github.com/jaxwong/reporead/pull/80)) |
 | A9 | Edit and delete live in the reader's ViewModel (`Reader.kt:356–404`); the Notebook offers only **Open passage** (`Notebook.kt:218`). A card on a removed or unsupported note cannot be opened, so it cannot be deleted. | User-owned records are treated as controls on a rendered page. | Deferred: one phone, so the case needs a card on a note that was removed or is unsupported. Built when it first appears: `NotebookViewModel.delete` over `Sync.deleteAnnotation`, `DeleteDialog` moved to `ui/`, no edit. Recorded as a known gap in feature-list. |
-| C8 | `Answer.kt:222` logs the linked note's heading, which is note content. | Content in a log line. | #74 |
-| C9 | No current dependency-advisory assessment exists. | Not done. | PR 5 |
-| C5 | `Library.answer` serializes the whole library before checking the 8 MiB ceiling (D6 accepted). | Accepted limit; needs the real measurement. | PR 5 |
-| C10 | Annotation provenance is authorized-repository level, not document-history level (D7 accepted). | Accepted limit; needs the wording. | PR 5 |
+| C8 | `Answer.kt:222` logs the linked note's heading, which is note content. | Content in a log line. | Closed in [#74](https://github.com/jaxwong/reporead/pull/74) |
+| C9 | No current dependency-advisory assessment exists. | Not done. | PR5 assessment/measurement/wording recorded in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19) |
+| C5 | `Library.answer` serializes the whole library before checking the 8 MiB ceiling (D6 accepted). | Accepted limit; needs the real measurement. | PR5 assessment/measurement/wording recorded in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19) |
+| C10 | Annotation provenance is authorized-repository level, not document-history level (D7 accepted). | Accepted limit; needs the wording. | PR5 assessment/measurement/wording recorded in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19) |
 
 Closed since the audit baseline, and not reopened here: A1, A2, A3, A5, A10, A11, A12, C1, C3, C4, C6, C7. C2 (baseline creation versus acknowledgement) closed with foundations PR4; audit PR1 retires the summary feature and its acknowledgement tests entirely.
 
@@ -111,7 +111,9 @@ Production is net **+41 lines**, not a refactor-only reduction: new validation o
 
 ### PR 5 — Close the audit (C5, C9, C10) and run the final check
 
-- **C9:** `npm audit` in `android/reader-web` as its README documents; enable GitHub Dependabot alerts on the repository (a setting, not a dependency; needs your go-ahead). Record Spring Boot, AGP, Compose BOM and Navigation 3 versions with the result in feature-list; each applicable finding gets a fix or an accepted reason, as the KaTeX advisory already has.
+**Verification executed, 2026-10-19:** [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19) owns exact commands, outcomes, live mutations and the clock-rollback Review counter defect observed but not fixed. Latest main CI is green at `b6e3c82`; the full isolated Pixel run ended `OK (171 tests)`. The approved local restart, Dev/GitHub smoke and release 0.1.390 update were executed. The plan remains for Section 5, not for another execution of PR5.
+
+- **C9:** `npm audit` in `android/reader-web` as its README documents; check GitHub Dependabot alerts on the repository. The user explicitly declined enabling them on 2026-10-19; leave the setting unchanged and record the coverage limit. Record Spring Boot, AGP, Compose BOM and Navigation 3 versions with the result in feature-list; each applicable finding gets a fix or an accepted reason, as the KaTeX advisory already has.
 - **C5:** read the hosted backend's `Library read; userId=… bytes=…` log line for the real account; record bytes and counts beside the 8 MiB ceiling in feature-list with the revisit trigger. No new code.
 - **C10:** one sentence under "Source traceability" in `invariants.md` stating the authorized-repository scope.
 - **Sweep:** grep production, tests and docs for the names retired by PRs 1–4 (`Changes`, `baseline`, `Figure`, `export`, `LocalCleanup`, `clearRetiredCopy`, `removalPending`, `Removing`, `INVALID_READING_STATE`, `RefusedChange.Kind.READING`) and by PR4 (`RefreshOnEntry`, `rememberLoad`, `StackSaver`, legacy format wording); fix ADR-06's measurement chronology against feature-list.
@@ -121,7 +123,7 @@ Production is net **+41 lines**, not a refactor-only reduction: new validation o
   3. Dev app against the Mac backend and real GitHub: open a note with an embedded image and a wide table, one Practice grade, one Review, an offline open, a reading position saved with the phone's clock set ahead, a sign-out and sign-in with every saved note still there.
   4. Release build installed over the phone's app, and the hosted backend's revision and health read as the backend README documents. Deploy and install need your go-ahead at the time.
   Room migration coverage is the preserved v15 migration and PR3's v16 migration (upgrades from exported v14 and v15); PR4 needs no schema change. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` are not rerun: no PR changes `Anchoring`, `ContentMoves` or the canonical rules.
-- **Then delete this file.** Decisions live in the ADRs, status in feature-list, the record in git. Feature-list's pasted build output (Save all audit, typed HTTP boundary, Navigation 3, screen work sections) is reduced to one status line each naming the PR.
+- **Retain this file after PR5 (user decision, 2026-10-19).** Section 5 is still needed for post-PR5 work, including images in Save all, mechanical moves and one owner for whether a grade may be written. Decisions live in the ADRs, executed status in feature-list and evidence in git/PRs; the four earlier implementation sections in feature-list now each have one status line naming their PR.
 
 ## 4. Guardrails for PRs 2–5
 
@@ -177,4 +179,4 @@ One PR, moves only, verified by format check, compile and the existing suites:
 
 ### Documentation
 
-This plan goes with PR 5. `docs/` then holds the ADRs, architecture, invariants, feature status and user stories, each the owner of one kind of fact, with evidence in the merged PRs and git history rather than pasted transcripts.
+This plan stays after PR5 at the user's explicit request. Section 5 remains the post-PR5 work plan; do not delete it while those items are still needed. The ADRs, architecture, invariants, feature status and user stories keep their own facts, with executed evidence in feature status, merged PRs and git history rather than duplicated transcripts here.
