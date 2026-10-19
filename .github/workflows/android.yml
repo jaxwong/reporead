@@ -68,6 +68,9 @@ jobs:
   release:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # The signing key and its password are environment secrets, and GitHub lets only main use this environment, so a
+    # workflow on any other branch cannot read the key.
+    environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
