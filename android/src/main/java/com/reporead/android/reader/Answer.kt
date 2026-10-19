@@ -221,7 +221,7 @@ private fun sectionView(
             if (!found) {
                 Log.w(
                     "RepoRead",
-                    "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha} heading=$heading",
+                    "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha}",
                 )
                 onProblem(
                     "No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date."
