@@ -165,7 +165,7 @@ sealed interface SavingNotes {
     /** Waiting for a network, for a retry, or for Android to run it. */
     data object Waiting : SavingNotes
 
-    /** [done] of the [toFetch] notes whose saved copy was missing or old; [toFetch] is 0 until they are known. */
+    /** [done] of the [toFetch] listed notes checked for pages and images; [toFetch] is 0 until they are known. */
     data class Running(val done: Int, val toFetch: Int) : SavingNotes
 
     /** [Sync.SavedAll]. */
