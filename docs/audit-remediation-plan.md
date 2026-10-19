@@ -1,6 +1,6 @@
 # Codebase audit and remediation plan
 
-Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five planned pull requests (PR1 and PR2 are merged; PR3's review fixes await the device gate), the decisions they rest on, the final check, and the complexity reductions that follow.
+Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five planned pull requests (PR1 and PR2 are merged; PR3 and its review fixes are verified on [#78](https://github.com/jaxwong/reporead/pull/78)), the decisions they rest on, the final check, and the complexity reductions that follow.
 
 [Invariants](invariants.md), [ADRs](adrs.md), [architecture](architecture.md) and [feature status](feature-list.md) keep their owners; this plan links to them and does not restate them. ADR-27 and ADR-28 own the Android foundations; the uncommitted `docs/android-foundations-plan.md` is superseded by them and is deleted, not committed.
 
@@ -78,7 +78,7 @@ Saved notes are already readable signed out. This PR makes that the whole story:
 
 ### PR 3 — Reading positions accepted, saved pages retired (A4, A6, D2, D4)
 
-**Implementation and review fixes complete locally, 2026-10-19; device gate pending:** [feature status](feature-list.md#audit-pr3--reading-positions-and-saved-page-retirement-2026-10-19) records the current green backend/Android gates (289 backend tests, 78 Android JVM tests) and the unavailable device authorization. The earlier `OK (162 tests)` predates the review fixes and does not verify this revision. The four opt-in corpus/measurement tests remain skipped. Room v16 and the malformed-text exception below were approved; backend deployment must precede the app. No deployment, release install or live GitHub smoke check is claimed.
+**Implementation and review fixes verified, 2026-10-19 ([#78](https://github.com/jaxwong/reporead/pull/78)):** [feature status](feature-list.md#audit-pr3--reading-positions-and-saved-page-retirement-2026-10-19) records the green backend/Android gates (289 backend tests, 78 Android JVM tests), reproduced red multi-byte migration failure, corrected migration `OK (2 tests)` and full Pixel 8a `OK (161 tests)` in 256.927 s. The earlier `OK (162 tests)` predates the review fixes and is superseded. The four opt-in corpus/measurement tests remain skipped. Room v16 and the malformed-text exception below were approved; backend deployment must precede the app. No deployment, release install or live GitHub smoke check is claimed.
 
 **Owners:** `ReadingController` for what a position must look like; `MarkdownRenderer.FORMAT` for what a page format means; `Sync` for fetch decisions; `LibraryDao`/`LocalStore` for the rows and the migration.
 
