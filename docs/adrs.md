@@ -264,7 +264,7 @@ Amended 2026-10-18: Save all is WorkManager work, unique per repository (needs a
 
 **Decision** (2026-10-17). What can be over the note is one sealed `ReaderOverlay` owned by `ReaderScreen`: a question or note being written, a highlight's edit, deletion or conflicting edit, a link's preview or choices, and the outline. It is kept with `rememberSaveable`, so at most one is open and it comes back after recreation with what was typed; the rows it holds are `Serializable` (no Parcelize plugin). The notes panel reports which row the user picked; the reader runs the action, so one exhaustive `when` draws every overlay. A mode that must stay usable beside an overlay, such as reattaching (the outline helps find the passage), is its own saved state. State a screen needs from another owner is read as that owner's observable state, never inferred: `ReaderSession.outline` exists only while the page is open, and `opened` is derived from it; together they decide when Outline, Study, Show and a changed section's link are offered, so a page that did not render, or whose renderer is gone, offers none of them.
 
-**Consequences.** Two overlays cannot be open at once by construction. A row kept in saved state is a snapshot: an edit made from it after a sync changed it is refused as a conflict (409), which the conflict overlay handles. No ViewModel: navigation stays the app's own back stack (§4 of the architecture), and saved state covers recreation and process death. Amended 2026-10-19: the back stack is now Navigation 3's ([ADR-27](#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-build)); each entry still keeps this saved state while it is in the stack, and there is still no ViewModel.
+**Consequences.** Two overlays cannot be open at once by construction. A row kept in saved state is a snapshot: an edit made from it after a sync changed it is refused as a conflict (409), which the conflict overlay handles. No ViewModel: navigation stays the app's own back stack (§4 of the architecture), and saved state covers recreation and process death. Amended 2026-10-19: the back stack is now Navigation 3's ([ADR-27](#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)); each entry keeps saved state and a ViewModel store while it is in the stack. Production screen work remains composition-owned until foundations PR 4.
 
 **Evidence.** `ReaderLifecycleTest`: a note being edited and a highlight being reattached survive recreation, a page that never becomes ready offers no Show, and a page whose renderer stops no longer offers Outline; each fails on the code before. 
 
@@ -286,18 +286,129 @@ The backend remains the owner of published meanings. Amended 2026-10-18 (generat
 
 **Consequences.** The old public raw verbs, HTTP JSON builders, `ServerJson.kt` and its superseded tests are removed with every caller migrated. The generated models replaced `Contract.kt`, the nine `*WireContractTest` producer tests, `ContractFixtures` and 27 shape-only JSON examples; `item-refusals.json` remains, checked by `ItemRefusalsTest` and read by the app's `RefusalTest`. Test answers are built with the generated constructors (`WireSamples.kt`, shared by the JVM and device tests), so a backend shape change fails test compilation, which CI runs for the device tests too. The app now requires every published field, not only the ones it reads; removing a published field was already incompatible. Room and the reader bridge are unchanged. Optional request defaults may be omitted; actual HTTP tests verify missing and explicit-null owner/prefix inputs while response decoding stays strict. Strict decoding can expose previously hidden server/client drift; it leaves saved data and uncertain pending work untouched rather than inventing defaults. Step 9 also replaces transient Sync refusal sentences with structured operation results rendered by the consuming UI. Existing durable annotation/review rejection text and Room schemas are unchanged; their redesign is not part of this wire-boundary replacement. Credential lifecycle ordering is owned by GitHubCredentials (ADR-03), and fixed runtime SQL/socket deadlines by the backend application configuration. [The implementation record](audit-remediation-plan.md#step-9-verification) owns commands, results, size justification and live exclusions.
 
-## ADR-27 — Navigation 3 owns the back stack; saved screen state belongs to its entry and its build
+## ADR-27 — Navigation 3 owns the back stack; saved screen state belongs to its entry and its format
 
 **Context.** The app kept its own back stack: a list of `Screen` values encoded as strings (`encode`, `decode`, `StackSaver`), each entry's saved state keyed by its stack index and encoded screen (`entryKey`, `screenStates`, `keptStates`, `key(...)`) and its own `BackHandler`, about 100 lines. An entry had no lifetime of its own, so nothing could be owned by one, which is what the Android foundations plan needs next: a screen's work outliving rotation and being covered.
 
 **Decision** (2026-10-19).
 
 - **The stack.** Navigation 3 (`navigation3-runtime`, `navigation3-ui` 1.2.0) owns it. Destinations are `@Serializable` `Screen` and `OpenAt` values; the key is `Entry(id, screen)`, with a new random id at each push. The stack is saved with `NavBackStackSerializer(Entry.serializer())`: typed, so no reflection and no casts. The id, never the screen or its position, identifies an entry, so a note opened from a note that links back keeps two separate states.
-- **The account screen.** `rememberDecoratedNavEntries`, with the saved-state decorator, runs above the account screen, and `NavDisplay` below it. Signing in or waiting for an account deletion hides the stack without popping it, and a failed operation returns to the same entries with their state. A removal replaces the stack with a new root; the entries it removes while hidden lose their state too. Entries are made once, at their push, so their content reads the account and sign-in state when it draws.
+- **The account screen.** `rememberDecoratedNavEntries`, with the saved-state and ViewModel-store decorators, runs above the account screen, and `NavDisplay` below it. Signing in or waiting for an account deletion hides the stack without popping it, and a failed operation returns to the same entries with their state. The `Removing` phase clears old entries promptly. The saved back stack is also keyed to the authoritative `Account.sync` identity: every published fresh copy starts a fresh root, including successful ownerless-data cleanup during sign-in, which never enters `Removing`. This does not depend on observing a transient phase. Entries are rebuilt when the stack changes; their content reads current account and sign-in state when it draws.
 - **Back.** `NavDisplay` draws only the top entry, with no transition, as before. System Back pops the top entry and is off at the root, so the activity handles it there. A screen's own Back removes its own entry, so a repeated tap on a screen already left does nothing; before, it popped the screen below.
-- **Restoring saved state.** `MainActivity` restores saved instance state only into the build that wrote it (`savedByThisBuild`; the bundle records `BuildConfig.VERSION_CODE`). Compose keys saved UI state by place in the composition, not by the code that wrote it. Here, the new back stack sits at the same key where the previous build saved its string list, and restoring that list threw a `ClassCastException`. A test showed this, restoring state recorded from c3a55f9 through the test host. The user approved a one-time reset of navigation and UI state across this change (2026-10-19), with Room, files and pending changes untouched. Earlier builds recorded no build, so their state is dropped. The rule also covers any later format change at an unchanged place, such as a new field in a destination. A process restored by the same build is unaffected. On the Pixel (Android 14), installing an update finished the app's activity and dropped its saved state, so nothing crossed this update there; the rule makes that the app's guarantee instead of the platform's. Limit: two debug builds at the same commit count are one build to this rule.
-- **Dependencies.** navigation3 1.2.0 requires AGP 9.1.0 and compileSdk 37 (its AAR metadata); the repository has AGP 9.1.1 and compileSdk 37, so nothing in the toolchain changed. The plan's AGP 9.2.0 concern was not borne out by the metadata or the build. Navigation 3 raises Lifecycle from 2.9.4 to 2.10.0, SavedState from 1.3.2 to 1.4.0 and NavigationEvent from 1.0.0 to 1.1.1 (every Navigation 3 release needs Lifecycle 2.10 and SavedState 1.4); Compose stays at the BOM's 1.12.0. The ViewModel decorator (`lifecycle-viewmodel-navigation3`) is added with the first entry-scoped ViewModel (plan PR 4), since without one it would hold nothing.
+- **Restoring saved state.** `MainActivity` records `navigationStateFormat = 1` and calls `compatibleSavedState` before `super.onCreate`. Unmarked or incompatible formats reset navigation/UI state; compatible later builds retain it. The marker changes only for an incompatible saved-state format, never for an ordinary release. This replaces the branch's per-build filter, which was broader than the approved one-time reset. The user approved the stable format marker on 2026-10-19. Room, files and pending changes are untouched. Compose keys saved UI state by position: the old string-list stack cannot be read as the new serialized stack. The debug test host applies the same policy at its actual Activity boundary; it never opens the app's real store. `MainActivity` wiring itself remains checked by review, not by launching the live app in tests.
+- **Dependencies.** navigation3 1.2.0 requires AGP 9.1.0 and compileSdk 37 (its AAR metadata); the repository has AGP 9.1.1 and compileSdk 37, so nothing in the toolchain changed. Navigation 3 selected Lifecycle 2.10.0, SavedState 1.4.0 and NavigationEvent 1.1.1; Compose UI/runtime/animation/foundation remain 1.12.0, Material3 1.4.0, Kotlin stdlib 2.2.10 and serialization 1.9.0. On 2026-10-19 the user approved adding `lifecycle-viewmodel-navigation3:2.10.0` now, plus a direct androidTest declaration of `lifecycle-viewmodel-compose:2.10.0` for the labelled owner probe. This avoids the proposed Lifecycle 2.11.0/toolchain upgrade. The decorators follow [Android's state guidance](https://developer.android.com/guide/navigation/navigation-3/save-state).
 
 **Consequences.** `encode`, `decode`, `StackSaver`, `entryKey`, `ROOT_STATE`, `screenStates`, `keptStates`, `key(...)`, `BackHandler` and the JVM `NavigationTest` of the encoder are deleted. Its assertion that pre-upgrade stacks restore is replaced by the reset above. Screens still own their work through composition, so a rotation still cancels it (ADR-25; the plan's PR 4).
 
-**Evidence.** On the Pixel 8a: `AppNavigationTest` drives the real `RepoReadApp`, with the production `Account`, `Sync` and Room over test-only data and a loopback server. It covers notes A → B → A keeping each entry's panel through recreation and Back; a stack restored after its saved state goes through a Parcel; a failed sign-in and a failed account deletion returning to the same entries; sign-out then sign-in starting at a fresh root; the sign-out, account deletion and disconnect confirmations, where Cancel sends nothing more; a confirmed disconnect returning to the Library with nothing left above or below it; and two Back taps that land before the screen changes leaving only that screen, which on c3a55f9 left two. All but the last passed before and after the change. `NavigationTest` round-trips every destination and `OpenAt` through the saved-state encoding and a Parcel, and checks that `savedByThisBuild` refuses another build's state and keeps this build's. Its use in `MainActivity` is checked by review only: no test launches `MainActivity`, which would use the dev app's real data. On the phone, with RepoRead Dev's real library and the Mac backend: an update installed over the earlier build, backgrounded on a note six entries deep, reopened at a fresh Library, its saved library and reading list intact; `am kill` and Recents reopened the same note with its panel open, and Back walked the stack to the Library and out of the app; rotating kept each reader entry's panel, including the covered one's.
+**Historical evidence before the audit follow-up.** The earlier Pixel 8a run drove `RepoReadApp` over isolated data: A → B → A panels, recreation, synthetic-registry restoration through a Parcel, account gates, fresh-root sign-out, loss confirmations/Cancel, confirmed disconnect, and repeated Back. The real Dev app's update returned to a fresh Library with saved data intact; `am kill`/Recents restored its note and panel. That update discarded saved state before the app saw it, so it was not proof of the migration filter. The old helper-only build-filter tests and synthetic registry host are now replaced, not retained in parallel.
+
+**Audit follow-up tests.** `AppNavigationTest` adds ownerless sign-in cleanup, refusal then an explicit second attempt, and a legacy-format Activity restore that preserves Room, a pending annotation and a test-only file. Its compatible restore now uses the real Activity saved-instance-state Bundle through a Parcel into a fresh Activity. `NavigationTest` retains every destination/entry-id round-trip and tests format acceptance independently of build number. The legacy fixture is the literal c3a55f9 `StackSaver` string-list format inside Android-generated Activity state, not an APK-captured Bundle or a retained legacy encoder. `EntryLifetimeTest` puts labelled test-only ViewModels in a real `NavDisplay` with the same hoisted public decorators: equal destinations have separate owners/drafts, cover/recreation keeps them, pop/removal clears them, and fresh-Activity restoration recreates owners while preserving ids/drafts. It has no production hook; actual screen ViewModels and their work remain PR 4, which must rerun these assertions with those owners.
+
+### Audit follow-up verification (2026-10-19)
+
+The dependency graph was recorded with the following command (exit **0**, `BUILD SUCCESSFUL in 6s`); the full local
+report is `/tmp/reporead-foundations-dependencies.txt`. Lifecycle's decorator and its Compose dependency select 2.10.0;
+the approved graph needs no toolchain upgrade. The individual Compose UI, ui-text, ui-unit, ui-util, ui-geometry,
+ui-graphics, runtime, runtime-saveable, runtime-retain, runtime-annotation, animation, animation-core, foundation,
+foundation-layout and material-ripple artifacts select 1.12.0 (including their Android variants); Material3 selects
+1.4.0. The other selected versions are listed in the dependency decision above.
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:dependencies --configuration debugRuntimeClasspath --no-daemon
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+# Compatibility gate, exit 0:
+# BUILD SUCCESSFUL in 15s
+# 74 actionable tasks: 14 executed, 60 up-to-date
+```
+
+The first integration compile failed because the new test caller preceded its `TestHostActivity.restoredState` field;
+completing that call-site replacement made the gate above pass. No assertion was removed or weakened.
+
+The first complete local verification, including formatting, Lint, JVM tests, reader assets, device-test compilation
+and both APKs, exited **0** (`BUILD SUCCESSFUL in 34s`, `92 actionable tasks: 28 executed, 64 up-to-date`). JVM results:
+78 passed, one opt-in corpus test skipped; Lint: 0 errors, 0 warnings, 5 informational hints.
+
+Final verification reran every task rather than relying on cached results (exit **0**):
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 1m 3s
+91 actionable tasks: 91 executed
+```
+
+The SDK XML-version warning and the unstripped `libandroidx.graphics.path.so` packaging notice remain warnings from
+the installed SDK/build tools, not weakened Lint rules. No toolchain change was made. The resulting app APK SHA-256 is
+`5138384c9d41e0c86440fabf697cab0d766a655926e054bad4bbdde3336f7b27`; the device-test APK is
+`1ac83da838338a3714f2a85da2aac420d4eca5f624e20ab646ae65bedd5f0d32`.
+
+On the Pixel 8a, restoring only the old unkeyed `rememberSerializable` line reproduced the account-cleanup defect with
+the new regression (ADB transport exit **0**, but a failing terminal test result):
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w -e class com.reporead.android.AppNavigationTest#signingInOverOwnerlessDataRetiresTheOldStack com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+java.lang.AssertionError: Screen still lacks [Library] and shows [Note A]
+Time: 12.831
+FAILURES!!!
+Tests run: 1,  Failures: 1
+```
+
+The source was restored to the copy-identity fix immediately after building that reproduction. The first fixed
+focused run lost its wireless ADB connection (transport exit **255**, no terminal result), so its partial dots are not
+a passing claim. After the user reconnected the phone, the fixed app and test APKs installed with `Success`, and the
+focused run exited **0**:
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w -e class com.reporead.android.AppNavigationTest,com.reporead.android.NavigationTest,com.reporead.android.EntryLifetimeTest com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+Time: 35.541
+OK (18 tests)
+```
+
+Two explicit assertions that popping one entry leaves both other owners alive were then added. Their final check and
+test APK build passed, followed by a fresh Lint analysis of that test source (both exit **0**):
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:compileDebugAndroidTestKotlin :app:assembleDebugAndroidTest --no-daemon
+# BUILD SUCCESSFUL in 9s; 58 actionable tasks: 7 executed, 51 up-to-date
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:lintDebug --no-daemon
+# BUILD SUCCESSFUL in 14s; 31 actionable tasks: 3 executed, 28 up-to-date
+```
+
+The final test APK SHA-256 is `7f5ac47403961b30770432f269cbabf1c76c59aca6c58ed8f359842cf4d5d1c9`; the app APK remains
+`5138384c9d41e0c86440fabf697cab0d766a655926e054bad4bbdde3336f7b27`.
+
+After installing that final test APK in place (`Success`, exit **0**), the complete Pixel 8a suite, including the
+strengthened owner-isolation assertions, exited **0** with this terminal result:
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+Time: 165.725
+OK (147 tests)
+```
+
+This full run also reran all focused navigation cases; the ownerless cleanup regression now passes without changing
+its assertion. `git diff --check` exited **0** with no output. The pre-existing untracked foundations plan was not
+staged or rewritten; the two narrower approvals and their executed implementation are recorded in this ADR.
+
+Pairing credentials are not recorded. Tests use isolated preferences, in-memory Room, scratch files
+and loopback HTTP; no live account deletion/sign-out, phone settings, process-kill/update experiment or release
+deployment is part of this follow-up. `MainActivity` wiring and actual process death remain reviewed/simulated as
+described above, not live-tested here.
+
+The main/build production delta is 28 additions and 11 deletions (net +17): the named requirements are a stable
+saved-state format boundary, authoritative local-copy identity, and entry-scoped owners. The debug host adds 10 lines
+and removes one; it exercises the actual
+Activity boundary without exposing a production test hook. No alternate stack, old saver, per-build filter or
+synthetic-registry restoration helper remains in parallel.

@@ -190,6 +190,7 @@ androidComponents.onVariants { variant ->
 dependencies {
     // One Compose version set for the app and its device tests; the test APK does not inherit the app's platform.
     val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
+    val lifecycleVersion = "2.10.0"
     // The generated wire models' serializers; scalar strictness stays in WireJson.kt.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     // Offline study extraction needs a DOM parser for the saved, sanitized pages (including loose/nested lists).
@@ -199,6 +200,7 @@ dependencies {
     // The back stack and each entry's saved UI state while it is in the stack (ADR-27).
     implementation("androidx.navigation3:navigation3-runtime:1.2.0")
     implementation("androidx.navigation3:navigation3-ui:1.2.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-navigation3:$lifecycleVersion")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.webkit:webkit:1.16.0")
@@ -216,4 +218,6 @@ dependencies {
     // Screen assertions on Compose semantics in TestHostActivity, through createEmptyComposeRule.
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // The labelled entry-owner probe; production screen ViewModels belong to foundations PR 4.
+    androidTestImplementation("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleVersion")
 }

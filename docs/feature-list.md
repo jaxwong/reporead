@@ -181,13 +181,13 @@ The live Dev check used an existing scratch note and the real Mac backend/GitHub
 
 ## Navigation 3 (2026-10-19)
 
-Navigation 3 owns the back stack, and saved state is restored only into the build that saved it ([ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-build)). This is PR 3 of the Android foundations plan; screens still own their work through composition until entry-scoped ViewModels (PR 4). Its device tests and phone checks are recorded in the ADR.
+Navigation 3 owns the back stack and each entry's saved state/ViewModel store; compatible-format Activity state survives ordinary build updates ([ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)). Every fresh local copy starts a fresh root, including ownerless sign-in cleanup. This is PR 3 of the Android foundations plan; production screen work remains composition-owned until PR 4. The ADR records test scope and execution evidence.
 
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
 
-- Dropping another build's saved state (ADR-27) on the phone: Android 14 discarded it at the update before the app could see it, so only `NavigationTest` exercises the rule, and `MainActivity`'s use of it is checked by review only. The account screens over a deep stack are tested with loopback only; signing out or deleting the account on the phone removes its data.
+- The format reset in the live `MainActivity` across an app update (ADR-27): Android 14 discarded state before the earlier update could exercise it. Isolated tests use the debug Activity boundary; `MainActivity` wiring is reviewed only. Deep account gates and cleanup are tested with loopback data, never by deleting the live phone copy.
 - Connecting a repository and landing on its folder above the Library (ADR-27): covered only by its parts, the return to the Library that a disconnect test checks and an ordinary push; no device test drives Add repository.
 - A branch rewind or a missing old blob against live GitHub (`SINCE_UNAVAILABLE`), and a too-large comparison.
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.

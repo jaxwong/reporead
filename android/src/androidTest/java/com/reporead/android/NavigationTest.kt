@@ -9,16 +9,16 @@ import androidx.savedstate.serialization.decodeFromSavedState
 import androidx.savedstate.serialization.encodeToSavedState
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
  * The back stack as the app saves it ([BackStackSerializer]), carried through a Parcel as process death does, and which
- * saved state the activity restores at all ([savedByThisBuild]).
+ * saved state the activity restores at all ([compatibleSavedState]).
  */
 @RunWith(AndroidJUnit4::class)
 class NavigationTest {
@@ -58,48 +58,60 @@ class NavigationTest {
         assertEquals(stack.toList(), restored.toList())
     }
 
-    /** A real saved instance state, as an activity saves one when it records no build: every build before ADR-27. */
-    private fun savedWithoutBuild(): Bundle {
-        TestHostActivity.content = { Text(rememberSaveable { "test-only" }) }
-        try {
-            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
-                val saved = Bundle()
-                scenario.onActivity {
-                    InstrumentationRegistry.getInstrumentation().callActivityOnSaveInstanceState(it, saved)
-                }
-                assertFalse(saved.isEmpty)
-                return saved
+    @Test
+    fun unmarkedLegacyAndUnknownFormatsAreNotRestored() {
+        val saved = legacyNavigationState()
+        assertNull(compatibleSavedState(saved))
+        saved.putInt(NAVIGATION_STATE_FORMAT_KEY, NAVIGATION_STATE_FORMAT + 1)
+        assertNull(compatibleSavedState(saved))
+    }
+
+    @Test
+    fun compatibleStateDoesNotDependOnTheBuildNumber() {
+        val saved =
+            Bundle().apply {
+                putInt(NAVIGATION_STATE_FORMAT_KEY, NAVIGATION_STATE_FORMAT)
+                // Historical branch marker: compatible formats must not be tied to a commit count.
+                putInt("savedByBuild", BuildConfig.VERSION_CODE - 1)
             }
-        } finally {
-            TestHostActivity.content = null
+        assertSame(saved, compatibleSavedState(saved))
+        assertNull(compatibleSavedState(null))
+    }
+}
+
+/**
+ * Test-only literal StackSaver output from c3a55f9 (Library → folder → reader), not a retained legacy encoder. Android
+ * writes its enclosing saved-instance-state Bundle. This constructs the historical format; it is not an APK capture.
+ */
+internal fun legacyNavigationState(): Bundle {
+    TestHostActivity.content = {
+        val stack = rememberSaveable {
+            arrayListOf(
+                "1",
+                "repositories",
+                "4",
+                "folder",
+                "7",
+                "test-only/notes",
+                "deep",
+                "5",
+                "reader",
+                "1",
+                "Note A",
+                "",
+                "",
+            )
         }
+        Text("Test-only legacy stack: $stack")
     }
-
-    /**
-     * The one-time reset across the change to Navigation 3: this build keeps its back stack where the previous one kept
-     * its own in another format, so restoring that state threw a ClassCastException (shown with state recorded from
-     * c3a55f9). An activity starts afresh instead, from any other build's state.
-     */
-    @Test
-    fun stateSavedByAnotherBuildIsNotRestored() {
-        val saved = savedWithoutBuild()
-        assertNull(savedByThisBuild(saved))
-        saved.putInt(SAVED_BY_BUILD, BuildConfig.VERSION_CODE - 1)
-        assertNull(savedByThisBuild(saved))
-    }
-
-    @Test
-    fun stateSavedByThisBuildIsRestoredAfterProcessDeath() {
-        val saved = savedWithoutBuild().apply { putInt(SAVED_BY_BUILD, BuildConfig.VERSION_CODE) }
-        val parcel = Parcel.obtain()
-        val restored =
-            try {
-                parcel.writeBundle(saved)
-                parcel.setDataPosition(0)
-                checkNotNull(parcel.readBundle(javaClass.classLoader))
-            } finally {
-                parcel.recycle()
+    try {
+        ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+            return saveActivityState(scenario).apply {
+                assertFalse(isEmpty)
+                remove(NAVIGATION_STATE_FORMAT_KEY)
             }
-        assertEquals(saved.keySet(), savedByThisBuild(restored)?.keySet())
+        }
+    } finally {
+        TestHostActivity.content = null
     }
 }
