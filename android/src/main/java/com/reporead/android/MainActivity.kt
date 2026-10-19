@@ -17,8 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 
 internal const val NAVIGATION_STATE_FORMAT_KEY = "navigationStateFormat"
-/** Change only when the saved navigation/UI format becomes incompatible, never for an ordinary build. */
-// PR1 removes the serialized Figure destination; format 2 may still contain one.
+/** Format 2 may contain the removed figure destination, which this build cannot deserialize. */
 internal const val NAVIGATION_STATE_FORMAT = 3
 
 /**

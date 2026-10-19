@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.DeleteColumn
+import androidx.room.DeleteTable
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.AutoMigrationSpec
@@ -80,12 +81,7 @@ val ANNOTATION_STATE_10_11 =
     }
 
 /** v15: change summaries were retired; no user-owned row is removed. */
-val REMOVE_CHANGE_SUMMARIES_14_15 =
-    object : Migration(14, 15) {
-        override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("drop table change_baselines")
-        }
-    }
+@DeleteTable(tableName = "change_baselines") class DropChangeBaselines : AutoMigrationSpec
 
 @Database(
     entities =
@@ -115,6 +111,7 @@ val REMOVE_CHANGE_SUMMARIES_14_15 =
             AutoMigration(from = 11, to = 12, spec = DropBookmarkVersion::class),
             AutoMigration(from = 12, to = 13, spec = DocumentsOwnNoteFacts::class),
             AutoMigration(from = 13, to = 14),
+            AutoMigration(from = 14, to = 15, spec = DropChangeBaselines::class),
         ],
 )
 abstract class LocalStore : RoomDatabase() {
@@ -123,8 +120,6 @@ abstract class LocalStore : RoomDatabase() {
     companion object {
         /** The database file [name] with every migration: the automatic ones above and the hand-written ones here. */
         fun open(context: Context, name: String): LocalStore =
-            Room.databaseBuilder(context, LocalStore::class.java, name)
-                .addMigrations(ANNOTATION_STATE_10_11, REMOVE_CHANGE_SUMMARIES_14_15)
-                .build()
+            Room.databaseBuilder(context, LocalStore::class.java, name).addMigrations(ANNOTATION_STATE_10_11).build()
     }
 }
