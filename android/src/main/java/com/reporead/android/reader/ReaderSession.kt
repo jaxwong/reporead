@@ -64,7 +64,7 @@ internal class ReaderSession(
     private val note: NoteRow,
     private val sync: Sync,
     private val dao: LibraryDao,
-    /** Survives the view; final saves finish unless their Sync lifetime has been retired by removal. */
+    /** Survives the view so final local saves can finish. */
     private val appScope: CoroutineScope,
     /** Where the page opens; null is where the note was last read. */
     private val openAt: OpenAt?,
