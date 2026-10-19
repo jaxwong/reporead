@@ -185,6 +185,14 @@ These come from the original implementation spec's engineering invariants and th
 - Checks: `AppNavigationTest` drives real screens/account gates, fresh-copy resets and Activity restoration; `NavigationTest` checks every destination and format acceptance; `EntryLifetimeTest` probes real decorated Navigation 3 owners, including cover/rotation/pop/removal and fresh-Activity restoration. The debug host uses the production format policy at its Activity boundary. `MainActivity` wiring itself remains checked by review; tests do not launch the live app's store. Execution status is recorded in ADR-27.
 - Why: Compose keeps saved state by place, so incompatible formats must be rejected without discarding compatible state at every update; [ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format).
 
+### A screen's work belongs to its entry; a confirmed change belongs to Sync
+
+**Rotation or covering neither cancels nor repeats a screen's work, and leaving a screen never abandons a change the server confirmed or a local write it accepted. Only the resumed current entry navigates or shares, once; a removed local copy refuses late work.**
+
+- Enforced by: one ViewModel per screen that starts work, owning its loads, operations (admitted synchronously, one per exclusion group) and outcomes; `isChangingConfigurations` telling a return from a rotation; results claimed once by the resumed screen; `Sync.committed` for the screens' mutations, under the lock that retirement closes.
+- Checks: `AppNavigationTest` (recreation, covering, pop, double taps, restoration and a real read timeout through the real app); `CommittedMutationTest` (each mutation committed after its caller is cancelled, queued writes, retirement); `ReaderViewModelTest`; `PracticeSessionTest`, `ReviewLifecycleTest`, `ReaderLifecycleTest` and `AccountTest` in decorated entries. Execution evidence is recorded in ADR-28.
+- Why: [ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync).
+
 ## Constraints on reader code
 
 These are facts of the platform, not decisions, but breaking them breaks the reader:
