@@ -3,6 +3,8 @@
 
 package com.reporead.android
 
+import android.content.Intent
+import android.content.IntentFilter
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -48,8 +50,10 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -997,6 +1001,81 @@ class AppNavigationTest {
                 assertNothingMoreSent(server, server.requests.toList())
                 awaitScreen("Library", "test-only/notes", hidden = listOf("deep"))
                 assertEquals(1, server.requests.count { it == connect.first })
+            }
+    }
+
+    /**
+     * T11: an export waiting for the lock is shared once by the Notebook shown when it is ready — after a recreation,
+     * or once the screen covering it is gone — and never by a Notebook that was left. Signed out, so nothing else
+     * syncs; the test holds the lock with its own library load, and the share sheet is intercepted, never shown.
+     */
+    @Test
+    fun aNotebookExportIsSharedOnceByTheScreenShownAndNeverByOneLeft() = runBlocking {
+        dao.saveAnnotation(
+            AnnotationRow(
+                "test-only-notebook",
+                null,
+                1,
+                testSha,
+                "b0",
+                0,
+                4,
+                "Test",
+                null,
+                1,
+                0,
+                state = AnnotationState.UNSENT,
+            )
+        )
+        val holds = List(3) { Held("GET /api/library") }
+        val shares = instrumentation.addMonitor(IntentFilter(Intent.ACTION_CHOOSER), null, true)
+        LoopbackServer(mapOf("GET /api/library" to library())) { key ->
+                holds.first { it.arrived.count == 1L }.hook(key)
+            }
+            .use { server ->
+                val api = api(server)
+                val account = account(api)
+                launchApp(account, api)
+                awaitText("Library")
+                click("Notebook")
+                awaitTextStarting("Highlights and cards saved on this phone.")
+                suspend fun exportWhileHeld(hold: Held, meanwhile: () -> Unit) {
+                    val load = async(Dispatchers.IO) { account.sync.refreshLibrary() }
+                    try {
+                        hold.awaitArrived()
+                        click("Export Markdown")
+                        meanwhile()
+                    } finally {
+                        hold.release.countDown()
+                    }
+                    load.await()
+                }
+                try {
+                    exportWhileHeld(holds[0]) {
+                        scenario!!.recreate()
+                        awaitTextStarting("Highlights and cards saved on this phone.")
+                    }
+                    awaitTextStarting("Sharing 1 entries as Markdown.")
+                    assertEquals(1, shares.hits)
+                    exportWhileHeld(holds[1]) {
+                        click("Open passage")
+                        awaitText("Note A")
+                    }
+                    // Ready while covered: nothing is shared until the Notebook is shown again.
+                    delay(1_000)
+                    assertEquals(1, shares.hits)
+                    pressBack()
+                    awaitTextStarting("Highlights and cards saved on this phone.")
+                    withTimeout(10_000) { while (shares.hits < 2) delay(50) }
+                    exportWhileHeld(holds[2]) {
+                        pressBack()
+                        awaitText("Library")
+                    }
+                    delay(1_000)
+                    assertEquals(2, shares.hits)
+                } finally {
+                    instrumentation.removeMonitor(shares)
+                }
             }
     }
 

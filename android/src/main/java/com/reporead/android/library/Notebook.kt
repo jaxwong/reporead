@@ -18,17 +18,20 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.data.AnchorStatus
@@ -39,7 +42,12 @@ import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.StatusLine
+import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @Composable
@@ -61,15 +69,84 @@ private fun Filter(label: String, choices: List<Pair<String, String>>, selected:
     }
 }
 
+/** A published export of [count] entries, waiting for the screen to share it. */
+internal data class Export(val file: File, val count: Int)
+
+/**
+ * The notebook's export, kept by its back-stack entry ([entryId]): a rotation or a covering screen does not lose it,
+ * and the file is shared once, by the screen shown when it is ready; a screen that was left shares nothing.
+ */
+internal class NotebookViewModel(private val sync: Sync, private val entryId: String) : ViewModel() {
+    data class State(val exporting: Boolean = false, val status: String? = null, val export: Export? = null)
+
+    private val current = MutableStateFlow(State())
+    val state: StateFlow<State> = current.asStateFlow()
+
+    fun export(entries: List<NotebookItem>) {
+        val now = current.value
+        if (now.exporting || !current.compareAndSet(now, now.copy(exporting = true, status = null))) {
+            Log.i("RepoRead", "Notebook export not started; entry=$entryId running=true")
+            return
+        }
+        Log.i("RepoRead", "Notebook export started; entry=$entryId entries=${entries.size}")
+        viewModelScope.launch {
+            try {
+                val file = sync.exportNotebook { notebookMarkdown(entries) }
+                current.update { it.copy(exporting = false, export = Export(file, entries.size)) }
+            } catch (error: IOException) {
+                Log.w("RepoRead", "Notebook export failed", error)
+                current.update { it.copy(exporting = false, status = "Export failed: ${error.message}") }
+            }
+        }
+    }
+
+    /** The export, once, for the screen that shares it. */
+    fun claimExport(): Export? {
+        val now = current.value
+        val export = now.export ?: return null
+        return if (current.compareAndSet(now, now.copy(export = null))) export else null
+    }
+
+    /** What sharing the claimed export did. */
+    fun shared(status: String) = current.update { it.copy(status = status) }
+}
+
 @Composable
-internal fun NotebookScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, onBack: () -> Unit) {
-    val items by dao.notebook().collectAsState(emptyList())
+internal fun NotebookScreen(
+    dao: LibraryDao,
+    sync: Sync,
+    entryId: String,
+    push: (Screen) -> Unit,
+    onBack: () -> Unit,
+) {
+    val model = viewModel { NotebookViewModel(sync, entryId) }
+    val state by model.state.collectAsStateWithLifecycle()
+    val items by dao.notebook().collectAsStateWithLifecycle(emptyList())
     var folder by rememberSaveable { mutableStateOf("") }
     var document by rememberSaveable { mutableStateOf("") }
     var orphaned by rememberSaveable { mutableStateOf(false) }
-    var status by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    // Sharing needs the Activity on screen now, never the one that asked for the export.
+    if (state.export != null)
+        LifecycleResumeEffect(Unit) {
+            model.claimExport()?.let { export ->
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.exports", export.file)
+                val share =
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/markdown"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                try {
+                    context.startActivity(Intent.createChooser(share, "Export notebook"))
+                    model.shared("Sharing ${export.count} entries as Markdown. GitHub is unchanged.")
+                } catch (error: ActivityNotFoundException) {
+                    Log.w("RepoRead", "No notebook share target", error)
+                    model.shared("No app is available to share this Markdown file.")
+                }
+            }
+            onPauseOrDispose {}
+        }
     val folders =
         remember(items) { listOf("" to "All folders") + practiceTopics(items.map { it.path }).map { it to it } }
     val notes =
@@ -90,29 +167,6 @@ internal fun NotebookScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit,
     fun openPassage(item: NotebookItem) =
         push(Screen.Reader(item.annotation.documentId, item.title, OpenAt.Highlight(item.annotation.mutationId)))
 
-    fun export(entries: List<NotebookItem>) {
-        scope.launch {
-            try {
-                val file = sync.exportNotebook { notebookMarkdown(entries) }
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.exports", file)
-                val share =
-                    Intent(Intent.ACTION_SEND).apply {
-                        type = "text/markdown"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                context.startActivity(Intent.createChooser(share, "Export notebook"))
-                status = "Sharing ${entries.size} entries as Markdown. GitHub is unchanged."
-            } catch (error: IOException) {
-                status = "Export failed: ${error.message}"
-                Log.w("RepoRead", "Notebook export failed", error)
-            } catch (error: ActivityNotFoundException) {
-                status = "No app is available to share this Markdown file."
-                Log.w("RepoRead", "No notebook share target", error)
-            }
-        }
-    }
-
     Scaffold(topBar = { AppBar("Notebook", onBack = onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             StatusLine(
@@ -127,11 +181,11 @@ internal fun NotebookScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit,
                 TextButton(onClick = { orphaned = !orphaned }) {
                     Text(if (orphaned) "Orphans only ✓" else "Orphans only")
                 }
-                TextButton(enabled = filtered.isNotEmpty(), onClick = { export(filtered) }) {
+                TextButton(enabled = filtered.isNotEmpty() && !state.exporting, onClick = { model.export(filtered) }) {
                     Text("Export Markdown")
                 }
             }
-            StatusLine(status)
+            StatusLine(state.status)
             if (filtered.isEmpty()) EmptyState("No matching highlights or cards.")
             else
                 LazyColumn {
