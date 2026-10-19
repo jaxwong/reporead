@@ -45,7 +45,8 @@ The release build is not debuggable (no WebView DevTools, no `run-as`) and not m
 A push to `main` that changes the app or the build runs `.github/workflows/android.yml` (also when `Library.java` or
 `assetlinks.json` changes, which the build and release check read): formatting and Lint, unit tests, the reader's check
 and bundle (`:app:mergeDebugAssets`) and a compile of the device tests, then a release APK signed with the personal key
-(repository secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`), checked against the certificate SHA-256
+(`ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`, secrets of the `production` environment, which only `main` may
+use), checked against the certificate SHA-256
 `2049299f…53293f`, and published as GitHub Release `v0.1.<n>` with `reporead-0.1.<n>.apk` and its `.sha256`. Pull requests
 run the same checks, without secrets. `versionCode` is `n`, the commit count of `HEAD` (`git rev-list --count HEAD`), and
 `versionName` is `0.1.<n>`, so releases from `main` only go up.
