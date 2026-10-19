@@ -168,6 +168,8 @@ Initial closure checks passed: main CI/hosted health at `b6e3c82`, local backend
 
 ## Mechanical moves — Local verification (2026-10-20)
 
+### Initial implementation (`92ee00f`)
+
 Implemented locally on `mechanical-moves`, code commit `92ee00f`: Compose load UI moves to `ui/`; Practice, Review, recognition, answer views, scheduling and session progression move to `study/`; folder helpers move to `library/Folder.kt`. Their callers and JVM/device tests follow, without aliases or duplicate implementations. Production Kotlin is net **+3 lines**, solely the imports needed across the new package boundaries; all 38 production file bodies were compared before/after, allowing only the three helper relocations and the approved saved-state format change. All existing test bodies/assertions are preserved, with the two folder tests moved to `FolderTest`.
 
 **Compatibility:** the user approved saved-UI-state format 4 because a serialized session names its old package (ADR-27). Navigation, drafts and in-progress sessions reset once; Room, saved pages/images, the stored sign-in session and pending work are not cleared. The format-3 rejection test was run before the bump and failed (`Tests run: 1, Failures: 1`); after the bump it ended with `OK (1 test)`.
@@ -200,6 +202,29 @@ OK (172 tests)
 `git diff --check` also exited **0** with no output. Device coverage uses the existing isolated Room/loopback fixtures, not the live account; no production stub was introduced.
 
 **Limits:** backend tests and opt-in private-corpus measurements were not rerun because their code/rules did not change. Actual `MainActivity` restoration across a release update remains unverified; format tests use a constructed marker, not captured old-APK state. Images in Save all and the remaining Section 5 work stay deferred. Ignored local `notes/` files are outside this change. No push or deployment was performed.
+
+### Audit correction (2026-10-20)
+
+Code commit `15ca142` corrects the new `reader` ↔ `study` import cycle and stale labels found by the audit. The reader's Study-view model/parser now stays in `reader/Study.kt`; bank recognition stays in `study/Study.kt`. Both existing reader-study JVM test methods moved intact to `reader/StudyTest.kt` (this checkout had two, not three). The trivial private heading predicate is duplicated rather than introducing a shared layer. The architecture diagram/table now name both owners; the only dependency between these packages is `study` → `reader` for link parsing and isolated-page hosting.
+
+Notebook's helpers are now `ancestorFolders` and `inFolder`, with all three production call sites and both tests updated and no aliases. The four format-rejection methods are consolidated into one: the actual unmarked legacy Activity state, all prior markers including 1/2/3, and an unknown future marker are still refused. Compatible-format/build-number independence, null state and the destination/entry-id round trip remain covered. Device-test method count is intentionally **169**, down from 172 without losing a rejection case. Format **4**, session persistence, database state and network behavior are unchanged.
+
+This correction is net **+4 production lines** (**+7** for the branch against `main`): a separate reader-owned file/imports and the small duplicated heading predicate remove the cycle without another abstraction. Source-body comparisons confirmed no algorithm changes beyond splitting that owner and renaming the folder helpers. The import-direction check first failed on the four `reader` → `study` imports, then passed after the split; no former folder-helper names remain in production or tests. The compiled JAR has `StudyNote` only in `reader`, while bank types remain in `study`.
+
+Executed local gates (exit **0**):
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:mergeDebugAssets :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+# BUILD SUCCESSFUL in 42s; 92 actionable tasks: 27 executed, 65 up-to-date
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:testDebugUnitTest --rerun :app:compileDebugAndroidTestKotlin --no-daemon
+# BUILD SUCCESSFUL in 20s; 40 actionable tasks: 18 executed, 22 up-to-date
+```
+
+JVM reports: **82 tests, 0 failures, 0 errors, 1 skipped** (the opt-in corpus harness). Both new owner-specific Study suites compile/run, and the consolidated Navigation test compiles. `git diff --check` exits **0** with no output.
+
+**Current device limit:** the corrected APKs have been built but not installed or run pending an unlocked, awake phone. The earlier `OK (172 tests)` above applies only to `92ee00f`, not to this correction. The reviewer's separate 25-test attempt on the initial build had 13 lock-screen timeouts and is not a passing run either. No wake/unlock or settings change was attempted here.
+
+**Deferred/not touched:** class-name-independent session persistence remains a separate follow-up decision; Java-Serializable state and the approved format-4 gate stay. `Load`/`LoadContent`'s pre-existing public visibility is unchanged. Backend tests and private-corpus measurements were not rerun; no dependency, migration, production fixture, release install, push or deployment is part of this correction.
 
 ## Not yet verified on the real system
 
