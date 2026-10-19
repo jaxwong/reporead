@@ -5,12 +5,14 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.LoopbackServer
+import com.reporead.android.data.NoteRow
 import com.reporead.android.data.SavedVersion
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNull
@@ -62,12 +64,13 @@ class NoteImagesTest {
     }
 
     @Test
-    fun aLegacyPageCannotReadItsOldCacheOrFetchAnUnprovenSnapshot() {
+    fun aLegacyPageCannotReadItsOldCacheOrFetchAnUnprovenSnapshot() = runBlocking {
         LoopbackServer(emptyMap()).use { server ->
             val directory = File(filesDir, "images/1/$sha").apply { check(mkdirs()) }
             File(directory, "old-key").writeText("OLD_IMAGE")
             val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             assertNull(images.image(1, null, "a.png"))
+            images.save(NoteRow(1, sha, "a.md", "a", """<main><img src="/repo-image/a.png"></main>""", 0))
             images.sweep(listOf(SavedVersion(1, sha, "a.md", 3, null)))
             assertTrue(!directory.exists())
             assertTrue(server.requests.isEmpty())

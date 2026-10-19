@@ -14,6 +14,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.data.NoteRow
+import com.reporead.android.sync.IMAGE_PREFIX
 import com.reporead.android.sync.NoteImages
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -27,7 +28,6 @@ import org.json.JSONTokener
 
 internal const val ASSET_HOST = "appassets.androidplatform.net"
 internal const val ASSET_ORIGIN = "https://$ASSET_HOST"
-private const val IMAGE_PREFIX = "/repo-image/"
 private val IMAGE_TYPES =
     mapOf(
         "png" to "image/png",

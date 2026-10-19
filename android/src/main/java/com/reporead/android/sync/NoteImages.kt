@@ -3,18 +3,25 @@
 package com.reporead.android.sync
 
 import android.util.Log
+import androidx.core.net.toUri
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.data.NoteRow
 import com.reporead.android.data.SavedVersion
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import org.jsoup.Jsoup
+
+internal const val IMAGE_PREFIX = "/repo-image/"
 
 /**
  * Saved pages' images, kept per document and snapshot (files/images/<document>/commit-<sha>/<key>) and fetched through
- * the backend with the bearer token when missing. Blocking, for WebView request interception, and outside Sync's lock;
- * [generation] keeps a fetch from writing back what a deletion removed meanwhile. Sync deletes them when their notes
- * go.
+ * the backend with the bearer token when missing. WebView request interception is blocking and outside Sync's lock;
+ * Save all uses its per-page lock. [generation] keeps a fetch from writing back what a deletion removed meanwhile. Sync
+ * deletes them when their notes go.
  */
 class NoteImages(private val api: Api, filesDir: File) {
     private val root = File(filesDir, "images")
@@ -28,6 +35,26 @@ class NoteImages(private val api: Api, filesDir: File) {
      * no fetch before it.
      */
     private var generation = 0L
+
+    /**
+     * Save all's image pass, on a background thread under Sync's per-page lock so the saved snapshot cannot be replaced
+     * or disconnected meanwhile. The server emits at most 64 image references; each distinct path is tried once,
+     * sequentially. Expected failures keep the text and use [image]'s ordinary unavailable-image behavior.
+     */
+    internal suspend fun save(note: NoteRow) {
+        if (note.snapshotCommitSha == null) return
+        val paths =
+            Jsoup.parse(note.html)
+                .select("img[src^=$IMAGE_PREFIX]")
+                .map { image ->
+                    image.attr("src").toUri().path!!.removePrefix(IMAGE_PREFIX)
+                }
+                .distinct()
+        for (path in paths) {
+            currentCoroutineContext().ensureActive()
+            image(note.documentId, note.snapshotCommitSha, path)
+        }
+    }
 
     /**
      * A repository image for the displayed note version: from the cache, else fetched through the backend with the

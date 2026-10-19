@@ -114,13 +114,6 @@ interface LibraryDao {
 
     @Query("select * from notes where documentId = :documentId") suspend fun note(documentId: Long): NoteRow?
 
-    /** The saved pages of [repositoryId]'s notes, without their HTML, which Save all compares but does not need. */
-    @Query(
-        """select documentId, blobSha, path, renderFormat, snapshotCommitSha from notes
-           where documentId in (select id from documents where repositoryId = :repositoryId)"""
-    )
-    suspend fun savedVersions(repositoryId: Long): List<SavedVersion>
-
     /** Every saved page's version: the only images worth keeping (NoteImages.sweep). */
     @Query("select documentId, blobSha, path, renderFormat, snapshotCommitSha from notes")
     suspend fun allSavedVersions(): List<SavedVersion>

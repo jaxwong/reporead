@@ -257,44 +257,49 @@ class Sync(
      * Saves every note of [repositoryId] on the phone: reloads the library from the server ([refreshLibrary]), then
      * fetches each note whose saved copy is not [upToDate], one at a time. A note the server refuses to render
      * (UNSUPPORTED_CONTENT) is counted and skipped; any other failure ends the run, keeping the copies already saved.
-     * Cancelling keeps them too, so running again continues where it stopped. Images are not fetched; they are saved
-     * when a note is read online. Run only by Save all's background work (BackgroundSync.kt).
+     * Each page, including an already-current copy, saves its missing images before reporting progress. Image failures
+     * keep the text, as in the reader. Cancelling keeps complete pages/images; another run checks the rest. At most one
+     * library call, one content call per outdated note and 64 image calls per saved page (the server's reference
+     * limit). Run only by Save all's background work (BackgroundSync.kt).
      */
     suspend fun saveAllNotes(repositoryId: Long, onProgress: suspend (done: Int, toFetch: Int) -> Unit): SavedAll {
         refreshLibrary()
         val documents = dao.listedDocuments(repositoryId)
         val commitSha = dao.repositoryCommitSha(repositoryId)
-        val saved = dao.savedVersions(repositoryId).associateBy { it.documentId }
-        val missing = documents.filter { document ->
-            saved[document.id]?.let { upToDate(it, document, commitSha) } != true
-        }
-        Log.i(
-            "RepoRead",
-            "Saving all notes; repositoryId=$repositoryId documents=${documents.size} toFetch=${missing.size}",
-        )
+        Log.i("RepoRead", "Saving all notes; repositoryId=$repositoryId documents=${documents.size}")
+        var fetched = 0
+        var alreadySaved = 0
         var cannotShow = 0
-        onProgress(0, missing.size)
-        missing.forEachIndexed { index, document ->
+        onProgress(0, documents.size)
+        documents.forEachIndexed { index, document ->
             try {
-                locked { fetchNote(document.id) }
+                locked {
+                    val cached = dao.note(document.id)
+                    val note =
+                        if (cached != null && upToDate(cached.version, document, commitSha)) {
+                            alreadySaved++
+                            cached
+                        } else fetchNote(document.id).also { fetched++ }
+                    images.save(note)
+                }
             } catch (error: ApiException) {
                 if (error.code != "UNSUPPORTED_CONTENT") {
                     Log.w(
                         "RepoRead",
-                        "Saving all notes stopped; repositoryId=$repositoryId fetched=${index - cannotShow} documentId=${document.id} code=${error.code}",
+                        "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}",
                     )
                     throw error
                 }
                 Log.i("RepoRead", "Note cannot be shown; documentId=${document.id} code=${error.code}")
                 cannotShow++
             }
-            onProgress(index + 1, missing.size)
+            onProgress(index + 1, documents.size)
         }
         Log.i(
             "RepoRead",
-            "Saved all notes; repositoryId=$repositoryId fetched=${missing.size - cannotShow} cannotShow=$cannotShow",
+            "Saved all notes; repositoryId=$repositoryId fetched=$fetched alreadySaved=$alreadySaved cannotShow=$cannotShow",
         )
-        return SavedAll(missing.size - cannotShow, documents.size - missing.size, cannotShow)
+        return SavedAll(fetched, alreadySaved, cannotShow)
     }
 
     /**
