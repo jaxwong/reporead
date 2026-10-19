@@ -337,8 +337,10 @@ flowchart TB
 | `core/network` | `Api`: the only executor of backend paths, with one named function per app-used route, exact success statuses, bounded responses and request/response correspondence; `wire/`: the wire models, generated at build time from `backend/openapi.json` (never committed or edited); `WireRules.kt`: the value rules a generated shape cannot state; `WireJson.kt`: one decoding policy, strict scalar/time serializers and `INVALID_RESPONSE` with its cause. Unknown fields are compatible, missing required-nullable keys are not. `ApiException(status, code)` carries a strictly decoded server error or a local HTTP/I/O failure; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
 | `sync` | `Sync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `NoteImages` retains its file lock and deletion generation. `ServerRows.kt` maps validated wire records; `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `BackgroundSync.kt`: WorkManager sync and Save all enter Sync directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through Sync |
-| `library` | Library tabs, Notebook (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), both moved by `StudySession.kt`, the folder screen (`Folder.kt`), and Add repository (`Available.kt`); each work-owning screen's ViewModel is in its file (ADR-28) |
-| `reader` | The reader screen and its ViewModel, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, study view, answer views |
+| `library` | Library tabs, Notebook (`Notebook.kt`), the folder screen and folder filters (`Folder.kt`), and Add repository (`Available.kt`); each work-owning screen's ViewModel is in its file (ADR-28) |
+| `study` | Practice (`Practice.kt`) and Review (`Review.kt`) with their entry ViewModels; the pure review scheduler (`ReviewSchedule.kt`), session progression and note interleaving (`StudySession.kt`), recognition (`Study.kt`) and bank answer views (`Answer.kt`) |
+| `reader` | The reader screen and its ViewModel, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews; hosts the study view using `study/Study.kt` |
+| `ui` | Shared Compose components, including the screen load state and its retry presentation (`Load.kt`) |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
 
@@ -532,7 +534,7 @@ flowchart LR
     Grade["Grade 0 / 3 / 4 / 5<br/>pending, client UUID"]
     Grade -- "sync" --> Log["Server: review_log<br/>immutable, idempotent"]
     Log -- "GET /api/library" --> Proj["Room: review_log projection"]
-    Proj --> Ladder["library/ReviewSchedule.kt<br/>gap ladder over the log"]
+    Proj --> Ladder["study/ReviewSchedule.kt<br/>gap ladder over the log"]
     Ladder --> Due["Due cards → Review session<br/>capped at 40 (server-owned)"]
     Due --> Grade
 
@@ -542,7 +544,7 @@ flowchart LR
     Changed -- "no" --> Due
 ```
 
-Practice questions are recognized on the phone from saved copies of notes under an `interview/` folder (`reader/Study.kt`); a Practice session makes no network calls.
+Practice questions are recognized on the phone from saved copies of notes under an `interview/` folder (`study/Study.kt`); a Practice session makes no network calls.
 
 ## 6. Trust boundaries
 
