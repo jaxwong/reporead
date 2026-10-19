@@ -45,7 +45,6 @@ import com.reporead.android.data.LoopbackServer
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.reader.testPage
-import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.toRow
 import java.io.File
@@ -117,7 +116,7 @@ class AppNavigationTest {
                     note.title,
                     testPage(testSha, body),
                     0,
-                    renderFormat = RENDER_FORMAT,
+                    renderFormat = BuildConfig.RENDER_FORMAT,
                     snapshotCommitSha = testSha,
                 )
             )

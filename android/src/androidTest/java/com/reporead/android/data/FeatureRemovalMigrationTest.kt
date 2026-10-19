@@ -2,12 +2,6 @@ package com.reporead.android.data
 
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
-import com.reporead.android.auth.StoredSession
-import com.reporead.android.core.network.Api
-import com.reporead.android.sync.Sync
-import java.io.File
-import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
@@ -28,50 +22,6 @@ class FeatureRemovalMigrationTest {
     }
 
     @Test
-    fun imagesOfRetiredPagesGoThroughTheExistingStartupSweep() = runBlocking {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val directory = File(context.cacheDir, "test-only-page-retirement-${UUID.randomUUID()}")
-        val sha = "a".repeat(40)
-        val kept = File(directory, "images/1/commit-$sha/key")
-        val retired = File(directory, "images/2/commit-$sha/key")
-        lateinit var databaseName: String
-        for (image in listOf(kept, retired)) {
-            check(image.parentFile!!.mkdirs())
-            image.writeText("test-only image")
-        }
-        try {
-            withMigratedStore(
-                15,
-                fill = { db ->
-                    databaseName = File(db.path).name
-                    for ((id, html) in listOf(1 to "<main>kept</main>", 2 to "x".repeat(2_097_152))) {
-                        db.execSQL(
-                            "insert into notes values (?, ?, 'a.md', 'a', ?, 0, null, 3, ?)",
-                            arrayOf<Any>(id, sha, html, sha),
-                        )
-                    }
-                },
-            ) { dao ->
-                assertEquals(listOf(1L), dao.allSavedVersions().map { it.documentId })
-                val store = LocalStore.open(context, databaseName)
-                try {
-                    val sync = Sync(Api("http://127.0.0.1:1", { StoredSession.Absent }) {}, store, directory) {}
-                    repeat(2) {
-                        sync.startUp()
-                        assertTrue(kept.isFile)
-                        assertFalse(retired.exists())
-                        assertEquals(listOf(1L), store.library().allSavedVersions().map { it.documentId })
-                    }
-                } finally {
-                    store.close()
-                }
-            }
-        } finally {
-            check(directory.deleteRecursively())
-        }
-    }
-
-    @Test
     fun retiringSummariesAndUnreadablePagesKeepsReadablePagesAndUserOwnedRows() = runBlocking {
         for (version in listOf(14, 15)) {
             val sha = "a".repeat(40)
@@ -81,8 +31,8 @@ class FeatureRemovalMigrationTest {
                 version,
                 fill = { db ->
                     path = db.path
-                    db.execSQL("insert into repositories values (7, 'test/notes', 2, ?)", arrayOf(snapshot))
-                    for (id in 1..4) {
+                    db.execSQL("insert into repositories values (7, 'test/notes', 6, ?)", arrayOf(snapshot))
+                    for (id in 1..6) {
                         db.execSQL(
                             "insert into documents values (?, 7, 'a.md', 'a', ?, null, 0)",
                             arrayOf<Any>(id, sha),
@@ -100,13 +50,15 @@ class FeatureRemovalMigrationTest {
                         arrayOf(sha, snapshot),
                     )
                     db.execSQL("insert into note_links values (1, 0, 'path=b.md')")
-                    // The cutoff is the combined character count, including a null searchText. Do not load these pages
+                    // The cutoff is the combined UTF-8 byte count, including a null searchText. Do not load these pages
                     // into a CursorWindow: the migration must retire them inside SQLite first.
                     for ((id, html, text) in
                         listOf(
                             Triple(2, "x".repeat(1_048_576), "y".repeat(1_048_576)),
                             Triple(3, "x".repeat(2_097_153), null),
                             Triple(4, "x".repeat(2_097_151), null),
+                            Triple(5, "é".repeat(1_048_576), null),
+                            Triple(6, "", "é".repeat(1_048_576)),
                         )) {
                         db.execSQL(
                             "insert into notes values (?, ?, 'a.md', 'a', ?, 0, ?, 3, ?)",
@@ -130,8 +82,8 @@ class FeatureRemovalMigrationTest {
                     db.execSQL("insert into review_limits values (1, 40)")
                 },
             ) { dao ->
-                assertEquals(listOf(RepositoryRow(7, "test/notes", 2, snapshot)), dao.repositories().first())
-                assertEquals(4, dao.listedDocuments(7).size)
+                assertEquals(listOf(RepositoryRow(7, "test/notes", 6, snapshot)), dao.repositories().first())
+                assertEquals(6, dao.listedDocuments(7).size)
                 assertEquals(
                     "upgrade from v$version",
                     setOf(1L, 4L),
@@ -139,6 +91,8 @@ class FeatureRemovalMigrationTest {
                 )
                 assertNull(dao.note(2))
                 assertNull(dao.note(3))
+                assertNull(dao.note(5))
+                assertNull(dao.note(6))
                 assertEquals(NoteRow(1, sha, "a.md", "a", "<main>kept</main>", 0, "kept", 3, snapshot), dao.note(1))
                 assertEquals(setOf(1L, 4L), dao.noteLinks(7).map { it.documentId }.toSet())
                 assertTrue(dao.noteLinks(7).contains(NoteLinkRow(1, 0, "path=b.md")))

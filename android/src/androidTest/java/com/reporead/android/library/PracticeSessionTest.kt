@@ -9,6 +9,7 @@ import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.BuildConfig
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.TestEntries
@@ -25,7 +26,6 @@ import com.reporead.android.findText
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.saveActivityState
-import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -114,7 +114,7 @@ class PracticeSessionTest {
                 "Test-only bank",
                 bank,
                 0,
-                renderFormat = RENDER_FORMAT,
+                renderFormat = BuildConfig.RENDER_FORMAT,
             )
         )
         dao.saveNote(
@@ -125,7 +125,7 @@ class PracticeSessionTest {
                 "Test-only core",
                 core,
                 0,
-                renderFormat = RENDER_FORMAT,
+                renderFormat = BuildConfig.RENDER_FORMAT,
                 snapshotCommitSha = "d".repeat(40),
             )
         )
@@ -154,7 +154,7 @@ class PracticeSessionTest {
             val path = "test-only/topic/interview/bank.md"
             dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
             val html = testPage(bankSha, block("b0", "h3", "Other repository's warning"))
-            dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = RENDER_FORMAT))
+            dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT))
             TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("1 heading is not a question")
@@ -181,7 +181,7 @@ class PracticeSessionTest {
                         answer("b2", "First answer", "first-answer") +
                         block("b3", "h3", "Repeated"),
                 )
-            dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = RENDER_FORMAT))
+            dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT))
             TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
             ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText("2 headings are not questions")
