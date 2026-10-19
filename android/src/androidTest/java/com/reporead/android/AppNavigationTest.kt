@@ -232,8 +232,8 @@ class AppNavigationTest {
     }
 
     /**
-     * Runs the shown control described as [description] twice in one turn of the main thread, as two taps that both
-     * land before the screen recomposes: the second reaches the same screen, already changed by the first.
+     * Runs the shown control described or labelled as [description] twice in one turn of the main thread, as two taps
+     * that both land before the screen recomposes: the second reaches the same screen, already changed by the first.
      */
     private fun tapTwiceBeforeRecomposition(description: String) {
         fun View.composeRoot(): ViewRootForTest? =
@@ -244,7 +244,8 @@ class AppNavigationTest {
         scenario!!.onActivity { activity ->
             val control =
                 checkNotNull(activity.window.decorView.composeRoot()).semanticsOwner.getAllSemanticsNodes(true).single {
-                    description in it.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() }
+                    description in it.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() } ||
+                        description in it.config.getOrElse(SemanticsProperties.Text) { emptyList() }.map { it.text }
                 }
             val tap = checkNotNull(control.config[SemanticsActions.OnClick].action)
             tap()
@@ -630,6 +631,64 @@ class AppNavigationTest {
     }
 
     private val stored = "GET /api/repositories/7/stored-data" to (200 to wire(testCounts()))
+
+    /** Waits until the library was loaded [count] times and the sync that loaded it has finished. */
+    private fun awaitLibrarySynced(server: LoopbackServer, count: Int) = runBlocking {
+        withTimeout(10_000) { while (server.requests.count { it == "GET /api/library" } < count) delay(50) }
+        instrumentation.waitForIdleSync()
+    }
+
+    /**
+     * T3: the Library syncs when it is created and when it is returned to, never because the Activity was recreated.
+     * Returning still syncs because B1, which would stop that, is not approved.
+     */
+    @Test
+    fun theLibrarySyncsWhenCreatedAndReturnedToButNotWhenRecreated() {
+        sessions.save("TEST_ONLY_SESSION")
+        LoopbackServer(mapOf("GET /api/library" to library())).use { server ->
+            val api = api(server)
+            launchApp(account(api), api)
+            awaitText("Library")
+            awaitLibrarySynced(server, 1)
+            scenario!!.recreate()
+            awaitText("Library")
+            assertNothingMoreSent(server, listOf("GET /api/library"))
+            click("Search")
+            awaitText("Search saved notes")
+            pressBack()
+            awaitText("Library")
+            awaitLibrarySynced(server, 2)
+            assertNothingMoreSent(server, listOf("GET /api/library", "GET /api/library"))
+        }
+    }
+
+    /** T14: two taps on Sync now before the Library recomposes sync once; a later tap syncs again. */
+    @Test
+    fun aDoubleTappedSyncNowSyncsOnceAndALaterTapAgain() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        dao.saveAnnotation(
+            AnnotationRow("unsent", null, 1, testSha, "b0", 0, 4, "Test", null, 1, 0, state = AnnotationState.UNSENT)
+        )
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(),
+                    "POST /api/documents/1/annotations" to failure(503, "TEST_ONLY_DOWN"),
+                )
+            )
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                awaitTextStarting("New highlights and cards stay on this phone for now.")
+                awaitLibrarySynced(server, 1)
+                tapTwiceBeforeRecomposition("Sync now")
+                awaitLibrarySynced(server, 2)
+                assertNothingMoreSent(server, server.requests.toList())
+                assertEquals(2, server.requests.count { it == "GET /api/library" })
+                click("Sync now")
+                awaitLibrarySynced(server, 3)
+                assertEquals(3, server.requests.count { it == "POST /api/documents/1/annotations" })
+            }
+    }
 
     /** T1: the preview the confirmation needs is not lost, or asked again, when the Activity is recreated meanwhile. */
     @Test
