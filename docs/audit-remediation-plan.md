@@ -1,6 +1,6 @@
 # Codebase audit and remediation plan
 
-Audited **2026-10-18**. The foundations and earlier audit steps are closed; their evidence is in merged PRs #62–#66 and #69–#73 and this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). Audit PRs 1–4 are merged (#75, #76, #78, #80); the user confirmed PR5 merged and pending deployment on 2026-10-19. PR5's executed checks and remaining known limits are in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19). **Retain this file after PR5**, as the user explicitly requested on 2026-10-19: Section 5 still owns images in Save all, the mechanical moves and other post-audit work. Grade-write ownership was pulled forward during PR5 review; the mechanical moves are implemented locally below, and the other Section 5 items remain deferred.
+Audited **2026-10-18**. The foundations and earlier audit steps are closed; their evidence is in merged PRs #62–#66 and #69–#73 and this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). Audit PRs 1–4 are merged (#75, #76, #78, #80); the user confirmed PR5 merged and pending deployment on 2026-10-19. PR5's executed checks and remaining known limits are in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19). **Retain this file after PR5**, as the user explicitly requested on 2026-10-19: Section 5 still owns images in Save all, the mechanical moves and other post-audit work. Grade-write ownership was pulled forward during PR5 review; the mechanical moves are merged and pending deployment (user confirmation, 2026-10-20). Images in Save all are implemented and locally verified on `save-all-images`; the other Section 5 items remain deferred.
 
 [Invariants](invariants.md), [ADRs](adrs.md), [architecture](architecture.md) and [feature status](feature-list.md) keep their owners; this plan links to them and does not restate them. ADR-27 and ADR-28 own the Android foundations; the uncommitted `docs/android-foundations-plan.md` is superseded by them and is deleted, not committed.
 
@@ -32,7 +32,7 @@ Do not re-ask these. Each is recorded in, or is moved into, the owning ADR by th
 | Account deletion interrupted (2026-10-18) | Keep local data unless the server confirmed. A 401 is not confirmation. Implemented (#66). |
 | Unowned local data (2026-10-18) | Removed before a session is issued over it, after validating the callback. Implemented (#66). |
 | Question identity (decision 5, 2026-10-18; D5, 2026-10-19) | Editing a prompt is not a new question; the card follows its Canonical line and shows the bank's current prompt. Only the Canonical line is confirmed; the linked section is supplementary. Uniqueness is local to this phone's cards; cross-device duplicates may remain separate. |
-| D1 — moves and formatters | Correctness only before the freeze; packages and formatters stayed then. Post-PR5 mechanical moves are implemented locally in Section 5; the formatters remain unchanged. |
+| D1 — moves and formatters | Correctness only before the freeze; packages and formatters stayed then. Post-PR5 mechanical moves are merged and pending deployment (confirmed 2026-10-20); the formatters remain unchanged. |
 | D2 — unusable legacy page cache | Retire only rows demonstrated unreadable (2 MiB on the Pixel 8a). Annotations, grades, positions, bookmarks and pending work survive. |
 | D3 — freeze versus deployment | Release app and hosted backend are checked before the freeze. Deploy and install need their own go-ahead. |
 | D4 — canonical compatibility | Canonical block/text rules are frozen; annotations and re-anchoring stay. Presentation upgrades must not change them. No renderer-migration system. |
@@ -112,7 +112,7 @@ Production is net **+48 lines** after its review follow-up, not a refactor-only 
 
 ### PR 5 — Close the audit (C5, C9, C10) and run the final check
 
-**Verified locally, 2026-10-19:** [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19) owns concise status and gaps; exact commands, outcomes and live mutations stay in git/PR evidence. The initial approved local restart, Dev/GitHub smoke and release 0.1.390 update remain recorded in history. Review corrections are locally verified only, not pushed or deployed; the clock-rollback Review counter remains a known gap. The plan remains for Section 5, not for another execution of PR5.
+**Verified locally, 2026-10-19:** [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19) owns concise status and gaps; exact commands, outcomes and live mutations stay in git/PR evidence. The initial approved local restart, Dev/GitHub smoke and release 0.1.390 update remain recorded in history. PR5 is merged and pending deployment (user confirmation, reiterated 2026-10-20); the clock-rollback Review counter remains a known gap. The plan remains for Section 5, not for another execution of PR5.
 
 - **C9:** `npm audit` in `android/reader-web` as its README documents; check GitHub Dependabot alerts on the repository. The user explicitly declined enabling them on 2026-10-19; leave the setting unchanged and record the coverage limit. Record Spring Boot, AGP, Compose BOM and Navigation 3 versions with the result in feature-list; each applicable finding gets a fix or an accepted reason, as the KaTeX advisory already has.
 - **C5:** read the hosted backend's `Library read; userId=… bytes=…` log line for the real account; record bytes and counts beside the 8 MiB ceiling in feature-list with the revisit trigger. No new code.
@@ -153,21 +153,21 @@ Production is net **+48 lines** after its review follow-up, not a refactor-only 
 
 ## 5. Reducing the app's complexity
 
-Except for the grade-write ownership correction pulled forward below, everything here comes after PR 5. The user approved the mechanical moves on local branch `mechanical-moves` while PR5 deployment is pending. The rule: a feature or layer is deleted when real use shows it unused or when a simpler mechanism gives the same result; it goes with its rows, routes, tests and docs in one PR. Files move only in PRs that move files. New features are built only where the reading or study loop is actually broken.
+Except for the grade-write ownership correction pulled forward below, everything here comes after PR 5. The user confirmed PR5 and the mechanical moves merged and pending deployment on 2026-10-20. Images in Save all proceed on the separate `save-all-images` branch; deploy/install still need their own go-ahead. The rule: a feature or layer is deleted when real use shows it unused or when a simpler mechanism gives the same result; it goes with its rows, routes, tests and docs in one PR. Files move only in PRs that move files. New features are built only where the reading or study loop is actually broken.
 
 ### Build: images in Save all
 
-The one functional gap worth a slot. An embedded image is unavailable offline until its note is opened online once (feature-list, known gaps). Save all already fetches each outdated note sequentially; it fetches that note's images through the existing `NoteImages` owner in the same pass, bounded by the existing 64 references per page. No new mechanism, no new table.
+**Implemented and locally verified, 2026-10-20, `save-all-images` (code `bf43647`); not pushed or deployed.** Save all fetches each outdated note sequentially, then saves its images through the existing `NoteImages` owner before progress. The user approved including already-current saved pages too, so another run backfills images without re-fetching current text. Work stays one page and one image at a time, bounded by the server's existing 64 references per page; no new mechanism, table or dependency. ADR-19 owns call ceilings, cancellation, per-page ordering and the existing best-effort image-failure behavior. [Feature status](feature-list.md#images-in-save-all-2026-10-20) owns verification and limits.
 
 ### Mechanical moves: local implementation (D1 lifted)
 
-One local change, with no study/network behaviour changes:
+**Merged, pending deployment (user confirmation, 2026-10-20).** One change, with no study/network behaviour changes:
 
 1. `Load.kt` now belongs to `ui/`; `Reader.kt` and `Available.kt` import it there, leaving no Compose code in `core/network`.
 2. Practice, Review, `ReviewSchedule`, `StudySession`, bank recognition (`Study.kt`) and answer views (`Answer.kt`) now belong to `study/`, with their JVM/device test suites. The reader's LeetCode Study view and its two existing JVM test methods stay in `reader/Study.kt` and `reader/StudyTest.kt`: the import direction is only `study` → `reader`, not a cycle. `library/` means library browsing again. Every caller imports the new owner; no aliases or old implementations remain.
 3. `interleaveByNote` now belongs to `study/StudySession.kt`; the Notebook-only folder helpers are named `ancestorFolders` and `inFolder` in `library/Folder.kt`, with their assertions in `FolderTest`.
 
-**Approved compatibility exception (2026-10-19):** moving the Serializable `StudySession` changes its saved class name. The user approved advancing saved-UI-state format 3 → 4 rather than retaining the former class. Navigation, drafts and in-progress sessions reset once; Room, saved notes, images and pending mutations remain untouched (ADR-27). This is not a database migration. Verification and limits are recorded in [feature status](feature-list.md#mechanical-moves--local-verification-2026-10-20); this work is not pushed or deployed.
+**Approved compatibility exception (2026-10-19):** moving the Serializable `StudySession` changes its saved class name. The user approved advancing saved-UI-state format 3 → 4 rather than retaining the former class. Navigation, drafts and in-progress sessions reset once; Room, saved notes, images and pending mutations remain untouched (ADR-27). This is not a database migration. Verification and limits are recorded in [feature status](feature-list.md#mechanical-moves--local-verification-2026-10-20); the user subsequently confirmed it merged and pending deployment on 2026-10-20.
 
 **Follow-up decision, not part of these moves:** replacing Java-Serializable session state with class-name-independent field encoding would avoid the same problem on future renames. Practice and Review's `SavedStateHandle` persistence remains unchanged here; format 4 still applies. No new persistence path or additional reset is introduced without that separate decision.
 
@@ -183,7 +183,7 @@ One local change, with no study/network behaviour changes:
 
 - Navigation 3 and the six remaining entry ViewModels: standard, just landed, and the alternative was the hand-written stack they replaced.
 - Two refusal shapes (`AnnotationState`, `review_log.rejection`): one pending table would be a larger migration than the duplication costs. Revisit if a third kind of pending change appears.
-- `NoteImages`' own file lock: images load outside the sync lock so a page's images never wait behind a sync.
+- `NoteImages`' own file lock: WebView image reads stay outside the sync lock so a displayed page's images never wait behind a sync. Save all prefetch uses the existing per-page Sync lock to order it against replacement/disconnect (ADR-19).
 - Backend auth (about 1,100 lines across `GitHubCredentials`, `GitHubTokens`, `GitHubSecurity`, `AppSessions`, `AppAuthController`): GitHub App user tokens expire, so renewal, encrypted storage and revocation are requirements, not optional layers.
 
 ### Documentation
