@@ -184,6 +184,7 @@ fun RepoReadApp(
                         sync,
                         dao,
                         signedIn,
+                        entry.id,
                         push,
                         notice = (accountState as? AccountState.Idle)?.notice?.let(::noticeText),
                         onDismissNotice = account::dismissNotice,

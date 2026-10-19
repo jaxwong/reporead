@@ -532,22 +532,24 @@ class AccountTest {
                 account.deleteAccount()
                 val notice = (account.settled() as AccountState.Idle).notice!!
                 val text = noticeText(notice)
-                TestHostActivity.content = {
-                    val state by account.state.collectAsState()
-                    MaterialTheme {
-                        LibraryScreen(
-                            sync,
-                            dao,
-                            true,
-                            {},
-                            (state as? AccountState.Idle)?.notice?.let(::noticeText),
-                            account::dismissNotice,
-                            {},
-                            account::signOut,
-                            account::deleteAccount,
-                        )
+                TestHostActivity.content =
+                    TestEntries(Screen.Repositories).content { entry ->
+                        val state by account.state.collectAsState()
+                        MaterialTheme {
+                            LibraryScreen(
+                                sync,
+                                dao,
+                                true,
+                                entry.id,
+                                {},
+                                (state as? AccountState.Idle)?.notice?.let(::noticeText),
+                                account::dismissNotice,
+                                {},
+                                account::signOut,
+                                account::deleteAccount,
+                            )
+                        }
                     }
-                }
                 try {
                     ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                         awaitText(text)

@@ -1,8 +1,10 @@
-// Owns: Library presentation, refresh feedback and account confirmations; Sync owns synchronization decisions.
+// Owns: Library presentation and its entry's sync and confirmations; Sync owns synchronization decisions.
 
 package com.reporead.android.library
 
 import android.text.format.DateUtils
+import android.util.Log
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,18 +28,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
@@ -57,6 +60,10 @@ import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
 import com.reporead.android.ui.folderOf
 import com.reporead.android.ui.sectionTitle
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** When a refresh found the note changed; RepoRead does not know the commit time. */
@@ -76,29 +83,6 @@ internal fun RefusedChange.describe(): String {
     return "$subject (${error.describe()})"
 }
 
-/**
- * Runs [block] when the screen appears (and on [key] changes) and shows what it returns, or a failure, as the status;
- * cached data stays visible.
- */
-@Composable
-internal fun RefreshOnEntry(
-    key: Any,
-    onRefreshing: (Boolean) -> Unit,
-    onStatus: (String?) -> Unit,
-    block: suspend () -> String?,
-) {
-    LaunchedEffect(key) {
-        onRefreshing(true)
-        try {
-            onStatus(block())
-        } catch (error: ApiException) {
-            onStatus("Showing saved data. ${error.describe()}")
-        } finally {
-            onRefreshing(false)
-        }
-    }
-}
-
 /** Owns the library's tab labels and icons, not synchronization state. */
 private enum class LibraryTab(val label: String, val icon: Int) {
     READING("Reading", R.drawable.ic_book),
@@ -107,12 +91,98 @@ private enum class LibraryTab(val label: String, val icon: Int) {
     REPOSITORIES("Repositories", R.drawable.ic_folder),
 }
 
+/**
+ * The Library's sync and sign-out count, kept by its back-stack entry ([entryId]): a rotation neither stops nor repeats
+ * the sync, and what it reported stays shown. Leaving the Library cancels a sync still running; its sends commit what
+ * the server answered (Sync).
+ */
+internal class LibraryViewModel(private val sync: Sync, private val dao: LibraryDao, private val entryId: String) :
+    ViewModel() {
+    data class State(
+        val syncing: Boolean = false,
+        val status: String? = null,
+        /**
+         * Changes the server has not acknowledged, counted for the sign-out confirmation; non-null while it is shown.
+         */
+        val signOutUnsent: Int? = null,
+    )
+
+    private val current = MutableStateFlow(State())
+    val state: StateFlow<State> = current.asStateFlow()
+
+    /** The sign-in state the screen last showed; null before it was first shown. */
+    private var shownSignedIn: Boolean? = null
+    /** The screen was left for another (not rotated) since it was last shown, so showing it again is a return. */
+    private var left = false
+
+    /** The screen is shown while [signedIn]: it syncs when first shown, after a sign-in and when returned to. */
+    fun shown(signedIn: Boolean) {
+        val reason =
+            when {
+                !signedIn -> null
+                shownSignedIn == null -> "created"
+                shownSignedIn == false -> "signedIn"
+                left -> "returned"
+                else -> null
+            }
+        shownSignedIn = signedIn
+        left = false
+        if (reason != null) syncNow(reason)
+    }
+
+    /** The screen left composition for another reason than a configuration change. */
+    fun left() {
+        left = true
+    }
+
+    /** Pushes pending changes, then pulls the server's view; the background sync sends changes without it (ADR-08). */
+    fun syncNow(reason: String = "asked") {
+        val now = current.value
+        if (now.syncing || !current.compareAndSet(now, now.copy(syncing = true))) {
+            Log.i("RepoRead", "Library sync not started; entry=$entryId reason=$reason running=true")
+            return
+        }
+        Log.i("RepoRead", "Library sync started; entry=$entryId reason=$reason")
+        viewModelScope.launch {
+            val status =
+                try {
+                    val synced = sync.syncLocalChanges()
+                    listOfNotNull(
+                            synced.notSent?.let {
+                                "New highlights and cards stay on this phone for now. ${it.describe()}"
+                            },
+                            synced.refused
+                                .takeIf { it.isNotEmpty() }
+                                ?.let {
+                                    "The server refused: ${it.joinToString("; ") { item -> item.describe() }}. A refused place stays on this phone."
+                                },
+                        )
+                        .joinToString(" ")
+                        .ifEmpty { null }
+                } catch (error: ApiException) {
+                    "Showing saved data. ${error.describe()}"
+                }
+            current.update { it.copy(syncing = false, status = status) }
+        }
+    }
+
+    fun askToSignOut() {
+        viewModelScope.launch {
+            val unsent = dao.unsentCount()
+            current.update { it.copy(signOutUnsent = unsent) }
+        }
+    }
+
+    fun closeSignOut() = current.update { it.copy(signOutUnsent = null) }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     sync: Sync,
     dao: LibraryDao,
     signedIn: Boolean,
+    entryId: String,
     push: (Screen) -> Unit,
     notice: String?,
     onDismissNotice: () -> Unit,
@@ -120,33 +190,16 @@ fun LibraryScreen(
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
 ) {
+    val model = viewModel { LibraryViewModel(sync, dao, entryId) }
+    val state by model.state.collectAsStateWithLifecycle()
+    val activity = LocalActivity.current
+    DisposableEffect(model) { onDispose { if (activity?.isChangingConfigurations != true) model.left() } }
+    LaunchedEffect(signedIn) { model.shown(signedIn) }
     var tab by rememberSaveable { mutableStateOf(LibraryTab.READING) }
-    var confirmDeleteAccount by remember { mutableStateOf(false) }
-    // Changes the server has not acknowledged, counted for the sign-out confirmation; non-null while it is shown.
-    var confirmSignOut by remember { mutableStateOf<Int?>(null) }
-    val scope = rememberCoroutineScope()
-    var refresh by remember { mutableIntStateOf(0) }
-    var refreshing by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf<String?>(null) }
-    val repositories by dao.repositories().collectAsState(emptyList())
-    val waiting by dao.waitingCount().collectAsState(0)
+    var confirmDeleteAccount by rememberSaveable { mutableStateOf(false) }
+    val repositories by dao.repositories().collectAsStateWithLifecycle(emptyList())
+    val waiting by dao.waitingCount().collectAsStateWithLifecycle(0)
     val outlook = rememberReviewOutlook(dao)
-    if (signedIn) {
-        // Pushes pending changes, then pulls the server's view; the background sync sends changes without it (ADR-08).
-        RefreshOnEntry(refresh, { refreshing = it }, { status = it }) {
-            val synced = sync.syncLocalChanges()
-            listOfNotNull(
-                    synced.notSent?.let { "New highlights and cards stay on this phone for now. ${it.describe()}" },
-                    synced.refused
-                        .takeIf { it.isNotEmpty() }
-                        ?.let {
-                            "The server refused: ${it.joinToString("; ") { item -> item.describe() }}. A refused place stays on this phone."
-                        },
-                )
-                .joinToString(" ")
-                .ifEmpty { null }
-        }
-    }
     val deleteAccount = {
         confirmDeleteAccount = false
         onDeleteAccount()
@@ -159,10 +212,7 @@ fun LibraryScreen(
                     IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
                     // Signing out is offered after the session has ended too: it is the one way to remove this phone's
                     // copy, and to sign in as another account.
-                    val signOut =
-                        MenuAction("Sign out and remove from phone…") {
-                            scope.launch { confirmSignOut = dao.unsentCount() }
-                        }
+                    val signOut = MenuAction("Sign out and remove from phone…", model::askToSignOut)
                     OverflowMenu(
                         if (signedIn) listOf(signOut, MenuAction("Delete account…") { confirmDeleteAccount = true })
                         else listOf(MenuAction("Sign in with GitHub", onSignIn), signOut)
@@ -207,7 +257,7 @@ fun LibraryScreen(
                 StatusLine(it)
                 TextButton(onClick = onDismissNotice) { Text("Dismiss account message") }
             }
-            StatusLine(status)
+            StatusLine(state.status)
             if (signedIn && waiting > 0) {
                 // The background sync sends these once the phone is online; Sync now sends them while you watch.
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -217,7 +267,7 @@ fun LibraryScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { refresh++ }, enabled = !refreshing) { Text("Sync now") }
+                    TextButton(onClick = { model.syncNow() }, enabled = !state.syncing) { Text("Sync now") }
                 }
             }
             TextButton(onClick = { push(Screen.Notebook) }) { Text("Notebook") }
@@ -231,8 +281,8 @@ fun LibraryScreen(
             }
             if (signedIn)
                 PullToRefreshBox(
-                    isRefreshing = refreshing,
-                    onRefresh = { refresh++ },
+                    isRefreshing = state.syncing,
+                    onRefresh = { model.syncNow() },
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     content()
@@ -247,12 +297,12 @@ fun LibraryScreen(
             onConfirm = { deleteAccount() },
         )
     }
-    confirmSignOut?.let { unsent ->
+    state.signOutUnsent?.let { unsent ->
         SignOutDialog(
             unsent,
-            onDismiss = { confirmSignOut = null },
+            onDismiss = model::closeSignOut,
             onConfirm = {
-                confirmSignOut = null
+                model.closeSignOut()
                 onSignOut()
             },
         )
@@ -285,9 +335,9 @@ private fun SignOutDialog(unsent: Int, onDismiss: () -> Unit, onConfirm: () -> U
 
 @Composable
 private fun ReadingTab(dao: LibraryDao, push: (Screen) -> Unit) {
-    val recent by dao.recentReading(5).collectAsState(emptyList())
-    val updated by dao.updatedSinceRead().collectAsState(emptyList())
-    val changed by dao.recentlyChanged(5).collectAsState(emptyList())
+    val recent by dao.recentReading(5).collectAsStateWithLifecycle(emptyList())
+    val updated by dao.updatedSinceRead().collectAsStateWithLifecycle(emptyList())
+    val changed by dao.recentlyChanged(5).collectAsStateWithLifecycle(emptyList())
     val updatedIds = updated.map { it.documentId }.toSet()
     if (recent.isEmpty() && updated.isEmpty() && changed.isEmpty()) {
         EmptyState("Notes you read appear here. Open one from Repositories.")
@@ -334,7 +384,7 @@ private fun ReadingTab(dao: LibraryDao, push: (Screen) -> Unit) {
 
 @Composable
 private fun BookmarksTab(dao: LibraryDao, push: (Screen) -> Unit) {
-    val bookmarks by dao.bookmarks().collectAsState(emptyList())
+    val bookmarks by dao.bookmarks().collectAsStateWithLifecycle(emptyList())
     if (bookmarks.isEmpty()) {
         EmptyState("No bookmarks yet. Tap the bookmark icon in a note to keep it here.")
         return
