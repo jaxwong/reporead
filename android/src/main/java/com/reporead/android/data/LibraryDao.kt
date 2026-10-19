@@ -366,7 +366,9 @@ interface LibraryDao {
     /** A concurrent sync may invalidate/delete a card after it was revealed; never persist that stale grade. */
     @Transaction
     suspend fun recordReview(row: ReviewRow): Boolean {
-        require(row.grade in 0..5 && row.pending && row.rejection == null) { "Invalid local review ${row.mutationId}" }
+        require(row.grade in REVIEW_GRADE_RANGE && row.pending && row.rejection == null) {
+            "Invalid local review ${row.mutationId}"
+        }
         val card = annotation(row.cardMutationId) ?: return false
         val document = document(card.documentId) ?: return false
         if (

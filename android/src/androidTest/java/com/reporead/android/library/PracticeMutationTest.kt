@@ -104,6 +104,24 @@ class PracticeMutationTest {
     }
 
     @Test
+    fun everyStoredGradeCanCreateACardAndItsFirstReview() = runBlocking {
+        val dao = store.library()
+        for (grade in 0..5) {
+            val asked =
+                question.copy(
+                    question =
+                        question.question.copy(
+                            answer = question.question.answer.copy(text = "Canonical answer: Test-only grade $grade")
+                        )
+                )
+            assertNull(gradeNewQuestion(sync, asked, grade))
+        }
+        assertEquals((0..5).toList(), dao.reviews().first().map { it.grade }.sorted())
+        assertEquals(6, dao.annotations(1).first().size)
+        assertEquals(6, notifications.get())
+    }
+
+    @Test
     fun anInvalidGradeCannotLeaveACard() = runBlocking {
         val dao = store.library()
         for (grade in listOf(-1, 6)) {

@@ -78,7 +78,6 @@ class ContractTest {
         broken<ReadingStatesState>(wire(testReading().copy(progressPercent = 101)))
         broken<ReadingStatesAnchor>(wire(testReading().anchor.copy(blockIndex = -1)))
         broken<ReviewsNotebook>(wire(testLibrary().notebook.copy(sessionLimit = 0)))
-        broken<ReviewsReview>(wire(testReview().copy(grade = 6)))
         for (question in listOf(null, "", "  ")) broken<AnnotationsAnnotation>(
             wire(testCard().copy(question = question))
         )
@@ -92,6 +91,14 @@ class ContractTest {
         broken<AppSessionsIssuedSession>(wire(testSession(accessToken = "")))
         // Rules reach into what an answer holds: one bad reading state breaks the whole library.
         broken<LibrarySnapshot>(wire(testLibrary(readingStates = listOf(testReading().copy(progressPercent = -1)))))
+    }
+
+    @Test
+    fun reviewGradesAcceptTheFullStoredScaleAndRejectBothOutOfRangeEdges() {
+        for (grade in 0..5) {
+            assertEquals(grade, decodeResponse<ReviewsReview>(wire(testReview().copy(grade = grade)), 200).grade)
+        }
+        for (grade in listOf(-1, 6)) broken<ReviewsReview>(wire(testReview().copy(grade = grade)))
     }
 
     @Test

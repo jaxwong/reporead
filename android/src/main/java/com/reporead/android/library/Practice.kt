@@ -38,6 +38,7 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.PracticePage
+import com.reporead.android.data.scheduledLines
 import com.reporead.android.reader.BankAnswer
 import com.reporead.android.reader.BankProblem
 import com.reporead.android.reader.StudyQuestion
@@ -117,13 +118,9 @@ internal fun <T> interleaveByNote(items: List<T>, seed: Int, note: (T) -> Long):
     }
 }
 
-/**
- * The keys of the questions that already have a card on the review schedule ([reviewable]) — in the same bank, with the
- * same Canonical line — and so are not new even when the prompt changes. Identical prompts with different lines stay
- * two questions. A question whose card the server refused is asked again.
- */
+/** Question keys already on this phone's review schedule, matched by [scheduledLines]. */
 internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<NotebookItem>): Set<String> {
-    val made = cards.filter(::reviewable).map { it.annotation.documentId to it.annotation.drawn.exactText }.toSet()
+    val made = scheduledLines(cards)
     return questions.filter { (it.documentId to it.question.answer.text) in made }.map { it.key }.toSet()
 }
 

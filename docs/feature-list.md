@@ -234,7 +234,7 @@ Red evidence against the pre-fix production code:
 - `ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --tests '*PracticeTest' :app:assembleDebug :app:assembleDebugAndroidTest --continue --no-daemon` exited **1**: `7 tests completed, 2 failed`; prompt-only identity and two-prompts/one-line assertions failed. Both APKs built.
 - `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w -e class com.reporead.android.library.PracticeMutationTest com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` exited **0** but ended `Tests run: 5, Failures: 3` (expected red). The forced SQLite grade-insert failure left a card, concurrent/restored submissions produced multiple cards, and the invalid-grade check failed. adb's exit alone is not a pass.
 
-Final local build and device checks (test-only Room stores and loopback HTTP; no real-account writes):
+Initial PR4 implementation checks (test-only Room stores and loopback HTTP; no real-account writes). The ownership review follow-up below records the latest Android/device evidence.
 
 | Exact command | Exit | Terminal result |
 | --- | --- | --- |
@@ -249,9 +249,33 @@ Final local build and device checks (test-only Room stores and loopback HTTP; no
 
 **Device UI/full-suite gate passed after the user unlocked the Pixel.** The earlier four-class focused command exited 0 but ended `Tests run: 25, Failures: 13`: twelve screen tests timed out while accessibility showed the lock screen; read-only diagnostics confirmed `mWakefulness=Dozing` and keyguard `showing=true`. The remaining failure was the cancellation fixture's reuse of an existing card's line; it now uses a genuinely new line, keeps its assertions and passes. The first resumed run (`Tests run: 27, Failures: 4`) found the notification shade covering four screen tests. `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell cmd statusbar collapse` exited 0 and dismissed only the shade; no phone setting was changed. With the test Activity visible, the unchanged focused suite and then the full suite passed as recorded above. These green runs supersede the earlier device limitation, not the recorded failed attempts.
 
-Tested APK SHA-256: Dev app `46db198fffcc7362f103e30b67ccc5746466acf8aa43562e2f448dca8d938e2a`; test APK `c8477c37400319f6210bfe881c98e6539c5e3b772102126818b90fc97912849b`. Android README behavior now agrees with ADR-13/ADR-20 on identity, atomic persistence, current Review prompts and the confirmation boundary.
+Initial implementation's tested APK SHA-256: Dev app `46db198fffcc7362f103e30b67ccc5746466acf8aa43562e2f448dca8d938e2a`; test APK `c8477c37400319f6210bfe881c98e6539c5e3b772102126818b90fc97912849b`. Android README behavior now agrees with ADR-13/ADR-20 on identity, atomic persistence, current Review prompts and the confirmation boundary.
 
 No push, hosted CI/deployment, release installation, phone-setting change, real GitHub smoke test or actual OS process-death test is claimed. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` remain opt-in skips because canonical rules and anchoring did not change. Existing SDK XML-version and JVM class-sharing warnings were not changed.
+
+### PR4 review follow-up — One owner for schedule identity and grade bounds
+
+`Rows.kt` now owns `reviewable` next to `NotebookItem` and the single `scheduledLines(cards)` projection consumed by Practice and Sync. The old predicate and Sync's import from `library` are removed, not aliased. The approved grade-range owner is also the data model: `REVIEW_GRADE_RANGE` beside `ReviewRow`, consumed by WireRules, both ReviewSchedule validations, `LibraryDao.recordReview` and `Sync.gradeNewCard`. Error messages derive their expected range from the same declaration. Putting the range in ReviewSchedule was declined because that screen-package import would recreate the cycle. The offered buttons and scheduling algorithm stay in ReviewSchedule; no behavior, schema, API, dependency, configuration or external-call ceiling changes.
+
+This refactor is net **+7 production lines**: the shared range declaration, explicit imports and formatter wrapping outweigh the deleted duplicate matching code. No new control-flow branch, framework or dependency is added. Before the change, inspection found five grade-range literals and the reverse `Sync → library.reviewable` import. The existing JVM baseline passed before refactoring; expanded characterization tests then passed before range consolidation. New cases cover empty schedules, refused/removed/highlight exclusions, prompt-independent deduplication and drawn/re-anchored text, plus accepted grade values and both invalid edges across all five validation boundaries. Tests keep independent literal expectations rather than deriving their expected bounds from the production constant.
+
+Executed review-follow-up checks (isolated data only):
+
+| Exact command | Exit | Terminal result |
+| --- | --- | --- |
+| `ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon` (expanded characterization, before range consolidation) | 0 | `BUILD SUCCESSFUL in 12s`; 83 JVM tests, 0 failures/errors, 1 opt-in skip. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w -e class com.reporead.android.data.LocalStoreTest,com.reporead.android.library.PracticeMutationTest com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` (before range consolidation) | 0 | `Time: 3.685`; `OK (30 tests)`. |
+| `ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :app:compileDebugAndroidTestKotlin --rerun-tasks --no-daemon` | 0 | `BUILD SUCCESSFUL in 1m 4s`; 83 JVM tests, 0 failures/errors, 1 opt-in skip. Lint, Kotlin/Java compilation, reader syntax/bundle and both signed assemblies passed. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r android/build/outputs/apk/debug/app-debug.apk` | 0 | `Success`; Dev data kept, release app untouched. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` | 0 | `Success`. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` | 0 | `Time: 250.216`; `OK (171 tests)` on the Pixel 8a. |
+| `rg -n -F '0..5' android/src/main` | 0 | Only `Rows.kt`'s `REVIEW_GRADE_RANGE` declaration remains. |
+| `rg -n -F 'import com.reporead.android.library' android/src/main/java/com/reporead/android/sync android/src/main/java/com/reporead/android/data android/src/main/java/com/reporead/android/core/network` | 1 (expected) | No matches; the reverse screen-package imports are gone. |
+| `git diff --check` | 0 | No output. |
+
+Tested review-follow-up APK SHA-256: Dev app `96166764f70301536b9068896ba63f6f872739de7568954ecaf77d9c1d717af4`; test APK `843035ee83d2c9a3d0345836b4a76f61cdca85a60512eb387ca94da9f459ae3d`. These Android/device results supersede the initial PR4 binaries and counts above. The one JVM skip is `StudyCorpus`; existing SDK XML-version warnings remain unchanged.
+
+No backend test rerun, release install, live GitHub write or deployment is part of this Android-only follow-up. The user's pre-existing edits to `docs/audit-remediation-plan.md` are preserved and are not part of this change.
 
 ## Not yet verified on the real system
 

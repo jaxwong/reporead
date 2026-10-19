@@ -88,6 +88,7 @@ These come from the original implementation spec's engineering invariants and th
 **A new Practice card and its first grade appear together or neither does; a restored or concurrent submission cannot create another pair for the same bank and Canonical line on this phone.**
 
 - Enforced by: grade-range, unchanged-bank and existing-card validation inside `Sync.gradeNewCard` under `committed` and its one lock; `LibraryDao.saveCardWithFirstReview` owns the Room transaction. An insert failure propagates with both rows rolled back; there is no card-only fallback and no external call.
+- Shared rule owners: `Rows.kt` owns schedule eligibility (`reviewable`), the scheduled document/Canonical-line keys (`scheduledLines`, used by Practice and Sync), and the stored-grade range beside `ReviewRow`. Every phone-side grade validation uses that range; no Sync, Room or wire-validation import points back into `library`.
 - Checks: `PracticeMutationTest` forces a real SQLite grade-insert failure, concurrent submissions, a restored prompt edit, invalid grades and changed/missing banks; `PracticeSessionTest` drives grades, double taps and leaving a queued grade through the real screen; `CommittedMutationTest` checks cancellation at Sync's boundary.
 - Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer). Cross-device duplicates are not deduplicated.
 

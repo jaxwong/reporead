@@ -27,11 +27,12 @@ import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
+import com.reporead.android.data.REVIEW_GRADE_RANGE
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.data.SavedVersion
-import com.reporead.android.library.reviewable
+import com.reporead.android.data.scheduledLines
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -475,14 +476,10 @@ class Sync(
      */
     suspend fun gradeNewCard(passage: Passage, documentId: Long, question: String, grade: Int): NewCardGrade =
         committed {
-            require(grade in 0..5) { "Invalid Practice grade $grade; expected 0..5 in Sync.gradeNewCard" }
-            if (
-                dao.notebook().first().any {
-                    reviewable(it) &&
-                        it.annotation.documentId == documentId &&
-                        it.annotation.drawn.exactText == passage.exactText
-                }
-            ) {
+            require(grade in REVIEW_GRADE_RANGE) {
+                "Invalid Practice grade $grade; expected $REVIEW_GRADE_RANGE in Sync.gradeNewCard"
+            }
+            if ((documentId to passage.exactText) in scheduledLines(dao.notebook().first())) {
                 Log.i("RepoRead", "Practice grade already saved; documentId=$documentId")
                 return@committed NewCardGrade.ALREADY_SCHEDULED
             }

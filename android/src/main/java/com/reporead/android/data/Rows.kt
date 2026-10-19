@@ -273,6 +273,9 @@ enum class CardBlock(val reason: String) {
     UNCONFIRMED("Check this card: confirm its answer"),
 }
 
+/** The stored review-grade scale; the UI offers a subset of it. */
+internal val REVIEW_GRADE_RANGE = 0..5
+
 /** Pending grades and the server log share the same immutable client mutation id. */
 @Entity(tableName = "review_log", indices = [Index("cardMutationId")])
 data class ReviewRow(
@@ -297,3 +300,15 @@ data class NotebookItem(
     val deleted: Boolean,
     val savedBlobSha: String?,
 )
+
+/**
+ * A card on the review schedule: the server did not refuse it and its note is still listed. Review shows it (one that
+ * needs checking, with its fix), and Practice does not ask its question again; refused and removed ones are listed in
+ * Notebook.
+ */
+internal fun reviewable(item: NotebookItem) =
+    item.annotation.type == AnnotationType.CARD && item.annotation.state != AnnotationState.REFUSED && !item.deleted
+
+/** Scheduled question identity is the bank document and drawn Canonical line, never the saved prompt or version. */
+internal fun scheduledLines(cards: List<NotebookItem>): Set<Pair<Long, String>> =
+    cards.filter(::reviewable).map { it.annotation.documentId to it.annotation.drawn.exactText }.toSet()
