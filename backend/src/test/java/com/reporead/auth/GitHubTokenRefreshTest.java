@@ -2,6 +2,7 @@ package com.reporead.auth;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -252,10 +253,8 @@ class GitHubTokenRefreshTest extends SharedSpringTest {
         available()
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("GITHUB_UNAVAILABLE"));
-        assertTrue(
-                log.getOut()
-                        .contains(
-                                "GitHub request failed; endpoint=/login/oauth/access_token failureType=SocketTimeoutException"));
+        assertTrue(log.getOut().contains("GitHub request failed; failureType=SocketTimeoutException"));
+        assertFalse(log.getOut().contains("endpoint="));
         next();
         expectRefresh(
                 ExpectedCount.once(),

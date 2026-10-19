@@ -30,6 +30,7 @@ public final class ApiFailure extends RuntimeException {
         ANNOTATION_DELETED(410),
         DOCUMENT_DELETED(410),
         REQUEST_TOO_LARGE(413),
+        ANNOTATION_LIMIT(422),
         DOCUMENT_LIMIT(422),
         INVALID_ANCHOR(422),
         LIBRARY_TOO_LARGE(422),

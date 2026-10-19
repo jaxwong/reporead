@@ -5,6 +5,7 @@ package com.reporead.annotation;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
+import com.reporead.StoredText;
 import com.reporead.annotation.AnnotationService.Selection;
 import com.reporead.auth.AppUser;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -180,19 +181,10 @@ public class AnnotationController {
                 && selection.exactText() != null
                 && selection.exactText().length() == selection.endOffset() - selection.startOffset()
                 && selection.exactText().length() <= MAX_TEXT_CHARS
-                && storable(selection.exactText());
+                && StoredText.storable(selection.exactText());
     }
 
     private static boolean validNote(String note) {
-        return note == null || (note.length() <= MAX_TEXT_CHARS && storable(note));
-    }
-
-    /**
-     * Text the database stores exactly: PostgreSQL refuses U+0000, and the driver would store an unpaired surrogate as
-     * '?', as in a selection that splits a character. Refusing them here makes them this item's fault, which the phone
-     * marks instead of resending.
-     */
-    private static boolean storable(String text) {
-        return text.codePoints().noneMatch(c -> c == 0 || Character.getType(c) == Character.SURROGATE);
+        return note == null || (note.length() <= MAX_TEXT_CHARS && StoredText.storable(note));
     }
 }

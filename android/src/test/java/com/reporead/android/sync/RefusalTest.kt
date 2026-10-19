@@ -37,6 +37,8 @@ class RefusalTest {
                 403 to "GITHUB_ACCESS_DENIED",
                 // Only connecting the repository again fixes it; what waits is still valid.
                 409 to "REPOSITORY_RENAMED",
+                // Capacity can be freed by deleting other annotations; this creation must stay pending.
+                422 to "ANNOTATION_LIMIT",
                 429 to "HTTP_429",
                 500 to "HTTP_500",
                 502 to "GITHUB_INVALID_RESPONSE",

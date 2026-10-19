@@ -61,7 +61,7 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 
 - Closing and reopening a note restores a semantic location near where I stopped, not only a pixel offset.
 - The library can show approximate progress and a Continue action.
-- I can bookmark a note without modifying its Markdown.
+- I can bookmark a note without modifying its Markdown; if it was disconnected while open, the reader reports that the bookmark was not saved.
 - If the note changed, RepoRead makes a best-effort restore and does not claim an exact location it cannot identify.
 
 ### US-05 — Highlight and annotate without editing source
@@ -74,6 +74,7 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 - My highlight or annotation can be viewed again in its document context.
 - The source Markdown and Git history are unchanged by these actions.
 - Each annotation retains the source version and original selected context.
+- Server capacity is shared by highlights/cards (500 per document, 5,000 per user; bookmarks excluded); reaching it never silently discards an existing annotation or an offline creation.
 
 ### US-06 — Read and annotate offline
 
@@ -83,7 +84,7 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 
 - A previously cached note opens when GitHub or the backend is unavailable, with a visible stale/offline state.
 - A highlight or annotation created offline remains visible locally and is pending synchronization.
-- Reconnecting synchronizes a pending mutation without creating duplicates, including when the same mutation is sent again.
+- Reconnecting synchronizes a pending mutation without creating duplicates, including when the same mutation is sent again. A capacity refusal keeps a creation pending; after deleting other annotations I can sync the same mutation again.
 - An unresolved edit conflict in annotation text is surfaced to me; it is not silently overwritten.
 
 ### US-07 — Keep annotations trustworthy after edits
@@ -134,8 +135,8 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 **Acceptance criteria**
 
 - I can see and disconnect a connected repository.
-- Disconnecting removes backend cached repository content and associated synchronization credentials, without modifying GitHub source.
-- There is a clear account-deletion path.
+- Disconnecting removes the connection, document metadata and associated reading/annotation/review state from the server and this phone, including pending work, without modifying GitHub source. GitHub sign-in credentials are user-wide and are not revoked by disconnecting one repository.
+- There is a clear account-deletion path: confirmation ends the session and removes live server data, while saved phone data stays. Existing server backups retain copies until replaced; sign-out alone ends the session without clearing phone data (ADR-22).
 
 ## Post-MVP stories
 
@@ -162,7 +163,8 @@ Added after the MVP (see the [feature list](feature-list.md#after-the-mvp)).
 
 - I can save every note of a repository, and saving goes on when I leave the screen or the app; a later run fetches only notes that changed, and a failure keeps what was saved.
 - I can stop a waiting or running Save all from its repository menu without signing out, keep the saved notes, and then refresh or disconnect that repository.
-- With the backend unreachable, a note I never opened opens and is found by a word in its body.
+- Every listed saved page, including already-current text, gets its missing-image pass before progress is reported; cached images are reused without requests. A permanent content/image refusal counts the page once as skipped and keeps its text; other API failures reach the worker rather than claiming success.
+- With the backend unreachable, a note I never opened opens and is found by a word in its body; only images actually cached are promised offline.
 - Tapping a link to another note previews it without leaving the page; a name matching two notes asks which.
 - A note shows which saved notes link to it, and says when only some notes are saved.
 
@@ -185,11 +187,11 @@ Added after the MVP (see the [feature list](feature-list.md#after-the-mvp)).
 **Acceptance criteria**
 
 - I can make a card from a Practice question, a selected passage, or a highlight.
-- The Practice tab says how many cards are due now, how many fall due next and in the coming week; a session asks each due card, each grade shows when the card comes back, and my grade schedules it.
+- Library, Practice and an empty Review completion use the same midnight/time-zone-aware outlook. The Practice tab says how many cards are due now, how many fall due next and in the coming week; a session asks each due card, each grade shows when the card comes back, and my grade schedules it.
 - Grades made offline sync once, even when sent again.
 - A card whose note changed is not drilled until I confirm or reattach its answer.
 - I can see every highlight and card in one notebook and filter it; unused Markdown export was retired on 2026-10-19.
-- Disconnecting a repository or deleting my account removes its cards and review history.
+- Disconnecting a repository removes its server and phone cards/review history; confirmed account deletion removes server data and ends the session but retains this phone's copies and pending work (ADR-22).
 
 ## Later, not MVP
 

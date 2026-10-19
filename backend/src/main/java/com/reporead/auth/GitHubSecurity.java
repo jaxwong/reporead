@@ -59,6 +59,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 @Configuration
 public class GitHubSecurity {
+    static final String REGISTRATION = "github";
     /** Browser sessions that can exist at once (see boundedSignInSessions). */
     static final int MAX_SIGN_IN_SESSIONS = 100;
 
@@ -68,7 +69,7 @@ public class GitHubSecurity {
     ClientRegistrationRepository registrations(RepoReadProperties properties, ServerProperties server)
             throws IOException {
         String callback = callbackUri(properties.publicUrl(), server.getPort());
-        var registration = ClientRegistration.withRegistrationId("github")
+        var registration = ClientRegistration.withRegistrationId(REGISTRATION)
                 .clientId(properties.github().clientId())
                 .clientSecret(SecretFiles.read(properties.github().clientSecretFile()))
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST)

@@ -5,6 +5,7 @@ package com.reporead.reading;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
+import com.reporead.StoredText;
 import com.reporead.auth.AppUser;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
@@ -66,18 +67,13 @@ public class ReadingController {
                 && body.lastReadAt() != null
                 && anchor != null
                 && anchor.headingPath() != null
-                && anchor.headingPath().stream().allMatch(heading -> heading != null && validAnchorText(heading))
-                && (anchor.textPrefix() == null || validAnchorText(anchor.textPrefix()))
+                && anchor.headingPath().stream().allMatch(heading -> heading != null && StoredText.storable(heading))
+                && (anchor.textPrefix() == null || StoredText.storable(anchor.textPrefix()))
                 && anchor.blockIndex() != null;
         if (!valid) {
             throw new ApiFailure(
                     Code.INVALID_REQUEST,
                     "Reading state requires a blob SHA, progress 0-100, lastReadAt, and an anchor with a string heading path and integer block index; anchor text cannot contain NUL or an unpaired surrogate.");
         }
-    }
-
-    /** JSONB cannot store NUL, and an unpaired surrogate would not round-trip exactly. */
-    private static boolean validAnchorText(String text) {
-        return text.codePoints().noneMatch(c -> c == 0 || Character.getType(c) == Character.SURROGATE);
     }
 }

@@ -289,7 +289,7 @@ internal class ReaderSession(
             )
         check(configured == true) { "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}" }
         Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height}")
-        val headings = parseOutline(view.evaluate("JSON.stringify(window.reporead.outline())") as String)
+        val headings = parseOutline(view.evaluate("window.reporead.outline()") as JSONArray)
         val highlights = dao.annotations(note.documentId)
         // Drawn before opening, so that a highlight to open at is on the page.
         drawHighlights(view, drawn(highlights.first()))
@@ -358,7 +358,7 @@ internal class ReaderSession(
     /** Saves the position in the version on screen. */
     private suspend fun save(view: WebView) {
         main.removeCallbacks(saveAfterScroll)
-        val position = JSONObject(view.evaluate("JSON.stringify(window.reporead.position())") as String)
+        val position = view.evaluate("window.reporead.position()") as JSONObject
         val anchor = position.getJSONObject("anchor")
         val block = anchor.getInt("blockIndex")
         topBlock = block
@@ -426,7 +426,7 @@ internal class ReaderSession(
 
     /** Draws [payload] ([drawn]); a highlight the page cannot place is listed, not drawn. */
     private suspend fun drawHighlights(view: WebView, payload: String) {
-        val missing = JSONArray(view.evaluate("JSON.stringify(window.reporead.highlight($payload))") as String)
+        val missing = view.evaluate("window.reporead.highlight($payload)") as JSONArray
         notShown = List(missing.length()) { missing.getString(it) }.toSet()
     }
 

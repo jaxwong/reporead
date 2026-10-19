@@ -8,12 +8,39 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.mock.http.client.MockClientHttpResponse;
 
+@ExtendWith(OutputCaptureExtension.class)
 class GitHubHttpTest {
+    @Test
+    void githubPathsAreAbsentFromSuccessFailureAndOversizeLogs(CapturedOutput log) throws IOException {
+        var request = new MockClientHttpRequest(
+                HttpMethod.GET, URI.create("https://api.github.com/repos/PRIVATE_OWNER/PRIVATE_NOTE/image.png"));
+        var interceptor = GitHubHttp.boundedResponse(2, new SimpleMeterRegistry());
+        interceptor
+                .intercept(request, new byte[0], (sent, body) -> new MockClientHttpResponse(new byte[0], HttpStatus.OK))
+                .close();
+        assertThrows(
+                IOException.class,
+                () -> interceptor.intercept(request, new byte[0], (sent, body) -> {
+                    throw new IOException("test-only failure");
+                }));
+        var oversized = assertThrows(
+                IOException.class,
+                () -> interceptor.intercept(
+                        request, new byte[0], (sent, body) -> new MockClientHttpResponse(new byte[3], HttpStatus.OK)));
+        assertTrue(log.getAll().contains("GitHub response"));
+        assertTrue(log.getAll().contains("GitHub request failed"));
+        assertFalse(log.getAll().contains("PRIVATE_"));
+        assertFalse(oversized.getMessage().contains("PRIVATE_"));
+    }
+
     @Test
     void oauthResponseHasAHardByteCapAndNeverRetriesAfterFailure() throws IOException {
         var request = new MockClientHttpRequest(HttpMethod.GET, URI.create("https://api.github.com/user"));

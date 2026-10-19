@@ -431,6 +431,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
     val model = viewModel { ReviewViewModel(sync, createSavedStateHandle(), entryId) }
     val state by model.state.collectAsStateWithLifecycle()
     val banks = rememberBanks(dao)
+    val outlook = rememberReviewOutlook(dao)
     val items by dao.notebook().collectAsStateWithLifecycle(null)
     val reviews by dao.reviews().collectAsStateWithLifecycle(null)
     val limit by dao.reviewLimit().collectAsStateWithLifecycle(null)
@@ -446,7 +447,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
             Modifier.padding(padding).fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (ready == null || log == null || banks == null) {
+            if (ready == null || log == null || banks == null || outlook == null) {
                 Text("Loading saved cards…")
                 return@Column
             }
@@ -483,8 +484,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
             val id = asked.current
             if (id == null) {
                 Text(
-                    if (asked.started.isEmpty())
-                        outlookLine(reviewOutlook(ready, log, System.currentTimeMillis(), ZoneId.systemDefault()), cap)
+                    if (asked.started.isEmpty()) outlookLine(outlook, cap)
                     else "Session complete: ${counted(asked.completed(graded), "card")} reviewed."
                 )
                 TextButton(onClick = onBack) { Text("Finish") }

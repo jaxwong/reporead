@@ -115,7 +115,7 @@ These are exclusions, not hidden stretch goals.
 | Phone storage eviction | None; every saved note is kept (ADR-19). Revisit if storage matters |
 | Scheduler | Fixed gap ladder (replaced SM-2 on 2026-10-15); consider FSRS only if review data shows a need (ADR-13) |
 | Notebook paging | Not paged; revisit as the review log nears about 40,000 grades, past which the library is refused (422 `LIBRARY_TOO_LARGE`, ADR-13). On 2026-10-19 the real hosted library was 260,497 / 8,388,608 bytes (3.11%): 3 repositories, 100 reading states, 1 bookmark, 19 annotations, 12 reviews; document count was not logged. Revisit as bytes approach the ceiling; serialized bytes are not peak heap |
-| KaTeX advisory | Accepted low-severity risk retained; the 2026-10-19 audit offers a breaking Mermaid 12.2.0 upgrade, not the earlier downgrade. No dependency upgrade approved; PR5 evidence is in git history (`44c71f7`) |
+| Dependency advisories | Two low-severity KaTeX/Mermaid findings accepted at the 2026-10-19 audit; no dependency upgrade approved and Dependabot alerts remain disabled by user decision. The manual Spring-advisory review was not a transitive-graph scan; evidence is in [PR #81](https://github.com/jaxwong/reporead/pull/81) |
 | AI-drafted questions | Intent recorded; not designed (ADR-20) |
 
 ## Known gaps
@@ -124,6 +124,7 @@ Noticed and deliberately not changed:
 
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
 - Save all completion counts pages, not separate image totals. Permanent content/image refusals count the page once as skipped; unreadable cache files or a full disk can still leave an image unavailable offline (local file handling is unchanged). Network/server/session failures do not report a successful run; see ADR-19.
+- Highlights and cards share the server capacity (500 per document, 5,000 per user; bookmarks excluded). Reaching it keeps a new offline creation pending until capacity is freed; existing annotations and exact replays are retained. Counts do not guarantee an 8 MiB library answer: large texts or an accumulating review log can still exceed that separate limit.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
 - Bank-question identity is local to this phone's bank document and drawn Canonical text; a re-anchored line edit can retain its card, while a larger edit can leave an orphan beside a new question. Independently created cross-device cards can remain duplicates; no cross-device deduplication is promised (ADR-20).
 - After a bank prompt edit, Review uses the current saved-bank prompt, but Notebook and the reader's notes panel still show the prompt saved on the card. Review also parses all saved bank pages before its first card, including for hand-written-only sessions; accepted in the PR4 branch audit, not changed by PR5.
@@ -142,135 +143,35 @@ The ADRs record further limits: anchors (ADR-05), presentation-only page upgrade
 
 ## Audit PR1 — Feature retirements (2026-10-19)
 
-Implemented in `8685dec`: section summaries, full-screen figures and Notebook export retired; saved data and both Library change lists retained; verification is in [PR #75](https://github.com/jaxwong/reporead/pull/75).
+Merged and verified in [PR #75](https://github.com/jaxwong/reporead/pull/75): section summaries, full-screen figures and Notebook export retired; saved user data and both Library change lists retained.
 
 ## Audit PR2 — Sessions keep the phone's notes (2026-10-19)
 
-Sign-out and confirmed account deletion end only the session; every outcome preserves pages, images and user-owned pending work. `Account` no longer knows about Sync or the local store; the application owns one Sync per process. Retired-copy/owner/removal/Retry paths and the `expectedUserId`/`ACCOUNT_MISMATCH` contract are removed. Sign-in and account operations retain navigation. The accepted account-switch limit is under Known gaps. Verified locally: backend format/tests (280 tests, 3 opt-in skips), Android format/Lint/JVM tests (78 tests, 1 opt-in skip), reader bundle, both assemblies and device-test compilation passed. The latest Pixel 8a full isolated suite, including the review follow-up's confirmation-restoration regression, ended `OK (154 tests)` in 226.718 s. Exact commands and terminal results are in the implementation PR. No release install, deployment or live GitHub smoke run is claimed.
+Merged and verified in [PR #76](https://github.com/jaxwong/reporead/pull/76): sign-out and account deletion end the session without clearing phone data; ADR-22 owns the retained one-account limitation.
 
 ## Audit PR3 — Reading positions and saved-page retirement (2026-10-19)
 
-Merged as [#78](https://github.com/jaxwong/reporead/pull/78): positions clamp timestamps, renderer format is 4, and Room v16 retires unreadable pages without losing user-owned work. Evidence is in the PR and git history.
-
-**Gap found during PR5 review:** grade timestamps still used the deleted reading refusal policy, and the initial sweep missed stale Android reading-refusal and backend format-3 README text. This branch corrects both, clamps grades and preserves exact immutable replay checks with additive V15; `CARD_CHANGED` refusals stay.
+Merged and verified in [PR #78](https://github.com/jaxwong/reporead/pull/78): well-formed reading positions accepted, page format 4 and Room v16 retire unreadable saved pages without losing user work; PR #81 completed grade-clock and documentation corrections.
 
 ## Audit PR4 — Question identity and atomic first grade (2026-10-19)
 
-Merged as [#80](https://github.com/jaxwong/reporead/pull/80): prompt edits keep their cards, first grades are atomic, and only the Canonical line is confirmed; production was net +48 lines after its follow-up. Evidence is in the PR and git history.
-
-**Gaps corrected during PR5 review:** both admission decisions now live in DAO write transactions; the sole grade-range check is the phone's write boundary, not five layers; repeated Canonical-line prompts are warnings from Study's recognizer, not silent Practice drops. ADR-20 now states drawn-text identity accurately. Cross-device duplicates, orphan/new-question coexistence, saved-prompt differences and bank-parse cost remain accepted limits above.
+Merged and verified in [PR #80](https://github.com/jaxwong/reporead/pull/80), with admission/recognition corrections in [PR #81](https://github.com/jaxwong/reporead/pull/81): prompt edits keep their cards, first grades are atomic, and confirmation covers only the Canonical line; cross-device duplicates and saved-prompt differences remain accepted limits.
 
 ## Audit PR5 — Closure check (2026-10-19)
 
-Initial closure checks passed: main CI/hosted health at `b6e3c82`, local backend/Android gates, Pixel `OK (171 tests)`, approved Dev real-account smoke and release 0.1.390 update; evidence is in git history (`44c71f7`). The user explicitly retained the plan for Section 5. Review corrections passed local gates (292 backend / 82 JVM tests, no failures), the full Pixel suite (171 tests) and final focused regressions (82 tests). Exact commands and outputs stay in git history. The user confirmed PR5 merged and pending deployment on 2026-10-19; no subsequent deployment, release install or real-account smoke test is claimed here.
-
-**Coverage limits:** npm audit reported two low-severity KaTeX/Mermaid findings (accepted, no upgrade); Dependabot alerts remain disabled at the user's request. The version inventory (Boot 4.1.1 / Security 7.1.1, AGP 9.1.1, Compose BOM 2026.08.00, Navigation 3 1.2.0) and bounded manual Spring-advisory check are not a transitive-graph scan. The live clock-rollback completion counter and other real-system gaps remain listed above/below. Canonical/anchoring opt-in measurements were not rerun because these rules did not change.
+Merged and verified in [PR #81](https://github.com/jaxwong/reporead/pull/81): local gates, isolated device suites and approved real-account smoke completed; the clock-rollback completion counter, accepted dependency findings and remaining live-system gaps are not closed by that evidence.
 
 ## Mechanical moves — Local verification (2026-10-20)
 
-**Current status:** the user confirmed this work merged and pending deployment on 2026-10-20. The local evidence below remains historical; no subsequent deployment or release install is claimed.
-
-### Initial implementation (`92ee00f`)
-
-Implemented locally on `mechanical-moves`, code commit `92ee00f`: Compose load UI moves to `ui/`; Practice, Review, recognition, answer views, scheduling and session progression move to `study/`; folder helpers move to `library/Folder.kt`. Their callers and JVM/device tests follow, without aliases or duplicate implementations. Production Kotlin is net **+3 lines**, solely the imports needed across the new package boundaries; all 38 production file bodies were compared before/after, allowing only the three helper relocations and the approved saved-state format change. All existing test bodies/assertions are preserved, with the two folder tests moved to `FolderTest`.
-
-**Compatibility:** the user approved saved-UI-state format 4 because a serialized session names its old package (ADR-27). Navigation, drafts and in-progress sessions reset once; Room, saved pages/images, the stored sign-in session and pending work are not cleared. The format-3 rejection test was run before the bump and failed (`Tests run: 1, Failures: 1`); after the bump it ended with `OK (1 test)`.
-
-Executed Gradle gates (exit **0**):
-
-```sh
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:mergeDebugAssets :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-# BUILD SUCCESSFUL in 29s
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:mergeDebugAssets --rerun-tasks --no-daemon
-# BUILD SUCCESSFUL in 1m 5s; 51 actionable tasks: 51 executed
-```
-
-The fresh JVM report contains **82 tests, 0 failures, 0 errors, 1 skipped** (the opt-in private-corpus harness). Lint has no errors or warnings, only seven informational dependency/target hints; the installed SDK XML-version notice remains unchanged. Reader JavaScript syntax checks and packaging also ran again. The compiled runtime JAR contains all 26 relocated top-level types/file facades under their new owners, with no former types, nested/lambda classes or Compose singletons left behind. Backend, dependencies, schema history and workflows are unchanged.
-
-The debug APKs were installed with the Android README's data-preserving `install -r` / `install -r -t` commands; no release install or live-account operation was performed. The first full `am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` run ended with **`Tests run: 172, Failures: 1`**: `AppNavigationTest.anUnansweredDisconnectKeepsTheCopyUntilTheUserTriesAgain` timed out after 60 seconds. ADB exited **0**, which is not a passing test result. All moved study suites and the new format regression passed in that run. An isolated rerun of that disconnect test passed without code changes (`OK (1 test)`, 49.364 s); the original timeout's cause is not established. No timeout, assertion or production behavior was changed to hide the failure.
-
-The second full run passed without code changes (exit **0**). `ANDROID_SERIAL` selected the user-provided phone; its address is intentionally omitted here. Command and terminal output:
-
-```sh
-~/Library/Android/sdk/platform-tools/adb shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
-```
-
-```text
-Time: 243.049
-
-OK (172 tests)
-```
-
-`git diff --check` also exited **0** with no output. Device coverage uses the existing isolated Room/loopback fixtures, not the live account; no production stub was introduced.
-
-**Limits:** backend tests and opt-in private-corpus measurements were not rerun because their code/rules did not change. Actual `MainActivity` restoration across a release update remains unverified; format tests use a constructed marker, not captured old-APK state. Images in Save all now proceed below; the remaining Section 5 work stays deferred. Ignored local `notes/` files are outside this change. No push or deployment was performed.
-
-### Audit correction (2026-10-20)
-
-Code commit `15ca142` corrects the new `reader` ↔ `study` import cycle and stale labels found by the audit. The reader's Study-view model/parser now stays in `reader/Study.kt`; bank recognition stays in `study/Study.kt`. Both existing reader-study JVM test methods moved intact to `reader/StudyTest.kt` (this checkout had two, not three). The trivial private heading predicate is duplicated rather than introducing a shared layer. The architecture diagram/table now name both owners; the only dependency between these packages is `study` → `reader` for link parsing and isolated-page hosting.
-
-Notebook's helpers are now `ancestorFolders` and `inFolder`, with all three production call sites and both tests updated and no aliases. The four format-rejection methods are consolidated into one: the actual unmarked legacy Activity state, all prior markers including 1/2/3, and an unknown future marker are still refused. Compatible-format/build-number independence, null state and the destination/entry-id round trip remain covered. Device-test method count is intentionally **169**, down from 172 without losing a rejection case. Format **4**, session persistence, database state and network behavior are unchanged.
-
-This correction is net **+4 production lines** (**+7** for the branch against `main`): a separate reader-owned file/imports and the small duplicated heading predicate remove the cycle without another abstraction. Source-body comparisons confirmed no algorithm changes beyond splitting that owner and renaming the folder helpers. The import-direction check first failed on the four `reader` → `study` imports, then passed after the split; no former folder-helper names remain in production or tests. The compiled JAR has `StudyNote` only in `reader`, while bank types remain in `study`.
-
-Executed local gates (exit **0**):
-
-```sh
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:mergeDebugAssets :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-# BUILD SUCCESSFUL in 42s; 92 actionable tasks: 27 executed, 65 up-to-date
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:testDebugUnitTest --rerun :app:compileDebugAndroidTestKotlin --no-daemon
-# BUILD SUCCESSFUL in 20s; 40 actionable tasks: 18 executed, 22 up-to-date
-```
-
-JVM reports: **82 tests, 0 failures, 0 errors, 1 skipped** (the opt-in corpus harness). Both new owner-specific Study suites compile/run, and the consolidated Navigation test compiles. `git diff --check` exits **0** with no output.
-
-**Device verification completed (2026-10-20):** after the user connected/unlocked the Pixel 8a, read-only preflight reported `mWakefulness=Awake` and keyguard `showing=false`. The committed tree at `9ddf6ff` (code `15ca142`) was rebuilt, installed over RepoRead Dev without clearing data, and the full corrected suite passed. No wake/unlock or settings change was performed by the agent. The earlier `OK (172 tests)` and the reviewer's separate 25-test attempt with 13 lock-screen timeouts remain historical evidence for the initial build, not this correction.
-
-Commands and outputs (all exit **0**; the authorized phone identifier is omitted and represented by `$ANDROID_SERIAL`):
-
-```sh
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-# BUILD SUCCESSFUL in 22s; 74 actionable tasks: 19 executed, 55 up-to-date
-~/Library/Android/sdk/platform-tools/adb -s "$ANDROID_SERIAL" install -r android/build/outputs/apk/debug/app-debug.apk
-# Success
-~/Library/Android/sdk/platform-tools/adb -s "$ANDROID_SERIAL" install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-# Success
-~/Library/Android/sdk/platform-tools/adb shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
-```
-
-```text
-Time: 252.707
-
-OK (169 tests)
-```
-
-SHA-256 of the installed APK artifacts: app `c9ca05befecd88ad0829512545cbcbfe06c9c73d60f0176e25a81d22c8f7ce63`; device tests `956a515e52204fe00d92086038f7aa170edf3cf4ef2a606d43c4dccf97df9356`. This was the isolated Room/loopback suite, with no live-account smoke test or release install. No production/test source changed for this verification run.
-
-**Deferred/not touched:** class-name-independent session persistence remains a separate follow-up decision; Java-Serializable state and the approved format-4 gate stay. `Load`/`LoadContent`'s pre-existing public visibility is unchanged. Backend tests and private-corpus measurements were not rerun; no dependency, migration, production fixture, release install, push or deployment is part of this correction.
+Merged and verified in [PR #82](https://github.com/jaxwong/reporead/pull/82): study/UI/folder code and tests moved to their owners, the reader–study cycle removed, and saved-UI-state format 4 resets navigation/drafts/sessions once without changing Room or pending work.
 
 ## Images in Save all (2026-10-20)
 
-Implemented locally on `save-all-images`, initial code commit `bf43647`, with error-boundary correction `f549846` below. Save all checks the images of every listed saved page, including already-current pages (user decision), before reporting that page's progress. Current text is not fetched again. `NoteImages` reuses its existing snapshot-pinned files under the app's private `filesDir`, not SQLite BLOBs; no schema, dependency or new download/retry mechanism. The unused metadata-only `savedVersions` query is removed. ADR-19 owns limits, per-page ordering, cancellation and image-failure behavior; completion still counts pages, not guaranteed image availability.
+Merged and verified in [PR #83](https://github.com/jaxwong/reporead/pull/83): every listed saved page, including current text, gets its missing-image pass before progress; permanent refusals count the page once, other API failures reach the worker, and ADR-19 owns limits and lock costs.
 
-**Initial verification, before the error-boundary correction below.** The new offline-reader regression first failed on the unchanged implementation with `Images must precede progress` (`Tests run: 1, Failures: 1`; ADB exit **0** does not mean a passing suite). After implementation, focused sync/image/committed-mutation suites passed (`OK (54 tests)`, 21.889 s). Five new device tests cover Save all then offline resource access, encoded/duplicate paths, current-page backfill, partial image failure, cancellation/restart, empty input and disconnect during prefetch; the existing legacy-snapshot and image-only-refresh assertions are retained and extended.
+## Cleanup freeze (2026-10-20)
 
-Local Gradle gates passed (exit **0**): format, Lint, JVM tests, Kotlin/device-test compilation, reader packaging and debug/device-test/release assemblies (`BUILD SUCCESSFUL in 26s`). A subsequent fresh run of format/Lint/JVM/device-test compilation/reader packaging passed with all 51 tasks executed (`BUILD SUCCESSFUL in 45s`): **82 JVM tests, 0 failures, 0 errors, 1 opt-in skip**; Lint **0 errors, 0 warnings, 7 informational hints**. The initial new-code KTX lint error and final-comment formatting failure were corrected without rule changes. Exact commands and terminal results stay in this change's git evidence.
-
-The first full Pixel run ended **`Tests run: 174, Failures: 1`** (266.234 s): `PracticeSessionTest.doubleTappingTheGradeWritesOneCardAndOneGrade` failed at the second accessibility-click assertion, before its card/grade assertions. All 41 `LocalSyncTest` methods, including all five new regressions, and both image/committed-mutation suites passed. The unchanged Practice test passed alone (`OK (1 test)`, 1.613 s). Its intermittent failure's cause is not established; no assertion, timeout or production behavior was changed to hide it. ADB exited **0** for both runs, which does not itself establish success.
-
-The second full run passed without source/test changes (exit **0**): **`OK (174 tests)`**, 255.82 s. Debug and test APKs were installed with data-preserving `install -r` / `install -r -t`; the release app was not installed. `git diff --check` also exited **0** with no output. The passing rerun does not explain the earlier Practice failure; that evidence remains above and in git.
-
-### Image error-boundary correction (2026-10-20)
-
-Review found the initial pass reused the reader's API-error catch, so image 503/unreachable/401 failures incorrectly reported a successful run. Corrected in `f549846`: the batch pass uses the throwing fetch; only the reader's `image()` converts API failures to unavailable. `Sync` counts only the three permanent content/image refusal status/code pairs as skipped pages; all other failures reach the existing worker retry/stop boundary. Per the user's confirmation, a permanent refusal stops that page's remaining image pass, keeps its text, counts the page once (not also fetched/already saved), then continues at the next page. The existing skip label now includes unsupported/unavailable image content. No new state or retry mechanism; local file-cache read/write handling is unchanged.
-
-Replaced the old successful-on-503 assertion, preserving its current-page/cache/repeat-run checks on the corrected path. Before production changed, the 503, real-listener-closed unreachable, and real-SessionStore 401 regressions all failed (`Tests run: 3, Failures: 3`, 0.562 s; ADB exit **0** is not a pass). After correction, format/Lint/JVM/Kotlin/device-test compilation/reader packaging and all APK assemblies passed (exit **0**, `BUILD SUCCESSFUL in 36s`); JVM reports **82 tests, 0 failures, 0 errors, 1 opt-in skip**, Lint **0 errors, 0 warnings, 7 hints**. Focused sync/image/committed-mutation suites passed **`OK (59 tests)`**, 19.821 s. Their regressions cover retry and terminal attempts, no later calls after failure, session termination, preserved files/text, permanent skip counts and the reader's unchanged unavailable behavior. Exact commands/outputs are in the code commit.
-
-The full corrected Pixel suite passed on its first run (exit **0**): **`OK (178 tests)`**, 269.452 s. The release app and live account were not used. `git diff --check` exited **0** with no output. The earlier 174-test results and intermittent Practice failure remain historical evidence for the initial implementation, not this correction.
-
-ADR-19 names the accepted lock cost: `openNote` and all `committed` writes can wait behind one current page's content call plus up to 64 image calls. Separate image totals/progress remain out of scope; completion still counts pages. No full-disk/unreadable-cache policy change, new dependency, schema, deployment or release installation.
-
-**Limits:** tests use labelled isolated Room/loopback fixtures, not the live account; no production stub was introduced. Backend tests and opt-in private-corpus measurements were not rerun because their code/rules did not change. Real-account image-prefetch timing/storage, actual image HTTP timeouts and off-screen WorkManager lifecycle remain unverified for this image pass. No push, deployment or release installation was performed. PR5 and the mechanical moves are merged and pending deployment, per the user's confirmation; other Section 5 work remains deferred.
+Implemented and locally verified on `cleanup-freeze`, not yet pushed: batch image sweeping, cancellation-protected review dismissal, visible bookmark rejection, midnight-aware Review completion, one page-script decoding boundary, one complete-page limit, shared OAuth/text rules, GitHub HTTP path redaction, and server-owned annotation capacity. Backend/Android gates, the isolated Pixel suite and release assembly pass; all six docs are reconciled with the code. Exact commands/results stay in the commit and future PR, not this feature list. Deployment, release installation and the Stage 6 gate are not claimed by this branch.
 
 ## Not yet verified on the real system
 
@@ -280,16 +181,16 @@ Covered by automated tests only, or not at all:
 - Connecting a repository and landing on its folder above the Library against live GitHub (ADR-27, ADR-28): a device test drives Add repository against a loopback server only.
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.
 - Airplane mode itself: it ends wireless debugging, so offline checks removed `adb reverse` instead.
-- Save all stopped by a real execution limit or by the system killing the process mid-run: only forced job timeouts were tried (ADR-19).
+- Save all stopped by a real execution limit or by the system killing the process mid-run: only forced job timeouts were tried (ADR-19). Real-account image-prefetch timing/storage, actual image HTTP timeouts and off-screen WorkManager lifecycle for the image pass remain unverified; PR #83 used isolated Room/loopback fixtures.
 - Process death by the system (only force-stop and `am kill` were tried). PR5 verified a real Obsidian image embed online and with the Dev backend unreachable.
 - Sign-ins surviving a deploy, and GitHub revocation on the last sign-out, with the real phone and hosted backend.
 - Natural next-day Practice/Review cadence and two weeks of voluntary sessions. PR5 verified one real Practice grade and one Review grade, using the clock-ahead check to make the otherwise-not-yet-due card selectable; the completion-counter clock-rollback defect remains under Known gaps.
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
 - Account operations survive screen recreation in the application scope. Their network/failure paths use isolated loopback fixtures, not live account deletion; an actual OS process kill during an account operation remains unverified.
 - Audit PR2 retires pending-removal, Retry, ownerless-sign-in and retired-copy tests with those paths. Normal startup/disconnect image sweep coverage remains in `LocalSyncTest`; account preservation and retained navigation are checked with isolated data. No live phone copy is deleted.
-- Reading the stored session (2026-10-18, ADR-22): unit tests cover the stored-text checks, which Keystore exceptions delete it, and an unreadable one failing the request unsent; reading Keystore's transient and system-error marks from the exception is untested, since JVM tests cannot build a `KeyStoreException`; the exceptions were read in Android's sources, not provoked: the device suite passes with this change (79 of 79 on the phone, 2026-10-18), but none of its tests makes the Keystore fail.
+- Reading the stored session (2026-10-18, ADR-22): unit tests cover the stored-text checks, which Keystore exceptions delete it, and an unreadable one failing the request unsent; reading Keystore's transient and system-error marks from the exception is untested, since JVM tests cannot build a `KeyStoreException`; the exceptions were read in Android's sources, not provoked: historical device-suite evidence is in git, but none of its tests makes the Keystore fail.
 - A deploy that fails on the VM: the deploy and backup scripts were installed there on 2026-10-17 and the deploy dump ran there, but a failing deploy was only checked in a container with stubbed services.
-- The reading-position restore check (`android/reader-web/check-restore.mjs`) since it became a round trip through the reader's own `restore` and `position` (2026-10-17): not yet run on the phone's WebView. On 2026-10-18 it ran in headless Chrome 155 at 412×915 on three server-rendered notes from zw_obsidian (127, 582 and 422 blocks, with tables, lists, code and an emoji): exit 0, no `wrong` or `approximate` block, `sameRow` only for table cells. With the page's `position()` deliberately broken on every tenth block it exited 1 and named exactly those blocks.
+- The reading-position restore harness (`android/reader-web/check-restore.mjs`) has historical headless-Chrome evidence in git, including a deliberately broken position check, but has not run on the phone's WebView.
 
 ## Personal-project definition of done
 

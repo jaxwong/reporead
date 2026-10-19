@@ -503,6 +503,23 @@ class LocalSyncTest {
         }
     }
 
+    @Test
+    fun annotationCapacityKeepsTheSameCreationPendingForAnotherSync() = runBlocking {
+        val mutation = "test-only-capacity"
+        val pending =
+            AnnotationRow(mutation, null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+        dao.saveAnnotation(pending)
+        val request = "POST /api/documents/1/annotations"
+        LoopbackServer(mapOf(request to failure(422, "ANNOTATION_LIMIT"))).use { server ->
+            repeat(2) {
+                val error = runCatching { sync(server.url).pushAnnotations() }.exceptionOrNull() as ApiException
+                assertEquals("ANNOTATION_LIMIT", error.code)
+                assertEquals(pending, dao.annotation(mutation))
+            }
+            assertEquals(listOf(request, request), server.requests)
+        }
+    }
+
     /**
      * A reading pause asks for a background run, so it sends only what waits. Each send saves the server's answer, and
      * the screens pull the lists.
@@ -593,6 +610,35 @@ class LocalSyncTest {
     }
 
     /** Save all fetches a listed note unless its saved copy is its listed version and path, in this page format. */
+    @Test
+    fun saveAllSweepsReplacedImagesAfterTheBatchEvenWhenTheBatchFails() = runBlocking {
+        val old = "b".repeat(40)
+        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 2, sha)))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha), DocumentRow(2, 7, "n2.md", "n2", sha)))
+        for (fails in listOf(false, true)) {
+            dao.saveNote(NoteRow(1, old, "n1.md", "n1", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
+            dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
+            val replaced = image(1, old)
+            LoopbackServer(
+                    mapOf(
+                        "GET /api/library" to library(repository(7, "${document(1)},${document(2)}")),
+                        "GET /api/documents/1/content" to content(1),
+                        "GET /api/documents/2/content" to if (fails) failure(503, "GITHUB_UNAVAILABLE") else content(2),
+                    )
+                )
+                .use { server ->
+                    val result = runCatching {
+                        sync(server.url).saveAllNotes(7) { done, _ ->
+                            assertTrue("Image sweep must wait until the batch ends; done=$done", replaced.exists())
+                        }
+                    }
+                    if (fails) assertEquals("GITHUB_UNAVAILABLE", (result.exceptionOrNull() as ApiException).code)
+                    else assertEquals(Sync.SavedAll(2, 0, 0), result.getOrThrow())
+                    assertFalse("A completed or failed batch must retire the replaced snapshot", replaced.exists())
+                }
+        }
+    }
+
     @Test
     fun saveAllFetchesOnlyTheNotesNotSavedAsListed() = runBlocking {
         val old = "b".repeat(40)

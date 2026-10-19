@@ -2,7 +2,7 @@
 
 How RepoRead is built today: the parts, who owns what, and how data moves between them. The *why* behind each decision is in the [ADRs](adrs.md); the exact HTTP contract, limits and error codes are in the [backend README](../backend/README.md); phone behaviour is in the [Android README](../android/README.md). The rules every change keeps are in [invariants](invariants.md). This document links to them instead of repeating them.
 
-As built, 2026-10-19; the typed HTTP boundary is recorded in ADR-26.
+As built on local `cleanup-freeze`, 2026-10-20; merged work through PR #83 is included. This describes source behavior, not the hosted or installed revision.
 
 ## 1. The system in one picture
 
@@ -163,7 +163,7 @@ flowchart TB
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
 | `datacontrol` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionData`, `AccountDeletion`, `DataControlController` |
 | `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook, each from its owner, in one read-only `REPEATABLE READ` transaction of a fixed 6 queries, refused over 8 MiB ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `Library`, `LibraryController` |
-| root | Error responses (`{code, message}`) | `ApiErrors`, `ApiFailure` |
+| root | Error responses (`{code, message}`), shared PostgreSQL text-storability and hash rules | `ApiErrors`, `ApiFailure`, `StoredText`, `Hashes` |
 
 ### Data model (PostgreSQL)
 
@@ -261,7 +261,7 @@ erDiagram
     }
 ```
 
-Concurrency: syncs, reconnects (whose upsert locks the row), disconnects and every write that adds or changes a document's rows take the same `repository_connections` row lock (`RepositoryConnections.lockForSync` and its siblings), so a write never lands half-way through a sync or a disconnect. Each table's owner takes the lock inside its own transaction, and the lock methods refuse to run outside one.
+Concurrency: new highlight/card admission first serializes on the user row (`FOR NO KEY UPDATE`), then shares the connection lock, so the per-document and user-wide caps cannot be exceeded by concurrent creations across repositories. Exact replays bypass capacity; no GitHub I/O runs under these locks. Other document writes do not acquire this admission lock. Syncs, reconnects (whose upsert locks the row), disconnects and every write that adds or changes a document's rows take the same `repository_connections` row lock (`RepositoryConnections.lockForSync` and its siblings), so a write never lands half-way through a sync or a disconnect. Each table's owner takes the lock inside its own transaction, and the lock methods refuse to run outside one.
 
 ## 4. Android app
 
@@ -339,10 +339,10 @@ flowchart TB
 | `auth` | PKCE sign-in through a Custom Tab and validated code exchange; `SessionStore`: encrypted bearer session and pending verifier, no local-data owner or removal state |
 | `core/network` | `Api`: the only executor of backend paths, with one named function per app-used route, exact success statuses, bounded responses and request/response correspondence; `wire/`: the wire models, generated at build time from `backend/openapi.json` (never committed or edited); `WireRules.kt`: the value rules a generated shape cannot state; `WireJson.kt`: one decoding policy, strict scalar/time serializers and `INVALID_RESPONSE` with its cause. Unknown fields are compatible, missing required-nullable keys are not. `ApiException(status, code)` carries a strictly decoded server error or a local HTTP/I/O failure; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
-| `sync` | `Sync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `NoteImages` retains its file lock and deletion generation. Save all checks one page at a time, including already-current copies, and prefetches its distinct images under the existing per-page Sync lock before progress; WebView image reads remain outside that lock (ADR-19). Only the reader's `NoteImages.image()` catches API failures as unavailable; Save all uses the throwing fetch, `Sync` owns permanent page skips, and the existing worker owns retry/stop for all other API failures. `ServerRows.kt` maps validated wire records; `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `BackgroundSync.kt`: WorkManager sync and Save all enter Sync directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through Sync |
+| `sync` | `Sync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `NoteImages` retains its file lock and deletion generation, preventing a late image fetch from republishing files after a sweep. An open sweeps after its fetched page; Save all sweeps once after its loop, including failure/cancellation, rather than after every fetched page. Library replacement, disconnect and startup retain their sweeps. Save all checks one page at a time, including already-current copies, and prefetches its distinct images under the existing per-page Sync lock before progress; WebView image reads remain outside that lock (ADR-19). Only the reader's `NoteImages.image()` catches API failures as unavailable; Save all uses the throwing fetch, `Sync` owns permanent page skips, and the existing worker owns retry/stop for all other API failures. `ServerRows.kt` maps validated wire records; `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `BackgroundSync.kt`: WorkManager sync and Save all enter Sync directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through Sync |
 | `library` | Library tabs, Notebook (`Notebook.kt`), the folder screen and folder filters (`Folder.kt`), and Add repository (`Available.kt`); each work-owning screen's ViewModel is in its file (ADR-28) |
-| `study` | Practice (`Practice.kt`) and Review (`Review.kt`) with their entry ViewModels; the pure review scheduler (`ReviewSchedule.kt`), session progression and note interleaving (`StudySession.kt`), bank recognition (`Study.kt`) and bank answer views (`Answer.kt`) |
-| `reader` | The reader screen and its ViewModel, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, and its LeetCode study-view recognition (`Study.kt`) |
+| `study` | Practice (`Practice.kt`) and Review (`Review.kt`) with their entry ViewModels; `rememberReviewOutlook` owns midnight/time-zone-aware outlooks for Library, Practice and Review completion; the pure review scheduler (`ReviewSchedule.kt`), session progression and note interleaving (`StudySession.kt`), bank recognition (`Study.kt`) and bank answer views (`Answer.kt`) |
+| `reader` | The reader screen and its ViewModel (including visible bookmark rejection for a disconnected note), page hosting and isolation with one JSON decode boundary in `ReaderPage.evaluate`, outline, notes sheet, backlinks, link resolution and previews, and its LeetCode study-view recognition (`Study.kt`) |
 | `ui` | Shared Compose components, including the screen load state and its retry presentation (`Load.kt`) |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
@@ -450,7 +450,7 @@ sequenceDiagram
         S->>API: GET /api/documents/{id}/content
         API->>API: capture document/checkpoint and image paths<br/>in one short read-only REPEATABLE READ transaction
         API->>GH: raw blob at the captured SHA (1 call)
-        API->>API: CommonMark/GFM → escape raw HTML → jsoup safelist<br/>→ block ids + canonical text → bind captured embed paths<br/>→ one bounded page serialization
+        API->>API: CommonMark/GFM → escape raw HTML → jsoup safelist<br/>→ block ids + canonical text → bind captured embed paths<br/>→ serialize once → complete-page byte check
         API-->>S: reader HTML, canonical text, renderFormat, snapshotCommitSha
         S->>Room: replace saved copy
         Note over S,Room: if the fetch fails, the older saved copy is shown with the reason
@@ -484,7 +484,8 @@ sequenceDiagram
     API->>API: replay? return the original (200, no GitHub call)
     API->>GH: fetch the selected version's blob
     API->>API: render, verify block + offsets + exact text,<br/>derive context and heading path
-    API-->>P: 201 annotation
+    API->>API: transaction: lock user then connection,<br/>recheck replay, check highlight/card capacity, insert whole annotation
+    API-->>P: 201 annotation (or 422 ANNOTATION_LIMIT, no insertion)
     P->>P: mark acknowledged
 
     Note over P,API: Library open / Sync runs syncLocalChanges, in this order
@@ -496,7 +497,7 @@ sequenceDiagram
     P->>P: 6. delete the images of every snapshot Room holds no page of
 ```
 
-A refused item (400/404/409/410/422 with a RepoRead code, other than 409 `REPOSITORY_RENAMED`) is marked and the run continues. Any other failure leaves the item pending: sending a highlight or card stops the remaining creations but not the database-only work (ADR-03) unless the server is unreachable, and sending a grade, reading position or bookmark ends the run.
+Only the known status/code pairs in `Sync.refusesItem()` permanently refuse an annotation, grade or bookmark; a status family alone is not authority. Reading saves separately accept only 404 `NOT_FOUND` as final. In particular, 422 `ANNOTATION_LIMIT` and 409 `REPOSITORY_RENAMED` leave creations pending, because capacity or repository identity can change without changing the mutation. Any other failure leaves the item pending: sending a highlight or card stops the remaining creations but not the database-only work (ADR-03) unless the server is unreachable, and sending a grade, reading position or bookmark ends the run.
 
 ### Re-anchoring
 
