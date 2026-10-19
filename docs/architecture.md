@@ -300,12 +300,13 @@ flowchart TB
         Api["core/network/Api<br/>typed routes + bounded HTTP"]
         Images["sync/NoteImages<br/>saved notes' images,<br/>outside the lock"]
         Session["auth/SessionStore<br/>Keystore AES-GCM bearer token"]
-        Sched["library/ReviewSchedule<br/>pure review scheduler"]
-        StudyS["library/StudySession<br/>pure session progress"]
-        StudyK["reader/Study<br/>bank / study-view recognition"]
+        Sched["study/ReviewSchedule<br/>pure review scheduler"]
+        StudyS["study/StudySession<br/>pure session progress"]
+        StudyK["study/Study<br/>bank recognition"]
     end
 
     subgraph ReaderHost["Reader hosting"]
+        StudyView["reader/Study<br/>LeetCode study-view recognition"]
         Page["reader/ReaderPage<br/>isolation + resource interception<br/>+ the one page-script boundary"]
         WebV["WebView<br/>reader.js · Mermaid · highlight.js"]
         Page --> WebV
@@ -315,11 +316,13 @@ flowchart TB
     Models --> Store
     Screens -- "Room flows" --> Store
     Practice --> StudyK
+    Review --> StudyK
     Practice --> Sched
     Review --> Sched
     Practice --> StudyS
     Review --> StudyS
     Reader --> Page
+    Reader --> StudyView
     Sync --> Api
     App -- "sign-in, sign-out" --> Api
     Models -- "Add repository's list" --> Api
@@ -338,11 +341,13 @@ flowchart TB
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
 | `sync` | `Sync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `NoteImages` retains its file lock and deletion generation. `ServerRows.kt` maps validated wire records; `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `BackgroundSync.kt`: WorkManager sync and Save all enter Sync directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through Sync |
 | `library` | Library tabs, Notebook (`Notebook.kt`), the folder screen and folder filters (`Folder.kt`), and Add repository (`Available.kt`); each work-owning screen's ViewModel is in its file (ADR-28) |
-| `study` | Practice (`Practice.kt`) and Review (`Review.kt`) with their entry ViewModels; the pure review scheduler (`ReviewSchedule.kt`), session progression and note interleaving (`StudySession.kt`), recognition (`Study.kt`) and bank answer views (`Answer.kt`) |
-| `reader` | The reader screen and its ViewModel, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews; hosts the study view using `study/Study.kt` |
+| `study` | Practice (`Practice.kt`) and Review (`Review.kt`) with their entry ViewModels; the pure review scheduler (`ReviewSchedule.kt`), session progression and note interleaving (`StudySession.kt`), bank recognition (`Study.kt`) and bank answer views (`Answer.kt`) |
+| `reader` | The reader screen and its ViewModel, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, and its LeetCode study-view recognition (`Study.kt`) |
 | `ui` | Shared Compose components, including the screen load state and its retry presentation (`Load.kt`) |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
+
+`study` uses `reader`'s link parsing and isolated-page hosting; `reader` does not import `study`.
 
 ### Room: a projection plus pending changes
 

@@ -164,10 +164,12 @@ The one functional gap worth a slot. An embedded image is unavailable offline un
 One local change, with no study/network behaviour changes:
 
 1. `Load.kt` now belongs to `ui/`; `Reader.kt` and `Available.kt` import it there, leaving no Compose code in `core/network`.
-2. Practice, Review, `ReviewSchedule`, `StudySession`, recognition (`Study.kt`) and answer views (`Answer.kt`) now belong to `study/`, with their JVM/device test suites. `library/` means library browsing again. Every caller imports the new owner; no aliases or old implementations remain.
-3. `interleaveByNote` now belongs to `study/StudySession.kt`; `practiceTopics` and `inPracticeFolder` belong to `library/Folder.kt`, with their folder assertions moved to `FolderTest`.
+2. Practice, Review, `ReviewSchedule`, `StudySession`, bank recognition (`Study.kt`) and answer views (`Answer.kt`) now belong to `study/`, with their JVM/device test suites. The reader's LeetCode Study view and its two existing JVM test methods stay in `reader/Study.kt` and `reader/StudyTest.kt`: the import direction is only `study` → `reader`, not a cycle. `library/` means library browsing again. Every caller imports the new owner; no aliases or old implementations remain.
+3. `interleaveByNote` now belongs to `study/StudySession.kt`; the Notebook-only folder helpers are named `ancestorFolders` and `inFolder` in `library/Folder.kt`, with their assertions in `FolderTest`.
 
 **Approved compatibility exception (2026-10-19):** moving the Serializable `StudySession` changes its saved class name. The user approved advancing saved-UI-state format 3 → 4 rather than retaining the former class. Navigation, drafts and in-progress sessions reset once; Room, saved notes, images and pending mutations remain untouched (ADR-27). This is not a database migration. Verification and limits are recorded in [feature status](feature-list.md#mechanical-moves--local-verification-2026-10-20); this work is not pushed or deployed.
+
+**Follow-up decision, not part of these moves:** replacing Java-Serializable session state with class-name-independent field encoding would avoid the same problem on future renames. Practice and Review's `SavedStateHandle` persistence remains unchanged here; format 4 still applies. No new persistence path or additional reset is introduced without that separate decision.
 
 ### Next deletion to decide by use
 
