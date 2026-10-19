@@ -256,6 +256,7 @@ internal fun NoteDialog(
     onSave: (String) -> Unit,
     label: String = "Note",
     allowBlank: Boolean = true,
+    status: String? = null,
 ) {
     var text by rememberSaveable(title, quote, initial) { mutableStateOf(initial) }
     AlertDialog(
@@ -263,6 +264,7 @@ internal fun NoteDialog(
         title = { Text(title) },
         text = {
             Column {
+                status?.let { Text(it) }
                 Text(
                     "“$quote”",
                     maxLines = 4,

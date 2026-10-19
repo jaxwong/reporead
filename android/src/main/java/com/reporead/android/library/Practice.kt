@@ -53,6 +53,7 @@ import com.reporead.android.ui.counted
 import com.reporead.android.ui.folderOf
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -162,22 +163,25 @@ private fun topicName(topic: String?) =
  * saved nothing or only the card, or null. A question that already has a card (graded just before the process was
  * restored) is not saved twice.
  */
-internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: PracticeQuestion, grade: Int): String? {
-    if (scheduledQuestions(listOf(question), dao.notebook().first()).isNotEmpty()) return null
-    if (
-        dao.note(question.documentId)?.blobSha != question.blobSha ||
-            dao.document(question.documentId)?.blobSha != question.blobSha
-    ) {
-        return "Not saved: this question's bank changed since it was asked. Open the bank while online, or use Save all notes on this phone in its repository's menu, then practise it again."
+internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: PracticeQuestion, grade: Int): String? =
+    withContext(NonCancellable) {
+        // These validation reads precede Sync's accepted-write boundary. Keep the submitted grade through them too;
+        // step 6 consolidates validation, matching and atomic card/grade persistence at that owner.
+        if (scheduledQuestions(listOf(question), dao.notebook().first()).isNotEmpty()) return@withContext null
+        if (
+            dao.note(question.documentId)?.blobSha != question.blobSha ||
+                dao.document(question.documentId)?.blobSha != question.blobSha
+        ) {
+            return@withContext "Not saved: this question's bank changed since it was asked. Open the bank while online, or use Save all notes on this phone in its repository's menu, then practise it again."
+        }
+        val answer = question.question.answer
+        val passage = Passage(question.blobSha, answer.blockId, 0, answer.text.length, answer.text)
+        when (sync.gradeNewCard(passage, question.documentId, question.question.prompt, grade)) {
+            null -> "Not saved: this question's bank is no longer saved on this phone."
+            false -> "The card was saved but not its grade, so it is due now in Review cards."
+            true -> null
+        }
     }
-    val answer = question.question.answer
-    val passage = Passage(question.blobSha, answer.blockId, 0, answer.text.length, answer.text)
-    return when (sync.gradeNewCard(passage, question.documentId, question.question.prompt, grade)) {
-        null -> "Not saved: this question's bank is no longer saved on this phone."
-        false -> "The card was saved but not its grade, so it is due now in Review cards."
-        true -> null
-    }
-}
 
 /** Every listed interview bank and the saved ones' questions, read off the main thread; null until first read. */
 @Composable

@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -20,6 +21,7 @@ import com.reporead.android.click
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.DocumentRow
+import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.findText
@@ -31,8 +33,11 @@ import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -282,6 +287,51 @@ class PracticeSessionTest {
                 assertEquals(1, dao.pendingReviews().size)
             }
         }
+
+    @Test
+    fun aGradeWaitingForItsValidationReadSurvivesPoppingItsEntry() = runBlocking {
+        val dao = store.library()
+        val reading = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var hold = false
+        // Only delays a projection read; its rows and every write still come from the real test-only Room store.
+        val delayed =
+            object : LibraryDao by dao {
+                override fun notebook() = flow {
+                    if (hold) {
+                        reading.complete(Unit)
+                        release.await()
+                    }
+                    emitAll(dao.notebook())
+                }
+            }
+        val sync =
+            Sync(Api("http://127.0.0.1:1", { error("Practice test must not call the network") }) {}, store, files) {}
+        val entries = TestEntries(Screen.Practice("test-only/topic"))
+        TestHostActivity.content = entries.content { entry ->
+            MaterialTheme {
+                if (entry.screen is Screen.Practice) PracticeScreen(delayed, sync, "test-only/topic", entry.id, {}, {})
+                else Text("Test-only popped Practice")
+            }
+        }
+        ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+            awaitText("Show answer")
+            click("Show answer")
+            awaitText("Good")
+            scenario.onActivity { hold = true }
+            click("Good")
+            try {
+                withTimeout(5_000) { reading.await() }
+                scenario.onActivity { entries.replaceTop(Screen.Search, "test-only-after-practice") }
+                awaitText("Test-only popped Practice")
+            } finally {
+                release.complete(Unit)
+            }
+            withTimeout(5_000) { while (dao.pendingReviews().isEmpty()) delay(20) }
+            assertEquals(1, dao.waitingAnnotations().size)
+            assertEquals(1, dao.pendingReviews().size)
+        }
+    }
 
     @Test
     fun fullScreenInAnAnswerOpensThatFigureOfTheLinkedNote() =
