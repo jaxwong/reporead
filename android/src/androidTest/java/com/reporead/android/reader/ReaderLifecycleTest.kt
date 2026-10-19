@@ -4,14 +4,13 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.TestEntries
 import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
@@ -29,6 +28,7 @@ import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import com.reporead.android.type
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -60,10 +60,9 @@ class ReaderLifecycleTest {
     private lateinit var files: File
     private lateinit var sync: Sync
     private lateinit var scenario: ActivityScenario<TestHostActivity>
-    private val showingReader = mutableStateOf(true)
+    /** The reader's entries; a new entry for a new screen, as when the app navigates. */
+    private val entries = TestEntries(Screen.Reader(1, "Test-only lifecycle fixture"))
     private val title = "Test-only lifecycle fixture"
-    /** The screen shown; a new one is a new reader screen, as when the app navigates. */
-    private val screenUnderTest = mutableStateOf(Screen.Reader(1, title))
     private var readerReady = false
     /** Like RepoReadApplication.scope, it outlives activity recreation. */
     private val appScope = MainScope()
@@ -100,20 +99,18 @@ class ReaderLifecycleTest {
         dao.saveNote(NoteRow(1, sha, path, title, html, 0, renderFormat = RENDER_FORMAT, snapshotCommitSha = sha))
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
         sync = Sync(api, store, files) {}
-        TestHostActivity.content = {
+        TestHostActivity.content = entries.content { entry ->
             MaterialTheme {
-                if (showingReader.value)
-                    key(screenUnderTest.value) {
-                        ReaderScreen(
-                            sync,
-                            dao,
-                            appScope,
-                            signedIn = false,
-                            screen = screenUnderTest.value,
-                            onBack = {},
-                            push = { error("Lifecycle fixture must not navigate") },
-                        )
-                    }
+                ReaderScreen(
+                    sync,
+                    dao,
+                    appScope,
+                    signedIn = false,
+                    entry.id,
+                    screen = entry.screen as Screen.Reader,
+                    onBack = {},
+                    push = { error("Lifecycle fixture must not navigate") },
+                )
             }
         }
         scenario = ActivityScenario.launch(TestHostActivity::class.java)
@@ -122,13 +119,16 @@ class ReaderLifecycleTest {
         readerReady = true
     }
 
+    /** Opens [screen] in a new entry in place of the reader shown. */
+    private fun open(screen: Screen.Reader) = entries.replaceTop(screen, "test-only-${UUID.randomUUID()}")
+
     @After
     fun close() = runBlocking {
         if (readerReady) {
             val lastSavedAt = checkNotNull(store.library().reading(1)).lastReadAt
             // ActivityScenario.close does not await WebView callbacks or Room writes. Dispose the reader first and
             // observe its final save before closing the database.
-            scenario.onActivity { showingReader.value = false }
+            scenario.onActivity { entries.shown.value = false }
             try {
                 withTimeout(5_000) {
                     while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(10)
@@ -158,7 +158,7 @@ class ReaderLifecycleTest {
         assertEquals(com.reporead.android.sync.LocalCleanup.Done, sync.clearRetiredCopy())
         // Its final save is deliberately cancelled; teardown must not wait for a save into the removed copy.
         readerReady = false
-        scenario.onActivity { showingReader.value = false }
+        scenario.onActivity { entries.shown.value = false }
         withTimeout(5_000) {
             while (withContext(Dispatchers.Main) { view.webViewRenderProcess != null }) delay(20)
         }
@@ -167,7 +167,7 @@ class ReaderLifecycleTest {
 
     @Test
     fun aLinkedHeadingIsShownOnceAndRecreationRestoresTheReadingPositionInstead() {
-        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, OpenAt.Heading("Answer")) }
+        scenario.onActivity { open(Screen.Reader(1, title, OpenAt.Heading("Answer"))) }
         awaitReader(6)
         awaitSaved(6)
         evaluate("window.reporead.showBlock('b12'); return {};")
@@ -179,7 +179,7 @@ class ReaderLifecycleTest {
 
     @Test
     fun aBankWarningOpensTheLaterIdenticalHeadingOnceAndRecreationKeepsItsPlace() {
-        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, OpenAt.Block(sha, "b20")) }
+        scenario.onActivity { open(Screen.Reader(1, title, OpenAt.Block(sha, "b20"))) }
         awaitReader(20)
         awaitSaved(20)
         evaluate("window.reporead.showBlock('b30'); return {};")
@@ -194,7 +194,7 @@ class ReaderLifecycleTest {
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
         scenario.onActivity {
-            screenUnderTest.value = Screen.Reader(1, title, OpenAt.Block("b".repeat(40), "b20"))
+            open(Screen.Reader(1, title, OpenAt.Block("b".repeat(40), "b20")))
         }
         awaitText("That bank warning is not in this version of the note. Reopen Practice to see its current warnings.")
         awaitReader(12)
@@ -206,7 +206,7 @@ class ReaderLifecycleTest {
     fun aWarningWhoseBlockIsMissingKeepsTheSavedPositionAndExplainsWhy() {
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
-        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title, OpenAt.Block(sha, "gone")) }
+        scenario.onActivity { open(Screen.Reader(1, title, OpenAt.Block(sha, "gone"))) }
         awaitText("That bank warning is not in this version of the note. Reopen Practice to see its current warnings.")
         awaitReader(12)
         awaitSaved(12)
@@ -239,7 +239,7 @@ class ReaderLifecycleTest {
                 )
         }
         scenario.onActivity {
-            screenUnderTest.value = Screen.Reader(1, title, OpenAt.Highlight("test-only-highlight"))
+            open(Screen.Reader(1, title, OpenAt.Highlight("test-only-highlight")))
         }
         val shown = awaitHighlightInView("test-only-highlight")
         assertTrue("Opened with block $shown at the top, not at the passage in block 50", shown in 13..50)
@@ -285,7 +285,7 @@ class ReaderLifecycleTest {
         var previous: WebView? = null
         scenario.onActivity {
             previous = findWebView(it.window.decorView)
-            screenUnderTest.value = Screen.Reader(1, title, OpenAt.Heading("Test-only heading that is gone"))
+            open(Screen.Reader(1, title, OpenAt.Heading("Test-only heading that is gone")))
         }
         // The previous page is still at block 12 until it is released, so wait for the new one before reading it.
         runBlocking {
@@ -474,13 +474,13 @@ class ReaderLifecycleTest {
         // Away from the top, so finding the place again shows the fixture's page has opened.
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
-        scenario.onActivity { screenUnderTest.value = Screen.Reader(2, "Test-only unready") }
+        scenario.onActivity { open(Screen.Reader(2, "Test-only unready")) }
         // The old reader has the same button label; wait for the destination before finding its control.
         awaitText("Test-only unready")
         click("Highlights and notes")
         assertFalse("Show is offered before the page is ready", control("Show").isEnabled)
         // Back to the fixture's note, whose final save the teardown waits for; back at its place, it has opened.
-        scenario.onActivity { screenUnderTest.value = Screen.Reader(1, title) }
+        scenario.onActivity { open(Screen.Reader(1, title)) }
         awaitReader(12)
     }
 

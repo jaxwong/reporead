@@ -22,20 +22,25 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.core.network.Api
+import com.reporead.android.core.network.TEST_HIGHLIGHT_MUTATION
 import com.reporead.android.core.network.testAvailable
+import com.reporead.android.core.network.testChanges
 import com.reporead.android.core.network.testConnection
 import com.reporead.android.core.network.testCounts
 import com.reporead.android.core.network.testDisconnected
+import com.reporead.android.core.network.testHighlight
 import com.reporead.android.core.network.testLibrary
 import com.reporead.android.core.network.testRepository
 import com.reporead.android.core.network.testSession
 import com.reporead.android.core.network.testSha
 import com.reporead.android.core.network.testSynced
 import com.reporead.android.core.network.wire
+import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
 import com.reporead.android.core.network.wire.DocumentsSummary
 import com.reporead.android.core.network.wire.RepositoryControllerAvailableList
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
+import com.reporead.android.data.ChangeBaselineRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.LocalStore
@@ -149,8 +154,9 @@ class AppNavigationTest {
                         else
                             listOf(
                                 testRepository(
-                                    notes.map { DocumentsSummary(testSha, null, false, it.id, it.path, it.title) }
-                                )
+                                        notes.map { DocumentsSummary(testSha, null, false, it.id, it.path, it.title) }
+                                    )
+                                    .copy(lastSyncedCommitSha = testSha)
                             ),
                     readingStates = emptyList(),
                     bookmarks = emptyList(),
@@ -1076,6 +1082,99 @@ class AppNavigationTest {
                 } finally {
                     instrumentation.removeMonitor(shares)
                 }
+            }
+    }
+
+    private val highlights =
+        "GET /api/documents/1/annotations" to (200 to wire(AnnotationControllerAnnotationList(listOf(testHighlight()))))
+
+    /**
+     * Library → Repositories → the repository → note A, signed in, once its highlights are listed, with its panel open.
+     */
+    private fun openNoteAWithItsHighlight(server: LoopbackServer) {
+        openFolder(server)
+        click("Note A")
+        awaitText("Note A")
+        runBlocking { withTimeout(10_000) { while (highlights.first !in server.requests) delay(50) } }
+        click("Highlights and notes")
+        awaitText("Edit note")
+    }
+
+    /** T5: an edit held while the Activity is recreated still reports its outcome on the recreated reader. */
+    @Test
+    fun aHighlightEditHeldThroughRecreationReportsItsOutcome() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("PATCH /api/annotations/9")
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(),
+                    highlights,
+                    "PATCH /api/annotations/9" to failure(503, "TEST_ONLY_DOWN"),
+                ),
+                hold::hook,
+            )
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                try {
+                    openNoteAWithItsHighlight(server)
+                    click("Edit note")
+                    type("Test-only edited note")
+                    click("Save")
+                    hold.awaitArrived()
+                    scenario!!.recreate()
+                    awaitText("Note A")
+                } finally {
+                    hold.release.countDown()
+                }
+                awaitTextStarting("Edit not saved.")
+                assertEquals(1, server.requests.count { it == "PATCH /api/annotations/9" })
+                assertNull(dao.annotation(TEST_HIGHLIGHT_MUTATION)?.note)
+            }
+    }
+
+    /**
+     * T16: a summary of changes fetched while the reader was covered is not yet seen: its baseline stays until the
+     * reader is shown again with it, and it is not fetched again.
+     */
+    @Test
+    fun aChangeSummaryFetchedWhileCoveredIsAcknowledgedOnlyOnceShown() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val lastRead = "c".repeat(40)
+        dao.saveBaseline(ChangeBaselineRow(1, lastRead))
+        val changes = "GET /api/documents/1/changes?since=$lastRead&to=$testSha"
+        val hold = Held(changes)
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(),
+                    "GET /api/documents/1/annotations" to
+                        (200 to wire(AnnotationControllerAnnotationList(emptyList()))),
+                    "GET /api/documents/2/annotations" to
+                        (200 to wire(AnnotationControllerAnnotationList(emptyList()))),
+                    changes to (200 to wire(testChanges().copy(sinceBlobSha = lastRead, toBlobSha = testSha))),
+                ),
+                hold::hook,
+            )
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                try {
+                    openFolder(server)
+                    click("Note A")
+                    hold.awaitArrived()
+                    click("Highlights and notes")
+                    click("Note B")
+                    awaitText("Note B")
+                } finally {
+                    hold.release.countDown()
+                }
+                // Answered while Note B covers it: fetched, but not shown, so not seen.
+                delay(1_000)
+                assertEquals(lastRead, dao.changeBaseline(1))
+                pressBack()
+                awaitTextStarting("Changed since you last read: 1 sections")
+                withTimeout(10_000) { while (dao.changeBaseline(1) != null) delay(50) }
+                assertEquals(1, server.requests.count { it == changes })
             }
     }
 
