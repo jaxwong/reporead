@@ -170,50 +170,44 @@ fun RepoReadApp(
     // Back to the Library, which keeps its own state: a finished connect or disconnect leaves nothing above it.
     val popToRoot = { backStack.subList(1, backStack.size).clear() }
 
-    // Each entry keeps its saved UI state (scroll, tabs, one-shot targets already applied, the version a summary starts
-    // from) while it is covered, by another screen or by the account screen below, and across recreation; it is dropped
-    // once the entry leaves the stack. Entries are rebuilt only when the stack changes, so their content reads the
-    // account and sign-in state each time it draws, never values captured when the stack last changed.
+    // Entries are rebuilt only when the stack changes, so their content reads the account and sign-in state each time
+    // it
+    // draws, never values captured when the stack last changed.
     val entries =
-        rememberDecoratedNavEntries(
-            backStack,
-            listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-        ) { entry ->
-            NavEntry(entry, contentKey = entry.id) {
-                val sync = account.sync
-                // Removes this entry, never another: a second tap on a screen already left does nothing.
-                val onBack: () -> Unit = { backStack.remove(entry) }
-                when (val screen = entry.screen) {
-                    Screen.Repositories ->
-                        LibraryScreen(
-                            sync,
-                            dao,
-                            signedIn,
-                            push,
-                            notice = (accountState as? AccountState.Idle)?.notice?.let(::noticeText),
-                            onDismissNotice = account::dismissNotice,
-                            onSignIn = signIn,
-                            onSignOut = account::signOut,
-                            onDeleteAccount = account::deleteAccount,
-                        )
-                    Screen.Available ->
-                        AvailableScreen(
-                            api,
-                            onBack,
-                            onConnected = {
-                                popToRoot()
-                                push(it)
-                            },
-                        )
-                    is Screen.Folder ->
-                        FolderScreen(sync, dao, signedIn, screen, push, onBack, onDisconnected = popToRoot)
-                    is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, screen, onBack, push)
-                    is Screen.Figure -> FigureScreen(sync, dao, screen, onBack)
-                    Screen.Notebook -> NotebookScreen(dao, sync, push, onBack)
-                    Screen.Review -> ReviewScreen(dao, sync, push, onBack)
-                    is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, push, onBack)
-                    Screen.Search -> SearchScreen(dao, push, onBack)
-                }
+        rememberEntries(backStack) { entry ->
+            val sync = account.sync
+            // Removes this entry, never another: a second tap on a screen already left does nothing.
+            val onBack: () -> Unit = { backStack.remove(entry) }
+            when (val screen = entry.screen) {
+                Screen.Repositories ->
+                    LibraryScreen(
+                        sync,
+                        dao,
+                        signedIn,
+                        push,
+                        notice = (accountState as? AccountState.Idle)?.notice?.let(::noticeText),
+                        onDismissNotice = account::dismissNotice,
+                        onSignIn = signIn,
+                        onSignOut = account::signOut,
+                        onDeleteAccount = account::deleteAccount,
+                    )
+                Screen.Available ->
+                    AvailableScreen(
+                        api,
+                        onBack,
+                        onConnected = {
+                            popToRoot()
+                            push(it)
+                        },
+                    )
+                is Screen.Folder ->
+                    FolderScreen(sync, dao, signedIn, entry.id, screen, push, onBack, onDisconnected = popToRoot)
+                is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, screen, onBack, push)
+                is Screen.Figure -> FigureScreen(sync, dao, screen, onBack)
+                Screen.Notebook -> NotebookScreen(dao, sync, push, onBack)
+                Screen.Review -> ReviewScreen(dao, sync, push, onBack)
+                is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, push, onBack)
+                Screen.Search -> SearchScreen(dao, push, onBack)
             }
         }
 
@@ -260,11 +254,30 @@ fun RepoReadApp(
         return
     }
 
-    // Only the top entry is drawn, and screens switch at once, as they always have; Back at the root leaves the app.
+    ShownEntry(entries, onBack = { backStack.removeLastOrNull() })
+}
+
+/**
+ * [backStack]'s entries, each drawn by [content] and keeping its saved UI state (scroll, tabs, one-shot targets already
+ * applied) and its ViewModels while it is in the stack: covered by another screen or by the account screen, and across
+ * recreation. Both go once the entry leaves the stack.
+ */
+@Composable
+internal fun rememberEntries(backStack: NavBackStack<Entry>, content: @Composable (Entry) -> Unit) =
+    rememberDecoratedNavEntries(
+        backStack,
+        listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+    ) { entry ->
+        NavEntry(entry, contentKey = entry.id) { content(entry) }
+    }
+
+/** Only the top entry is drawn, and screens switch at once, as they always have; Back at the root leaves the app. */
+@Composable
+internal fun ShownEntry(entries: List<NavEntry<Entry>>, onBack: () -> Unit) {
     val instant = ContentTransform(EnterTransition.None, ExitTransition.None)
     NavDisplay(
         entries,
-        onBack = { backStack.removeLastOrNull() },
+        onBack = onBack,
         transitionSpec = { instant },
         popTransitionSpec = { instant },
         predictivePopTransitionSpec = { instant },

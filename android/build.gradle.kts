@@ -201,6 +201,9 @@ dependencies {
     implementation("androidx.navigation3:navigation3-runtime:1.2.0")
     implementation("androidx.navigation3:navigation3-ui:1.2.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-navigation3:$lifecycleVersion")
+    // A screen's work belongs to its entry's ViewModel, created with viewModel { } and collected while it is started.
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleVersion")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:$lifecycleVersion")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.webkit:webkit:1.16.0")
@@ -218,6 +221,4 @@ dependencies {
     // Screen assertions on Compose semantics in TestHostActivity, through createEmptyComposeRule.
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    // The labelled entry-owner probe; production screen ViewModels belong to foundations PR 4.
-    androidTestImplementation("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleVersion")
 }
