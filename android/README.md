@@ -91,7 +91,7 @@ and ADR-28 record decisions and executed evidence.
 The scratch-note live-write harness was removed after review: its recovery path could send unrelated pending work
 from the real store. It is not replaced by a hidden script or a second harness. This deliberately removes automated
 live-write replay; the maintained device suites use isolated stores and loopback HTTP. Earlier approved live results
-remain historical evidence in [the implementation record](../docs/audit-remediation-plan.md#step-9-verification),
+remain historical evidence in [API contract PR #70](https://github.com/jaxwong/reporead/pull/70),
 not instructions to run the deleted tests. Future live writes require separately scoped approval.
 
 ### Real-corpus check

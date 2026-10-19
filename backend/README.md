@@ -104,7 +104,7 @@ are not caught as transient failures.
 ./gradlew :backend:test --tests '*OpenApiSpecTest' --no-daemon
 ```
 
-Full build, device and live verification evidence: [Step 9 implementation and verification](../docs/audit-remediation-plan.md#step-9-verification).
+Full build, device and live verification evidence: [API contract PR #70](https://github.com/jaxwong/reporead/pull/70).
 
 ## API
 

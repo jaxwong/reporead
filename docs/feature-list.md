@@ -115,7 +115,7 @@ These are exclusions, not hidden stretch goals.
 | Phone storage eviction | None; every saved note is kept (ADR-19). Revisit if storage matters |
 | Scheduler | Fixed gap ladder (replaced SM-2 on 2026-10-15); consider FSRS only if review data shows a need (ADR-13) |
 | Notebook paging | Not paged; revisit as the review log nears about 40,000 grades, past which the library is refused (422 `LIBRARY_TOO_LARGE`, ADR-13) |
-| KaTeX advisory | npm's only fix is downgrading Mermaid to 10.8.0; not applied, waiting for a Mermaid release |
+| KaTeX advisory | Accepted low-severity risk retained; the 2026-10-19 audit offers a breaking Mermaid 12.2.0 upgrade, not the earlier downgrade. No dependency upgrade approved; see the PR5 assessment below |
 | AI-drafted questions | Intent recorded; not designed (ADR-20) |
 
 ## Known gaps
@@ -126,68 +126,19 @@ Noticed and deliberately not changed:
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
 - Bank-question identity is local to this phone's bank document and Canonical line. Independently created cross-device cards can remain duplicates; no cross-device deduplication is promised (ADR-20).
+- After a bank prompt edit, Review uses the current saved-bank prompt, but Notebook and the reader's notes panel still show the prompt saved on the card. Review also parses all saved bank pages before its first card, including for hand-written-only sessions; accepted in the PR4 branch audit, not changed by PR5.
+- Review's completion count can under-report when the phone clock moves backwards during a session: the PR5 clock-ahead/restore check showed 0 reviewed although the real grade was accepted and scheduled. `Review.kt` filters the displayed count by the session start timestamp; grade persistence and scheduling succeeded; no completion-counter fix was made in PR5.
+- A card on a removed or unsupported note cannot be deleted from Notebook: its only action is Open passage, while deletion belongs to the reader. Deferred until encountered on this phone; the containment is Notebook deletion through `Sync.deleteAnnotation`, not editing.
 - Unsent changes made before switching GitHub accounts can be sent under the new account. Accepted for one user with one account on this phone; revisit before a second account is used (ADR-22).
 
 The ADRs record further limits: anchors (ADR-05), presentation-only page upgrades (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
 
-## Save all background-work audit — 2026-10-18
+## Earlier implementation status
 
-Historical verification before audit PR2 (the removal lifecycle below is retired). Current behavior is in ADR-19 and ADR-22: account operations keep saved data and background work; repository Stop remains, and persisted failure text fits WorkManager's bound.
-
-No dependency, schema, alternate fetching path or resume checkpoint was added.
-
-Verified from the PR worktree:
-
-```sh
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:testDebugUnitTest :app:mergeDebugAssets :app:compileDebugAndroidTestKotlin --rerun-tasks --no-daemon
-# Exit 0: BUILD SUCCESSFUL in 22s; 41 actionable tasks: 41 executed.
-# Unit XML: tests=73, failures=0, errors=0, skipped=1 (the opt-in StudyCorpus).
-
-ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
-# Exit 0. Install both APKs as documented in android/README.md, preserving Dev data.
-~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
-# Transport exit 0; terminal test output: OK (115 tests), Time: 53.433.
-```
-
-Before the fix, the new `LocalSyncTest.aLongServerFailureStillReportsTheSavedNotesAndABoundedReason` failed on the
-Pixel with `IllegalStateException: Data cannot occupy more than 10240 bytes when serialized` (1 test, 1 failure).
-Afterwards the full suite passes, including that multibyte error with already-saved progress. Account tests hold the
-existing removal hook until completion and inject a labelled, test-only SQLite failure there: neither can publish a
-fresh copy or forget pending removal early, and Retry completes removal without another revoke request. These hook
-faults are not a real WorkManager disk failure; the separate Room `query_only` refusal remains a real database test.
-
-Live E2E used RepoRead Dev on the Pixel 8a and the real Mac backend, with 841 listed notes. Stop worked during a run
-and during a genuine unreachable-server backoff. Afterwards Disconnect opened its normal confirmation; it was
-cancelled, not executed. Saving continued after entering a subfolder and showing the launcher. A forced
-`cmd jobscheduler timeout` restarted the same work with 659 notes missing instead of 768. It completed with 658
-fetched, 182 already saved and 1 oversized note skipped: 840 of 841 saved. A second run fetched 0, reported 840
-already saved and retried only the unsupported note; its screenshot, UI dump and worker log agreed on the terminal
-outcome. The wireless ADB endpoint changed during testing; the Dev backend tunnel was restored afterwards. No
-release APK, live sign-out, account deletion, dependency or server configuration was changed.
-
-A natural execution deadline and an actual OS process kill during a run remain unverified. Live account removal was
-not repeated; its ordering, interruption and failure paths ran against the isolated loopback fixtures in the full
-device suite. Backend tests were not rerun because no backend implementation changed.
-
-## Typed HTTP boundary (2026-10-18)
-
-Implemented [audit step 9](audit-remediation-plan.md#step-9-verification): one typed route owner, strict whole-response validation and request matching before local acknowledgement, positive item-refusal pairs, wire models generated from the backend's published spec (ADR-26, amended the same day) and retained transport causes. The old raw verbs and network JSON parsers are removed together. Automated malformed/status/identity/time/timeout/truncation/second-run tests and the whole device suite passed; the record distinguishes those from live evidence. Transient sync refusals are structured results with UI-owned wording; credential lifecycle changes share one backend owner, and configured SQL/socket deadlines are tested against real PostgreSQL.
-
-The live Dev check used an existing scratch note and the real Mac backend/GitHub: library and repository refresh, content/cache reads, available repositories, bookmark on/off, highlight create/edit/conflict/reattach/delete, card confirmation/grade, annotation reload, unchanged diff and stored-data counts. Removing the ADB tunnel kept the cached page readable and a labelled highlight pending; restoring it sent the same mutation once, then removed only that test highlight. Existing user annotations/bookmarks were not deleted. Live destructive routes, reconnect, changed-version diff, images and reading-position UI were not exercised by this contract check. No release/VM deployment was performed.
-
-## Navigation 3 (2026-10-19)
-
-Navigation 3 owns the back stack and each entry's saved state/ViewModel store; compatible-format Activity state survives ordinary build updates ([ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)). Audit PR2 removes the local-copy reset; ending or replacing a session keeps the stack and entry state. This is PR 3 of the Android foundations plan. The ADR records test scope and execution evidence.
-
-## Screen work in its entry (2026-10-19)
-
-Each screen that starts work keeps it in its back-stack entry's ViewModel: a rotation or a covering screen no longer cancels or repeats a refresh, preview, connect, grade, card confirmation or highlight change, or loses what it reported; a mutation the server confirmed, or a local write accepted, is committed even if its screen is left, and only the screen shown navigates, once ([ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync)). Library and the folder root still sync on return (B1 not approved). This is PR 4 of the Android foundations plan; the ADR records the evidence and what remains unverified.
-
-PR4's audit follow-up protects Practice's pre-write validation and retains rejected/submitted reader drafts. Audit PR1
-retires summary loading/acknowledgement and advances the saved UI format to 3 for the removed figure destination;
-Room v15 drops only summary baselines, preserving saved pages and user-owned work. Reattachment restoration stays.
-Audit PR4 replaces that temporary Practice protection with validation under Sync and an atomic first-grade write
-(ADR-13, ADR-20). ADR-28 records the foundations evidence.
+- **Save all background work (2026-10-18):** verified in [PR #68](https://github.com/jaxwong/reporead/pull/68); current behavior is owned by ADR-19/ADR-22, and audit PR2 supersedes its removal lifecycle.
+- **Typed HTTP boundary (2026-10-18):** implemented and verified in [PR #70](https://github.com/jaxwong/reporead/pull/70); current contract and failure behavior are owned by ADR-26.
+- **Navigation 3 (2026-10-19):** implemented and verified in [PR #72](https://github.com/jaxwong/reporead/pull/72); ADR-27 owns state compatibility, amended by audit PR1/PR2.
+- **Screen work in its entry (2026-10-19):** implemented and verified in [PR #73](https://github.com/jaxwong/reporead/pull/73); ADR-28 owns entry work, amended by audit PR1/PR2/PR4.
 
 ## Audit PR1 — Feature retirements (2026-10-19)
 
@@ -277,6 +228,80 @@ Tested review-follow-up APK SHA-256: Dev app `96166764f70301536b9068896ba63f6f87
 
 No backend test rerun, release install, live GitHub write or deployment is part of this Android-only follow-up. The user's pre-existing edits to `docs/audit-remediation-plan.md` are preserved and are not part of this change.
 
+## Audit PR5 — Closure check (2026-10-19)
+
+Application verification covers merged audit PR4 [#80](https://github.com/jaxwong/reporead/pull/80), `bf921855aebda65b86293ae62fcbb10a241610a3`. PR5 is documentation and verification only: no production code, API, schema or dependency change, and no hosted deployment was initiated by this work. The required live actions and approved release installation are now executed. A clock-rollback Review completion-counter defect was observed and is recorded below, not fixed or represented as a clean display pass. The user explicitly retained [the plan](audit-remediation-plan.md), especially Section 5, for post-PR5 work; it must not be deleted. Local main was updated and this branch rebased onto `b6e3c82`; the two intervening main commits only track the systemd unit and update the backend README, with no application-source/build/dependency difference from the tested code.
+
+### Dependency assessment (C9)
+
+| Component | Version and owner at verification |
+| --- | --- |
+| Spring Boot | **4.1.1**, root `build.gradle.kts` |
+| Android Gradle Plugin | **9.1.1**, root `build.gradle.kts` |
+| Compose BOM | **2026.08.00**, `android/build.gradle.kts` |
+| Navigation 3 runtime/UI | **1.2.0**, `android/build.gradle.kts` |
+| Reader dependencies | highlight.js **11.12.0**, Mermaid **11.17.2**, build-only esbuild **0.28.2**; `android/reader-web/package.json`, resolved transitives in its lockfile |
+
+`cd android/reader-web && npm audit` exited **1**: `2 low severity vulnerabilities`, KaTeX [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) and Mermaid's dependency on it; no moderate/high/critical findings were reported. The existing accepted low-severity risk is retained, not fixed: exploitation needs pre-existing prototype pollution or attacker control of renderer-option prototypes. Mermaid uses strict mode/disabled HTML labels and the WebView blocks external resources; this is not proof of safety. npm now offers the breaking **Mermaid 12.2.0** upgrade, not the earlier 10.8.0 downgrade. No forced fix, transitive override or unapproved major upgrade was applied.
+
+`gh api -i repos/jaxwong/reporead/vulnerability-alerts` exited **1**, `HTTP 404: Vulnerability alerts are disabled`. The user explicitly chose to leave that setting unchanged on 2026-10-19; no settings mutation was sent. The version inventory is not a Maven/Gradle transitive advisory scan, and disabled alerts provide no ongoing coverage. No claim that the whole dependency graph is vulnerability-free is made.
+
+Manual Spring Security check: Boot 4.1.1's cached `spring-boot-dependencies-4.1.1.pom` declares **7.1.1**. The official advisories [CVE-2026-41707](https://spring.io/security/cve-2026-41707/), [CVE-2026-47841](https://spring.io/security/cve-2026-47841/), [CVE-2026-47842](https://spring.io/security/cve-2026-47842/) and [CVE-2026-47877](https://spring.io/security/cve-2026-47877/) are fixed in 7.1.1; no additional upgrade is indicated by those four findings. This bounded manual check is not an exhaustive scan of Maven or Android transitives.
+
+### Hosted library measurement (C5)
+
+Read-only `ssh opc@152.69.219.238 'sudo journalctl -u reporead-backend --no-pager -n 1500 | grep "Library read;" | tail -5'` exited **0**. The latest retained real-account line was **2026-10-19 19:04:47 SGT** (`11:04:47.574Z`): **260,497 bytes** of **8,388,608 bytes** (8 MiB), **3.11%**; **3 repositories, 100 reading states, 1 bookmark, 19 annotations, 12 reviews**. The log does not report a document count. `Library.answer` still allocates the complete serialized answer before checking its ceiling; wire bytes are not a peak-heap measurement. D6 remains accepted: no paging or new code. Revisit as observed bytes approach the ceiling or the review log nears the existing approximately 40,000-grade trigger (ADR-13).
+
+### Documentation and retired-symbol sweep (C10)
+
+Source traceability in `invariants.md` now explicitly means authorized-repository provenance, not proof of this document's history; no history walk or additional GitHub calls. The production/test/docs sweep found only required Room migration history and absence tests, the literal historical navigation fixture, unrelated names such as `android:exported`, and explicitly retired/historical ADR evidence. Active ADR-28 wording was corrected; dead links to the removed step-9 record now point to [PR #70](https://github.com/jaxwong/reporead/pull/70). The four earlier implementation sections above retain one status line each, linked to their owning PR. ADR-06 and the real-system verification list now agree that the 2026-10-15 rerun followed the 2026-10-09 look-alike fix. None of these audit PRs changes anchoring or canonical rules; `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` are intentionally not rerun.
+
+### Executed final gates
+
+| Check / exact command | Exit | Terminal result |
+| --- | --- | --- |
+| `gh run view 39263379383 -R jaxwong/reporead --exit-status --json conclusion,status,headSha,jobs,url` | 0 | [Android on PR4 main](https://github.com/jaxwong/reporead/actions/runs/39263379383): `completed`, `success`; test and release jobs green at `bf92185`. |
+| `gh run view 39253086119 -R jaxwong/reporead --exit-status --json conclusion,status,headSha,jobs,url` | 0 | [Backend main run at the start of verification](https://github.com/jaxwong/reporead/actions/runs/39253086119): `completed`, `success`; test/build/deploy green at `1deac6a`. PR4 is Android-only, so the backend path filter correctly schedules no new run; local backend tests below were rerun on merged main. |
+| `ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :backend:spotlessCheck :backend:test :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :app:compileDebugAndroidTestKotlin --rerun-tasks --no-daemon` | 0 | `BUILD SUCCESSFUL in 2m 25s`; `149 actionable tasks: 149 executed`. Backend XML: **289 tests**, 0 failures/errors, 3 opt-in skips. Android JVM XML: **83 tests**, 0 failures/errors, 1 opt-in skip. Includes compilation/type checks, Lint, reader syntax/bundle and both signed assemblies. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r android/build/outputs/apk/debug/app-debug.apk` | 0 | `Success`; RepoRead Dev data preserved. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` | 0 | `Success`. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` | 0 | `Time: 254.502`; **`OK (171 tests)`**. Full isolated Pixel 8a suite after the user unlocked the phone, with real Room, WebView and loopback HTTP; no real-account mutations. |
+| `ssh opc@152.69.219.238 'curl -fsS http://127.0.0.1:8082/actuator/health; echo; curl -fsS http://127.0.0.1:8082/actuator/info; echo'` | 0 | Health `UP`; hosted backend build commit `1deac6a9af8742791145201179cf5c20dffeffdf`, the hosted revision at the start of verification. Read only; no deployment by this work. |
+
+Room migration coverage remains the preserved v15 migration and v16 upgrades from exported v14/v15. No new schema or migration was added. The complete isolated device run is recorded above; a transport exit alone is not a pass. The live work below was separately authorized, uses the real Dev app/Mac backend/GitHub, and is not loopback-fixture evidence.
+
+### Approved live check and release update
+
+The Mac backend was restarted with the existing environment documented in [Run locally](../notes/run-locally.md#2-backend-own-terminal-serves-on-1270018081). Its build metadata reported `e5d1cea` (PR5 documentation before the requested rebase; application code is PR4's `bf92185`), health `UP`, and `Schema "public" is up to date. No migration necessary.` It is left running. The installed Dev/test APKs remain the exact binaries from the full isolated run above; the already-built release APK is **0.1.390**, not an untested branch build.
+
+In the live-command rows, `adb` denotes `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp`. UI commands ran sequentially with screen inspection between actions; no live-write replay harness, direct mutation HTTP call, source edit or direct database write was introduced. UI dumps/screenshots and temporary diagnostic output stay outside the repository.
+
+| Action / command | Exit | Observed result |
+| --- | --- | --- |
+| `adb install -r android/build/outputs/apk/release/app-release.apk` | 0 | `Performing Streamed Install`, `Success`; package inspection changed **0.1.387 → 0.1.390**. No uninstall or data clear. |
+| Real Practice: Show answer, then `adb shell input tap 160 2210` (Again) | 0 | One existing bank question became a card and first grade; backend logged `Annotation created` and `Review stored or replayed ... grade=0`. Local-server library changed **10 → 11 annotations**, **0 → 1 reviews**; Practice showed **1591 new / 1 scheduled**, **1 tomorrow**. Canonical-line-only confirmation and supplementary saved-section labels were visible. |
+| Real image note: normal Search/open/scroll; `adb reverse --remove tcp:8081`, reopen saved note, then `adb reverse tcp:8081 tcp:8081` | 0 | The real Obsidian image embed displayed; GitHub image response **200**, **395,448 bytes**, then `Document image served`. Reopening without the Dev tunnel kept text and the image readable and showed the expected saved-highlights/unreachable-server notice. This is backend-unreachable simulation, not airplane mode. Image and table coverage used two existing authored notes; none was fabricated. |
+| Real wide table: documented WebView `forward tcp:9333 ...`, then one `Runtime.evaluate` via `node --input-type=module` | 0 | `{"tables":3,"viewport":375,"tableWidth":719,"before":0,"after":343.23809814453125}`; the real table was visible and horizontally scrollable. This one-off layout diagnostic only scrolled the page; the temporary forward was removed afterwards. |
+| Clock-ahead position: `adb shell cmd time_detector set_auto_detection_enabled false`; `adb shell cmd alarm set-time <host epoch millis + 86400000>`; reader scroll/Back/normal Library sync | 0 | Phone time was verified one day ahead. The normal reading save changed progress **54% → 55%**; a read-only PostgreSQL query of that document returned **2026-10-19 14:18:23.835687Z**, `not_in_future = t`, rather than the phone's future time. The original automatic-time setting (**true**) and current time were restored in cleanup and confirmed again after the smoke check. |
+| Real Review: select the card while clock-ahead made it due, restore normal time, Show answer, then `adb shell input tap 669 2209` (Good) | 0 | Backend logged `Review stored or replayed ... grade=4`; the local-server library now held **2 reviews**, and the next due date was **Thu 22 Oct**. Both grades are real retained user-data mutations. The terminal UI said **`Session complete: 0 cards reviewed.`** after the clock rollback; persistence/scheduling succeeded, but the completion count did not. This is not a natural next-day session or a clean completion-counter pass. |
+| Real Sign out confirmation, then Sign in with GitHub through the normal browser flow; Search before/while signed out/after sign-in | 0 | Search consistently reported **`Searching 840 of 841 notes`**. The card and its schedule survived. Local active sessions went **16 → 15 → 16**; backend logged actual revocation (`otherSessions=15 githubTokenRemoved=false`), GitHub OAuth responses **200**, `GitHub sign-in completed`, `App session issued`, and the restored library with **11 annotations / 2 reviews**. No last-device grant revocation, account deletion or loss of saved notes was exercised. |
+
+The clock-save read-only check was `docker compose -f backend/compose.yaml -p reporead exec -T postgres psql -X -U reporead -d reporead -v ON_ERROR_STOP=1 -c "select document_id, progress_percent, last_read_at, last_read_at <= current_timestamp as not_in_future from reading_states where user_id = 1 and document_id = 11606;"` (exit **0**). Counts/session checks also used read-only SELECTs; no credentials or session hashes were read. The phone has normal time, automatic detection **true**, the Dev `tcp:8081` reverse restored, the temporary `tcp:9333` forward removed, and RepoRead Dev left signed in on Library.
+
+### Main advancement during verification
+
+A final hosted check briefly received `curl: (7) Failed to connect ... port 8082`. Its original SSH shell ended in `echo`, so SSH's exit **0** did not mean health passed; this attempt is explicitly not counted green. Read-only service/log inspection showed a separate Actions restart at **22:24:01 SGT** and successful startup at **22:24:14 SGT**. No restart, deployment or VM configuration change was performed by this work.
+
+| Final command | Exit | Terminal result |
+| --- | --- | --- |
+| `gh run view 39268164867 -R jaxwong/reporead --exit-status --json conclusion,status,headSha,jobs,url` | 0 | [Latest main Backend](https://github.com/jaxwong/reporead/actions/runs/39268164867), `b6e3c82`: `completed`, `success`; test/build/deploy green. |
+| `gh run view 39268164802 -R jaxwong/reporead --exit-status --json conclusion,status,headSha,jobs,url` | 0 | [Latest main Android](https://github.com/jaxwong/reporead/actions/runs/39268164802), `b6e3c82`: `completed`, `success`; test/release green. |
+| `ssh opc@152.69.219.238 'set -e; curl -fsS http://127.0.0.1:8082/actuator/health; echo; curl -fsS http://127.0.0.1:8082/actuator/info; echo'` | 0 | After confirmed startup, health **`UP`**, revision **`b6e3c82b443aa6657fdd4fc95b786188750c02ff`**. Read only. |
+| `git diff --check` | 0 | No output. |
+
+The requested local-main fast-forward and `git rebase main` exited **0**. The dirty audit plan was stashed by explicit path and restored byte-for-byte afterwards (SHA-256 **c593b38f8fcfa1603d43831d1d4170ef165348cf02b6dd377593a657232a2c20**); its Section 5 work remains planned, not implemented by PR5.
+
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
@@ -286,10 +311,9 @@ Covered by automated tests only, or not at all:
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.
 - Airplane mode itself: it ends wireless debugging, so offline checks removed `adb reverse` instead.
 - Save all stopped by a real execution limit or by the system killing the process mid-run: only forced job timeouts were tried (ADR-19).
-- An Obsidian image embed on the phone, and process death by the system (only force-stop and `am kill` were tried).
+- Process death by the system (only force-stop and `am kill` were tried). PR5 verified a real Obsidian image embed online and with the Dev backend unreachable.
 - Sign-ins surviving a deploy, and GitHub revocation on the last sign-out, with the real phone and hosted backend.
-- Practice and Review UI with real grades and the Practice tab's due badge. The scratch-only live contract check confirmed a card and submitted a real grade through Sync; that is not verification of the full sessions or their UI.
-- Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
+- Natural next-day Practice/Review cadence and two weeks of voluntary sessions. PR5 verified one real Practice grade and one Review grade, using the clock-ahead check to make the otherwise-not-yet-due card selectable; the completion-counter clock-rollback defect remains under Known gaps.
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
 - Account operations survive screen recreation in the application scope. Their network/failure paths use isolated loopback fixtures, not live account deletion; an actual OS process kill during an account operation remains unverified.
 - Audit PR2 retires pending-removal, Retry, ownerless-sign-in and retired-copy tests with those paths. Normal startup/disconnect image sweep coverage remains in `LocalSyncTest`; account preservation and retained navigation are checked with isolated data. No live phone copy is deleted.

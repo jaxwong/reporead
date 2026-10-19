@@ -40,6 +40,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Every annotation keeps the blob it was created against, and its original anchor never changes.**
 
+- Provenance is authorized-repository scope: the server verifies that the source blob in the user's authorized repository renders the selected passage, not that it belongs to this document's history; no history walk or additional GitHub calls are made.
 - Enforced by: `annotation_anchors` is written once at creation; re-anchoring and reattachment write only `annotation_locations`.
 - Why: [ADR-05](adrs.md#adr-05--anchors-are-block-ids-and-utf-16-offsets-into-canonical-text-of-one-version), [ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan).
 
