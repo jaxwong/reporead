@@ -42,9 +42,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * The page format this app needs from the server (MarkdownRenderer.FORMAT): 2 adds note links and Obsidian embeds, 3
- * footnotes.
+ * footnotes; 4 capped heading paths, BOM handling and URL-only footnotes.
  */
-const val RENDER_FORMAT = 3
+const val RENDER_FORMAT = 4
 
 /**
  * The server answered and refused this one request for a reason resending it cannot change (invalid, gone, a
@@ -56,7 +56,6 @@ internal fun ApiException.refusesItem(): Boolean =
     when (code) {
         "INVALID_REQUEST",
         "INVALID_ANNOTATION",
-        "INVALID_READING_STATE",
         "INVALID_REVIEW" -> status == 400
         "NOT_FOUND",
         "SOURCE_NOT_FOUND" -> status == 404
@@ -71,20 +70,13 @@ internal fun ApiException.refusesItem(): Boolean =
     }
 
 /**
- * What one sync could not do. [refused]: reading positions and bookmark changes the server refused; a refused position
- * stays on this phone only, a refused bookmark change is undone. [notSent]: why pending highlights and cards were not
- * sent this time; they wait for the next sync.
+ * What one sync could not do. [refused]: bookmark changes the server refused and the phone undid. [notSent]: why
+ * pending highlights and cards were not sent this time; they wait for the next sync.
  */
 data class LocalSync(val refused: List<RefusedChange>, val notSent: ApiException?)
 
 /** The title is the document owner's snapshot at refusal, before a subsequent library replacement can remove it. */
-data class RefusedChange(val kind: Kind, val documentId: Long, val title: String?, val error: ApiException) {
-    /** Identifies the refused local operation without choosing any screen wording. */
-    enum class Kind {
-        READING,
-        BOOKMARK,
-    }
-}
+data class RefusedChange(val documentId: Long, val title: String?, val error: ApiException)
 
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
@@ -211,8 +203,8 @@ class Sync(
      * A cached copy of the document's current version, path and repository snapshot opens without a network call.
      * Otherwise the current version is fetched; if that fails, an older cached copy is shown with the reason, and a
      * missing cache is the failure itself. A current copy saved in an older page format (without search text, note
-     * links, embeds, or footnotes) is fetched once more; if that fails it is still the current version, so it opens
-     * without a warning.
+     * links, embeds, or later presentation fixes) is fetched once more; if that fails it is still the current version,
+     * so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened = locked {
         val cached = dao.note(documentId)
@@ -422,19 +414,11 @@ class Sync(
                 try {
                     api.saveReading(row.documentId, body).toRow()
                 } catch (error: ApiException) {
-                    if (!error.refusesItem()) throw error
-                    Log.w("RepoRead", "Reading state refused; documentId=${row.documentId} code=${error.code}")
+                    if (error.status != 404 || error.code != "NOT_FOUND") throw error
+                    Log.i("RepoRead", "Reading state no longer owned; documentId=${row.documentId}")
                     // Not this user's note on the server any more: the position goes with it when the lists are
-                    // next replaced. Any other refusal keeps the position on this phone, pending, and offers it again
-                    // at the next sync.
-                    if (error.status == 404) dao.acknowledgeReading(row.documentId, row.lastReadAt)
-                    refused +=
-                        RefusedChange(
-                            RefusedChange.Kind.READING,
-                            row.documentId,
-                            dao.document(row.documentId)?.title,
-                            error,
-                        )
+                    // next replaced. Malformed saves are programmer errors, not item refusals.
+                    dao.acknowledgeReading(row.documentId, row.lastReadAt)
                     continue
                 }
             dao.acknowledgeReading(row.documentId, row.lastReadAt)
@@ -455,7 +439,6 @@ class Sync(
                 dao.dropBookmark(row.documentId, row.changedAt)
                 refused +=
                     RefusedChange(
-                        RefusedChange.Kind.BOOKMARK,
                         row.documentId,
                         dao.document(row.documentId)?.title,
                         error,
