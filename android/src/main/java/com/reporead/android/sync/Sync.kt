@@ -16,6 +16,8 @@ import com.reporead.android.core.network.wire.ConnectionDataCounts
 import com.reporead.android.core.network.wire.DocumentControllerChanges
 import com.reporead.android.core.network.wire.ReadingControllerAnchorRequest
 import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
+import com.reporead.android.core.network.wire.RepositoryConnectionsConnection
+import com.reporead.android.core.network.wire.RepositoryControllerConnectRequest
 import com.reporead.android.core.network.wire.ReviewControllerGradeRequest
 import com.reporead.android.core.network.wireJson
 import com.reporead.android.data.AnnotationRow
@@ -220,6 +222,16 @@ class Sync(
     suspend fun refreshFromGitHub(repositoryId: Long) = committed {
         api.syncRepository(repositoryId)
         loadLibrary()
+    }
+
+    /**
+     * Connects [githubRepositoryId] through its GitHub App [installationId], then reloads the library, so the
+     * connection is saved on this phone before it is reported. Connecting a connected repository again keeps its data
+     * and takes GitHub's current name and default branch: the way back after either is renamed on GitHub.
+     */
+    suspend fun connect(githubRepositoryId: Long, installationId: Long): RepositoryConnectionsConnection = committed {
+        api.connectRepository(githubRepositoryId, RepositoryControllerConnectRequest(installationId = installationId))
+            .also { loadLibrary() }
     }
 
     /** Owns an open operation's saved page and optional fetch failure; the reader words the stale-copy notice. */

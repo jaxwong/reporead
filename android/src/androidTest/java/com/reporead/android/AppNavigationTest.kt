@@ -20,6 +20,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.core.network.Api
+import com.reporead.android.core.network.testAvailable
+import com.reporead.android.core.network.testConnection
 import com.reporead.android.core.network.testCounts
 import com.reporead.android.core.network.testDisconnected
 import com.reporead.android.core.network.testLibrary
@@ -29,6 +31,7 @@ import com.reporead.android.core.network.testSha
 import com.reporead.android.core.network.testSynced
 import com.reporead.android.core.network.wire
 import com.reporead.android.core.network.wire.DocumentsSummary
+import com.reporead.android.core.network.wire.RepositoryControllerAvailableList
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
@@ -923,6 +926,77 @@ class AppNavigationTest {
                 withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
                 awaitScreen("Library", hidden = listOf("test-only/notes"))
                 assertEquals(2, server.requests.count { it == "DELETE /api/repositories/7" })
+            }
+    }
+
+    private val available =
+        "GET /api/repositories/available" to (200 to wire(RepositoryControllerAvailableList(listOf(testAvailable()))))
+    private val connect = "POST /api/repositories/11/connect" to (200 to wire(testConnection()))
+
+    /**
+     * T2: a connection held while the Activity is recreated is neither cancelled nor sent again, and lands on its
+     * folder above the Library once; the list is fetched once.
+     */
+    @Test
+    fun aConnectHeldThroughRecreationLandsOnItsFolderOnce() {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("POST /api/repositories/11/connect")
+        LoopbackServer(mapOf("GET /api/library" to library(), available, connect), hold::hook).use { server ->
+            val api = api(server)
+            launchApp(account(api), api)
+            try {
+                awaitText("Library")
+                awaitLibrarySynced(server, 1)
+                click("Repositories")
+                click("Add repository")
+                click("Connect")
+                hold.awaitArrived()
+                scenario!!.recreate()
+                awaitText("Connecting…")
+            } finally {
+                hold.release.countDown()
+            }
+            awaitFolder()
+            assertEquals(1, server.requests.count { it == "GET /api/repositories/available" })
+            assertEquals(1, server.requests.count { it == "POST /api/repositories/11/connect" })
+            pressBack()
+            awaitText("test-only/notes")
+            assertTrue(selected("Repositories"))
+            awaitBackLeavesTheApp()
+        }
+    }
+
+    /** T9: a connection the server makes after Add repository was left is saved on this phone, without navigating. */
+    @Test
+    fun aConnectConfirmedAfterItsScreenWasLeftIsSavedWithoutNavigating() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val routes = ConcurrentHashMap(mapOf("GET /api/library" to library(connected = false), available, connect))
+        val hold = Held("POST /api/repositories/11/connect")
+        LoopbackServer(routes) { key ->
+                // Once connected, the server lists the repository.
+                if (key == connect.first) routes["GET /api/library"] = library()
+                hold.hook(key)
+            }
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                try {
+                    awaitText("Library")
+                    withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
+                    click("Repositories")
+                    click("Add repository")
+                    click("Connect")
+                    hold.awaitArrived()
+                    pressBack()
+                    awaitText("Library")
+                } finally {
+                    hold.release.countDown()
+                }
+                withTimeout(10_000) { dao.repositories().first { it.isNotEmpty() } }
+                awaitText("test-only/notes")
+                assertNothingMoreSent(server, server.requests.toList())
+                awaitScreen("Library", "test-only/notes", hidden = listOf("deep"))
+                assertEquals(1, server.requests.count { it == connect.first })
             }
     }
 

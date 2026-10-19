@@ -195,6 +195,8 @@ fun RepoReadApp(
                 Screen.Available ->
                     AvailableScreen(
                         api,
+                        sync,
+                        entry.id,
                         onBack,
                         onConnected = {
                             popToRoot()
