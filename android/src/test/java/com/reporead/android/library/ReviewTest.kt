@@ -59,6 +59,25 @@ class ReviewTest {
         )
 
     @Test
+    fun aBankCardsPromptFollowsItsCanonicalLineAndOtherwiseKeepsItsSavedPrompt() {
+        val item = card(1)
+        val current =
+            PracticeQuestion(
+                1,
+                "Bank",
+                "topic/interview/bank.md",
+                "new",
+                StudyQuestion("b9", "Edited prompt?", StudyAnswer("b10", "text", emptyList())),
+            )
+        assertEquals("Edited prompt?", reviewPrompt(item, listOf(current)))
+        assertEquals("Why?", reviewPrompt(item, emptyList()))
+        assertEquals("Why?", reviewPrompt(item, listOf(current.copy(documentId = 2))))
+        val editedAnswer =
+            current.copy(question = current.question.copy(answer = current.question.answer.copy(text = "new line")))
+        assertEquals("Why?", reviewPrompt(item, listOf(editedAnswer)))
+    }
+
+    @Test
     fun newCardsAreDueAndGoodClimbsTheLadderOneStepAndEasyTwo() {
         assertEquals(ReviewSchedule(0, null), scheduleReviews(0, emptyList()))
         val good = listOf(grade(1, 4, 0), grade(2, 4, day), grade(3, 4, 4 * day))

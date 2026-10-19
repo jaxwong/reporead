@@ -356,6 +356,13 @@ interface LibraryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReview(row: ReviewRow)
 
+    /** Sync validates the new card and grade under its lock; either both inserts commit or neither does. */
+    @Transaction
+    suspend fun saveCardWithFirstReview(card: AnnotationRow, review: ReviewRow) {
+        saveAnnotation(card)
+        saveReview(review)
+    }
+
     /** A concurrent sync may invalidate/delete a card after it was revealed; never persist that stale grade. */
     @Transaction
     suspend fun recordReview(row: ReviewRow): Boolean {

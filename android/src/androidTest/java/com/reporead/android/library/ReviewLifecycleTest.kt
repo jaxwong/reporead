@@ -22,6 +22,7 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReviewLimitRow
 import com.reporead.android.findText
+import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.sync.Sync
 import java.io.File
@@ -101,6 +102,69 @@ class ReviewLifecycleTest {
                 )
             )
     }
+
+    @Test
+    fun aBankCardShowsItsCurrentPromptAndLabelsAnOlderLinkedSectionAsSupplementary() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val bankPath = "test-only/interview/bank.md"
+            val corePath = "test-only/core.md"
+            val line = "Canonical answer: Test-only core"
+            val bank =
+                testPage(
+                    sha,
+                    """<h3 data-block-id="b1" data-anchor-text="Current test-only bank prompt?">Current test-only bank prompt?</h3>""" +
+                        """<p data-block-id="b2" data-anchor-text="$line"><strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Fcore.md&amp;heading=answer">Test-only core</a></p>""",
+                )
+            val oldCoreSha = "b".repeat(40)
+            val core =
+                testPage(
+                    oldCoreSha,
+                    """<h2 data-block-id="c1" data-anchor-text="Answer">Answer</h2>""" +
+                        """<p data-block-id="c2" data-anchor-text="Test-only supplementary section.">Test-only supplementary section.</p>""",
+                )
+            dao.replaceDocuments(
+                7,
+                listOf(
+                    DocumentRow(1, 7, bankPath, "Test-only bank", sha),
+                    DocumentRow(2, 7, corePath, "Test-only core", "c".repeat(40)),
+                ),
+            )
+            dao.saveNote(NoteRow(1, sha, bankPath, "Test-only bank", bank, 0))
+            dao.saveNote(NoteRow(2, oldCoreSha, corePath, "Test-only core", core, 0))
+            dao.saveAnnotation(
+                AnnotationRow(
+                    "bank-card",
+                    1,
+                    1,
+                    sha,
+                    "b2",
+                    0,
+                    line.length,
+                    line,
+                    null,
+                    1,
+                    0,
+                    state = AnnotationState.ACKNOWLEDGED,
+                    type = AnnotationType.CARD,
+                    question = "Old test-only bank prompt?",
+                    checkedBlobSha = sha,
+                )
+            )
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+                awaitText("Current test-only bank prompt?")
+                assertNull(findText(root(), "Old test-only bank prompt?"))
+                click("Show answer")
+                awaitText(line)
+                awaitText("Your grade confirms only this Canonical line. The linked section is supplementary.")
+                awaitText("Linked section · saved copy")
+                awaitText("The saved copy is an older version of this note.")
+                awaitText("Good")
+                scenario.recreate()
+                awaitText("Current test-only bank prompt?")
+                awaitText("The saved copy is an older version of this note.")
+            }
+        }
 
     @Test
     fun tenOfflineGradesPersistOnceAndRecreationPreservesRevealAndSessionCompletion() =

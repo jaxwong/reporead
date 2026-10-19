@@ -82,7 +82,7 @@ class PracticeTest {
     }
 
     @Test
-    fun aQuestionIsScheduledOnlyByACardWithItsBankPromptAndAnswerLine() {
+    fun aQuestionFollowsItsBanksCanonicalLineNotItsPrompt() {
         val first = question(1, "b1", "Same?", "Canonical answer: First")
         val second = question(1, "b2", "Same?", "Canonical answer: Second")
         val elsewhere = question(2, "b1", "Same?", "Canonical answer: First")
@@ -107,8 +107,13 @@ class PracticeTest {
             ),
         )
         assertEquals(
-            emptySet<String>(),
+            setOf(first.key),
             scheduledQuestions(questions, listOf(card(1, "Edited?", "Canonical answer: First"))),
+        )
+        val editedPrompt = first.copy(question = first.question.copy(blockId = "b3", text = "Edited?"))
+        assertEquals(
+            setOf(first.key, editedPrompt.key),
+            scheduledQuestions(listOf(first, editedPrompt), listOf(card(1, "Same?", "Canonical answer: First"))),
         )
         // A card the server refused is on no schedule: Review leaves it out, so Practice asks its question again.
         assertEquals(
@@ -140,6 +145,17 @@ class PracticeTest {
                 listOf(card(3, "After you add a cache\n\nWhich key?", "Canonical path: Caching")),
             ),
         )
+    }
+
+    @Test
+    fun twoPromptsOverOneCanonicalLineAreOneQuestion() {
+        val html =
+            "<main id=note><h3 data-block-id=b1 data-anchor-text='First?'>First?</h3>" +
+                "<p data-block-id=b2 data-anchor-text='Canonical answer: X'>Canonical answer: X</p>" +
+                "<h3 data-block-id=b3 data-anchor-text='Second?'>Second?</h3>" +
+                "<p data-block-id=b4 data-anchor-text='Canonical answer: X'>Canonical answer: X</p></main>"
+        val banks = readBanks(listOf(PracticePage(1, "Bank", "core/interview/bank.md", html, sha)))
+        assertEquals(listOf("First?"), banks.questions.map { it.question.prompt })
     }
 
     @Test

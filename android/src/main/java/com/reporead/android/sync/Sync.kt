@@ -31,6 +31,7 @@ import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.data.SavedVersion
+import com.reporead.android.library.reviewable
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -72,6 +73,14 @@ data class LocalSync(val refused: List<RefusedChange>, val notSent: ApiException
 
 /** The title is the document owner's snapshot at refusal, before a subsequent library replacement can remove it. */
 data class RefusedChange(val documentId: Long, val title: String?, val error: ApiException)
+
+/** A new Practice grade writes both rows or neither; an already scheduled question is a successful no-op. */
+enum class NewCardGrade {
+    SAVED,
+    ALREADY_SCHEDULED,
+    BANK_CHANGED,
+    NOT_SAVED,
+}
 
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
@@ -449,59 +458,85 @@ class Sync(
      */
     suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? =
         committed {
-            saveNewAnnotation(passage, documentId, note, question)
+            val row = newAnnotation(passage, documentId, note, question)
+            if (!dao.saveLocalAnnotation(row)) {
+                Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
+                return@committed null
+            }
+            onPendingChange()
+            row.mutationId
         }
 
     /**
-     * A new question's card for [passage] with its first [grade], committed together, so leaving the screen between
-     * them cannot keep the card without its grade. Null when the page is gone and nothing was saved; otherwise whether
-     * the grade was saved too ([recordReview]).
+     * Validates and saves a Practice question's card and first grade under the one Sync lock, with no network calls.
+     * Identity is the bank and Canonical line, not the prompt. A restored or concurrent submission writes nothing if
+     * its card is already on the schedule. Room commits the pair atomically; an insert failure propagates with neither
+     * row saved, rather than falling back to a card without a grade.
      */
-    suspend fun gradeNewCard(passage: Passage, documentId: Long, question: String, grade: Int): Boolean? = committed {
-        val card = saveNewAnnotation(passage, documentId, null, question) ?: return@committed null
-        val review =
-            ReviewRow(
-                mutationId = UUID.randomUUID().toString(),
-                cardMutationId = card,
-                grade = grade,
-                reviewedAt = System.currentTimeMillis(),
-                blobSha = passage.blobSha,
-                pending = true,
+    suspend fun gradeNewCard(passage: Passage, documentId: Long, question: String, grade: Int): NewCardGrade =
+        committed {
+            require(grade in 0..5) { "Invalid Practice grade $grade; expected 0..5 in Sync.gradeNewCard" }
+            if (
+                dao.notebook().first().any {
+                    reviewable(it) &&
+                        it.annotation.documentId == documentId &&
+                        it.annotation.drawn.exactText == passage.exactText
+                }
+            ) {
+                Log.i("RepoRead", "Practice grade already saved; documentId=$documentId")
+                return@committed NewCardGrade.ALREADY_SCHEDULED
+            }
+            val note = dao.note(documentId) ?: return@committed NewCardGrade.NOT_SAVED
+            val document = dao.document(documentId) ?: return@committed NewCardGrade.NOT_SAVED
+            if (note.blobSha != passage.blobSha || document.blobSha != passage.blobSha || document.deleted) {
+                Log.i(
+                    "RepoRead",
+                    "Practice grade not saved; bank changed; documentId=$documentId blobSha=${passage.blobSha}",
+                )
+                return@committed NewCardGrade.BANK_CHANGED
+            }
+            val card = newAnnotation(passage, documentId, null, question)
+            val review =
+                ReviewRow(
+                    mutationId = UUID.randomUUID().toString(),
+                    cardMutationId = card.mutationId,
+                    grade = grade,
+                    reviewedAt = System.currentTimeMillis(),
+                    blobSha = passage.blobSha,
+                    pending = true,
+                )
+            dao.saveCardWithFirstReview(card, review)
+            onPendingChange()
+            Log.i(
+                "RepoRead",
+                "Practice card and first grade saved; documentId=$documentId mutationId=${card.mutationId}",
             )
-        dao.recordReview(review).also { if (it) onPendingChange() }
-    }
+            NewCardGrade.SAVED
+        }
 
-    private suspend fun saveNewAnnotation(
+    private fun newAnnotation(
         passage: Passage,
         documentId: Long,
         note: String?,
         question: String?,
-    ): String? {
-        val row =
-            AnnotationRow(
-                mutationId = UUID.randomUUID().toString(),
-                serverId = null,
-                documentId = documentId,
-                sourceBlobSha = passage.blobSha,
-                blockId = passage.blockId,
-                startOffset = passage.startOffset,
-                endOffset = passage.endOffset,
-                exactText = passage.exactText,
-                note = note,
-                version = 1,
-                createdAt = System.currentTimeMillis(),
-                state = AnnotationState.UNSENT,
-                type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
-                question = question,
-                checkedBlobSha = if (question == null) null else passage.blobSha,
-            )
-        if (!dao.saveLocalAnnotation(row)) {
-            Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
-            return null
-        }
-        onPendingChange()
-        return row.mutationId
-    }
+    ): AnnotationRow =
+        AnnotationRow(
+            mutationId = UUID.randomUUID().toString(),
+            serverId = null,
+            documentId = documentId,
+            sourceBlobSha = passage.blobSha,
+            blockId = passage.blockId,
+            startOffset = passage.startOffset,
+            endOffset = passage.endOffset,
+            exactText = passage.exactText,
+            note = note,
+            version = 1,
+            createdAt = System.currentTimeMillis(),
+            state = AnnotationState.UNSENT,
+            type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
+            question = question,
+            checkedBlobSha = if (question == null) null else passage.blobSha,
+        )
 
     /**
      * Sends pending creations; a failure that is not one item's refusal stops it, and the rest wait, unsent, for the

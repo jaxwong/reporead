@@ -68,6 +68,11 @@ internal fun BankAnswer(
     push: (Screen) -> Unit,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(question.answer.text, style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Your grade confirms only this Canonical line. The linked section is supplementary.",
+            style = MaterialTheme.typography.bodySmall,
+        )
         if (question.guide.isNotEmpty()) {
             val windowHeight = LocalWindowInfo.current.containerSize.height
             val most = with(LocalDensity.current) { (windowHeight * GUIDE_HEIGHT).toDp() }
@@ -155,6 +160,7 @@ private fun ColumnScope.AnswerSection(
                 Text("Not saved on this phone yet, so this section can't be shown here. Open the note to fetch it.")
                 return
             }
+            Text("Linked section · saved copy", style = MaterialTheme.typography.labelMedium)
             var notice by remember(saved.blobSha, link) { mutableStateOf<String?>(null) }
             var failed by remember(saved.blobSha, link) { mutableStateOf(false) }
             if (saved.blobSha != note.document.blobSha)

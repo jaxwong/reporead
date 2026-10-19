@@ -2,6 +2,7 @@ package com.reporead.android.library
 
 import android.view.View
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -16,12 +17,13 @@ import com.reporead.android.TestEntries
 import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
+import com.reporead.android.control
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.Passage
 import com.reporead.android.findText
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
@@ -30,11 +32,11 @@ import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CompletableDeferred
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -286,28 +288,39 @@ class PracticeSessionTest {
         }
 
     @Test
-    fun aGradeWaitingForItsValidationReadSurvivesPoppingItsEntry() = runBlocking {
+    fun doubleTappingTheGradeWritesOneCardAndOneGrade() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            ActivityScenario.launch(TestHostActivity::class.java).use {
+                click("Show answer")
+                val good = control("Good")
+                assertTrue(good.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                assertTrue(good.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                awaitText("1 question left · Foundations · Test-only bank")
+                val card = dao.waitingAnnotations().single()
+                assertEquals(listOf(card.mutationId), dao.pendingReviews().map { it.cardMutationId })
+                assertEquals(listOf(4), dao.pendingReviews().map { it.grade })
+            }
+        }
+
+    @Test
+    fun aGradeWaitingForSyncSurvivesPoppingItsEntry() = runBlocking {
         val dao = store.library()
-        val reading = CompletableDeferred<Unit>()
-        val release = CompletableDeferred<Unit>()
-        var hold = false
-        // Only delays a projection read; its rows and every write still come from the real test-only Room store.
-        val delayed =
-            object : LibraryDao by dao {
-                override fun notebook() = flow {
-                    if (hold) {
-                        reading.complete(Unit)
-                        release.await()
-                    }
-                    emitAll(dao.notebook())
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val hold = AtomicBoolean(true)
+        // A real local write holds Sync's lock at its notification boundary, never a second DAO implementation.
+        val sync =
+            Sync(Api("http://127.0.0.1:1", { error("Practice test must not call the network") }) {}, store, files) {
+                if (hold.compareAndSet(true, false)) {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS)) { "Test never released the local write" }
                 }
             }
-        val sync =
-            Sync(Api("http://127.0.0.1:1", { error("Practice test must not call the network") }) {}, store, files) {}
         val entries = TestEntries(Screen.Practice("test-only/topic"))
         TestHostActivity.content = entries.content { entry ->
             MaterialTheme {
-                if (entry.screen is Screen.Practice) PracticeScreen(delayed, sync, "test-only/topic", entry.id, {}, {})
+                if (entry.screen is Screen.Practice) PracticeScreen(dao, sync, "test-only/topic", entry.id, {}, {})
                 else Text("Test-only popped Practice")
             }
         }
@@ -315,23 +328,26 @@ class PracticeSessionTest {
             awaitText("Show answer")
             click("Show answer")
             awaitText("Good")
-            scenario.onActivity { hold = true }
-            click("Good")
+            val holding = async(Dispatchers.IO) { sync.createAnnotation(Passage(bankSha, "b0", 0, 4, "Test"), 1, null) }
             try {
-                withTimeout(5_000) { reading.await() }
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                click("Good")
                 scenario.onActivity { entries.replaceTop(Screen.Search, "test-only-after-practice") }
                 awaitText("Test-only popped Practice")
             } finally {
-                release.complete(Unit)
+                release.countDown()
             }
+            holding.await()
             withTimeout(5_000) { while (dao.pendingReviews().isEmpty()) delay(20) }
-            assertEquals(1, dao.waitingAnnotations().size)
-            assertEquals(1, dao.pendingReviews().size)
+            val card = dao.waitingAnnotations().single { it.type == AnnotationType.CARD }
+            assertEquals(listOf(card.mutationId), dao.pendingReviews().map { it.cardMutationId })
         }
     }
 
     /** Which linked section the revealed answer shows; it must be that section alone, from the saved copy. */
     private fun shownAnswer(scenario: ActivityScenario<TestHostActivity>): String = runBlocking {
+        awaitText("Your grade confirms only this Canonical line. The linked section is supplementary.")
+        awaitText("Linked section · saved copy")
         val label =
             withTimeout(5_000) {
                 while (true) {
