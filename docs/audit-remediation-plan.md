@@ -10,15 +10,15 @@ Line numbers are on `main` at `35af494`.
 
 | ID | Finding | Root cause | Closes in |
 | --- | --- | --- | --- |
-| A6 | A reading position the server refuses stays pending: `Sync.kt:481–487` keeps non-404 refusals, `LibraryDao.kt:201,212,311` count and resend them, and `LocalSyncTest.kt:187` asserts it. Highlights (`AnnotationState.REFUSED`) and grades (`review_log.rejection`) already have a refusal mark; reading rows do not. | The server refuses positions it could accept (a clock up to 5 minutes ahead, an anchor over its limits), and the phone has no state for a refusal. | PR 1 |
-| A4 | Saved pages are judged usable by `renderFormat >= RENDER_FORMAT` (`Sync.kt:254`), but the heading cap (ADR-18), BOM and URL-only-footnote changes shipped without bumping `MarkdownRenderer.FORMAT` (`3`). Pages saved before the 1 MiB complete-page cap can exceed the 2 MiB row Room can read on the Pixel 8a. | Presentation changes were not recorded in the one format number the gate already checks. | PR 1 |
-| A7 | `Practice.kt:126–136` identifies a question by document, prompt and answer text, so editing a prompt creates a second card. `gradeNewQuestion` (`Practice.kt:166`) validates outside Sync, then `Sync.gradeNewCard` (`Sync.kt:542`) writes the card and its grade in two Room transactions; ADR-28 records that cancellation protection does not make them atomic. | No stable question identity, and no single transaction for "card plus first grade". | PR 1 |
-| A8 | The bank's Canonical line is the confirmed answer, but Practice/Review wording and the linked note's saved section do not say which is which. | Product boundary decided (decision 5) but not stated in the UI. | PR 1 |
+| A6 | A reading position the server refuses stays pending: `Sync.kt:481–487` keeps non-404 refusals, `LibraryDao.kt:201,212,311` count and resend them, and `LocalSyncTest.kt:187` asserts it. Highlights (`AnnotationState.REFUSED`) and grades (`review_log.rejection`) already have a refusal mark; reading rows do not. | The server refuses positions it could accept (a clock up to 5 minutes ahead, an anchor over its limits), and the phone has no state for a refusal. | PR 3 |
+| A4 | Saved pages are judged usable by `renderFormat >= RENDER_FORMAT` (`Sync.kt:254`), but the heading cap (ADR-18), BOM and URL-only-footnote changes shipped without bumping `MarkdownRenderer.FORMAT` (`3`). Pages saved before the 1 MiB complete-page cap can exceed the 2 MiB row Room can read on the Pixel 8a. | Presentation changes were not recorded in the one format number the gate already checks. | PR 3 |
+| A7 | `Practice.kt:126–136` identifies a question by document, prompt and answer text, so editing a prompt creates a second card. `gradeNewQuestion` (`Practice.kt:166`) validates outside Sync, then `Sync.gradeNewCard` (`Sync.kt:542`) writes the card and its grade in two Room transactions; ADR-28 records that cancellation protection does not make them atomic. | No stable question identity, and no single transaction for "card plus first grade". | PR 4 |
+| A8 | The bank's Canonical line is the confirmed answer, but Practice/Review wording and the linked note's saved section do not say which is which. | Product boundary decided (decision 5) but not stated in the UI. | PR 4 |
 | A9 | Edit and delete live in the reader's ViewModel (`Reader.kt:356–404`); the Notebook offers only **Open passage** (`Notebook.kt:218`). A card on a removed or unsupported note cannot be opened, so it cannot be deleted. | User-owned records are treated as controls on a rendered page. | Deferred: one phone, so the case needs a card on a note that was removed or is unsupported. Built when it first appears: `NotebookViewModel.delete` over `Sync.deleteAnnotation`, `DeleteDialog` moved to `ui/`, no edit. Recorded as a known gap in feature-list. |
 | C8 | `Answer.kt:222` logs the linked note's heading, which is note content. | Content in a log line. | #74 |
-| C9 | No current dependency-advisory assessment exists. | Not done. | PR 1 |
-| C5 | `Library.answer` serializes the whole library before checking the 8 MiB ceiling (D6 accepted). | Accepted limit; needs the real measurement. | PR 1 |
-| C10 | Annotation provenance is authorized-repository level, not document-history level (D7 accepted). | Accepted limit; needs the wording. | PR 1 |
+| C9 | No current dependency-advisory assessment exists. | Not done. | PR 5 |
+| C5 | `Library.answer` serializes the whole library before checking the 8 MiB ceiling (D6 accepted). | Accepted limit; needs the real measurement. | PR 5 |
+| C10 | Annotation provenance is authorized-repository level, not document-history level (D7 accepted). | Accepted limit; needs the wording. | PR 5 |
 
 Closed since the audit baseline, and not reopened here: A1, A2, A3, A5, A10, A11, A12, C1, C3, C4, C6, C7. C2 (baseline creation versus acknowledgement) closed with PR4: a summary's baseline is cleared only when the resumed reader presents it (ADR-28; `AppNavigationTest.aChangeSummaryFetchedWhileCoveredIsAcknowledgedOnlyOnceShown`, `ReaderViewModelTest.signingOutAndPoppingCannotCancelAPresentedAcknowledgementWaitingForTheLock`).
 
@@ -40,8 +40,8 @@ Do not re-ask these. Each is recorded in, or is moved into, the owning ADR by th
 | D7 — provenance | Authorized-repository level. No history walk, no new GitHub calls. |
 | B1 — refresh on return | Not approved (ADR-28). Library and the folder root still reload on return. |
 | Deleted features (2026-10-19) | Changes since last read, the full-screen figure and the Notebook file export go. Each note is final to its author, who does not mind rereading; the figure view and the export were never used. PR 1. |
-| Sign-out keeps the phone's notes (2026-10-19) | Sign-out and account deletion end the session and no longer wipe the phone; the retired-copy lifetime, removal states and ownership records go. The phone holds one account's data at a time. PR 1. |
-| Reading positions (2026-10-19) | The server accepts every well-formed position instead of refusing one it could store. PR 1. |
+| Sign-out keeps the phone's notes (2026-10-19) | Sign-out and account deletion end the session and no longer wipe the phone; the retired-copy lifetime, removal states and ownership records go. The phone holds one account's data at a time. PR 2. |
+| Reading positions (2026-10-19) | The server accepts every well-formed position instead of refusing one it could store. PR 3. |
 
 ## 3. The five remaining pull requests
 
@@ -49,7 +49,7 @@ Do not re-ask these. Each is recorded in, or is moved into, the owning ADR by th
 
 ### PR 1 — Delete three features
 
-Deletions only, before any fix: the reader's ViewModel and `Sync` get smaller before PRs 3 and 4 change them. Net-negative by construction; no behaviour is replaced.
+Deletions only, before any fix: the reader's ViewModel and `Sync` get smaller before PRs 2 and 3 change them. Net-negative by construction; no behaviour is replaced.
 
 - **Changes since last read.** Android: `reader/Changes.kt`, the reader's summary load, presentation-time acknowledgement and baseline/reattachment saved state in `ReaderViewModel`, `ChangeBaselineRow` with its DAO queries and the `Sync` calls that create and clear baselines, `BaselineMigrationTest`, the two acknowledgement tests named in section 1, and the `changes` wire models. Backend: `GET /api/documents/{id}/changes`, `NoteChanges.java`, `NoteChangesTest`, the response records in `DocumentController`. `ContentMoves` stays: `RepositorySync` uses it for renames. The `change_baselines` table is dropped in Room **v15** (the same migration PR 1 extends); the backend has no table for it.
 - **Full-screen figure.** `reader/Figure.kt`, `Screen.Figure` with its snapshot fields, `FigureSnapshotTest`, `reader.js`'s Full screen link in `addFigureTools` and its figure-only page function, the `/full-screen` interception and `onFullScreen` parameter in `ReaderPage`, and the `onFigure` parameters threaded through `ReaderSession`, `Answer.kt` and `Reader.kt`. Tables and diagrams scroll sideways in the page as they do today.
@@ -58,7 +58,7 @@ Deletions only, before any fix: the reader's ViewModel and `Sync` get smaller be
 - Tests: the existing suites minus the deleted ones; the v14 → v15 migration test asserts user-owned rows survive the dropped table. Nothing new to assert beyond absence.
 - Docs: ADR-09 marked retired with the date and reason; ADR-13 (export) and ADR-22 amended; feature-list P1/P4 rows and architecture §4/§5 updated; `invariants.md`'s ownership table loses change baselines.
 
-### PR 1 — Sign-out and account deletion keep the phone's notes
+### PR 2 — Sign-out and account deletion keep the phone's notes
 
 **Owners:** `Account` for sign-in, sign-out and account deletion, each one server call; `SessionStore` for the session alone; `Sync` for one local copy that lives as long as the process.
 
@@ -72,7 +72,7 @@ Saved notes are already readable signed out. This PR makes that the whole story:
 - Docs: ADR-22 amended (data stays across sign-out; the owner clause goes), ADR-11 (dialog wording), architecture §4 root/`auth`/`sync` rows, `invariants.md` privacy section, feature-list's interrupted sign-out/deletion and retired-copy known gaps replaced by the one accepted limit above. ADR-03 is unchanged: the GitHub authorization is still revoked on the last sign-out.
 - Expected shape: `Account.kt` from 234 lines to under 100, `AccountTest` from 762 to about 150, `Sync` about 60 lines smaller, `RepoReadApp` loses `RemovalStatus`.
 
-### PR 1 — Reading positions accepted, saved pages retired (A4, A6, D2, D4)
+### PR 3 — Reading positions accepted, saved pages retired (A4, A6, D2, D4)
 
 **Owners:** `ReadingController` for what a position must look like; `MarkdownRenderer.FORMAT` for what a page format means; `Sync` for fetch decisions; `LibraryDao`/`LocalStore` for the rows and the migration.
 
@@ -86,7 +86,7 @@ Backend first, then app; the current app accepts a higher format and any 200, so
 - Docs: ADR-18 amended, feature-list's reading-refusal and legacy-page gaps removed, `invariants.md` "Bounded memory on the phone" names the retirement, ADR-08's pending-change list loses reading refusals.
 - Out of scope: any renderer-evolution subsystem, per-page fixtures, canonical-rule changes, image-identity changes.
 
-### PR 1 — One question identity and one card-plus-grade transaction (A7, A8, D5)
+### PR 4 — One question identity and one card-plus-grade transaction (A7, A8, D5)
 
 **Owners:** `Sync.gradeNewCard` for validation, matching and the write; `LibraryDao` for the transaction; `ReviewSchedule` unchanged.
 
@@ -99,7 +99,7 @@ Backend first, then app; the current app accepts a higher format and any 200, so
 - Docs: ADR-13 and ADR-20 amended (identity and confirmation boundary; D5 limitation named); feature-list's "renaming its heading makes it a new question" gap removed.
 - Out of scope: authored question ids, fuzzy matching, cross-device deduplication, question editing.
 
-### PR 1 — Close the audit (C5, C9, C10) and run the final check
+### PR 5 — Close the audit (C5, C9, C10) and run the final check
 
 - **C9:** `npm audit` in `android/reader-web` as its README documents; enable GitHub Dependabot alerts on the repository (a setting, not a dependency; needs your go-ahead). Record Spring Boot, AGP, Compose BOM and Navigation 3 versions with the result in feature-list; each applicable finding gets a fix or an accepted reason, as the KaTeX advisory already has.
 - **C5:** read the hosted backend's `Library read; userId=… bytes=…` log line for the real account; record bytes and counts beside the 8 MiB ceiling in feature-list with the revisit trigger. No new code.
@@ -110,7 +110,7 @@ Backend first, then app; the current app accepts a higher format and any 200, so
   2. One full device suite on the Pixel 8a Dev app: terminal `OK (n tests)`.
   3. Dev app against the Mac backend and real GitHub: open a note with an embedded image and a wide table, one Practice grade, one Review, an offline open, a reading position saved with the phone's clock set ahead, a sign-out and sign-in with every saved note still there.
   4. Release build installed over the phone's app, and the hosted backend's revision and health read as the backend README documents. Deploy and install need your go-ahead at the time.
-  Room migration coverage is the v15 migration test (PRs 1 and 3) and PR 1's. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` are not rerun: no PR changes `Anchoring`, `ContentMoves` or the canonical rules.
+  Room migration coverage is the v15 migration test (PRs 1 and 3) and PR 4's. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` are not rerun: no PR changes `Anchoring`, `ContentMoves` or the canonical rules.
 - **Then delete this file.** Decisions live in the ADRs, status in feature-list, the record in git. Feature-list's pasted build output (Save all audit, typed HTTP boundary, Navigation 3, screen work sections) is reduced to one status line each naming the PR.
 
 ## 4. Guardrails for PRs 2–5
@@ -140,7 +140,7 @@ Backend first, then app; the current app accepts a higher format and any 200, so
 
 ## 5. Reducing the app's complexity
 
-Everything here comes after PR 1. The rule: a feature or layer is deleted when real use shows it unused or when a simpler mechanism gives the same result; it goes with its rows, routes, tests and docs in one PR. Files move only in PRs that move files. New features are built only where the reading or study loop is actually broken.
+Everything here comes after PR 5. The rule: a feature or layer is deleted when real use shows it unused or when a simpler mechanism gives the same result; it goes with its rows, routes, tests and docs in one PR. Files move only in PRs that move files. New features are built only where the reading or study loop is actually broken.
 
 ### Build: images in Save all
 
@@ -167,4 +167,4 @@ One PR, moves only, verified by format check, compile and the existing suites:
 
 ### Documentation
 
-This plan goes with PR 1. `docs/` then holds the ADRs, architecture, invariants, feature status and user stories, each the owner of one kind of fact, with evidence in the merged PRs and git history rather than pasted transcripts.
+This plan goes with PR 5. `docs/` then holds the ADRs, architecture, invariants, feature status and user stories, each the owner of one kind of fact, with evidence in the merged PRs and git history rather than pasted transcripts.
