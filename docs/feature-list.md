@@ -222,7 +222,27 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:testD
 
 JVM reports: **82 tests, 0 failures, 0 errors, 1 skipped** (the opt-in corpus harness). Both new owner-specific Study suites compile/run, and the consolidated Navigation test compiles. `git diff --check` exits **0** with no output.
 
-**Current device limit:** the corrected APKs have been built but not installed or run pending an unlocked, awake phone. The earlier `OK (172 tests)` above applies only to `92ee00f`, not to this correction. The reviewer's separate 25-test attempt on the initial build had 13 lock-screen timeouts and is not a passing run either. No wake/unlock or settings change was attempted here.
+**Device verification completed (2026-10-20):** after the user connected/unlocked the Pixel 8a, read-only preflight reported `mWakefulness=Awake` and keyguard `showing=false`. The committed tree at `9ddf6ff` (code `15ca142`) was rebuilt, installed over RepoRead Dev without clearing data, and the full corrected suite passed. No wake/unlock or settings change was performed by the agent. The earlier `OK (172 tests)` and the reviewer's separate 25-test attempt with 13 lock-screen timeouts remain historical evidence for the initial build, not this correction.
+
+Commands and outputs (all exit **0**; the authorized phone identifier is omitted and represented by `$ANDROID_SERIAL`):
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+# BUILD SUCCESSFUL in 22s; 74 actionable tasks: 19 executed, 55 up-to-date
+~/Library/Android/sdk/platform-tools/adb -s "$ANDROID_SERIAL" install -r android/build/outputs/apk/debug/app-debug.apk
+# Success
+~/Library/Android/sdk/platform-tools/adb -s "$ANDROID_SERIAL" install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# Success
+~/Library/Android/sdk/platform-tools/adb shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+Time: 252.707
+
+OK (169 tests)
+```
+
+SHA-256 of the installed APK artifacts: app `c9ca05befecd88ad0829512545cbcbfe06c9c73d60f0176e25a81d22c8f7ce63`; device tests `956a515e52204fe00d92086038f7aa170edf3cf4ef2a606d43c4dccf97df9356`. This was the isolated Room/loopback suite, with no live-account smoke test or release install. No production/test source changed for this verification run.
 
 **Deferred/not touched:** class-name-independent session persistence remains a separate follow-up decision; Java-Serializable state and the approved format-4 gate stay. `Load`/`LoadContent`'s pre-existing public visibility is unchanged. Backend tests and private-corpus measurements were not rerun; no dependency, migration, production fixture, release install, push or deployment is part of this correction.
 
