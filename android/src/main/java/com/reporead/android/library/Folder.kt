@@ -66,13 +66,13 @@ internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<S
     return folders to notes
 }
 
-internal fun inPracticeFolder(path: String, folder: String): Boolean {
+internal fun inFolder(path: String, folder: String): Boolean {
     val prefix = folder.trim().trim('/')
     return prefix.isEmpty() || path.startsWith("$prefix/")
 }
 
-/** Every real ancestor folder is a topic, including folders whose notes have not been saved yet. */
-internal fun practiceTopics(paths: List<String>): List<String> =
+/** Distinct ancestor folders of the note [paths], parents before their descendants. */
+internal fun ancestorFolders(paths: List<String>): List<String> =
     paths
         .flatMap { path ->
             val parts = folderOf(path).split('/').filter { it.isNotEmpty() }

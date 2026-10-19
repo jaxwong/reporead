@@ -62,18 +62,18 @@ internal fun NotebookScreen(
     var document by rememberSaveable { mutableStateOf("") }
     var orphaned by rememberSaveable { mutableStateOf(false) }
     val folders =
-        remember(items) { listOf("" to "All folders") + practiceTopics(items.map { it.path }).map { it to it } }
+        remember(items) { listOf("" to "All folders") + ancestorFolders(items.map { it.path }).map { it to it } }
     val notes =
         remember(items, folder) {
             listOf("" to "All notes") +
                 items
-                    .filter { inPracticeFolder(it.path, folder) }
+                    .filter { inFolder(it.path, folder) }
                     .distinctBy { it.annotation.documentId }
                     .sortedBy { it.path }
                     .map { it.annotation.documentId.toString() to it.path }
         }
     val filtered = items.filter {
-        inPracticeFolder(it.path, folder) &&
+        inFolder(it.path, folder) &&
             (document.isEmpty() || it.annotation.documentId.toString() == document) &&
             (!orphaned || it.annotation.status == AnchorStatus.ORPHANED)
     }

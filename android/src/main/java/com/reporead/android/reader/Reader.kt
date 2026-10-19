@@ -50,8 +50,6 @@ import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.Passage
-import com.reporead.android.study.StudyNote
-import com.reporead.android.study.studyNote
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
