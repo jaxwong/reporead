@@ -1,6 +1,6 @@
 # Codebase audit and remediation plan
 
-Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five planned pull requests (PR1 is complete locally; PR2 also only deletes), the decisions they rest on, the final check, and the complexity reductions that follow.
+Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five planned pull requests (PR1 is merged; PR2 is complete locally), the decisions they rest on, the final check, and the complexity reductions that follow.
 
 [Invariants](invariants.md), [ADRs](adrs.md), [architecture](architecture.md) and [feature status](feature-list.md) keep their owners; this plan links to them and does not restate them. ADR-27 and ADR-28 own the Android foundations; the uncommitted `docs/android-foundations-plan.md` is superseded by them and is deleted, not committed.
 
@@ -49,7 +49,7 @@ Do not re-ask these. Each is recorded in, or is moved into, the owning ADR by th
 
 ### PR 1 — Delete three features
 
-**Complete locally, 2026-10-19:** code `8685dec`; verification is in [feature status](feature-list.md#audit-pr1--feature-retirements-2026-10-19). Not deployed or installed as a release. Reattachment and submitted-edit restoration stay; only baseline saved state is removed.
+**Merged as #75, 2026-10-19:** code `8685dec`; verification is in [feature status](feature-list.md#audit-pr1--feature-retirements-2026-10-19). Deployment was running when PR2 began; release installation is not claimed here. Reattachment and submitted-edit restoration stay; only baseline saved state is removed.
 
 Deletions only, before any fix: the reader's ViewModel and `Sync` get smaller before PRs 2 and 3 change them. Net-negative by construction; no behaviour is replaced.
 
@@ -62,7 +62,9 @@ Deletions only, before any fix: the reader's ViewModel and `Sync` get smaller be
 
 ### PR 2 — Sign-out and account deletion keep the phone's notes
 
-**Owners:** `Account` for sign-in, sign-out and account deletion, each one server call; `SessionStore` for the session alone; `Sync` for one local copy that lives as long as the process.
+**Complete locally, 2026-10-19:** code `bd4f065`; verification is in [feature status](feature-list.md#audit-pr2--sessions-keep-the-phones-notes-2026-10-19). Backend/Android gates passed; the final Pixel suite ended `OK (153 tests)`. Not deployed or installed as a release.
+
+**Owners:** `Account` for sign-in, sign-out and account deletion, each at most one server call; `SessionStore` for the session alone; `RepoReadApplication` for the process's one `Sync` and startup image sweep. The retiring account-owner rule includes removing `expectedUserId`, `ACCOUNT_MISMATCH`, and their backend/Android callers and tests, with OpenAPI regenerated.
 
 Saved notes are already readable signed out. This PR makes that the whole story: ending a session never touches Room or the image files.
 
@@ -72,7 +74,7 @@ Saved notes are already readable signed out. This PR makes that the whole story:
 - **Ownership:** no owner is recorded. Signing in as a different GitHub account replaces the lists at the first sync (ADR-08's one-snapshot rule) and the existing sweep removes saved pages nothing lists. Accepted limit, recorded in feature-list: unsent changes made before switching accounts would be sent under the new account. One user, one account; revisit if a second account is ever used on the phone.
 - Tests: `AccountTest` keeps sign-in, sign-out (revoked, refused, unreadable session) and deletion (confirmed, refused, 401, unreachable), each asserting notes, unsent work and images intact. The removal, Retry, interrupted-removal, late-writer-after-clear, same-account-reload, ownerless-sign-in and retirement cases go from `AccountTest`, `CommittedMutationTest`, `LocalSyncTest`, `NoteImagesTest` and `ReaderLifecycleTest`; the WebView-destroy assertion in `releasingARetiredReaderStillDestroysItsWebView` moves to an ordinary release test.
 - Docs: ADR-22 amended (data stays across sign-out; the owner clause goes), ADR-11 (dialog wording), architecture §4 root/`auth`/`sync` rows, `invariants.md` privacy section, feature-list's interrupted sign-out/deletion and retired-copy known gaps replaced by the one accepted limit above. ADR-03 is unchanged: the GitHub authorization is still revoked on the last sign-out.
-- Expected shape: `Account.kt` from 234 lines to under 100, `AccountTest` from 762 to about 150, `Sync` about 60 lines smaller, `RepoReadApp` loses `RemovalStatus`.
+- Actual shape: `Account.kt` is 111 lines, with no Sync/local-store dependency; `AccountTest` keeps its real notice-recreation test and assertions for every pending kind rather than targeting the estimated line count. `Sync` loses retirement/clear paths and `RepoReadApp` loses `RemovalStatus`. Production code: 94 lines added, 442 removed.
 
 ### PR 3 — Reading positions accepted, saved pages retired (A4, A6, D2, D4)
 
