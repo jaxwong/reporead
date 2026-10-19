@@ -92,15 +92,14 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 }
 
 /**
- * The Library's sync and sign-out confirmation, kept by its back-stack entry ([entryId]): a rotation neither stops nor
- * repeats the sync, and what it reported stays shown. Leaving the Library cancels a sync still running; its sends
- * commit what the server answered (Sync).
+ * The Library's sync, kept by its back-stack entry ([entryId]): a rotation neither stops nor repeats the sync, and what
+ * it reported stays shown. Leaving the Library cancels a sync still running; its sends commit what the server answered
+ * (Sync).
  */
 internal class LibraryViewModel(private val sync: Sync, private val entryId: String) : ViewModel() {
     data class State(
         val syncing: Boolean = false,
         val status: String? = null,
-        val confirmSignOut: Boolean = false,
     )
 
     private val current = MutableStateFlow(State())
@@ -161,10 +160,6 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
             current.update { it.copy(syncing = false, status = status) }
         }
     }
-
-    fun askToSignOut() = current.update { it.copy(confirmSignOut = true) }
-
-    fun closeSignOut() = current.update { it.copy(confirmSignOut = false) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -188,6 +183,7 @@ fun LibraryScreen(
     LaunchedEffect(signedIn) { model.shown(signedIn) }
     var tab by rememberSaveable { mutableStateOf(LibraryTab.READING) }
     var confirmDeleteAccount by rememberSaveable { mutableStateOf(false) }
+    var confirmSignOut by rememberSaveable { mutableStateOf(false) }
     val repositories by dao.repositories().collectAsStateWithLifecycle(emptyList())
     val waiting by dao.waitingCount().collectAsStateWithLifecycle(0)
     val outlook = rememberReviewOutlook(dao)
@@ -201,7 +197,7 @@ fun LibraryScreen(
                 "Library",
                 actions = {
                     IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
-                    val signOut = MenuAction("Sign out…", model::askToSignOut)
+                    val signOut = MenuAction("Sign out…") { confirmSignOut = true }
                     OverflowMenu(
                         if (signedIn) listOf(signOut, MenuAction("Delete account…") { confirmDeleteAccount = true })
                         else listOf(MenuAction("Sign in with GitHub", onSignIn))
@@ -287,11 +283,11 @@ fun LibraryScreen(
             onConfirm = { deleteAccount() },
         )
     }
-    if (state.confirmSignOut) {
+    if (confirmSignOut) {
         SignOutDialog(
-            onDismiss = model::closeSignOut,
+            onDismiss = { confirmSignOut = false },
             onConfirm = {
-                model.closeSignOut()
+                confirmSignOut = false
                 onSignOut()
             },
         )

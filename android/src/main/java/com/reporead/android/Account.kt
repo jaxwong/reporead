@@ -61,7 +61,9 @@ class Account(private val store: SessionStore, private val api: Api, private val
             try {
                 api.revokeSession()
             } catch (error: ApiException) {
-                Log.w("RepoRead", "Session revocation failed; status=${error.status} code=${error.code}")
+                if (error.status == 401)
+                    Log.i("RepoRead", "Session already ended; status=${error.status} code=${error.code}")
+                else Log.w("RepoRead", "Session revocation failed; status=${error.status} code=${error.code}")
             }
             store.clear()
             current.value = AccountState.Idle(null)

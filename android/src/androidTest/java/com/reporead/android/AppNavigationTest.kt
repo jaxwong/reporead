@@ -491,6 +491,37 @@ class AppNavigationTest {
     }
 
     @Test
+    fun accountConfirmationsSurviveRecreationAndFreshActivityRestoration() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        LoopbackServer(mapOf("GET /api/library" to library())).use { server ->
+            val api = api(server)
+            for ((action, title) in
+                listOf("Sign out…" to "Sign out of RepoRead?", "Delete account…" to "Delete your RepoRead account?")) {
+                launchApp(account(api), api)
+                awaitText("Library")
+                click("More")
+                click(action)
+                awaitText(title)
+                scenario!!.recreate()
+                awaitText(title)
+                val saved = saveActivityState(scenario!!)
+                scenario!!.close()
+                scenario = null
+                TestHostActivity.restoredState = saved
+                launchApp(account(api), api)
+                awaitText(title)
+                click("Cancel")
+                awaitScreen("Library", hidden = listOf(title))
+                assertTrue(sessions.hasSession)
+                assertNotNull(dao.note(1))
+                scenario!!.close()
+                scenario = null
+            }
+            assertTrue(server.requests.toString(), server.requests.all { it == "GET /api/library" })
+        }
+    }
+
+    @Test
     fun signOutConfirmationSaysSavedDataStaysAndCancelChangesNothing() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")
         dao.saveAnnotation(

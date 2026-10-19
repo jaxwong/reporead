@@ -62,7 +62,7 @@ Deletions only, before any fix: the reader's ViewModel and `Sync` get smaller be
 
 ### PR 2 — Sign-out and account deletion keep the phone's notes
 
-**Complete locally, 2026-10-19:** code `bd4f065`; verification is in [feature status](feature-list.md#audit-pr2--sessions-keep-the-phones-notes-2026-10-19). Backend/Android gates passed; the final Pixel suite ended `OK (153 tests)`. Not deployed or installed as a release.
+**Complete locally, 2026-10-19:** code `bd4f065`; verification is in [feature status](feature-list.md#audit-pr2--sessions-keep-the-phones-notes-2026-10-19). Backend/Android and device gates passed; exact results stay in feature status and the PR. Not deployed or installed as a release.
 
 **Owners:** `Account` for sign-in, sign-out and account deletion, each at most one server call; `SessionStore` for the session alone; `RepoReadApplication` for the process's one `Sync` and startup image sweep. The retiring account-owner rule includes removing `expectedUserId`, `ACCOUNT_MISMATCH`, and their backend/Android callers and tests, with OpenAPI regenerated.
 
@@ -74,7 +74,7 @@ Saved notes are already readable signed out. This PR makes that the whole story:
 - **Ownership:** no owner is recorded. Signing in as a different GitHub account replaces the lists at the first sync (ADR-08's one-snapshot rule) and the existing sweep removes saved pages nothing lists. Accepted limit, recorded in feature-list: unsent changes made before switching accounts would be sent under the new account. One user, one account; revisit if a second account is ever used on the phone.
 - Tests: `AccountTest` keeps sign-in, sign-out (revoked, refused, unreadable session) and deletion (confirmed, refused, 401, unreachable), each asserting notes, unsent work and images intact. The removal, Retry, interrupted-removal, late-writer-after-clear, same-account-reload, ownerless-sign-in and retirement cases go from `AccountTest`, `CommittedMutationTest`, `LocalSyncTest`, `NoteImagesTest` and `ReaderLifecycleTest`; the WebView-destroy assertion in `releasingARetiredReaderStillDestroysItsWebView` moves to an ordinary release test.
 - Docs: ADR-22 amended (data stays across sign-out; the owner clause goes), ADR-11 (dialog wording), architecture §4 root/`auth`/`sync` rows, `invariants.md` privacy section, feature-list's interrupted sign-out/deletion and retired-copy known gaps replaced by the one accepted limit above. ADR-03 is unchanged: the GitHub authorization is still revoked on the last sign-out.
-- Actual shape: `Account.kt` is 111 lines, with no Sync/local-store dependency; `AccountTest` keeps its real notice-recreation test and assertions for every pending kind rather than targeting the estimated line count. `Sync` loses retirement/clear paths and `RepoReadApp` loses `RemovalStatus`. Production code: 94 lines added, 442 removed.
+- Actual shape: `Account` has no Sync/local-store dependency; `AccountTest` keeps its real notice-recreation test and assertions for every pending kind rather than targeting the estimated line count. `Sync` loses retirement/clear paths and `RepoReadApp` loses `RemovalStatus`. Production code remains net-negative.
 
 ### PR 3 — Reading positions accepted, saved pages retired (A4, A6, D2, D4)
 
