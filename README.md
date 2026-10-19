@@ -1,10 +1,10 @@
 # RepoRead
 
-An Android reading and study layer for technical Markdown notes kept in GitHub: browse a repository, read code and Mermaid on the phone, resume where you stopped, highlight and annotate without touching the source, keep annotations trustworthy across edits, see what changed since you last read, search saved notes, work offline, and practise interview questions with spaced review. GitHub stays the source of truth; RepoRead never writes to it.
+An Android reading and study layer for technical Markdown notes kept in GitHub: browse a repository, read code and Mermaid on the phone, resume where you stopped, highlight and annotate without touching the source, keep annotations trustworthy across edits, search saved notes, work offline, and practise interview questions with spaced review. GitHub stays the source of truth; RepoRead never writes to it.
 
 | Part | What it is | Setup and contracts |
 | --- | --- | --- |
-| `backend/` | Spring Boot 4 / Java 25 / PostgreSQL 17: sign-in, connections, sync, rendering, reading state, annotations, re-anchoring, change summaries | [backend/README.md](backend/README.md) |
+| `backend/` | Spring Boot 4 / Java 25 / PostgreSQL 17: sign-in, connections, sync, rendering, reading state, annotations, re-anchoring | [backend/README.md](backend/README.md) |
 | `android/` | Kotlin/Compose app with Room offline storage and an isolated WebView reader | [android/README.md](android/README.md) |
 | `android/reader-web/` | The reader's bundled display JavaScript (highlighting, Mermaid) | [android/reader-web/README.md](android/reader-web/README.md) |
 | `docs/` | The single source of truth for decisions, scope and status: [architecture](docs/architecture.md), [invariants](docs/invariants.md), [ADRs](docs/adrs.md), [feature list](docs/feature-list.md), [user stories](docs/user-stories.md) | [architecture](docs/architecture.md) |
@@ -40,7 +40,6 @@ Device tests (Room on the phone) run with `adb shell am instrument`, never `conn
 | Incomplete GitHub tree | Sync fails without changes; notes are never marked deleted from an incomplete listing |
 | Note deleted upstream | Marked "Removed from the repository"; its progress, bookmark, and highlights are kept |
 | Edit makes a highlight's place uncertain | `ORPHANED` with its original context; reattach it by selecting the passage |
-| Old version gone from GitHub, or a huge edit | The change summary says so; no partial or invented summary |
 | Oversized or unsafe note content | A visible error or blocked element; never executed |
 | The reader's page renderer crashes, or Android reclaims it | That page is replaced by a message and the app keeps running; the reading position saved last stands |
 | A backend deploy is not healthy | The CI run fails and the new jar stays; going back is by hand: the previous jar runs on the schema the new one left (ADR-24), and a dump taken just before the restart is on the VM |

@@ -1,6 +1,6 @@
 # Codebase audit and remediation plan
 
-Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five pull requests that close them (two of which only delete), the decisions they rest on, the final check, and the complexity reductions that follow.
+Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five planned pull requests (PR1 is complete locally; PR2 also only deletes), the decisions they rest on, the final check, and the complexity reductions that follow.
 
 [Invariants](invariants.md), [ADRs](adrs.md), [architecture](architecture.md) and [feature status](feature-list.md) keep their owners; this plan links to them and does not restate them. ADR-27 and ADR-28 own the Android foundations; the uncommitted `docs/android-foundations-plan.md` is superseded by them and is deleted, not committed.
 
@@ -20,7 +20,7 @@ Line numbers are on `main` at `35af494`.
 | C5 | `Library.answer` serializes the whole library before checking the 8 MiB ceiling (D6 accepted). | Accepted limit; needs the real measurement. | PR 5 |
 | C10 | Annotation provenance is authorized-repository level, not document-history level (D7 accepted). | Accepted limit; needs the wording. | PR 5 |
 
-Closed since the audit baseline, and not reopened here: A1, A2, A3, A5, A10, A11, A12, C1, C3, C4, C6, C7. C2 (baseline creation versus acknowledgement) closed with PR4: a summary's baseline is cleared only when the resumed reader presents it (ADR-28; `AppNavigationTest.aChangeSummaryFetchedWhileCoveredIsAcknowledgedOnlyOnceShown`, `ReaderViewModelTest.signingOutAndPoppingCannotCancelAPresentedAcknowledgementWaitingForTheLock`).
+Closed since the audit baseline, and not reopened here: A1, A2, A3, A5, A10, A11, A12, C1, C3, C4, C6, C7. C2 (baseline creation versus acknowledgement) closed with foundations PR4; audit PR1 retires the summary feature and its acknowledgement tests entirely.
 
 ## 2. Decisions already made
 
@@ -43,15 +43,17 @@ Do not re-ask these. Each is recorded in, or is moved into, the owning ADR by th
 | Sign-out keeps the phone's notes (2026-10-19) | Sign-out and account deletion end the session and no longer wipe the phone; the retired-copy lifetime, removal states and ownership records go. The phone holds one account's data at a time. PR 2. |
 | Reading positions (2026-10-19) | The server accepts every well-formed position instead of refusing one it could store. PR 3. |
 
-## 3. The five remaining pull requests
+## 3. The five remediation pull requests
 
 #74 rebased this plan and closed C8 (`Answer.kt` no longer logs the heading). Every PR below: one step, red test first, replaced code and its tests deleted in the same PR, every caller updated, device suite run, one docs commit (ADR amendment, feature-list status, invariants) and no new dependency, manager, wrapper or configuration knob. A refactor commit removes more production lines than it adds or says why not.
 
 ### PR 1 — Delete three features
 
+**Complete locally, 2026-10-19:** code `8685dec`; verification is in [feature status](feature-list.md#audit-pr1--feature-retirements-2026-10-19). Not deployed or installed as a release. Reattachment and submitted-edit restoration stay; only baseline saved state is removed.
+
 Deletions only, before any fix: the reader's ViewModel and `Sync` get smaller before PRs 2 and 3 change them. Net-negative by construction; no behaviour is replaced.
 
-- **Changes since last read.** Android: `reader/Changes.kt`, the reader's summary load, presentation-time acknowledgement and baseline/reattachment saved state in `ReaderViewModel`, `ChangeBaselineRow` with its DAO queries and the `Sync` calls that create and clear baselines, `BaselineMigrationTest`, the two acknowledgement tests named in section 1, and the `changes` wire models. Backend: `GET /api/documents/{id}/changes`, `NoteChanges.java`, `NoteChangesTest`, the response records in `DocumentController`. `ContentMoves` stays: `RepositorySync` uses it for renames. The `change_baselines` table is dropped in Room **v15** (the same migration PR 3 extends); the backend has no table for it.
+- **Changes since last read.** Android: `reader/Changes.kt`, the reader's summary load, presentation-time acknowledgement and baseline saved state in `ReaderViewModel`, `ChangeBaselineRow` with its DAO queries and the `Sync` calls that create and clear baselines, `BaselineMigrationTest`, the summary acknowledgement tests, and the `changes` wire models. Backend: `GET /api/documents/{id}/changes`, `NoteChanges.java`, `NoteChangesTest`, the response records in `DocumentController`. `ContentMoves` stays: `RepositorySync` uses it for renames. The `change_baselines` table is dropped in Room **v15** (the same migration PR 3 extends); the backend has no table for it.
 - **Full-screen figure.** `reader/Figure.kt`, `Screen.Figure` with its snapshot fields, `FigureSnapshotTest`, `reader.js`'s Full screen link in `addFigureTools` and its figure-only page function, the `/full-screen` interception and `onFullScreen` parameter in `ReaderPage`, and the `onFigure` parameters threaded through `ReaderSession`, `Answer.kt` and `Reader.kt`. Tables and diagrams scroll sideways in the page as they do today.
 - **Notebook export.** `Sync`'s export writer and lock path, `exportDirectory`, `deleteExports` at its four call sites, `res/xml/export_paths.xml` and the FileProvider manifest entry, `NotebookViewModel.export`/`claimExport` and the Export button, `notebookMarkdown`, `NotebookExportTest`. ADR-22's "a shared export cannot be revoked" consequence goes with it.
 - Every caller grepped before and after; `openapi.json` regenerated by `OpenApiSpecTest`; the generated wire models follow.
@@ -160,7 +162,7 @@ One PR, moves only, verified by format check, compile and the existing suites:
 
 ### Not simplified, and why
 
-- Navigation 3 and the seven entry ViewModels: standard, just landed, and the alternative was the hand-written stack they replaced.
+- Navigation 3 and the six remaining entry ViewModels: standard, just landed, and the alternative was the hand-written stack they replaced.
 - Two refusal shapes (`AnnotationState`, `review_log.rejection`): one pending table would be a larger migration than the duplication costs. Revisit if a third kind of pending change appears.
 - `NoteImages`' own file lock: images load outside the sync lock so a page's images never wait behind a sync.
 - Backend auth (about 1,100 lines across `GitHubCredentials`, `GitHubTokens`, `GitHubSecurity`, `AppSessions`, `AppAuthController`): GitHub App user tokens expire, so renewal, encrypted storage and revocation are requirements, not optional layers.
