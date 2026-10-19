@@ -125,12 +125,10 @@ Noticed and deliberately not changed:
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
-- A reading position the server refuses (for example, with the phone's clock more than 5 minutes ahead) stays pending, counted as waiting, until a newer one replaces it: reading rows have no refusal mark, unlike highlights and grades. Fixing it is a Room migration.
 - A bank question is matched to its card by bank, prompt and answer line, so renaming its heading or editing its Canonical line makes it a new question; grading it then starts a second card on the same answer.
 - Unsent changes made before switching GitHub accounts can be sent under the new account. Accepted for one user with one account on this phone; revisit before a second account is used (ADR-22).
-- Saved pages predating the server's complete-page limit are not rewritten or deleted automatically. New content is limited to 1 MiB of UTF-8 across HTML, search text and metadata; complete 2 MiB string payloads were reproduced as unreadable in Room on the Pixel 8a, Android 14. Cache/page-format evolution is tracked in the [remediation plan](audit-remediation-plan.md#step-4--complete-saved-page-and-reading-state-transitions-a4-a6).
 
-The ADRs record further limits: anchors (ADR-05), the unbumped page format (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
+The ADRs record further limits: anchors (ADR-05), presentation-only page upgrades (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
 
 ## Save all background-work audit — 2026-10-18
 
@@ -197,6 +195,30 @@ Implemented in `8685dec`: section summaries, full-screen figures and Notebook ex
 ## Audit PR2 — Sessions keep the phone's notes (2026-10-19)
 
 Sign-out and confirmed account deletion end only the session; every outcome preserves pages, images and user-owned pending work. `Account` no longer knows about Sync or the local store; the application owns one Sync per process. Retired-copy/owner/removal/Retry paths and the `expectedUserId`/`ACCOUNT_MISMATCH` contract are removed. Sign-in and account operations retain navigation. The accepted account-switch limit is under Known gaps. Verified locally: backend format/tests (280 tests, 3 opt-in skips), Android format/Lint/JVM tests (78 tests, 1 opt-in skip), reader bundle, both assemblies and device-test compilation passed. The latest Pixel 8a full isolated suite, including the review follow-up's confirmation-restoration regression, ended `OK (154 tests)` in 226.718 s. Exact commands and terminal results are in the implementation PR. No release install, deployment or live GitHub smoke run is claimed.
+
+## Audit PR3 — Reading positions and saved-page retirement (2026-10-19)
+
+`ReadingController` clamps timestamps to [1970, server now], accepts anchors beyond the old shape limits, and makes zero GitHub calls. Malformed bodies remain loud 400 errors; the reproduced NUL/unpaired-surrogate exception was approved as malformed input, never sanitized. The retired reading-refusal code and UI result kind are removed, with bookmark refusal wording preserved. Each pending position is sent at most once per pass; a clamped response is acknowledged and merged, and a confirmed 404 no longer waits.
+
+Renderer/app format **4** records the already-shipped presentation fixes without changing canonical blocks, headings or rendering. The existing fetch gate is unchanged: a current-version format-3 copy refreshes once online, opens without warning offline, and a refused newer version leaves the saved copy with its reason. Save all's second run fetches only remaining outdated pages.
+
+Room **v16** is an approved correction to the plan: v15 already shipped in PR1/PR2 and is unchanged. Retirement runs inside SQLite at the measured 2,097,152-character combined HTML/search-text cutoff, then explicitly removes derived links whose page is gone (foreign keys are enabled after migration). Smaller pages and all user-owned rows survive; images go through the existing startup sweep. The exported v16 schema changes only the version, not row shapes. Production source is net-negative (24 lines); the larger added artifact is the required versioned Room schema export, not new row shapes or logic. No dependency, retry path, format registry or refusal-state column was added.
+
+Reproduced first: backend regressions failed 8 of 41, the three malformed-text cases failed before validation, and the initial three Android regressions all failed. Migration coverage upgrades exported v14 and v15 schemas, including empty input, exact/over/below-cutoff pages, nullable search text, pending and acknowledged user work, derived-link integrity and a reopened database with two image sweeps. The full Sync tests cover clamped acknowledgement, unrelated pending work, a loud 400, a dropped 404, bookmark refusal, offline reads, partial failures and second runs.
+
+Executed local gates (PostgreSQL/Testcontainers and Pixel 8a Dev app; isolated test data only):
+
+| Exact command | Exit | Terminal result |
+| --- | --- | --- |
+| `./gradlew :backend:spotlessCheck :backend:test --no-daemon` | 0 | `BUILD SUCCESSFUL in 1m 25s`; 290 tests, 0 failures/errors, 3 opt-in skips; includes OpenAPI and shared-refusal checks. OpenAPI is unchanged. |
+| `ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :app:compileDebugAndroidTestKotlin --no-daemon` | 0 | `BUILD SUCCESSFUL in 27s`; 78 JVM tests, 0 failures/errors, 1 opt-in skip. Kotlin/Java compilation and both assemblies passed; unchanged reader assets were up to date. |
+| `~/Library/Android/sdk/platform-tools/adb -s 10.203.7.137:43717 install -r android/build/outputs/apk/debug/app-debug.apk` | 0 | `Success`; Dev app only, data kept. |
+| `~/Library/Android/sdk/platform-tools/adb -s 10.203.7.137:43717 install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` | 0 | `Success`. |
+| `~/Library/Android/sdk/platform-tools/adb -s 10.203.7.137:43717 shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` | 0 | `Time: 226.24` and `OK (162 tests)`; the terminal success, not adb's exit alone, is the pass gate. |
+
+Code: backend `070d1a4`, Android `15de0c0`, on local branch `accept-reading-retire-legacy-pages`. Both the full suite and the earlier targeted Sync/migration run (`OK (39 tests)`) passed. The migration regression exposed that page deletion alone leaves derived links during migration; explicit link cleanup preserves the foreign-key integrity assertion rather than weakening it.
+
+The release APK was built, not installed. No push, hosted deployment, live GitHub smoke check, real phone-clock change or real-corpus measurement is claimed; deploy/install retain their separate approval gate. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` remain opt-in skips because canonical rules and anchoring did not change. The reader/assets gate reused unchanged outputs, not a claimed new bundle build. Existing SDK XML-version and JVM class-sharing warnings were not changed.
 
 ## Not yet verified on the real system
 
