@@ -171,7 +171,7 @@ Merged and verified in [PR #83](https://github.com/jaxwong/reporead/pull/83): ev
 
 ## Cleanup freeze (2026-10-20)
 
-Implemented and locally verified on `cleanup-freeze`, not yet pushed: batch image sweeping, cancellation-protected review dismissal, visible bookmark rejection, midnight-aware Review completion, one page-script decoding boundary, one complete-page limit, shared OAuth/text rules, GitHub HTTP path redaction, and server-owned annotation capacity. Backend/Android gates, the isolated Pixel suite and release assembly pass; all six docs are reconciled with the code. Exact commands/results stay in the commit and future PR, not this feature list. Deployment, release installation and the Stage 6 gate are not claimed by this branch.
+Implemented and locally verified in open [PR #84](https://github.com/jaxwong/reporead/pull/84) (`cleanup-freeze`): batch image sweeping, cancellation-protected review dismissal, visible bookmark rejection, midnight-aware Review completion, one page-script decoding boundary, one complete-page limit, shared OAuth/text rules, GitHub HTTP path redaction, and server-owned annotation capacity. Backend/Android gates, the isolated Pixel suite and release assembly pass; all six docs are reconciled with the code. Exact commands/results stay in the commit and PR, not this feature list. Deployment, release installation and the Stage 6 gate are not claimed by this branch.
 
 ## Not yet verified on the real system
 
