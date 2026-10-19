@@ -1,7 +1,8 @@
-// Owns: The Add repository screen and its list/connect presentation; Api owns the HTTP contract.
+// Owns: The Add repository screen and its entry's list and connection; Sync saves what connecting made.
 
 package com.reporead.android.library
 
+import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -13,68 +14,125 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
+import com.reporead.android.core.network.Load
 import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.describe
-import com.reporead.android.core.network.rememberLoad
 import com.reporead.android.core.network.wire.RepositoryConnectionsAvailable
-import com.reporead.android.core.network.wire.RepositoryControllerConnectRequest
+import com.reporead.android.core.network.wire.RepositoryConnectionsConnection
+import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.StatusLine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Connects [repository] and returns its top folder. Connecting a connected repository again keeps its data and takes
- * GitHub's current name and default branch: the way back after either is renamed on GitHub.
+ * Add repository's list and connection, kept by its back-stack entry ([entryId]): a rotation neither fetches the list
+ * again nor cancels a connect, and the connected repository's folder opens once, from the screen then shown. Leaving
+ * the screen cancels a list fetch; a connection the server made is still saved on this phone (Sync.connect).
  */
-private suspend fun connect(api: Api, repository: RepositoryConnectionsAvailable): Screen.Folder {
-    val connected =
-        api.connectRepository(
-            repository.githubRepositoryId,
-            RepositoryControllerConnectRequest(installationId = repository.installationId),
-        )
-    return Screen.Folder(connected.id, connected.fullName, "")
-}
+internal class AvailableViewModel(private val api: Api, private val sync: Sync, private val entryId: String) :
+    ViewModel() {
+    data class State(
+        val listing: Load<List<RepositoryConnectionsAvailable>> = Load.Loading,
+        /** The repository being connected; one at a time. */
+        val connecting: Long? = null,
+        val error: String? = null,
+        /** Connected and saved here; the screen opens its folder once ([claimConnected]). */
+        val connected: RepositoryConnectionsConnection? = null,
+    )
 
-@Composable
-fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit) {
-    var reload by remember { mutableIntStateOf(0) }
-    // The repository being connected; one at a time.
-    var connecting by remember { mutableStateOf<Long?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    val load by rememberLoad(reload) { api.availableRepositories().repositories }
+    private val current = MutableStateFlow(State())
+    val state: StateFlow<State> = current.asStateFlow()
 
-    fun connectTo(repository: RepositoryConnectionsAvailable) {
-        connecting = repository.githubRepositoryId
-        error = null
-        scope.launch {
+    init {
+        list("created")
+    }
+
+    fun retry() {
+        val now = current.value
+        if (now.listing !is Load.Failed || !current.compareAndSet(now, now.copy(listing = Load.Loading))) {
+            Log.i(
+                "RepoRead",
+                "Available list not fetched again; entry=$entryId listing=${now.listing.javaClass.simpleName}",
+            )
+            return
+        }
+        list("retry")
+    }
+
+    private fun list(reason: String) {
+        Log.i("RepoRead", "Available list started; entry=$entryId reason=$reason")
+        viewModelScope.launch {
+            val listing =
+                try {
+                    Load.Ready(api.availableRepositories().repositories)
+                } catch (error: ApiException) {
+                    Load.Failed(error)
+                }
+            current.update { it.copy(listing = listing) }
+        }
+    }
+
+    fun connect(repository: RepositoryConnectionsAvailable) {
+        val now = current.value
+        if (
+            now.connecting != null ||
+                !current.compareAndSet(now, now.copy(connecting = repository.githubRepositoryId, error = null))
+        ) {
+            Log.i(
+                "RepoRead",
+                "Connect not started; entry=$entryId connecting=${now.connecting} requested=${repository.githubRepositoryId}",
+            )
+            return
+        }
+        Log.i("RepoRead", "Connect started; entry=$entryId githubRepositoryId=${repository.githubRepositoryId}")
+        viewModelScope.launch {
             try {
-                onConnected(connect(api, repository))
+                val connected = sync.connect(repository.githubRepositoryId, repository.installationId)
+                current.update { it.copy(connecting = null, connected = connected) }
             } catch (failure: ApiException) {
-                error = failure.describe()
-            } finally {
-                connecting = null
+                current.update { it.copy(connecting = null, error = failure.describe()) }
             }
         }
     }
 
+    /** The connected repository, once, for the screen that opens its folder. */
+    fun claimConnected(): RepositoryConnectionsConnection? {
+        val now = current.value
+        val connected = now.connected ?: return null
+        return if (current.compareAndSet(now, now.copy(connected = null))) connected else null
+    }
+}
+
+@Composable
+fun AvailableScreen(api: Api, sync: Sync, entryId: String, onBack: () -> Unit, onConnected: (Screen) -> Unit) {
+    val model = viewModel { AvailableViewModel(api, sync, entryId) }
+    val state by model.state.collectAsStateWithLifecycle()
+    if (state.connected != null)
+        LifecycleResumeEffect(Unit) {
+            model.claimConnected()?.let { onConnected(Screen.Folder(it.id, it.fullName, "")) }
+            onPauseOrDispose {}
+        }
     Scaffold(topBar = { AppBar("Add repository", onBack = onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             StatusLine("Only repositories you granted to the RepoRead GitHub App appear here.")
-            StatusLine(error)
-            LoadContent(load, onRetry = { reload++ }) { repositories ->
+            StatusLine(state.error)
+            LoadContent(state.listing, onRetry = model::retry) { repositories ->
                 if (repositories.isEmpty())
                     EmptyState(
                         "No repositories are available. Grant repositories to the RepoRead GitHub App on GitHub, then try again."
@@ -82,7 +140,7 @@ fun AvailableScreen(api: Api, onBack: () -> Unit, onConnected: (Screen) -> Unit)
                 else
                     LazyColumn {
                         items(repositories, key = { it.githubRepositoryId }) { repository ->
-                            AvailableRow(repository, connecting, onConnect = { connectTo(repository) })
+                            AvailableRow(repository, state.connecting, onConnect = { model.connect(repository) })
                         }
                     }
             }
