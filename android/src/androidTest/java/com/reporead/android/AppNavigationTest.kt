@@ -3,14 +3,12 @@
 
 package com.reporead.android
 
-import android.os.Parcel
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.SaveableStateRegistry
 import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -58,6 +56,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -122,6 +121,7 @@ class AppNavigationTest {
         scenario?.close()
         instrumentation.waitForIdleSync()
         TestHostActivity.content = null
+        TestHostActivity.restoredState = null
         scope.cancel()
         store.close()
         context.deleteSharedPreferences(prefsName)
@@ -291,16 +291,13 @@ class AppNavigationTest {
         LoopbackServer(emptyMap()).use { server ->
             val api = api(server)
             val account = account(api)
-            val first = SaveableStateRegistry(null) { true }
-            launch(savedStateHost(first, account, sessions, api, dao, scope))
+            launchApp(account, api)
             openNoteAWithItsPanel()
-            lateinit var saved: Map<String, List<Any?>>
-            scenario!!.onActivity { saved = first.performSave() }
+            val saved = saveActivityState(scenario!!)
             scenario!!.close()
             scenario = null
-            launch(
-                savedStateHost(SaveableStateRegistry(throughParcel(saved)) { true }, account, sessions, api, dao, scope)
-            )
+            TestHostActivity.restoredState = saved
+            launchApp(account, api)
             awaitNoteA(panelOpen = true)
             pressBack()
             awaitFolder()
@@ -308,6 +305,41 @@ class AppNavigationTest {
             awaitText("test-only/notes")
             assertTrue(selected("Repositories"))
             assertEquals(emptyList<String>(), server.requests)
+        }
+    }
+
+    @Test
+    fun aLegacyActivityStateStartsAtTheRootWithoutChangingSavedData() = runBlocking {
+        dao.saveAnnotation(
+            AnnotationRow(
+                "test-only-pending",
+                null,
+                1,
+                testSha,
+                "b0",
+                0,
+                4,
+                "Test",
+                null,
+                1,
+                0,
+                state = AnnotationState.UNSENT,
+            )
+        )
+        LoopbackServer(emptyMap()).use { server ->
+            val api = api(server)
+            val account = account(api)
+            val file = File(directory, "test-only-preserved.txt").apply { writeText("Test-only saved file") }
+            TestHostActivity.restoredState = legacyNavigationState()
+            launchApp(account, api)
+            awaitScreen("Library", hidden = listOf("Note A", "Linked from", "Test-only legacy stack"))
+            assertTrue(selected("Reading"))
+            assertEquals(3, dao.documents(7).first().size)
+            assertNotNull(dao.note(1))
+            assertEquals(AnnotationState.UNSENT, dao.annotation("test-only-pending")?.state)
+            assertEquals("Test-only saved file", file.readText())
+            assertEquals(emptyList<String>(), server.requests)
+            awaitBackLeavesTheApp()
         }
     }
 
@@ -375,6 +407,67 @@ class AppNavigationTest {
                 assertTrue(selected("Repositories"))
                 assertTrue(sessions.hasSession)
             }
+    }
+
+    @Test
+    fun signingInOverOwnerlessDataRetiresTheOldStack() = runBlocking {
+        // Test-only legacy copy: saved notes exist, but no account owns them (AccountTest's upgrade fixture).
+        sessions.finishRemoval()
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(connected = false),
+                    "POST /api/app-auth/token" to (200 to wire(testSession(userId = 6))),
+                )
+            )
+            .use { server ->
+                val api = api(server)
+                val account = account(api)
+                val oldCopy = account.sync
+                launchApp(account, api)
+                openNoteAWithItsPanel()
+                sessions.pendingVerifier = "test-only-verifier"
+                scenario!!.onActivity { signInCode.value = "TEST_ONLY_CODE" }
+                awaitScreen("Library", hidden = listOf("Note A", "Linked from"))
+                assertTrue(selected("Reading"))
+                assertTrue(account.sync !== oldCopy)
+                assertNull(dao.note(1))
+                assertEquals(6L, sessions.dataOwner)
+                awaitBackLeavesTheApp()
+                assertEquals(listOf("POST /api/app-auth/token", "GET /api/library"), server.requests)
+            }
+    }
+
+    @Test
+    fun aRefusedOwnerlessSignInDoesNotRestoreTheRetiredStackOnTheSecondAttempt() = runBlocking {
+        sessions.finishRemoval()
+        val routes =
+            ConcurrentHashMap(
+                mapOf(
+                    "GET /api/library" to library(connected = false),
+                    "POST /api/app-auth/token" to failure(400, "TEST_ONLY_REFUSED"),
+                )
+            )
+        LoopbackServer(routes).use { server ->
+            val api = api(server)
+            launchApp(account(api), api)
+            openNoteAWithItsPanel()
+            sessions.pendingVerifier = "test-only-verifier"
+            scenario!!.onActivity { signInCode.value = "TEST_ONLY_FIRST_CODE" }
+            awaitScreen("Sign in with GitHub", hidden = listOf("Note A", "Linked from"))
+            awaitText("Test-only TEST_ONLY_REFUSED")
+            assertNull(dao.note(1))
+            assertEquals(listOf("POST /api/app-auth/token"), server.requests)
+            routes["POST /api/app-auth/token"] = 200 to wire(testSession(userId = 6))
+            sessions.pendingVerifier = "test-only-next-verifier"
+            scenario!!.onActivity { signInCode.value = "TEST_ONLY_SECOND_CODE" }
+            awaitScreen("Library", hidden = listOf("Note A", "Linked from"))
+            assertTrue(selected("Reading"))
+            awaitBackLeavesTheApp()
+            assertEquals(
+                listOf("POST /api/app-auth/token", "POST /api/app-auth/token", "GET /api/library"),
+                server.requests,
+            )
+        }
     }
 
     /** Sign-out is offered only at the root, so the old state left to clear is the root's own (its tab). */
@@ -544,18 +637,5 @@ class AppNavigationTest {
                 assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
                 awaitBackLeavesTheApp()
             }
-    }
-}
-
-/** What survives process death of [saved]: written to a Parcel and read back, as the system does with saved state. */
-@Suppress("UNCHECKED_CAST")
-internal fun throughParcel(saved: Map<String, List<Any?>>): Map<String, List<Any?>> {
-    val parcel = Parcel.obtain()
-    try {
-        parcel.writeValue(HashMap(saved.mapValues { ArrayList(it.value) }))
-        parcel.setDataPosition(0)
-        return parcel.readValue(AppNavigationTest::class.java.classLoader) as Map<String, List<Any?>>
-    } finally {
-        parcel.recycle()
     }
 }

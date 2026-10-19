@@ -177,13 +177,13 @@ These come from the original implementation spec's engineering invariants and th
 - Checked by: `LocalStoreTest`, and the Java heap on the phone while the screen opens (Practice peaks at 40 MB).
 - Decisions: [ADR-19](adrs.md#adr-19--every-note-can-be-saved-on-the-phone-one-note-at-a-time-with-no-eviction), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer).
 
-### Saved screen state belongs to its entry and its build
+### Saved screen state belongs to its entry and its format
 
-**A back-stack entry's saved UI state is its own, from its push until it leaves the stack, and saved state is restored only by the build that saved it.**
+**A back-stack entry's saved UI state and ViewModel store are its own from push to pop; compatible saved state survives ordinary build updates, and a new local copy starts a fresh root.**
 
-- Enforced by: Navigation 3's saved-state decorator, keyed by each `Entry`'s id and kept above the account screen (`RepoReadApp`); `MainActivity` drops saved instance state that records another build (`savedByThisBuild`).
-- Checked by: `AppNavigationTest` (a repeated note, recreation, restoration through a Parcel, account screens over the stack, a fresh root after sign-out) and `NavigationTest` (every destination through the saved-state encoding; `savedByThisBuild` on another build's state). Its use in `MainActivity` is checked by review only, as launching `MainActivity` in a test would use the dev app's real data.
-- Why: Compose keeps saved state by place, so another build's state can be read in the wrong format; [ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-build).
+- Enforced by: Navigation 3's saved-state and ViewModel-store decorators above the account gate, keyed by each `Entry`'s id; the back stack's `Account.sync` input; `compatibleSavedState` at the Activity boundary.
+- Checks: `AppNavigationTest` drives real screens/account gates, fresh-copy resets and Activity restoration; `NavigationTest` checks every destination and format acceptance; `EntryLifetimeTest` probes real decorated Navigation 3 owners, including cover/rotation/pop/removal and fresh-Activity restoration. The debug host uses the production format policy at its Activity boundary. `MainActivity` wiring itself remains checked by review; tests do not launch the live app's store. Execution status is recorded in ADR-27.
+- Why: Compose keeps saved state by place, so incompatible formats must be rejected without discarding compatible state at every update; [ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format).
 
 ## Constraints on reader code
 

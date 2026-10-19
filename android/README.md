@@ -76,6 +76,12 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:assembleDebug :app:assem
 
 They need the debug build (RepoRead Dev) installed; the release app is untouched. `./gradlew :app:connectedDebugAndroidTest` runs the same tests but **uninstalls RepoRead Dev afterwards**, deleting its session, cache, and any unsynced changes. `am instrument` exits 0 even when tests fail: the run passed only if it ends with `OK (n tests)`.
 
+Navigation restoration tests pass a real Activity saved-instance-state Bundle through a Parcel into a fresh debug host,
+using the same format policy as `MainActivity`. The historical string-list fixture is constructed from the old saver
+format, not captured from an old APK. `EntryLifetimeTest` probes real Navigation 3 decorators with labelled test-only
+ViewModels; production screen work remains composition-owned until foundations PR 4. [ADR-27](../docs/adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)
+records decisions and executed evidence.
+
 ### Historical live verification
 
 The scratch-note live-write harness was removed after review: its recovery path could send unrelated pending work

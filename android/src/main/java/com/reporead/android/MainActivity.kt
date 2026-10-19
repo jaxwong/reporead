@@ -3,6 +3,7 @@ package com.reporead.android
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
+import android.util.Log
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,16 +16,20 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 
-/** Where a saved instance state records the build that wrote it ([BuildConfig.VERSION_CODE]). */
-internal const val SAVED_BY_BUILD = "savedByBuild"
+internal const val NAVIGATION_STATE_FORMAT_KEY = "navigationStateFormat"
+/** Change only when the saved navigation/UI format becomes incompatible, never for an ordinary build. */
+internal const val NAVIGATION_STATE_FORMAT = 1
 
 /**
- * [saved] if this build wrote it, else null, so the activity starts afresh. Compose keeps saved UI state by its place
- * in the composition, not by the code that wrote it, so another build's state can sit where this one keeps something
- * else, and reading it there fails (ADR-27). Builds before this rule recorded none, so their state is not restored.
+ * Compose keys saved UI state by position, so the old string-list stack cannot be read as Navigation 3 state. Drop
+ * unmarked/incompatible state once at the activity boundary; compatible updates retain drafts and navigation (ADR-27).
  */
-internal fun savedByThisBuild(saved: Bundle?): Bundle? = saved?.takeIf {
-    it.getInt(SAVED_BY_BUILD, -1) == BuildConfig.VERSION_CODE
+internal fun compatibleSavedState(saved: Bundle?): Bundle? {
+    if (saved == null) return null
+    val format = saved.getInt(NAVIGATION_STATE_FORMAT_KEY, 0)
+    if (format == NAVIGATION_STATE_FORMAT) return saved
+    Log.i("RepoRead", "Saved UI state reset; recordedFormat=$format expectedFormat=$NAVIGATION_STATE_FORMAT")
+    return null
 }
 
 class MainActivity : ComponentActivity() {
@@ -32,7 +37,7 @@ class MainActivity : ComponentActivity() {
     private val signInCode = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedByThisBuild(savedInstanceState))
+        super.onCreate(compatibleSavedState(savedInstanceState))
         val app = application as RepoReadApplication
         app.account.startUp()
         // Debug builds only: lets Chrome DevTools inspect the reader over adb. Release builds never expose it.
@@ -60,7 +65,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putInt(SAVED_BY_BUILD, BuildConfig.VERSION_CODE)
+        outState.putInt(NAVIGATION_STATE_FORMAT_KEY, NAVIGATION_STATE_FORMAT)
     }
 
     override fun onNewIntent(intent: Intent) {

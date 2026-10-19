@@ -20,6 +20,7 @@ import androidx.compose.runtime.saveable.rememberSerializable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
@@ -157,7 +158,11 @@ fun RepoReadApp(
     // Saved notes stay readable while signed out; only refreshing and syncing wait for a new sign-in.
     val signedIn by remember { store.signedIn() }.collectAsState(remember { store.hasSession })
     val accountState by account.state.collectAsState()
-    val backStack = rememberSerializable(serializer = BackStackSerializer) { NavBackStack(entry(Screen.Repositories)) }
+    // Account publishes a new copy after every cleanup, including ownerless sign-in, which never enters Removing.
+    val backStack =
+        rememberSerializable(account.sync, serializer = BackStackSerializer) {
+            NavBackStack(entry(Screen.Repositories))
+        }
     val savedRepositories by dao.repositories().collectAsState(null)
 
     val signIn = { startSignIn(context, BuildConfig.API_BASE_URL, store) }
@@ -170,7 +175,10 @@ fun RepoReadApp(
     // once the entry leaves the stack. Entries are rebuilt only when the stack changes, so their content reads the
     // account and sign-in state each time it draws, never values captured when the stack last changed.
     val entries =
-        rememberDecoratedNavEntries(backStack, listOf(rememberSaveableStateHolderNavEntryDecorator())) { entry ->
+        rememberDecoratedNavEntries(
+            backStack,
+            listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
+        ) { entry ->
             NavEntry(entry, contentKey = entry.id) {
                 val sync = account.sync
                 // Removes this entry, never another: a second tap on a screen already left does nothing.
