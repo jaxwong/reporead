@@ -114,7 +114,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **GitHub credentials never appear in logs, metrics, rendered pages, page JavaScript, or on the phone, and are never readable from the database alone.**
 
-- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; logs and metric tags carry ids, SHAs and counts only.
+- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; GitHub HTTP success/failure logs and oversize exception messages omit request paths, while metric tags never carry paths or content. `GitHubHttpTest` checks success, transport failure and oversized responses.
 - Why: [ADR-03](adrs.md#adr-03--github-user-tokens-stay-on-the-server-encrypted-at-rest), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
 
 ### Repository content is untrusted
@@ -129,14 +129,14 @@ These come from the original implementation spec's engineering invariants and th
 **Every repository image belongs to the displayed page's immutable repository commit and resolved path, even when only images changed.**
 
 - Enforced by: the content boundary captures document/checkpoint and image paths together, binds embeds once, and returns `snapshotCommitSha`; `NoteRow` and shared reader resources preserve it; image requests require that commit, and `NoteImages` uses one commit-keyed layout for both reader loads and Save all. Save all prefetch is ordered against page replacement/disconnect by the existing per-page Sync lock; reader image reads retain their independent file lock. An unknown legacy identity means unavailable images, never a latest-snapshot fallback.
-- Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `LocalSyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest` and `NavigationTest` (image-only refresh, Save all then offline reader access, current-page backfill, 503/unreachable/401 propagation through the worker, one-count permanent page skips, reader-only unavailable fallback, cancellation/repeat runs, disconnect during prefetch, cache/deletion interleavings, preserved legacy data and saved navigation).
+- Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `LocalSyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest` and `NavigationTest` (image-only refresh, Save all then offline reader access, current-page backfill, 503/unreachable/401 propagation through the worker, one-count permanent page skips, reader-only unavailable fallback, cancellation/repeat runs, disconnect during prefetch, cache/deletion interleavings including a fetch finishing after a sweep, preserved legacy data and saved navigation).
 - Why: [Images contract](../backend/README.md#images), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone).
 
 ### The user's data leaves only when the user sends it
 
 **Notes and annotations are not backed up off the phone, transferred or logged. Ending a session keeps the phone's notes; account deletion clears the live server, not the phone. Server backups keep their copies until replaced.**
 
-- Enforced by: Android backup/device transfer excluded; logs carry no content; disconnect removes its server and local copies; account deletion removes server data and explicitly clears the session only on confirmation (a 401 can independently end it). Sign-out attempts one revocation and clears only the session. Dialogs distinguish these effects and name existing backup copies (retention in backend/README.md). One process-lifetime Sync keeps local writes ordered independently of sessions. Image sweeps derive retained files from Room; cached reads share the deletion lock and an older fetch cannot write after a deletion.
+- Enforced by: Android backup/device transfer excluded; logs carry no content; disconnect removes its server and local copies; account deletion removes server data and explicitly clears the session only on confirmation (a 401 can independently end it). Sign-out attempts one revocation and clears only the session. Dialogs distinguish these effects and name existing backup copies (retention in backend/README.md). One process-lifetime Sync keeps local writes ordered independently of sessions. Image sweeps derive retained files from Room; Save all sweeps after the loop, including failure/cancellation, rather than after each fetched page; cached reads share the deletion lock and an older fetch cannot write after a deletion.
 - Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone).
 
 ## Failure behaviour
@@ -154,6 +154,14 @@ These come from the original implementation spec's engineering invariants and th
 - Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence (generated from `backend/openapi.json`), the value rules (`WireRules.kt`) and echoed identity checks; `Sync` owns a review's local card match. `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send accepts only 404 `NOT_FOUND` as final and raises every other failure, including a malformed-save 400. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
 - Checked by: `OpenApiSpecTest` (the committed spec is the backend's, and its mapper's actual output conforms), `ContractTest`, `ItemRefusalsTest` with `RefusalTest`, `ApiTest`, `LocalSyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot report success or explicitly clear the session (a 401 may independently end it).
 - Why: [ADR-26](adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
+
+### Annotation capacity is admitted atomically
+
+**New highlights/cards cannot exceed 500 per document or 5,000 per user; bookmarks do not consume this capacity.**
+
+- Enforced by: `Annotations.create` locks the user before the connection and checks both counts inside its insertion transaction, after replay detection. Over-cap creation returns 422 `ANNOTATION_LIMIT` and rolls back its mutation claim. No migration deletes pre-existing data; edits, deletions and exact replays remain available at or above capacity.
+- Checked by: `AnnotationTest` covers exact document/user boundaries, mixed types, bookmarks, replay/edit/delete and concurrent creation across repositories. `RefusalTest` and `LocalSyncTest` keep capped offline creations pending for a later sync with the same mutation id.
+- Counts do not guarantee the independent 8 MiB library answer; text size and the unbounded review log still matter. Limits are chosen policy, not measured capacity.
 
 ### Server-owned limits and no fallback
 
@@ -178,6 +186,13 @@ These come from the original implementation spec's engineering invariants and th
 - Enforced by: from V15, migrations only add; a step that removes or requires something waits for a release after the one that stops using it, and its migration says so in a `-- Contract:` line.
 - Checked by: `ExpandOnlyMigrationsTest`, which fails on such a step without that line, and which V13 and V14 would have failed.
 - Why: [ADR-24](adrs.md#adr-24--migrations-keep-the-previous-release-working-a-failed-deploy-is-undone-by-hand).
+
+### Complete-page bytes have one owner
+
+**`DocumentController.Content` checks HTML, canonical search text and metadata together before sending a page.**
+
+- GitHubHttp bounds incoming blobs; `MarkdownRenderer` bounds blocks/diagrams and serializes HTML once, without a second input/output-byte check. The complete saved-page limit remains 1 MiB; serialization builds the string before admission, so this is not a peak-heap guarantee.
+- Checked by: `DocumentContentTest` covers the exact UTF-8 boundary and one extra byte, multi-byte characters, expanded HTML, search text/metadata, oversized input and the second read. Canonical extraction still needs no HTML serialization.
 
 ### Bounded memory on the phone
 

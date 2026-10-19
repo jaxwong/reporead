@@ -1,10 +1,6 @@
 package com.reporead.document;
 
 import com.reporead.Hashes;
-import com.reporead.github.GitHubHttp;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -38,11 +34,6 @@ import org.jsoup.safety.Safelist;
 import org.springframework.web.util.UriUtils;
 
 public final class MarkdownRenderer {
-    /** The largest note RepoRead reads from GitHub. */
-    public static final int MAX_NOTE_BYTES = GitHubHttp.MAX_RESPONSE_BYTES;
-    /** {@code MAX_NOTE_BYTES} in MiB, for messages. */
-    public static final int MAX_NOTE_MIB = MAX_NOTE_BYTES / 1_048_576;
-
     /**
      * UTF-8 bytes across a saved page's HTML, search text, path, title, blob SHA and image snapshot SHA. A complete 1
      * MiB payload round-trips through Room on Android 14; 2 MiB fails its CursorWindow. The remaining space covers row
@@ -184,8 +175,6 @@ public final class MarkdownRenderer {
             throw new IllegalArgumentException("MarkdownRenderer sourceBlobSha must be a lowercase Git SHA-1");
         }
         byte[] bytes = markdown.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length > MAX_NOTE_BYTES)
-            throw new ContentRejected("Markdown exceeds the " + MAX_NOTE_MIB + " MiB reader limit");
         if (!Hashes.gitBlobSha(bytes).equals(sourceBlobSha))
             throw new ContentRejected("Markdown bytes do not match sourceBlobSha");
     }
@@ -335,37 +324,9 @@ public final class MarkdownRenderer {
         return document;
     }
 
-    /** The single bounded serializer; callers needing only canonical facts never build an HTML string. */
+    /** Serializes the bound page once; DocumentController.Content owns the complete saved-page byte limit. */
     static String pageHtml(Document document) {
-        var bytes = new PageOutput();
-        try (var writer = new OutputStreamWriter(bytes, StandardCharsets.UTF_8)) {
-            writer.append("<!doctype html>\n");
-            document.outerHtml(writer);
-        } catch (IOException error) {
-            throw new IllegalStateException("Writing rendered HTML to an in-memory page failed", error);
-        }
-        return bytes.toString(StandardCharsets.UTF_8);
-    }
-
-    /** Stops escaped HTML generation before it allocates a page the content boundary could never accept. */
-    private static final class PageOutput extends ByteArrayOutputStream {
-        @Override
-        public void write(int value) {
-            reserve(1);
-            super.write(value);
-        }
-
-        @Override
-        public void write(byte[] bytes, int offset, int length) {
-            reserve(length);
-            super.write(bytes, offset, length);
-        }
-
-        private void reserve(int length) {
-            if (length > MAX_PAGE_BYTES - count) {
-                throw new ContentRejected("Rendered HTML exceeds the " + MAX_PAGE_BYTES + "-byte saved-page limit");
-            }
-        }
+        return "<!doctype html>\n" + document.outerHtml();
     }
 
     /**

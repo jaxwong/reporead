@@ -21,6 +21,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -217,8 +219,10 @@ class DocumentContentTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.code").value("UNSUPPORTED_CONTENT"));
     }
 
-    @Test
-    void contentAtTheCompletePageLimitIsDeliveredButOneMoreMetadataByteIsUnsupported() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"x", "é", "測", "😀"})
+    void contentAtTheCompletePageLimitIsDeliveredButOneMoreMetadataByteIsUnsupported(String character)
+            throws Exception {
         String path = "test-only/測定.md";
         int fixedBytes =
                 MarkdownRenderer.pageHtml(MarkdownRenderer.render("x", Hashes.gitBlobSha(new byte[] {'x'}), path)
@@ -230,8 +234,9 @@ class DocumentContentTest extends SharedSpringTest {
                         + 80; // source blob and saved image snapshot
         // Each source character occurs in HTML twice and in search text once; use the title for the remainder.
         int available = MarkdownRenderer.MAX_PAGE_BYTES - fixedBytes - 1;
-        byte[] bytes = "x".repeat(available / 3).getBytes(StandardCharsets.UTF_8);
-        String title = "T".repeat(1 + available % 3);
+        int repeatedBytes = 3 * character.getBytes(StandardCharsets.UTF_8).length;
+        byte[] bytes = character.repeat(available / repeatedBytes).getBytes(StandardCharsets.UTF_8);
+        String title = "T".repeat(1 + available % repeatedBytes);
         String sha = Hashes.gitBlobSha(bytes);
         long id = document(path, sha, false);
         db.sql("update documents set title = :title where id = :id")

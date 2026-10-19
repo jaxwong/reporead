@@ -104,6 +104,33 @@ class NoteImagesTest {
     }
 
     @Test
+    fun aFetchFinishingAfterASweepReturnsBytesWithoutRecreatingTheDeletedCache() {
+        val arrived = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val request = "GET /api/documents/1/image?commitSha=$sha&path=a.png"
+        LoopbackServer(mapOf(request to (200 to "PNG"))) {
+                arrived.countDown()
+                check(release.await(10, SECONDS)) { "Test never released the image fetch" }
+            }
+            .use { server ->
+                val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+                val fetching = CompletableFuture.supplyAsync { images.image(1, sha, "a.png") }
+                try {
+                    assertTrue(arrived.await(10, SECONDS))
+                    assertTrue(images.sweep(emptyList()).isEmpty())
+                } finally {
+                    release.countDown()
+                }
+                assertArrayEquals("PNG".toByteArray(), fetching.get(10, SECONDS))
+                assertTrue(!File(filesDir, "images/1").exists())
+                // A new fetch started after the sweep may publish, and the next read uses its cache.
+                repeat(2) { assertArrayEquals("PNG".toByteArray(), images.image(1, sha, "a.png")) }
+                assertEquals(listOf(request, request), server.requests)
+                assertTrue(File(filesDir, "images/1/commit-$sha").listFiles()!!.single().isFile)
+            }
+    }
+
+    @Test
     fun anUnreadableCachedImageDoesNotTriggerAnotherFetchStrategy() {
         LoopbackServer(mapOf("GET /api/documents/1/image?commitSha=$sha&path=a.png" to (200 to "PNG"))).use { server ->
             val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)

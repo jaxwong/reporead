@@ -354,7 +354,10 @@ internal class ReaderViewModel(
         }
 
     fun setBookmark(bookmarked: Boolean) {
-        viewModelScope.launch { sync.setBookmark(documentId, bookmarked) }
+        viewModelScope.launch {
+            if (!sync.setBookmark(documentId, bookmarked))
+                showMessage("Bookmark not saved: this note is no longer saved on this phone.")
+        }
     }
 
     /** Resolved against this repository's saved note list, so links work offline too. */

@@ -24,6 +24,7 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.toRow
+import com.reporead.android.ui.Load
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -76,6 +77,36 @@ class ReaderViewModelTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync { owners.clear() }
         store.close()
         check(directory.deleteRecursively())
+    }
+
+    @Test
+    fun aBookmarkOnADisconnectedNoteReportsThatItWasNotSaved() = runBlocking {
+        LoopbackServer(emptyMap()).use { server ->
+            val dao = store.library()
+            val sync = Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
+            val model =
+                withContext(Dispatchers.Main) {
+                    val factory = viewModelFactory {
+                        initializer { ReaderViewModel(sync, dao, SavedStateHandle(), 1, "test-only-entry") }
+                    }
+                    ViewModelProvider.create(owners, factory)[ReaderViewModel::class]
+                }
+            // Finish the model's local page load before forgetting the repository.
+            withTimeout(10_000) { while (model.state.value.page !is Load.Ready) delay(20) }
+            dao.forgetRepository(7, listOf(1))
+            for (bookmarked in listOf(true, false)) {
+                withContext(Dispatchers.Main) {
+                    model.showMessage(null)
+                    model.setBookmark(bookmarked)
+                }
+                withTimeout(10_000) { while (model.state.value.message == null) delay(20) }
+                assertEquals(
+                    "Bookmark not saved: this note is no longer saved on this phone.",
+                    model.state.value.message,
+                )
+            }
+            assertTrue(server.requests.isEmpty())
+        }
     }
 
     /** T14: a second change while one runs starts nothing; once it has finished, the next one runs. */

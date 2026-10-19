@@ -23,8 +23,7 @@ import org.json.JSONArray
  */
 internal data class OutlineEntry(val blockId: String, val index: Int, val level: Int, val text: String)
 
-internal fun parseOutline(json: String): List<OutlineEntry> {
-    val array = JSONArray(json)
+internal fun parseOutline(array: JSONArray): List<OutlineEntry> {
     return List(array.length()) {
         val item = array.getJSONObject(it)
         OutlineEntry(item.getString("blockId"), item.getInt("index"), item.getInt("level"), item.getString("text"))

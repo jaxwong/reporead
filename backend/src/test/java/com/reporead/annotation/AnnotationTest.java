@@ -184,6 +184,84 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
+    void documentCapacityCountsCardsAndHighlightsButKeepsReplaysEditsAndDeletionWorking() throws Exception {
+        seedCountedAnnotations(note, 499);
+        mvc.perform(put("/api/documents/" + note + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isOk());
+        expectSource(ExpectedCount.times(3));
+        String first = body(UUID.randomUUID().toString(), "b2", START, EXACT, null);
+        long id = createdId(first);
+        create(alice, note, first).andExpect(status().isOk());
+        edit(alice, id, "Test-only edit at capacity", 1).andExpect(status().isOk());
+        String waiting = body(UUID.randomUUID().toString(), "b2", START, EXACT, null);
+        create(alice, note, waiting)
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.code").value("ANNOTATION_LIMIT"));
+        assertEquals(501, count("annotations"), "bookmarks do not consume highlight/card capacity");
+        assertEquals(1, count("annotation_mutations"), "refused creation must roll back its mutation claim");
+        remove(alice, id, 2).andExpect(status().isNoContent());
+        create(alice, note, waiting).andExpect(status().isCreated());
+    }
+
+    /** Test-only count fixtures, alternating highlights/cards; no API listing reads their omitted anchor rows. */
+    private void seedCountedAnnotations(long documentId, int count) {
+        db.sql("""
+                insert into annotations (user_id, document_id, type, question, resolved_blob_sha, created_at, updated_at, mutation_id)
+                select 1, :documentId, case when n % 2 = 0 then 'CARD' else 'HIGHLIGHT' end,
+                       case when n % 2 = 0 then 'Test-only count fixture?' end, :sha, now(), now(), gen_random_uuid()
+                from generate_series(1, :count) n""")
+                .param("documentId", documentId)
+                .param("count", count)
+                .param("sha", OLD_SHA)
+                .update();
+    }
+
+    @Test
+    void concurrentCreationsAcrossRepositoriesCannotExceedUserCapacity() throws Exception {
+        for (int n = 0; n < 10; n++) {
+            long fixture = db.sql("""
+                    insert into documents (repository_connection_id, path, title, current_blob_sha)
+                    values (1, :path, 'Test-only capacity fixture', :sha) returning id""")
+                    .param("path", "capacity-" + n + ".md")
+                    .param("sha", OLD_SHA)
+                    .query(Long.class)
+                    .single();
+            seedCountedAnnotations(fixture, n == 0 ? 499 : 500);
+        }
+        long connection = db.sql("""
+                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch)
+                values (1, 12, 'test-only', 'other', 'main') returning id""").query(Long.class).single();
+        long other = db.sql("""
+                insert into documents (repository_connection_id, path, title, current_blob_sha)
+                values (:connection, 'other.md', 'Test-only other repository', :sha) returning id""")
+                .param("connection", connection)
+                .param("sha", OLD_SHA)
+                .query(Long.class)
+                .single();
+        expectSource(ExpectedCount.once());
+        github.expect(requestTo("https://api.github.com/repos/test-only/other/git/blobs/" + OLD_SHA))
+                .andRespond(withSuccess(OLD, MediaType.APPLICATION_OCTET_STREAM));
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var futures = List.of(note, other).stream()
+                    .map(documentId -> executor.submit(() -> {
+                        assertTrue(start.await(10, TimeUnit.SECONDS));
+                        return create(alice, documentId, body(UUID.randomUUID().toString(), "b2", START, EXACT, null))
+                                .andReturn()
+                                .getResponse()
+                                .getStatus();
+                    }))
+                    .toList();
+            start.countDown();
+            var statuses = new java.util.ArrayList<Integer>();
+            for (var future : futures) statuses.add(future.get(10, TimeUnit.SECONDS));
+            assertEquals(List.of(201, 422), statuses.stream().sorted().toList());
+        }
+        assertEquals(5000, count("annotations"));
+        assertEquals(1, count("annotation_mutations"));
+    }
+
+    @Test
     void createdAnchorIsVerifiedAgainstTheSelectedVersionAndContextComesFromTheServer() throws Exception {
         expectSource(ExpectedCount.once());
         expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);

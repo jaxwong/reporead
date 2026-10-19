@@ -36,7 +36,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class GitHubTokens implements OAuth2AuthorizedClientService {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubTokens.class);
-    private static final String REGISTRATION = "github";
     private static final int IV_BYTES = 12;
     private static final int TAG_BITS = 128;
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -98,7 +97,7 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
             return null;
         }
         return (T) new OAuth2AuthorizedClient(
-                registrations.findByRegistrationId(REGISTRATION), principalName, access, refresh);
+                registrations.findByRegistrationId(GitHubSecurity.REGISTRATION), principalName, access, refresh);
     }
 
     @Override
@@ -143,7 +142,7 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
      * "id").
      */
     private static long githubUserId(String clientRegistrationId, String principalName) {
-        if (!REGISTRATION.equals(clientRegistrationId)) {
+        if (!GitHubSecurity.REGISTRATION.equals(clientRegistrationId)) {
             throw new IllegalArgumentException(
                     "Only the github registration has stored tokens; got " + clientRegistrationId);
         }

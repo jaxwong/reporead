@@ -26,6 +26,9 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Component
 public class Annotations {
+    static final int MAX_PER_DOCUMENT = 500;
+    static final int MAX_PER_USER = 5_000;
+
     private final JdbcClient db;
     private final JsonMapper json;
     private final TransactionTemplate transaction;
@@ -213,6 +216,13 @@ public class Annotations {
             String question) {
         var anchor = location.passage();
         return transaction.execute(status -> {
+            // Serialize new-annotation admission across repositories. User before connection matches account deletion;
+            // NO KEY UPDATE still permits the foreign-key checks of unrelated writes.
+            db.sql("select id from users where id = :userId for no key update")
+                    .param("userId", userId)
+                    .query(Long.class)
+                    .optional()
+                    .orElseThrow(ApiFailure::notFound);
             connections.lockForDocumentWrite(userId, documentId);
             Instant now = Instant.now();
             int claimed = db.sql("""
@@ -225,6 +235,20 @@ public class Annotations {
                     .update();
             if (claimed == 0)
                 return new Created(replay(userId, mutationId, requestHash).orElseThrow(), true);
+            record Counts(long documentCount, long userCount) {}
+            var counts = db.sql("""
+                    select count(*) filter (where document_id = :documentId) as document_count, count(*) as user_count
+                    from annotations where user_id = :userId and type in ('HIGHLIGHT', 'CARD')""")
+                    .param("documentId", documentId)
+                    .param("userId", userId)
+                    .query(Counts.class)
+                    .single();
+            if (counts.documentCount() >= MAX_PER_DOCUMENT || counts.userCount() >= MAX_PER_USER) {
+                throw new ApiFailure(
+                        Code.ANNOTATION_LIMIT,
+                        "At most " + MAX_PER_DOCUMENT + " highlights and cards per document and " + MAX_PER_USER
+                                + " per user may be stored; delete existing annotations before creating more.");
+            }
             long id = db.sql("""
                     insert into annotations (user_id, document_id, type, note, created_at, updated_at, resolved_blob_sha, question,
                                              checked_blob_sha, mutation_id)

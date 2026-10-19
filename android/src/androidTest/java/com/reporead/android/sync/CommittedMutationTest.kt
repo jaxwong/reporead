@@ -246,6 +246,7 @@ class CommittedMutationTest {
 
     @Test
     fun localWritesWaitingForTheLockCommitOnceAfterTheirScreensLeft() = runBlocking {
+        dao.saveReview(grade().copy(mutationId = "test-only-refused", rejection = "Test-only rejection"))
         val arrived = CountDownLatch(1)
         val release = CountDownLatch(1)
         LoopbackServer(mapOf(sameLibrary)) {
@@ -264,6 +265,7 @@ class CommittedMutationTest {
                             screens.launch { sync.setBookmark(1, bookmarked = true) },
                             screens.launch { sync.createAnnotation(Passage(testSha, "b3", 0, 4, "text"), 1, null) },
                             screens.launch { sync.recordReview(grade()) },
+                            screens.launch { sync.dismissRefusedReviews() },
                         )
                     // Each is now waiting for the lock the load holds.
                     delay(300)
@@ -278,6 +280,7 @@ class CommittedMutationTest {
                 assertEquals(true, dao.bookmark(1).first()?.bookmarked)
                 assertEquals(1, dao.annotations(1).first().count { it.state == AnnotationState.UNSENT })
                 assertEquals(listOf("test-only-grade"), dao.pendingReviews().map { it.mutationId })
+                assertTrue(dao.reviews().first().none { it.rejection != null })
                 assertEquals(listOf("GET /api/library"), server.requests)
             }
     }

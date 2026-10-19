@@ -41,7 +41,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class GitHubCredentials {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubCredentials.class);
-    private static final String REGISTRATION = "github";
     private static final MediaType GITHUB_JSON = MediaType.parseMediaType("application/vnd.github+json");
     /** GitHub's answer, and OAuth's, when the refresh token itself is no longer valid. */
     private static final Set<String> REFUSED_REFRESH_TOKEN = Set.of("bad_refresh_token", "invalid_grant");
@@ -146,7 +145,7 @@ public class GitHubCredentials {
         String principal = Long.toString(githubUserId);
         OAuth2AuthorizedClient client;
         try {
-            client = manager.authorize(OAuth2AuthorizeRequest.withClientRegistrationId(REGISTRATION)
+            client = manager.authorize(OAuth2AuthorizeRequest.withClientRegistrationId(GitHubSecurity.REGISTRATION)
                     .principal(principal)
                     .build());
         } catch (OAuth2AuthorizationException error) {
@@ -217,7 +216,7 @@ public class GitHubCredentials {
      * token either way; GitHub then expires the tokens on its own schedule.
      */
     private void revoke(long githubUserId, String token) {
-        var app = registrations.findByRegistrationId(REGISTRATION);
+        var app = registrations.findByRegistrationId(GitHubSecurity.REGISTRATION);
         var uri = UriComponentsBuilder.fromUriString("https://api.github.com/applications/{clientId}/grant")
                 .encode()
                 .buildAndExpand(app.getClientId())
@@ -247,6 +246,6 @@ public class GitHubCredentials {
 
     /** Deletes the stored token; the user's next GitHub-backed request asks for sign-in. */
     private void forget(long githubUserId) {
-        githubTokens.removeAuthorizedClient(REGISTRATION, Long.toString(githubUserId));
+        githubTokens.removeAuthorizedClient(GitHubSecurity.REGISTRATION, Long.toString(githubUserId));
     }
 }

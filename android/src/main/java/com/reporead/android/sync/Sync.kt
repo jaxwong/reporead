@@ -213,7 +213,7 @@ class Sync(
         val commitSha = current?.let { dao.repositoryCommitSha(it.repositoryId) }
         if (cached != null && upToDate(cached.version, current, commitSha)) return@locked Opened(cached, null)
         try {
-            Opened(fetchNote(documentId), null)
+            Opened(fetchNote(documentId).also { sweepImages() }, null)
         } catch (error: ApiException) {
             if (cached == null) throw error
             val cachedIsCurrent = sameVersion(cached.version, current, commitSha)
@@ -241,9 +241,6 @@ class Sync(
                 answer.snapshotCommitSha,
             )
         dao.saveNote(note)
-        // Images left behind are logged and skipped: the page asks only for this version's, and the next sweep deletes
-        // them.
-        sweepImages()
         return note
     }
 
@@ -271,37 +268,43 @@ class Sync(
         var alreadySaved = 0
         var cannotShow = 0
         onProgress(0, documents.size)
-        documents.forEachIndexed { index, document ->
-            try {
-                locked {
-                    val cached = dao.note(document.id)
-                    if (cached != null && upToDate(cached.version, document, commitSha)) {
-                        images.save(cached)
-                        alreadySaved++
-                    } else {
-                        images.save(fetchNote(document.id))
-                        fetched++
+        try {
+            documents.forEachIndexed { index, document ->
+                try {
+                    locked {
+                        val cached = dao.note(document.id)
+                        if (cached != null && upToDate(cached.version, document, commitSha)) {
+                            images.save(cached)
+                            alreadySaved++
+                        } else {
+                            images.save(fetchNote(document.id))
+                            fetched++
+                        }
                     }
-                }
-            } catch (error: ApiException) {
-                val skipped =
-                    when (error.code) {
-                        "UNSUPPORTED_CONTENT" -> error.status == 422
-                        "IMAGE_NOT_FOUND" -> error.status == 404
-                        "INVALID_IMAGE_PATH" -> error.status == 400
-                        else -> false
+                } catch (error: ApiException) {
+                    // Unlike refusesItem(), this classifies page failures after a fresh library load, not mutations.
+                    val skipped =
+                        when (error.code) {
+                            "UNSUPPORTED_CONTENT" -> error.status == 422
+                            "IMAGE_NOT_FOUND" -> error.status == 404
+                            "INVALID_IMAGE_PATH" -> error.status == 400
+                            else -> false
+                        }
+                    if (!skipped) {
+                        Log.w(
+                            "RepoRead",
+                            "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}",
+                        )
+                        throw error
                     }
-                if (!skipped) {
-                    Log.w(
-                        "RepoRead",
-                        "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}",
-                    )
-                    throw error
+                    Log.i("RepoRead", "Page skipped; documentId=${document.id} code=${error.code}")
+                    cannotShow++
                 }
-                Log.i("RepoRead", "Page skipped; documentId=${document.id} code=${error.code}")
-                cannotShow++
+                onProgress(index + 1, documents.size)
             }
-            onProgress(index + 1, documents.size)
+        } finally {
+            // Pages already saved survive failures and cancellation; retire their replaced images once, not per page.
+            committed { sweepImages() }
         }
         Log.i(
             "RepoRead",
@@ -715,7 +718,7 @@ class Sync(
         )
     }
 
-    suspend fun dismissRefusedReviews() = locked { dao.dismissRefusedReviews() }
+    suspend fun dismissRefusedReviews() = committed { dao.dismissRefusedReviews() }
 
     /**
      * Once per process, when the app opens: deletes images Room holds no page of, such as those a deletion cut short by

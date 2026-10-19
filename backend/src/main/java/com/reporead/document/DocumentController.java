@@ -81,12 +81,7 @@ public class DocumentController {
         var version = noteVersions.render(user, document, document.blobSha());
         var rendered = version.note();
         Attachments.bind(rendered.page(), document.path(), source.imagePaths());
-        String html;
-        try {
-            html = MarkdownRenderer.pageHtml(rendered.page());
-        } catch (MarkdownRenderer.ContentRejected rejected) {
-            throw new ApiFailure(Code.UNSUPPORTED_CONTENT, rejected.getMessage());
-        }
+        String html = MarkdownRenderer.pageHtml(rendered.page());
         LOG.info(
                 "Document rendered; userId={} documentId={} blobSha={} snapshotCommitSha={} bytes={} blocks={} diagrams={}",
                 user.id(),

@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
@@ -28,10 +27,7 @@ import org.springframework.web.client.RestTemplate;
 public class GitHubHttp {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubHttp.class);
     public static final String GITHUB_REQUESTS = "reporead.github.requests";
-    /**
-     * Ceiling for OAuth, metadata, and raw note responses, and so the reader's note limit
-     * (MarkdownRenderer.MAX_NOTE_BYTES).
-     */
+    /** Ceiling for OAuth, metadata, and raw note responses. */
     public static final int MAX_RESPONSE_BYTES = 1_048_576;
     /**
      * Above GitHub's documented 7 MB recursive-tree maximum, so only GitHub's own truncation can make a tree
@@ -77,25 +73,22 @@ public class GitHubHttp {
     }
 
     /** Counts and logs a GitHub request that got no usable answer: unreachable, timed out, or too large. */
-    private static IOException failed(HttpRequest request, IOException error, MeterRegistry meters) {
+    private static IOException failed(IOException error, MeterRegistry meters) {
         meters.counter(GITHUB_REQUESTS, "outcome", error instanceof ResponseTooLarge ? "too_large" : "failed")
                 .increment();
-        LOG.warn(
-                "GitHub request failed; endpoint={} failureType={}",
-                request.getURI().getPath(),
-                error.getClass().getSimpleName());
+        LOG.warn("GitHub request failed; failureType={}", error.getClass().getSimpleName());
         return error;
     }
 
     public static final class ResponseTooLarge extends IOException {
-        ResponseTooLarge(String endpoint, int maxBytes) {
-            super("GitHub response exceeds " + maxBytes + " bytes at " + endpoint);
+        ResponseTooLarge(int maxBytes) {
+            super("GitHub response exceeds " + maxBytes + " bytes");
         }
     }
 
     // OAuth login makes at most two application-level requests: token exchange, then user identity.
     // Every GitHub request passes here, so it is also where they are counted: reporead.github.requests by outcome
-    // (status family, too_large, or failed). Tags never include paths, which name private repositories and notes.
+    // (status family, too_large, or failed). Neither logs nor tags include GitHub paths, which can name private notes.
     public static ClientHttpRequestInterceptor boundedResponse(int maxBytes, MeterRegistry meters) {
         return (request, body, execution) -> {
             request.getHeaders().set(HttpHeaders.USER_AGENT, "RepoRead");
@@ -104,23 +97,22 @@ public class GitHubHttp {
             try {
                 response = execution.execute(request, body);
             } catch (IOException error) {
-                throw failed(request, error, meters);
+                throw failed(error, meters);
             }
             byte[] bytes;
             try {
                 bytes = response.getBody().readNBytes(maxBytes + 1);
                 if (bytes.length > maxBytes) {
-                    throw new ResponseTooLarge(request.getURI().getPath(), maxBytes);
+                    throw new ResponseTooLarge(maxBytes);
                 }
             } catch (IOException error) {
                 response.close();
-                throw failed(request, error, meters);
+                throw failed(error, meters);
             }
             meters.counter(GITHUB_REQUESTS, "outcome", (response.getStatusCode().value() / 100) + "xx")
                     .increment();
             LOG.info(
-                    "GitHub response; endpoint={} status={} bytes={}",
-                    request.getURI().getPath(),
+                    "GitHub response; status={} bytes={}",
                     response.getStatusCode().value(),
                     bytes.length);
             return new ClientHttpResponse() {
