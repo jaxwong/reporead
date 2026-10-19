@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
+import com.reporead.android.core.network.ApiException
 import com.reporead.android.data.LoopbackServer
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.SavedVersion
@@ -15,6 +16,7 @@ import java.util.concurrent.TimeUnit.SECONDS
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -75,6 +77,30 @@ class NoteImagesTest {
             assertTrue(!directory.exists())
             assertTrue(server.requests.isEmpty())
         }
+    }
+
+    @Test
+    fun onlyTheReaderConvertsAnImageApiFailureToUnavailable() = runBlocking {
+        val request = "GET /api/documents/1/image?commitSha=$sha&path=a.png"
+        LoopbackServer(mapOf(request to (503 to """{"code":"GITHUB_UNAVAILABLE","message":"Test-only unavailable"}""")))
+            .use { server ->
+                val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+                assertNull(images.image(1, sha, "a.png"))
+                val note =
+                    NoteRow(
+                        1,
+                        sha,
+                        "a.md",
+                        "a",
+                        """<main><img src="/repo-image/a.png"></main>""",
+                        0,
+                        snapshotCommitSha = sha,
+                    )
+                val error = runCatching { images.save(note) }.exceptionOrNull()
+                assertTrue("Save all must receive the image failure", error is ApiException)
+                assertEquals("GITHUB_UNAVAILABLE", (error as ApiException).code)
+                assertEquals(listOf(request, request), server.requests)
+            }
     }
 
     @Test

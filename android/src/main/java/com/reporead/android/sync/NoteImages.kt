@@ -39,7 +39,7 @@ class NoteImages(private val api: Api, filesDir: File) {
     /**
      * Save all's image pass, on a background thread under Sync's per-page lock so the saved snapshot cannot be replaced
      * or disconnected meanwhile. The server emits at most 64 image references; each distinct path is tried once,
-     * sequentially. Expected failures keep the text and use [image]'s ordinary unavailable-image behavior.
+     * sequentially. API failures propagate to Sync, which owns their disposition for this run.
      */
     internal suspend fun save(note: NoteRow) {
         if (note.snapshotCommitSha == null) return
@@ -52,7 +52,7 @@ class NoteImages(private val api: Api, filesDir: File) {
                 .distinct()
         for (path in paths) {
             currentCoroutineContext().ensureActive()
-            image(note.documentId, note.snapshotCommitSha, path)
+            fetch(note.documentId, note.snapshotCommitSha, path)
         }
     }
 
@@ -60,7 +60,15 @@ class NoteImages(private val api: Api, filesDir: File) {
      * A repository image for the displayed note version: from the cache, else fetched through the backend with the
      * bearer token (blocking; call from a background thread). Null when it is neither cached nor fetchable.
      */
-    fun image(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? {
+    fun image(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? =
+        try {
+            fetch(documentId, snapshotCommitSha, path)
+        } catch (error: ApiException) {
+            Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
+            null
+        }
+
+    private fun fetch(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? {
         // Upgraded pages retain their text, but cannot honestly identify any image until fetched again.
         if (snapshotCommitSha == null) return null
         val key = sha256(path)
@@ -80,13 +88,7 @@ class NoteImages(private val api: Api, filesDir: File) {
                 }
                 generation
             }
-        val bytes =
-            try {
-                api.noteImage(documentId, snapshotCommitSha, path)
-            } catch (error: ApiException) {
-                Log.i("RepoRead", "Image unavailable; documentId=$documentId code=${error.code}")
-                return null
-            }
+        val bytes = api.noteImage(documentId, snapshotCommitSha, path)
         synchronized(lock) {
             // A deletion ran since the request was sent: the page still gets these bytes, but they are not kept.
             if (generation != started) return bytes

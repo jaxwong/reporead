@@ -11,6 +11,7 @@ import androidx.work.Data
 import androidx.work.ListenableWorker.Result
 import androidx.work.WorkInfo
 import com.reporead.android.BuildConfig
+import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
@@ -40,6 +41,7 @@ import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -685,10 +687,10 @@ class LocalSyncTest {
     }
 
     @Test
-    fun saveAllChecksCurrentPagesAndContinuesAfterAnUnavailableImageWithoutRetryingItInTheSameRun() = runBlocking {
+    fun saveAllStopsOnAnImageServerFailureAndTheNextRunOnlyFetchesWhatIsStillMissing() = runBlocking {
         val html =
-            """<main id="note"><img src="/repo-image/missing.png"><img src="/repo-image/missing.png">
-            <img src="/repo-image/ok.png"><img src="https://test-only.invalid/remote.png">
+            """<main id="note"><img src="/repo-image/ok.png"><img src="/repo-image/missing.png">
+            <img src="/repo-image/missing.png"><img src="https://test-only.invalid/remote.png">
             <span class="image-blocked">Image unavailable</span></main>"""
         val current = NoteRow(1, sha, "n1.md", "n1", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
         dao.saveNote(current)
@@ -705,24 +707,179 @@ class LocalSyncTest {
                 )
             )
             .use { server ->
+                val sync = sync(server.url)
                 val progress = mutableListOf<Pair<Int, Int>>()
-                assertEquals(
-                    Sync.SavedAll(1, 1, 0),
-                    sync(server.url).saveAllNotes(7) { done, total -> progress += done to total },
-                )
-                assertEquals(listOf(0 to 2, 1 to 2, 2 to 2), progress)
-                assertEquals(listOf("GET /api/library", missing, ok, "GET /api/documents/2/content"), server.requests)
+                val error = runCatching {
+                    sync.saveAllNotes(7) { done, total -> progress += done to total }
+                }
+                    .exceptionOrNull()
+                assertTrue("An image 503 must end this run, not report SavedAll", error is ApiException)
+                assertEquals("GITHUB_UNAVAILABLE", (error as ApiException).code)
+                assertEquals(listOf(0 to 2), progress)
+                assertEquals(listOf("GET /api/library", ok, missing), server.requests)
                 assertEquals(current, dao.note(1))
+                assertNull(dao.note(2))
+                assertEquals(Result.retry(), saveAllInBackground(sync, 7, 0) {})
+                val last = saveAllInBackground(sync, 7, 9) {} as Result.Failure
+                assertEquals(
+                    SavingNotes.Stopped(0, 2, error.describe()),
+                    shown(WorkInfo.State.FAILED, output = last.outputData),
+                )
+                assertEquals(
+                    listOf("GET /api/library", ok, missing, "GET /api/library", missing, "GET /api/library", missing),
+                    server.requests,
+                )
             }
-        LoopbackServer(mapOf(listed, missing to (200 to "TEST_ONLY_RECOVERED"))).use { server ->
-            val sync = sync(server.url)
-            assertEquals(Sync.SavedAll(0, 2, 0), sync.saveAllNotes(7) { _, _ -> })
-            assertEquals(listOf("GET /api/library", missing), server.requests)
-            assertEquals("TEST_ONLY_OK", sync.images.image(1, sha, "ok.png")!!.toString(Charsets.UTF_8))
-            assertEquals("TEST_ONLY_RECOVERED", sync.images.image(1, sha, "missing.png")!!.toString(Charsets.UTF_8))
-            assertEquals(Sync.SavedAll(0, 2, 0), sync.saveAllNotes(7) { _, _ -> })
-            assertEquals(listOf("GET /api/library", missing, "GET /api/library"), server.requests)
+        LoopbackServer(
+                mapOf(listed, missing to (200 to "TEST_ONLY_RECOVERED"), "GET /api/documents/2/content" to content(2))
+            )
+            .use { server ->
+                val sync = sync(server.url)
+                assertEquals(Sync.SavedAll(1, 1, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(listOf("GET /api/library", missing, "GET /api/documents/2/content"), server.requests)
+                assertEquals("TEST_ONLY_OK", sync.images.image(1, sha, "ok.png")!!.toString(Charsets.UTF_8))
+                assertEquals("TEST_ONLY_RECOVERED", sync.images.image(1, sha, "missing.png")!!.toString(Charsets.UTF_8))
+                assertEquals(Sync.SavedAll(0, 2, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(
+                    listOf("GET /api/library", missing, "GET /api/documents/2/content", "GET /api/library"),
+                    server.requests,
+                )
+            }
+    }
+
+    @Test
+    fun losingTheServerAfterACurrentPagesImagesStopsAtTheNextImageAndUsesTheWorkersRetryLimit() = runBlocking {
+        val html = """<main id="note"><img src="/repo-image/a.png"></main>"""
+        for (id in 1L..3L) dao.saveNote(
+            NoteRow(id, sha, "n$id.md", "n$id", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
+        )
+        val first = "GET /api/documents/1/image?commitSha=$sha&path=a.png"
+        for (attempt in listOf(0, 9)) {
+            LoopbackServer(
+                    mapOf(
+                        "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3)}")),
+                        first to (200 to "TEST_ONLY_FIRST"),
+                    )
+                )
+                .use { server ->
+                    val reads = AtomicInteger()
+                    val sync =
+                        Sync(
+                            Api(
+                                server.url,
+                                {
+                                    reads.incrementAndGet()
+                                    StoredSession.Readable("TEST_ONLY_SESSION")
+                                },
+                            ) {},
+                            store,
+                            directory,
+                        ) {}
+                    val progress = mutableListOf<SavingNotes?>()
+                    val result =
+                        saveAllInBackground(sync, 7, attempt) { data ->
+                            val state = shown(WorkInfo.State.RUNNING, progress = data)
+                            progress += state
+                            // Close the actual listener after a complete page, not a stubbed Api failure.
+                            if (state == SavingNotes.Running(1, 3)) server.close()
+                        }
+                    assertEquals(listOf(SavingNotes.Running(0, 3), SavingNotes.Running(1, 3)), progress)
+                    if (attempt == 0) assertEquals(Result.retry(), result)
+                    else {
+                        assertTrue("The last image attempt must stop with a reason", result is Result.Failure)
+                        assertEquals(
+                            SavingNotes.Stopped(1, 3, ApiException(0, "BACKEND_UNAVAILABLE", "Test-only").describe()),
+                            shown(WorkInfo.State.FAILED, output = (result as Result.Failure).outputData),
+                        )
+                    }
+                    assertEquals(if (attempt == 0) 3 else 2, reads.get())
+                    assertEquals(
+                        if (attempt == 0) listOf("GET /api/library", first) else listOf("GET /api/library"),
+                        server.requests,
+                    )
+                    for (id in 1L..3L) assertEquals(html, dao.note(id)!!.html)
+                }
         }
+    }
+
+    @Test
+    fun anImage401EndsTheSessionAndStopsWithoutRequestingLaterImages() = runBlocking {
+        val html = """<main id="note"><img src="/repo-image/a.png"></main>"""
+        for (id in 1L..3L) dao.saveNote(
+            NoteRow(id, sha, "n$id.md", "n$id", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
+        )
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = "test-only-save-all-session-${UUID.randomUUID()}"
+        val sessions = SessionStore(context, prefs)
+        sessions.save("TEST_ONLY_SESSION")
+        val first = "GET /api/documents/1/image?commitSha=$sha&path=a.png"
+        val refused = "GET /api/documents/2/image?commitSha=$sha&path=a.png"
+        try {
+            LoopbackServer(
+                    mapOf(
+                        "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3)}")),
+                        first to (200 to "TEST_ONLY_FIRST"),
+                        refused to (401 to ""),
+                    )
+                )
+                .use { server ->
+                    val sync = Sync(Api(server.url, sessions::read, sessions::endRefused), store, directory) {}
+                    val progress = mutableListOf<SavingNotes?>()
+                    val result =
+                        saveAllInBackground(sync, 7, 0) { progress += shown(WorkInfo.State.RUNNING, progress = it) }
+                    assertTrue("An image 401 must stop, not report Saved", result is Result.Failure)
+                    assertEquals(
+                        SavingNotes.Stopped(1, 3, ApiException(401, "HTTP_401", "Test-only").describe()),
+                        shown(WorkInfo.State.FAILED, output = (result as Result.Failure).outputData),
+                    )
+                    assertEquals(listOf(SavingNotes.Running(0, 3), SavingNotes.Running(1, 3)), progress)
+                    assertFalse(sessions.hasSession)
+                    assertEquals(StoredSession.Absent, sessions.read())
+                    assertEquals(listOf("GET /api/library", first, refused), server.requests)
+                    for (id in 1L..3L) assertEquals(html, dao.note(id)!!.html)
+                    assertEquals("TEST_ONLY_FIRST", sync.images.image(1, sha, "a.png")!!.toString(Charsets.UTF_8))
+                }
+        } finally {
+            check(context.deleteSharedPreferences(prefs))
+        }
+    }
+
+    @Test
+    fun permanentImageRefusalsCountEachPageOnceAndKeepItsTextBeforeContinuingAtTheNextPage() = runBlocking {
+        val html = """<main id="note"><img src="/repo-image/refused.png"><img src="/repo-image/later.png"></main>"""
+        for (id in 2L..3L) dao.saveNote(
+            NoteRow(id, sha, "n$id.md", "n$id", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
+        )
+        val requests = (1..3).map { "GET /api/documents/$it/image?commitSha=$sha&path=refused.png" }
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to
+                        library(repository(7, "${document(1)},${document(2)},${document(3)},${document(4)}")),
+                    "GET /api/documents/1/content" to
+                        (200 to JSONObject(content(1).second).put("html", html).toString()),
+                    requests[0] to failure(404, "IMAGE_NOT_FOUND"),
+                    requests[1] to failure(400, "INVALID_IMAGE_PATH"),
+                    requests[2] to failure(422, "UNSUPPORTED_CONTENT"),
+                    "GET /api/documents/4/content" to content(4),
+                )
+            )
+            .use { server ->
+                val sync = sync(server.url)
+                val progress = mutableListOf<Pair<Int, Int>>()
+                assertEquals(Sync.SavedAll(1, 0, 3), sync.saveAllNotes(7) { done, total -> progress += done to total })
+                assertEquals(listOf(0 to 4, 1 to 4, 2 to 4, 3 to 4, 4 to 4), progress)
+                for (id in 1L..3L) assertEquals(html, dao.note(id)!!.html)
+                assertEquals(
+                    listOf("GET /api/library", "GET /api/documents/1/content") +
+                        requests +
+                        "GET /api/documents/4/content",
+                    server.requests,
+                )
+                assertEquals(Sync.SavedAll(0, 1, 3), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(1, server.requests.count { it == "GET /api/documents/1/content" })
+                assertEquals(2, server.requests.count { it == "GET /api/library" })
+                assertTrue(server.requests.none { it.contains("later.png") })
+            }
     }
 
     @Test
