@@ -34,7 +34,6 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -300,38 +299,6 @@ class CommittedMutationTest {
                 val card = dao.annotations(1).first().single { it.state == AnnotationState.UNSENT }
                 assertEquals("Test-only question?", card.question)
                 assertEquals(listOf(card.mutationId), dao.pendingReviews().map { it.cardMutationId })
-            }
-    }
-
-    @Test
-    fun aWriteWaitingForTheLockWhenTheCopyIsRemovedSavesNothing() = runBlocking {
-        val arrived = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        LoopbackServer(mapOf(sameLibrary)) {
-                arrived.countDown()
-                check(release.await(10, SECONDS)) { "Test never released the library load" }
-            }
-            .use { server ->
-                val sync = sync(server)
-                val load = holdTheLock(sync)
-                val write = screens.async { sync.saveReading(reading()) }
-                try {
-                    assertTrue(arrived.await(10, SECONDS))
-                    delay(300)
-                    sync.retire()
-                } finally {
-                    release.countDown()
-                }
-                load.await()
-                assertEquals(LocalCleanup.Done, sync.clearRetiredCopy())
-                try {
-                    write.await()
-                    throw AssertionError("A retired local copy admitted a waiting write")
-                } catch (expected: CancellationException) {
-                    assertTrue(expected.message.orEmpty().contains("local copy was removed"))
-                }
-                assertNull(dao.reading(1))
-                assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
             }
     }
 }

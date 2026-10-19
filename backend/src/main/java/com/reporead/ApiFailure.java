@@ -23,7 +23,6 @@ public final class ApiFailure extends RuntimeException {
         DEFAULT_BRANCH_NOT_FOUND(404),
         IMAGE_NOT_FOUND(404),
         SOURCE_NOT_FOUND(404),
-        ACCOUNT_MISMATCH(409),
         ANNOTATION_CONFLICT(409),
         CARD_CHANGED(409),
         MUTATION_ID_REUSED(409),

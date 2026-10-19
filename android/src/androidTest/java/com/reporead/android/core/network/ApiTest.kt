@@ -157,7 +157,6 @@ class ApiTest {
                 AppAuthControllerTokenRequest(
                     code = "TEST_ONLY_CODE",
                     codeVerifier = "TEST_ONLY_VERIFIER",
-                    expectedUserId = null,
                 )
             )
             api.revokeSession()

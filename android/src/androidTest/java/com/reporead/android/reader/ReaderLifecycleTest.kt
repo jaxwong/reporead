@@ -45,7 +45,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -149,20 +148,20 @@ class ReaderLifecycleTest {
     }
 
     @Test
-    fun releasingARetiredReaderStillDestroysItsWebView(): Unit = runBlocking {
+    fun releasingAReaderDestroysItsWebViewAndSavesItsPosition(): Unit = runBlocking {
         var page: WebView? = null
         scenario.onActivity { page = findWebView(it.window.decorView) }
         val view = checkNotNull(page)
         withContext(Dispatchers.Main) { assertNotNull(view.webViewRenderProcess) }
-        sync.retire()
-        assertEquals(com.reporead.android.sync.LocalCleanup.Done, sync.clearRetiredCopy())
-        // Its final save is deliberately cancelled; teardown must not wait for a save into the removed copy.
-        readerReady = false
+        val lastSavedAt = checkNotNull(store.library().reading(1)).lastReadAt
         scenario.onActivity { entries.shown.value = false }
         withTimeout(5_000) {
             while (withContext(Dispatchers.Main) { view.webViewRenderProcess != null }) delay(20)
         }
-        assertNull(store.library().reading(1))
+        withTimeout(5_000) {
+            while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(20)
+        }
+        readerReady = false
     }
 
     @Test

@@ -1,4 +1,4 @@
-// Owns: Snapshot-keyed image files and their local-copy lifetime; Api owns authenticated HTTP fetching.
+// Owns: Snapshot-keyed image files; Api owns authenticated HTTP fetching.
 
 package com.reporead.android.sync
 
@@ -12,9 +12,9 @@ import java.security.MessageDigest
 
 /**
  * Saved pages' images, kept per document and snapshot (files/images/<document>/commit-<sha>/<key>) and fetched through
- * the backend with the bearer token when missing. Blocking, for WebView request interception, and outside sign-out's
- * lock; [generation] keeps a fetch from writing back what a deletion removed meanwhile. Sync deletes them when their
- * notes go.
+ * the backend with the bearer token when missing. Blocking, for WebView request interception, and outside Sync's lock;
+ * [generation] keeps a fetch from writing back what a deletion removed meanwhile. Sync deletes them when their notes
+ * go.
  */
 class NoteImages(private val api: Api, filesDir: File) {
     private val root = File(filesDir, "images")
@@ -28,14 +28,6 @@ class NoteImages(private val api: Api, filesDir: File) {
      * no fetch before it.
      */
     private var generation = 0L
-    private var retired = false
-
-    /** Even a request started later by an old WebView must not read or recreate this copy's files. */
-    fun retire() =
-        synchronized(lock) {
-            retired = true
-            generation++
-        }
 
     /**
      * A repository image for the displayed note version: from the cache, else fetched through the backend with the
@@ -49,7 +41,6 @@ class NoteImages(private val api: Api, filesDir: File) {
         val file = File(directory, key)
         val started =
             synchronized(lock) {
-                if (retired) return null
                 try {
                     if (file.isFile) return file.readBytes()
                 } catch (error: IOException) {

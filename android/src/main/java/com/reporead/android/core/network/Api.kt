@@ -286,9 +286,6 @@ fun ApiException.describe(): String =
         "SYNC_SUPERSEDED" ->
             "This repository changed during the refresh, so nothing was replaced; refresh again to get the latest notes."
         "ANNOTATION_CONFLICT" -> "It was changed elsewhere; sync, reopen the note, and try again."
-        "ACCOUNT_MISMATCH" ->
-            "This phone holds another account's notes, so it signs in only as that account. Sign in with the GitHub " +
-                "account that saved them, or sign out first to remove them from this phone."
         "LIBRARY_TOO_LARGE" ->
             "Your library, with its highlights and review history, is too large to sync in one answer; the lists on this phone were not updated."
         "SIGN_IN_REQUIRED",

@@ -403,8 +403,7 @@ class LocalStoreTest {
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = true, at = 1))
         assertEquals(3, dao.unsentInRepository(7))
         assertEquals(1, dao.unsentInRepository(8))
-        assertEquals(6, dao.unsentCount())
-        // The refused highlight is lost by signing out, but is not waiting to be sent.
+        // A refused highlight is kept locally, but is not waiting to be sent.
         assertEquals(5, dao.waitingCount().first())
     }
 

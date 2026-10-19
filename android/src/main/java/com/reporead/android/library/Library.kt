@@ -92,19 +92,15 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 }
 
 /**
- * The Library's sync and sign-out count, kept by its back-stack entry ([entryId]): a rotation neither stops nor repeats
- * the sync, and what it reported stays shown. Leaving the Library cancels a sync still running; its sends commit what
- * the server answered (Sync).
+ * The Library's sync and sign-out confirmation, kept by its back-stack entry ([entryId]): a rotation neither stops nor
+ * repeats the sync, and what it reported stays shown. Leaving the Library cancels a sync still running; its sends
+ * commit what the server answered (Sync).
  */
-internal class LibraryViewModel(private val sync: Sync, private val dao: LibraryDao, private val entryId: String) :
-    ViewModel() {
+internal class LibraryViewModel(private val sync: Sync, private val entryId: String) : ViewModel() {
     data class State(
         val syncing: Boolean = false,
         val status: String? = null,
-        /**
-         * Changes the server has not acknowledged, counted for the sign-out confirmation; non-null while it is shown.
-         */
-        val signOutUnsent: Int? = null,
+        val confirmSignOut: Boolean = false,
     )
 
     private val current = MutableStateFlow(State())
@@ -166,14 +162,9 @@ internal class LibraryViewModel(private val sync: Sync, private val dao: Library
         }
     }
 
-    fun askToSignOut() {
-        viewModelScope.launch {
-            val unsent = dao.unsentCount()
-            current.update { it.copy(signOutUnsent = unsent) }
-        }
-    }
+    fun askToSignOut() = current.update { it.copy(confirmSignOut = true) }
 
-    fun closeSignOut() = current.update { it.copy(signOutUnsent = null) }
+    fun closeSignOut() = current.update { it.copy(confirmSignOut = false) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -190,7 +181,7 @@ fun LibraryScreen(
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
 ) {
-    val model = viewModel { LibraryViewModel(sync, dao, entryId) }
+    val model = viewModel { LibraryViewModel(sync, entryId) }
     val state by model.state.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
     DisposableEffect(model) { onDispose { if (activity?.isChangingConfigurations != true) model.left() } }
@@ -210,12 +201,10 @@ fun LibraryScreen(
                 "Library",
                 actions = {
                     IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
-                    // Signing out is offered after the session has ended too: it is the one way to remove this phone's
-                    // copy, and to sign in as another account.
-                    val signOut = MenuAction("Sign out and remove from phone…", model::askToSignOut)
+                    val signOut = MenuAction("Sign out…", model::askToSignOut)
                     OverflowMenu(
                         if (signedIn) listOf(signOut, MenuAction("Delete account…") { confirmDeleteAccount = true })
-                        else listOf(MenuAction("Sign in with GitHub", onSignIn), signOut)
+                        else listOf(MenuAction("Sign in with GitHub", onSignIn))
                     )
                 },
             )
@@ -298,9 +287,8 @@ fun LibraryScreen(
             onConfirm = { deleteAccount() },
         )
     }
-    state.signOutUnsent?.let { unsent ->
+    if (state.confirmSignOut) {
         SignOutDialog(
-            unsent,
             onDismiss = model::closeSignOut,
             onConfirm = {
                 model.closeSignOut()
@@ -310,26 +298,14 @@ fun LibraryScreen(
     }
 }
 
-/** What signing out deletes from this phone, including the [unsent] changes the server never received. */
+/** Signing out ends the session, not the local copy. */
 @Composable
-private fun SignOutDialog(unsent: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun SignOutDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Sign out of RepoRead?") },
-        text = {
-            Text(
-                "This phone's saved notes, highlights, cards, and reading progress are deleted from it; what the server has stays " +
-                    "there for your next sign-in." +
-                    if (unsent == 0) ""
-                    else
-                        " ${counted(unsent, "change")} on this phone never reached the server and will be lost. Cancel and use Sync now to keep them."
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(if (unsent == 0) "Sign out" else "Sign out and lose them", color = MaterialTheme.colorScheme.error)
-            }
-        },
+        text = { Text("Saved notes and changes stay on this phone. Syncing waits until you sign in again.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Sign out") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -443,9 +419,9 @@ private fun DeleteAccountDialog(repositories: List<String>, onDismiss: () -> Uni
         title = { Text("Delete your RepoRead account?") },
         text = {
             Text(
-                "RepoRead will delete, on its server and this phone, your connections" +
+                "RepoRead will delete, on its server, your connections" +
                     (if (repositories.isEmpty()) "" else " (${repositories.joinToString()})") +
-                    ", note lists, reading progress, bookmarks, highlights and notes, cards and review logs, and sign this phone out. RepoRead cannot undo this. " +
+                    ", note lists, reading progress, bookmarks, highlights and notes, cards and review logs, and sign this phone out. Saved notes and changes stay on this phone. RepoRead cannot undo the server deletion. " +
                     BACKUP_COPIES +
                     "Your GitHub repositories are not changed. RepoRead asks GitHub to revoke its authorization; to also uninstall " +
                     "the RepoRead App, use GitHub's Settings → Applications."

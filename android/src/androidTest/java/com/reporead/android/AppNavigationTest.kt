@@ -103,7 +103,6 @@ class AppNavigationTest {
         store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
         dao = store.library()
         directory = File(context.cacheDir, "test-only-navigation-${UUID.randomUUID()}").also { check(it.mkdirs()) }
-        sessions.recordOwner(5)
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", notes.size, testSha)))
         dao.replaceDocuments(7, notes.map { DocumentRow(it.id, 7, it.path, it.title, testSha) })
         for (note in notes) {
@@ -166,16 +165,16 @@ class AppNavigationTest {
 
     private fun api(server: LoopbackServer) = Api(server.url, sessions::read, sessions::endRefused)
 
-    private fun account(api: Api) =
-        Account(sessions, api, Sync(api, store, directory) {}, scope) {}.also { runBlocking { it.startUp().join() } }
+    private fun account(api: Api) = Account(sessions, api, scope)
 
     private fun launch(content: @Composable () -> Unit) {
         TestHostActivity.content = content
         scenario = ActivityScenario.launch(TestHostActivity::class.java)
     }
 
-    private fun launchApp(account: Account, api: Api) = launch {
-        RepoReadApp(account, sessions, api, dao, scope, signInCode.value) { signInCode.value = null }
+    private fun launchApp(account: Account, api: Api) {
+        val sync = Sync(api, store, directory) {}
+        launch { RepoReadApp(account, sync, sessions, api, dao, scope, signInCode.value) { signInCode.value = null } }
     }
 
     private fun pressBack() {
@@ -443,77 +442,22 @@ class AppNavigationTest {
     }
 
     @Test
-    fun signingInOverOwnerlessDataRetiresTheOldStack() = runBlocking {
-        // Test-only legacy copy: saved notes exist, but no account owns them (AccountTest's upgrade fixture).
-        sessions.finishRemoval()
-        LoopbackServer(
-                mapOf(
-                    "GET /api/library" to library(connected = false),
-                    "POST /api/app-auth/token" to (200 to wire(testSession(userId = 6))),
-                )
-            )
-            .use { server ->
-                val api = api(server)
-                val account = account(api)
-                val oldCopy = account.sync
-                launchApp(account, api)
-                openNoteAWithItsPanel()
-                sessions.pendingVerifier = "test-only-verifier"
-                scenario!!.onActivity { signInCode.value = "TEST_ONLY_CODE" }
-                awaitScreen("Library", hidden = listOf("Note A", "Linked from"))
-                assertTrue(selected("Reading"))
-                assertTrue(account.sync !== oldCopy)
-                assertNull(dao.note(1))
-                assertEquals(6L, sessions.dataOwner)
-                awaitBackLeavesTheApp()
-                assertEquals(listOf("POST /api/app-auth/token", "GET /api/library"), server.requests)
-            }
-    }
-
-    @Test
-    fun aRefusedOwnerlessSignInDoesNotRestoreTheRetiredStackOnTheSecondAttempt() = runBlocking {
-        sessions.finishRemoval()
-        val routes =
-            ConcurrentHashMap(
-                mapOf(
-                    "GET /api/library" to library(connected = false),
-                    "POST /api/app-auth/token" to failure(400, "TEST_ONLY_REFUSED"),
-                )
-            )
-        LoopbackServer(routes).use { server ->
-            val api = api(server)
-            launchApp(account(api), api)
-            openNoteAWithItsPanel()
-            sessions.pendingVerifier = "test-only-verifier"
-            scenario!!.onActivity { signInCode.value = "TEST_ONLY_FIRST_CODE" }
-            awaitScreen("Sign in with GitHub", hidden = listOf("Note A", "Linked from"))
-            awaitText("Test-only TEST_ONLY_REFUSED")
-            assertNull(dao.note(1))
-            assertEquals(listOf("POST /api/app-auth/token"), server.requests)
-            routes["POST /api/app-auth/token"] = 200 to wire(testSession(userId = 6))
-            sessions.pendingVerifier = "test-only-next-verifier"
-            scenario!!.onActivity { signInCode.value = "TEST_ONLY_SECOND_CODE" }
-            awaitScreen("Library", hidden = listOf("Note A", "Linked from"))
-            assertTrue(selected("Reading"))
-            awaitBackLeavesTheApp()
-            assertEquals(
-                listOf("POST /api/app-auth/token", "POST /api/app-auth/token", "GET /api/library"),
-                server.requests,
-            )
-        }
-    }
-
-    /** Sign-out is offered only at the root, so the old state left to clear is the root's own (its tab). */
-    @Test
-    fun signingOutStartsTheNextAccountAtAFreshRoot() {
+    fun signingOutAndBackInKeepTheLibraryTabAndSavedNotes() {
         sessions.save("TEST_ONLY_SESSION")
+        val arrived = CountDownLatch(1)
+        val release = CountDownLatch(1)
         LoopbackServer(
                 mapOf(
                     "GET /api/library" to library(),
                     "DELETE /api/app-auth/session" to (204 to ""),
                     "POST /api/app-auth/token" to (200 to wire(testSession(userId = 5))),
                 )
-            )
+            ) { key ->
+                if (key == "DELETE /api/app-auth/session") {
+                    arrived.countDown()
+                    check(release.await(10, SECONDS)) { "Test never released revocation" }
+                }
+            }
             .use { server ->
                 val api = api(server)
                 launchApp(account(api), api)
@@ -521,19 +465,33 @@ class AppNavigationTest {
                 click("Repositories")
                 awaitText("test-only/notes")
                 click("More")
-                click("Sign out and remove from phone…")
+                click("Sign out…")
                 click("Sign out")
-                awaitScreen("Sign in with GitHub", hidden = listOf("Library"))
+                try {
+                    assertTrue(arrived.await(10, SECONDS))
+                    awaitScreen("Signing out…", hidden = listOf("Library"))
+                    scenario!!.recreate()
+                    awaitScreen("Signing out…", hidden = listOf("Library"))
+                } finally {
+                    release.countDown()
+                }
+                awaitScreen("Library", hidden = listOf("Signing out…"))
+                assertFalse(sessions.hasSession)
+                assertTrue(selected("Repositories"))
+                assertNotNull(runBlocking { dao.note(1) })
                 sessions.pendingVerifier = "test-only-verifier"
                 scenario!!.onActivity { signInCode.value = "TEST_ONLY_CODE" }
+                runBlocking { withTimeout(10_000) { while (!sessions.hasSession) delay(20) } }
                 awaitText("Library")
-                assertTrue(selected("Reading"))
-                assertFalse(selected("Repositories"))
+                assertTrue(selected("Repositories"))
+                assertFalse(selected("Reading"))
+                assertEquals(1, server.requests.count { it == "DELETE /api/app-auth/session" })
+                assertEquals(1, server.requests.count { it == "POST /api/app-auth/token" })
             }
     }
 
     @Test
-    fun signOutConfirmationCountsWhatIsLostAndCancelChangesNothing() = runBlocking {
+    fun signOutConfirmationSaysSavedDataStaysAndCancelChangesNothing() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")
         dao.saveAnnotation(
             AnnotationRow("unsent", null, 1, testSha, "b0", 0, 4, "Test", null, 1, 0, state = AnnotationState.UNSENT)
@@ -549,10 +507,8 @@ class AppNavigationTest {
                 launchApp(account(api), api)
                 awaitTextStarting("New highlights and cards stay on this phone for now.")
                 click("More")
-                click("Sign out and remove from phone…")
-                awaitMatch("the unsent count") {
-                    it.contains("1 change on this phone never reached the server and will be lost.")
-                }
+                click("Sign out…")
+                awaitText("Saved notes and changes stay on this phone. Syncing waits until you sign in again.")
                 val before = server.requests.toList()
                 click("Cancel")
                 awaitScreen("Library", hidden = listOf("Sign out of RepoRead?"))
