@@ -3,6 +3,7 @@
 package com.reporead.reading;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -124,7 +125,7 @@ class ReadingStateTest extends SharedSpringTest {
 
     @Test
     void olderOrEqualWritesDoNotReplaceNewerProgress() throws Exception {
-        Instant newer = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Instant newer = Instant.now().minusSeconds(2).truncatedTo(ChronoUnit.MILLIS);
         save(alice, note, body(SHA_A, 80, newer, ANCHOR)).andExpect(status().isOk());
         save(alice, note, body(SHA_A, 10, newer.minusSeconds(60), ANCHOR))
                 .andExpect(status().isOk())
@@ -177,24 +178,77 @@ class ReadingStateTest extends SharedSpringTest {
                 body(SHA_A, 101, now, ANCHOR),
                 body(SHA_A, -1, now, ANCHOR),
                 body(SHA_A, 1, now, "null"),
-                body(SHA_A, 1, now, "{\"headingPath\":[],\"blockIndex\":4096}"),
-                body(SHA_A, 1, now, "{\"headingPath\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\"],\"blockIndex\":0}"),
-                body(SHA_A, 1, now, "{\"headingPath\":[],\"textPrefix\":\"" + "x".repeat(201) + "\",\"blockIndex\":0}"),
+                body(SHA_A, 1, now, "{\"headingPath\":[],\"blockIndex\":null}"),
+                body(SHA_A, 1, now, "{\"headingPath\":null,\"blockIndex\":0}"),
                 body(SHA_A, 1, now, "{\"headingPath\":[null],\"blockIndex\":0}"),
-                body(SHA_A, 1, now.plusSeconds(600), ANCHOR),
-                body(SHA_A, 1, Instant.EPOCH.minusSeconds(1), ANCHOR),
-                // Before PostgreSQL's earliest timestamp.
-                body(SHA_A, 1, Instant.parse("-300000-01-01T00:00:00Z"), ANCHOR),
                 "{\"lastReadBlobSha\":\"" + SHA_A + "\",\"progressPercent\":1,\"anchor\":" + ANCHOR + "}")) {
             save(alice, note, json)
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.code").value("INVALID_READING_STATE"));
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         }
         assertEquals(
                 0,
                 db.sql("select count(*) from reading_states")
                         .query(Integer.class)
                         .single());
+    }
+
+    @Test
+    void aClockTenMinutesAheadIsStoredAtServerNow() throws Exception {
+        Instant before = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        save(alice, note, body(SHA_A, 50, before.plusSeconds(600), ANCHOR)).andExpect(status().isOk());
+        Instant stored = db.sql("select last_read_at from reading_states where document_id = :id")
+                .param("id", note)
+                .query(java.sql.Timestamp.class)
+                .single()
+                .toInstant();
+        assertTrue(!stored.isBefore(before) && !stored.isAfter(Instant.now().plusMillis(1)), stored.toString());
+        list(alice).andExpect(jsonPath("$.readingStates[0].progressPercent").value(50));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a\\u0000b", "a\\ud83cb", "a\\udf4eb"})
+    void unstorableAnchorTextIsAMalformedRequest(String text) throws Exception {
+        for (String anchor : List.of(
+                "{\"headingPath\":[\"" + text + "\"],\"textPrefix\":null,\"blockIndex\":0}",
+                "{\"headingPath\":[],\"textPrefix\":\"" + text + "\",\"blockIndex\":0}")) {
+            save(alice, note, body(SHA_A, 50, Instant.now(), anchor))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        assertEquals(
+                0,
+                db.sql("select count(*) from reading_states")
+                        .query(Integer.class)
+                        .single());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1969-12-31T23:59:59Z", "-300000-01-01T00:00:00Z"})
+    void aClockBefore1970IsStoredAtTheEpoch(String at) throws Exception {
+        save(alice, note, body(SHA_A, 50, Instant.parse(at), ANCHOR))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastReadAt").value(Instant.EPOCH.toString()));
+        list(alice).andExpect(jsonPath("$.readingStates[0].lastReadAt").value(Instant.EPOCH.toString()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 4096, Integer.MAX_VALUE})
+    void anAnchorOverTheOldLimitsIsStoredAsSent(int blockIndex) throws Exception {
+        String heading = "😀" + "h".repeat(501);
+        String prefix = "😀" + "p".repeat(201);
+        String anchor = "{\"headingPath\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"" + heading + "\"],\"textPrefix\":\""
+                + prefix + "\",\"blockIndex\":" + blockIndex + "}";
+        save(alice, note, body(SHA_A, 50, Instant.now().minusSeconds(1), anchor))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.anchor.headingPath.length()").value(7))
+                .andExpect(jsonPath("$.anchor.headingPath[6]").value(heading))
+                .andExpect(jsonPath("$.anchor.textPrefix").value(prefix))
+                .andExpect(jsonPath("$.anchor.blockIndex").value(blockIndex));
+        list(alice)
+                .andExpect(jsonPath("$.readingStates[0].anchor.headingPath[6]").value(heading))
+                .andExpect(jsonPath("$.readingStates[0].anchor.textPrefix").value(prefix))
+                .andExpect(jsonPath("$.readingStates[0].anchor.blockIndex").value(blockIndex));
     }
 
     @Test

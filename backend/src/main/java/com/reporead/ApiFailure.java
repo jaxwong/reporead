@@ -11,7 +11,6 @@ public final class ApiFailure extends RuntimeException {
         INVALID_ANNOTATION(400),
         INVALID_CODE_CHALLENGE(400),
         INVALID_IMAGE_PATH(400),
-        INVALID_READING_STATE(400),
         INVALID_REPOSITORY(400),
         INVALID_REVIEW(400),
         INVALID_SIGN_IN_CODE(400),
