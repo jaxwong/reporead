@@ -48,22 +48,22 @@ class FolderTest {
 
     @Test
     fun folderFilterUsesPathBoundariesAndIncludesDescendants() {
-        assertTrue(inPracticeFolder("core/db/a.md", " core/ "))
-        assertTrue(inPracticeFolder("core/db/a.md", "/core/db/"))
-        assertTrue(inPracticeFolder("root.md", ""))
-        assertFalse(inPracticeFolder("core-extra/a.md", "core"))
-        assertFalse(inPracticeFolder("books/a.md", "core"))
+        assertTrue(inFolder("core/db/a.md", " core/ "))
+        assertTrue(inFolder("core/db/a.md", "/core/db/"))
+        assertTrue(inFolder("root.md", ""))
+        assertFalse(inFolder("core-extra/a.md", "core"))
+        assertFalse(inFolder("books/a.md", "core"))
     }
 
     @Test
-    fun topicsUseOnlyActualFoldersAndIncludeEachAncestorOnce() {
+    fun ancestorFoldersIncludeEachActualFolderOnce() {
         assertEquals(
             listOf("core", "core/db", "core/db/sql", "core-extra"),
-            practiceTopics(
+            ancestorFolders(
                 listOf("root.md", "core/db/sql/a.md", "core/db/b.md", "core-extra/a.md", "core/db/sql/c.md")
             ),
         )
-        assertEquals(emptyList<String>(), practiceTopics(emptyList()))
-        assertEquals(emptyList<String>(), practiceTopics(listOf("root.md")))
+        assertEquals(emptyList<String>(), ancestorFolders(emptyList()))
+        assertEquals(emptyList<String>(), ancestorFolders(listOf("root.md")))
     }
 }

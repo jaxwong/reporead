@@ -1,45 +1,17 @@
 package com.reporead.android.study
 
 import com.reporead.android.reader.noteLinkParameters
-import org.json.JSONArray
-import org.json.JSONObject
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
 
-/**
- * The headings of a LeetCode solution note, as measured over the real notes (ADR-20). The reader's Study view collapses
- * them; nothing else is recognized there.
- */
-private val COLLAPSED_HEADINGS =
-    setOf("approach", "brute force approach", "optimized approach", "complexities", "mistakes")
 private val NUMBERED = Regex("""^\d+\.\s+""")
 /**
  * The line that makes a bank H3 a question: "Canonical answer(s):" for one numbered question, "Canonical path:" for a
  * follow-up group. Section names and numbers only label.
  */
 private val ANSWER_LINE = Regex("""^Canonical (answers?|path):""")
-
-/** The reader's Study view of a LeetCode note: the headings whose sections collapse until tapped. */
-internal data class StudyNote(val recognized: Boolean, val collapsedHeadings: List<String>)
-
-internal fun StudyNote.json(): JSONObject = JSONObject().put("collapsedHeadings", JSONArray(collapsedHeadings))
-
-internal fun studyNote(html: String): StudyNote {
-    val collapsed = mutableListOf<String>()
-    var leetcode = false
-    for (heading in Jsoup.parse(html).select("#note [data-block-id]").filter { isHeading(it) }) {
-        when (heading.attr("data-anchor-text").trim().lowercase()) {
-            in COLLAPSED_HEADINGS -> {
-                leetcode = true
-                collapsed += heading.attr("data-block-id")
-            }
-            "problem" -> leetcode = true
-        }
-    }
-    return StudyNote(leetcode, collapsed)
-}
 
 /**
  * A link on a bank's answer line: a repository [path] (Markdown link) or an Obsidian [target], its [heading], and its

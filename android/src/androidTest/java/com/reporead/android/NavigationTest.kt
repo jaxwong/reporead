@@ -56,11 +56,14 @@ class NavigationTest {
     }
 
     @Test
-    fun unmarkedLegacyAndUnknownFormatsAreNotRestored() {
+    fun nonCurrentSavedStateFormatsAreNotRestored() {
         val saved = legacyNavigationState()
         assertNull(compatibleSavedState(saved))
-        saved.putInt(NAVIGATION_STATE_FORMAT_KEY, NAVIGATION_STATE_FORMAT + 1)
-        assertNull(compatibleSavedState(saved))
+        for (format in 0..(NAVIGATION_STATE_FORMAT + 1)) {
+            if (format == NAVIGATION_STATE_FORMAT) continue
+            saved.putInt(NAVIGATION_STATE_FORMAT_KEY, format)
+            assertNull("Saved UI format $format must not restore", compatibleSavedState(saved))
+        }
     }
 
     @Test
@@ -73,25 +76,6 @@ class NavigationTest {
             }
         assertSame(saved, compatibleSavedState(saved))
         assertNull(compatibleSavedState(null))
-    }
-
-    @Test
-    fun stateThatCouldContainARetiredDestinationIsNotRestored() {
-        val saved = Bundle().apply { putInt(NAVIGATION_STATE_FORMAT_KEY, 2) }
-        assertNull(compatibleSavedState(saved))
-    }
-
-    @Test
-    fun sessionsSavedBeforeTheStudyPackageMoveAreNotRestored() {
-        val saved = Bundle().apply { putInt(NAVIGATION_STATE_FORMAT_KEY, 3) }
-        assertNull(compatibleSavedState(saved))
-    }
-
-    @Test
-    fun composeOwnedSessionsAreNotAcceptedAsViewModelSavedState() {
-        // c1f4a90 saved sessions in Compose, not in each entry's SavedStateHandle.
-        val saved = Bundle().apply { putInt(NAVIGATION_STATE_FORMAT_KEY, 1) }
-        assertNull(compatibleSavedState(saved))
     }
 }
 
