@@ -38,6 +38,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -129,6 +130,14 @@ class Sync(
         }
     }
 
+    /**
+     * [locked], but its caller's cancellation does not stop it, from waiting for the lock to its local commit: a screen
+     * left while a local write waits, or while the server confirms a change, does not lose that change here. Retirement
+     * still refuses it. Only for one local write, or one mutation and its commit (at most two calls, each within Api's
+     * timeouts); read-only loads and the pending-change passes stay cancellable.
+     */
+    private suspend fun <T> committed(work: suspend () -> T): T = withContext(NonCancellable) { locked(work) }
+
     /** Closes admission immediately; the clear waits for an already admitted operation, not for screens. */
     fun retire() {
         retired = true
@@ -208,7 +217,7 @@ class Sync(
     suspend fun refreshLibrary() = locked { loadLibrary() }
 
     /** Asks the backend to reconcile with GitHub, then reloads the now-current library. */
-    suspend fun refreshFromGitHub(repositoryId: Long) = locked {
+    suspend fun refreshFromGitHub(repositoryId: Long) = committed {
         api.syncRepository(repositoryId)
         loadLibrary()
     }
@@ -371,7 +380,7 @@ class Sync(
      * again reloads the server's library instead. Either way exports and the forgotten notes' images are deleted; files
      * that stay are logged and deleted again by the next sweep.
      */
-    suspend fun disconnect(repositoryId: Long): Unit = locked {
+    suspend fun disconnect(repositoryId: Long): Unit = committed {
         val json =
             try {
                 api.disconnectRepository(repositoryId)
@@ -395,7 +404,7 @@ class Sync(
      * Only the reader calls this, with the version it actually displayed. False for a disconnected note; a retired
      * local copy cancels the operation before accessing Room.
      */
-    suspend fun saveReading(row: ReadingRow): Boolean = locked {
+    suspend fun saveReading(row: ReadingRow): Boolean = committed {
         dao.saveDisplayedReading(row.copy(pending = true)).also { saved ->
             if (saved) onPendingChange()
             else Log.i("RepoRead", "Reading position not saved; note gone; documentId=${row.documentId}")
@@ -403,7 +412,7 @@ class Sync(
     }
 
     /** False when the phone no longer lists the note: nothing is saved. */
-    suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = locked {
+    suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = committed {
         dao.saveLocalBookmark(BookmarkRow(documentId, bookmarked, pending = true, System.currentTimeMillis())).also {
             saved ->
             if (saved) onPendingChange() else Log.i("RepoRead", "Bookmark not saved; note gone; documentId=$documentId")
@@ -414,7 +423,7 @@ class Sync(
      * Saves a grade as a pending local mutation; false when its card changed meanwhile and nothing was saved (see
      * recordReview).
      */
-    suspend fun recordReview(row: ReviewRow): Boolean = locked {
+    suspend fun recordReview(row: ReviewRow): Boolean = committed {
         dao.recordReview(row).also { if (it) onPendingChange() }
     }
 
@@ -509,7 +518,7 @@ class Sync(
      * accessing Room.
      */
     suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? =
-        locked {
+        committed {
             val row =
                 AnnotationRow(
                     mutationId = UUID.randomUUID().toString(),
@@ -530,7 +539,7 @@ class Sync(
                 )
             if (!dao.saveLocalAnnotation(row)) {
                 Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
-                return@locked null
+                return@committed null
             }
             onPendingChange()
             row.mutationId
@@ -624,7 +633,7 @@ class Sync(
     }
 
     /** Online only. A 409 ANNOTATION_CONFLICT means another edit landed first; nothing local changes. */
-    suspend fun editAnnotation(row: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow = locked {
+    suspend fun editAnnotation(row: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow = committed {
         val serverId =
             checkNotNull(row.serverId) {
                 "Only acknowledged highlights can be edited; ${row.mutationId} is pending"
@@ -643,7 +652,7 @@ class Sync(
      * Online only: places an acknowledged highlight on a [passage] the user selected. A 409 ANNOTATION_CONFLICT means
      * another change landed first; nothing local changes.
      */
-    suspend fun reattachAnnotation(row: AnnotationRow, passage: Passage): AnnotationRow = locked {
+    suspend fun reattachAnnotation(row: AnnotationRow, passage: Passage): AnnotationRow = committed {
         val serverId =
             checkNotNull(row.serverId) {
                 "Only acknowledged highlights can be reattached; ${row.mutationId} is pending"
@@ -664,7 +673,7 @@ class Sync(
      * once and offline too; the next sync replays the creation (the server may have it after a lost acknowledgement)
      * and deletes it there. A refused creation the server never accepted is only local.
      */
-    suspend fun deleteAnnotation(row: AnnotationRow) = locked {
+    suspend fun deleteAnnotation(row: AnnotationRow) = committed {
         when (row.state) {
             AnnotationState.ACKNOWLEDGED -> {
                 val serverId = checkNotNull(row.serverId) { "Acknowledged ${row.mutationId} has no server id" }
@@ -718,7 +727,7 @@ class Sync(
         }
     }
 
-    suspend fun checkCard(row: AnnotationRow, blobSha: String) = locked {
+    suspend fun checkCard(row: AnnotationRow, blobSha: String) = committed {
         val id = checkNotNull(row.serverId) { "Only acknowledged cards can be confirmed; ${row.mutationId} is pending" }
         dao.saveAnnotation(
             api.checkCard(id, AnnotationControllerCheckRequest(expectedVersion = row.version, blobSha = blobSha))

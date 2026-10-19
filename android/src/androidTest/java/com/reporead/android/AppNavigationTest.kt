@@ -26,6 +26,7 @@ import com.reporead.android.core.network.testLibrary
 import com.reporead.android.core.network.testRepository
 import com.reporead.android.core.network.testSession
 import com.reporead.android.core.network.testSha
+import com.reporead.android.core.network.testSynced
 import com.reporead.android.core.network.wire
 import com.reporead.android.core.network.wire.DocumentsSummary
 import com.reporead.android.data.AnnotationRow
@@ -219,35 +220,35 @@ class AppNavigationTest {
     }
 
     /**
-     * Waits until the folder's own refresh has finished: until then its other actions start nothing, and Refresh from
+     * Waits until the library was loaded [libraryLoads] times — by default on entering, then by the folder's own
+     * refresh — and the folder's refresh has finished: until then its other actions start nothing, and Refresh from
      * GitHub, disabled meanwhile, shows when it is done.
      */
-    private fun awaitFolderRefreshed(server: LoopbackServer) = runBlocking {
+    private fun awaitFolderRefreshed(server: LoopbackServer, libraryLoads: Int = 2) = runBlocking {
         withTimeout(10_000) {
-            // The library on entering, then the folder's own refresh.
-            while (server.requests.count { it == "GET /api/library" } < 2) delay(50)
+            while (server.requests.count { it == "GET /api/library" } < libraryLoads) delay(50)
             while (findText(root(), "Refresh from GitHub")?.isEnabled != true) delay(50)
         }
     }
 
     /**
-     * Runs the shown screen's Back twice in one turn of the main thread, as two taps that both land before the screen
-     * recomposes: the second reaches the same, already removed, screen.
+     * Runs the shown control described as [description] twice in one turn of the main thread, as two taps that both
+     * land before the screen recomposes: the second reaches the same screen, already changed by the first.
      */
-    private fun tapBackTwiceBeforeRecomposition() {
+    private fun tapTwiceBeforeRecomposition(description: String) {
         fun View.composeRoot(): ViewRootForTest? =
             this as? ViewRootForTest
                 ?: (this as? ViewGroup)?.let { group ->
                     (0 until group.childCount).firstNotNullOfOrNull { group.getChildAt(it).composeRoot() }
                 }
         scenario!!.onActivity { activity ->
-            val back =
+            val control =
                 checkNotNull(activity.window.decorView.composeRoot()).semanticsOwner.getAllSemanticsNodes(true).single {
-                    "Back" in it.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() }
+                    description in it.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() }
                 }
-            val onBack = checkNotNull(back.config[SemanticsActions.OnClick].action)
-            onBack()
-            onBack()
+            val tap = checkNotNull(control.config[SemanticsActions.OnClick].action)
+            tap()
+            tap()
         }
         instrumentation.waitForIdleSync()
     }
@@ -595,13 +596,275 @@ class AppNavigationTest {
             awaitFolder()
             click("Note A")
             awaitNoteA(panelOpen = false)
-            tapBackTwiceBeforeRecomposition()
+            tapTwiceBeforeRecomposition("Back")
             awaitFolder()
             pressBack()
             awaitText("test-only/notes")
             assertTrue(selected("Repositories"))
             assertEquals(emptyList<String>(), server.requests)
         }
+    }
+
+    /** Library → Repositories → the repository's folder, once its own library load has finished. */
+    private fun openFolder(server: LoopbackServer) {
+        awaitText("Library")
+        click("Repositories")
+        click("test-only/notes")
+        awaitFolder()
+        awaitFolderRefreshed(server)
+    }
+
+    /** A server that holds its answer to [held] until [release]; [arrived] counts down when it is held. */
+    private class Held(val held: String) {
+        val arrived = CountDownLatch(1)
+        val release = CountDownLatch(1)
+
+        fun hook(key: String) {
+            if (key == held) {
+                arrived.countDown()
+                check(release.await(60, SECONDS)) { "Test never released $held" }
+            }
+        }
+
+        fun awaitArrived() = assertTrue("$held never reached the server", arrived.await(10, SECONDS))
+    }
+
+    private val stored = "GET /api/repositories/7/stored-data" to (200 to wire(testCounts()))
+
+    /** T1: the preview the confirmation needs is not lost, or asked again, when the Activity is recreated meanwhile. */
+    @Test
+    fun aDisconnectPreviewHeldThroughRecreationStillShowsTheServersCounts() {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("GET /api/repositories/7/stored-data")
+        LoopbackServer(mapOf("GET /api/library" to library(), stored), hold::hook).use { server ->
+            val api = api(server)
+            launchApp(account(api), api)
+            try {
+                openFolder(server)
+                click("More")
+                click("Disconnect…")
+                hold.awaitArrived()
+                scenario!!.recreate()
+                awaitFolder()
+            } finally {
+                hold.release.countDown()
+            }
+            awaitText("Disconnect test-only/notes?")
+            // The Library's sync, the folder's load, then the preview's own load and count: none of it asked again.
+            assertEquals(
+                listOf(
+                    "GET /api/library",
+                    "GET /api/library",
+                    "GET /api/library",
+                    "GET /api/repositories/7/stored-data",
+                ),
+                server.requests,
+            )
+            click("Cancel")
+            awaitScreen("deep", hidden = listOf("Disconnect test-only/notes?"))
+        }
+    }
+
+    /** T4: a refresh from GitHub keeps running while a note covers the folder; its outcome is shown on return. */
+    @Test
+    fun aRefreshFromGitHubFinishesWhileCoveredAndIsShownOnReturn() {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("POST /api/repositories/7/sync")
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(),
+                    "POST /api/repositories/7/sync" to failure(503, "TEST_ONLY_DOWN"),
+                ),
+                hold::hook,
+            )
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                try {
+                    openFolder(server)
+                    click("Refresh from GitHub")
+                    hold.awaitArrived()
+                    click("Note A")
+                    awaitNoteA(panelOpen = false)
+                    pressBack()
+                    awaitFolder()
+                } finally {
+                    hold.release.countDown()
+                }
+                awaitTextStarting("Refresh failed; the previous list is unchanged.")
+                // Returning while the refresh ran started no second load beside it.
+                assertEquals(2, server.requests.count { it == "GET /api/library" })
+                assertEquals(1, server.requests.count { it == "POST /api/repositories/7/sync" })
+            }
+    }
+
+    /** A rotation during a refresh from GitHub neither cancels it nor sends it again; its reload still lands. */
+    @Test
+    fun aRefreshFromGitHubHeldThroughRecreationIsSentOnce() {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("POST /api/repositories/7/sync")
+        LoopbackServer(
+                mapOf("GET /api/library" to library(), "POST /api/repositories/7/sync" to (200 to wire(testSynced()))),
+                hold::hook,
+            )
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                try {
+                    openFolder(server)
+                    click("Refresh from GitHub")
+                    hold.awaitArrived()
+                    scenario!!.recreate()
+                    awaitFolder()
+                } finally {
+                    hold.release.countDown()
+                }
+                awaitFolderRefreshed(server, libraryLoads = 3)
+                assertEquals(
+                    listOf("GET /api/library", "GET /api/library", "POST /api/repositories/7/sync", "GET /api/library"),
+                    server.requests,
+                )
+            }
+    }
+
+    /**
+     * T9: the server confirms a disconnect after its folder was left; this phone still deletes its copies, once, and
+     * the screen that is gone does not navigate.
+     */
+    @Test
+    fun aDisconnectConfirmedAfterItsFolderWasLeftIsCommittedWithoutNavigating() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("DELETE /api/repositories/7")
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(),
+                    stored,
+                    "DELETE /api/repositories/7" to (200 to wire(testDisconnected(notes.map { it.id }))),
+                ),
+                hold::hook,
+            )
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                try {
+                    openFolder(server)
+                    click("More")
+                    click("Disconnect…")
+                    click("Disconnect")
+                    hold.awaitArrived()
+                    pressBack()
+                    awaitText("Library")
+                    click("Notebook")
+                    awaitTextStarting("Highlights and cards saved on this phone.")
+                } finally {
+                    hold.release.countDown()
+                }
+                withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
+                assertEquals(emptyList<DocumentRow>(), dao.documents(7).first())
+                assertNothingMoreSent(server, server.requests.toList())
+                awaitTextStarting("Highlights and cards saved on this phone.")
+                assertEquals(1, server.requests.count { it == "DELETE /api/repositories/7" })
+            }
+    }
+
+    /** T14: two taps on Refresh from GitHub before the screen recomposes start one refresh, and a later tap another. */
+    @Test
+    fun aDoubleTappedRefreshFromGitHubIsSentOnceAndALaterTapAgain() {
+        sessions.save("TEST_ONLY_SESSION")
+        LoopbackServer(
+                mapOf("GET /api/library" to library(), "POST /api/repositories/7/sync" to (200 to wire(testSynced())))
+            )
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                openFolder(server)
+                tapTwiceBeforeRecomposition("Refresh from GitHub")
+                awaitFolderRefreshed(server, libraryLoads = 3)
+                assertEquals(1, server.requests.count { it == "POST /api/repositories/7/sync" })
+                click("Refresh from GitHub")
+                awaitFolderRefreshed(server, libraryLoads = 4)
+                assertEquals(2, server.requests.count { it == "POST /api/repositories/7/sync" })
+            }
+    }
+
+    /**
+     * T15: a restored process shows the folder again, without the confirmation it had open and without disconnecting.
+     */
+    @Test
+    fun aRestoredFolderNeitherReopensItsConfirmationNorDisconnects() {
+        sessions.save("TEST_ONLY_SESSION")
+        LoopbackServer(mapOf("GET /api/library" to library(), stored)).use { server ->
+            val api = api(server)
+            val account = account(api)
+            launchApp(account, api)
+            openFolder(server)
+            click("More")
+            click("Disconnect…")
+            awaitText("Disconnect test-only/notes?")
+            val saved = saveActivityState(scenario!!)
+            scenario!!.close()
+            scenario = null
+            TestHostActivity.restoredState = saved
+            launchApp(account, api)
+            awaitFolder()
+            // The restored folder is a new entry owner: it loads the library once, as a new folder screen does.
+            runBlocking {
+                withTimeout(10_000) { while (server.requests.count { it == "GET /api/library" } < 4) delay(50) }
+            }
+            awaitScreen("deep", hidden = listOf("Disconnect test-only/notes?"))
+            assertNothingMoreSent(server, server.requests.toList())
+            assertFalse(server.requests.any { it.startsWith("DELETE") })
+            assertEquals(1, server.requests.count { it == "GET /api/repositories/7/stored-data" })
+        }
+    }
+
+    /**
+     * T10: a disconnect the server never answers within the client's own read timeout is reported as unconfirmed, keeps
+     * the phone's copy and is not sent again by itself; the user's second attempt runs.
+     */
+    @Test
+    fun anUnansweredDisconnectKeepsTheCopyUntilTheUserTriesAgain() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("DELETE /api/repositories/7")
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(),
+                    stored,
+                    "DELETE /api/repositories/7" to (200 to wire(testDisconnected(notes.map { it.id }))),
+                )
+            ) { key ->
+                // Only the first attempt waits past Api's 45-second read timeout.
+                if (key == "DELETE /api/repositories/7" && hold.arrived.count == 1L) {
+                    hold.arrived.countDown()
+                    hold.release.await(50, SECONDS)
+                }
+            }
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                try {
+                    openFolder(server)
+                    click("More")
+                    click("Disconnect…")
+                    click("Disconnect")
+                    hold.awaitArrived()
+                    // Longer than ScreenText's waits: the client gives up only after its read timeout.
+                    withTimeout(60_000) {
+                        while (findText(root()) { it.startsWith("Couldn't confirm the disconnect") } == null) delay(200)
+                    }
+                } finally {
+                    hold.release.countDown()
+                }
+                assertEquals(3, dao.documents(7).first().size)
+                assertNothingMoreSent(server, server.requests.toList())
+                assertEquals(1, server.requests.count { it == "DELETE /api/repositories/7" })
+                click("More")
+                click("Disconnect…")
+                click("Disconnect")
+                withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
+                awaitScreen("Library", hidden = listOf("test-only/notes"))
+                assertEquals(2, server.requests.count { it == "DELETE /api/repositories/7" })
+            }
     }
 
     /** A confirmed disconnect returns to the Library, in the state it was left, with nothing left above or below it. */

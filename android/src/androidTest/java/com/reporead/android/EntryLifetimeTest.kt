@@ -1,8 +1,5 @@
 package com.reporead.android
 
-import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -14,12 +11,7 @@ import androidx.compose.runtime.saveable.rememberSerializable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
-import androidx.navigation3.runtime.NavEntry
-import androidx.navigation3.runtime.rememberDecoratedNavEntries
-import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
-import androidx.navigation3.ui.NavDisplay
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -37,9 +29,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Test-only ViewModels in a real NavDisplay, with the same public hoisted decorators as RepoReadApp. No direct-screen
- * Activity-scoped viewModel(), production hooks, network or application data. AppNavigationTest separately drives the
- * real account gate and screen state; PR 4 must rerun these assertions against the production screen ViewModels.
+ * Test-only ViewModels in RepoReadApp's own decorated entries and display (rememberEntries, ShownEntry). No
+ * direct-screen Activity-scoped viewModel(), production hooks, network or application data. AppNavigationTest drives
+ * the production screen ViewModels through the real account gate.
  */
 @RunWith(AndroidJUnit4::class)
 class EntryLifetimeTest {
@@ -66,31 +58,16 @@ class EntryLifetimeTest {
                 }
             SideEffect { backStack = stack }
             val entries =
-                rememberDecoratedNavEntries(
-                    stack,
-                    listOf(rememberSaveableStateHolderNavEntryDecorator(), rememberViewModelStoreNavEntryDecorator()),
-                ) { entry ->
-                    NavEntry(entry, contentKey = entry.id) {
-                        val probe = viewModel { OwnerProbe() }
-                        SideEffect { probes[entry.id] = probe }
-                        var draft by rememberSaveable { mutableStateOf("test-only-draft:${entry.id}") }
-                        Column {
-                            Text("test-only-entry:${entry.id}")
-                            TextField(draft, onValueChange = { draft = it })
-                        }
+                rememberEntries(stack) { entry ->
+                    val probe = viewModel { OwnerProbe() }
+                    SideEffect { probes[entry.id] = probe }
+                    var draft by rememberSaveable { mutableStateOf("test-only-draft:${entry.id}") }
+                    Column {
+                        Text("test-only-entry:${entry.id}")
+                        TextField(draft, onValueChange = { draft = it })
                     }
                 }
-            if (covered.value) Text("test-only-account-gate")
-            else {
-                val instant = ContentTransform(EnterTransition.None, ExitTransition.None)
-                NavDisplay(
-                    entries,
-                    onBack = { stack.removeLastOrNull() },
-                    transitionSpec = { instant },
-                    popTransitionSpec = { instant },
-                    predictivePopTransitionSpec = { instant },
-                )
-            }
+            if (covered.value) Text("test-only-account-gate") else ShownEntry(entries) { stack.removeLastOrNull() }
         }
         scenario = ActivityScenario.launch(TestHostActivity::class.java)
     }

@@ -2,6 +2,7 @@
 
 package com.reporead.android.data
 
+import android.util.Log
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -1274,12 +1275,18 @@ internal class LoopbackServer(
         val (status, json) = routes[key] ?: (500 to """{"code":"TEST_UNEXPECTED_ROUTE","message":"$key"}""")
         val bytes = json.toByteArray(Charsets.UTF_8)
         val output = client.getOutputStream()
-        output.write(
-            "HTTP/1.1 $status Test\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
-                .toByteArray()
-        )
-        output.write(bytes)
-        output.flush()
+        try {
+            output.write(
+                "HTTP/1.1 $status Test\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+                    .toByteArray()
+            )
+            output.write(bytes)
+            output.flush()
+        } catch (gone: SocketException) {
+            // The client stopped waiting (its read timeout) while beforeAnswer held the answer; it reads nothing more,
+            // and later requests are still served.
+            Log.i("RepoRead", "Test-only loopback answer not delivered; request=$key error=${gone.message}")
+        }
     }
 
     override fun close() {
