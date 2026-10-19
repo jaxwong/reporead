@@ -71,7 +71,8 @@ internal data class StudyQuestion(
 
 /**
  * [unrecognized]: what looks like a question but is not, listed, never dropped silently: an H3 without exactly one
- * Canonical line (or a path without items), and a Canonical line under no H3.
+ * Canonical line (or a path without items), a Canonical line under no H3, or a later question repeating a Canonical
+ * line.
  */
 internal data class InterviewBank(val questions: List<StudyQuestion>, val unrecognized: List<BankProblem>)
 
@@ -94,12 +95,13 @@ internal fun isInterviewBank(path: String): Boolean = interviewTopic(path) != nu
 /**
  * Reads only the renderer's canonical blocks. Each H3 of a bank whose section (up to the next H1–H3) has exactly one
  * Canonical line is a question: "Canonical answer:" makes the heading the question, without a leading "N. "; "Canonical
- * path:" makes each top-level list item under it one, with the heading as its instruction.
+ * path:" makes top-level list items candidates, with the heading as instruction; repeated Canonical lines are warnings.
  */
 internal fun interviewBank(html: String, path: String): InterviewBank {
     if (!isInterviewBank(path)) return InterviewBank(emptyList(), emptyList())
     val questions = mutableListOf<StudyQuestion>()
     val unrecognized = mutableListOf<BankProblem>()
+    val canonicalLines = mutableSetOf<String>()
     var level: String? = null
     var group: Element? = null
     val section = mutableListOf<Element>()
@@ -107,7 +109,11 @@ internal fun interviewBank(html: String, path: String): InterviewBank {
         group?.let { heading ->
             val found = bankQuestions(heading, section, level)
             if (found.isEmpty()) unrecognized += BankProblem(heading.attr("data-block-id"), shownText(heading))
-            else questions += found
+            else
+                for (question in found) {
+                    if (canonicalLines.add(question.answer.text)) questions += question
+                    else unrecognized += BankProblem(question.blockId, "${question.text} — repeats a Canonical line")
+                }
         }
         group = null
         section.clear()

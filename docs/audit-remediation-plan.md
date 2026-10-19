@@ -1,12 +1,12 @@
 # Codebase audit and remediation plan
 
-Audited **2026-10-18**. The foundations and earlier audit steps are closed; their evidence is in merged PRs #62–#66 and #69–#73 and this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). Audit PRs 1–4 are merged (#75, #76, #78, #80); PR5's executed checks and remaining known limits are in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19). **Retain this file after PR5**, as the user explicitly requested on 2026-10-19: Section 5 still owns images in Save all, the mechanical moves, the grade-write ownership follow-up and the other post-audit work. PR5 does not implement those items.
+Audited **2026-10-18**. The foundations and earlier audit steps are closed; their evidence is in merged PRs #62–#66 and #69–#73 and this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). Audit PRs 1–4 are merged (#75, #76, #78, #80); PR5's executed checks and remaining known limits are in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19). **Retain this file after PR5**, as the user explicitly requested on 2026-10-19: Section 5 still owns images in Save all, the mechanical moves and other post-audit work. Grade-write ownership was pulled forward during PR5 review; the other Section 5 items remain deferred.
 
 [Invariants](invariants.md), [ADRs](adrs.md), [architecture](architecture.md) and [feature status](feature-list.md) keep their owners; this plan links to them and does not restate them. ADR-27 and ADR-28 own the Android foundations; the uncommitted `docs/android-foundations-plan.md` is superseded by them and is deleted, not committed.
 
 ## 1. Audit baseline and disposition
 
-Findings and line numbers below describe `main` at `35af494`, not the current implementation. The disposition column records what closed them; A9 remains deferred.
+Findings and line numbers below describe `main` at `35af494`, not the current implementation. The disposition column records what closed them; A9 remains deferred. PR5 review found A6 also affected grades: this branch clamps reviewedAt and removes ClientClock, retaining CARD_CHANGED refusals and immutable replay checks through the approved additive V15 column.
 
 | ID | Finding at audit baseline | Root cause | Disposition |
 | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ Deletions only, before any fix: the reader's ViewModel and `Sync` get smaller be
 
 ### PR 2 — Sign-out and account deletion keep the phone's notes
 
-**Merged, 2026-10-19:** implementation `534cf99`, with review follow-ups through `518c1e2`; verification is in [feature status](feature-list.md#audit-pr2--sessions-keep-the-phones-notes-2026-10-19). Backend/Android and device gates passed; exact results stay in feature status and the PR. Deployment was running when PR3 began; no release installation is claimed here.
+**Merged, 2026-10-19:** implementation `534cf99`, with review follow-ups through `518c1e2`; verification is in [feature status](feature-list.md#audit-pr2--sessions-keep-the-phones-notes-2026-10-19). Backend/Android and device gates passed; exact results stay in the PR and git history. Deployment was running when PR3 began; no release installation is claimed here.
 
 **Owners:** `Account` for sign-in, sign-out and account deletion, each at most one server call; `SessionStore` for the session alone; `RepoReadApplication` for the process's one `Sync` and startup image sweep. The retiring account-owner rule includes removing `expectedUserId`, `ACCOUNT_MISMATCH`, and their backend/Android callers and tests, with OpenAPI regenerated.
 
@@ -78,7 +78,7 @@ Saved notes are already readable signed out. This PR makes that the whole story:
 
 ### PR 3 — Reading positions accepted, saved pages retired (A4, A6, D2, D4)
 
-**Implementation and review fixes verified, 2026-10-19 ([#78](https://github.com/jaxwong/reporead/pull/78)):** [feature status](feature-list.md#audit-pr3--reading-positions-and-saved-page-retirement-2026-10-19) records the green backend/Android gates (289 backend tests, 78 Android JVM tests), reproduced red multi-byte migration failure, corrected migration `OK (2 tests)` and full Pixel 8a `OK (161 tests)` in 256.927 s. The earlier `OK (162 tests)` predates the review fixes and is superseded. The four opt-in corpus/measurement tests remain skipped. Room v16 and the malformed-text exception below were approved; backend deployment must precede the app. No deployment, release install or live GitHub smoke check is claimed.
+**Merged as [#78](https://github.com/jaxwong/reporead/pull/78), 2026-10-19.** [Feature status](feature-list.md#audit-pr3--reading-positions-and-saved-page-retirement-2026-10-19) records status and the grade-clock/docs gaps found during PR5 review; exact evidence stays in the PR and git history. Room v16 and the malformed-text exception below were approved; backend deployment precedes the app.
 
 **Owners:** `ReadingController` for what a position must look like; `MarkdownRenderer.FORMAT` for what a page format means; `Sync` for fetch decisions; `LibraryDao`/`LocalStore` for the rows and the migration.
 
@@ -94,36 +94,37 @@ Backend first, then app; the current app accepts a higher format and any 200, so
 
 ### PR 4 — One question identity and one card-plus-grade transaction (A7, A8, D5)
 
-Implemented and locally verified on `atomic-practice-cards`, based on `main` at `1deac6a` after PRs 1–3 merged. [Feature status](feature-list.md#audit-pr4--question-identity-and-atomic-first-grade-2026-10-19) records the backend/Android gates, red regressions, focused Pixel `OK (27 tests)` and full suite `OK (169 tests)` in 251.377 s after the user unlocked the phone. Room remains v16: matching uses existing rows and needs no migration. No backend/API change is needed. No push, release install, deployment or live GitHub smoke check is claimed.
+**Merged as [#80](https://github.com/jaxwong/reporead/pull/80), 2026-10-19.** [Feature status](feature-list.md#audit-pr4--question-identity-and-atomic-first-grade-2026-10-19) records status and the admission/recognition/documentation corrections pulled forward during PR5 review; exact evidence stays in the PR and git history. Phone identity still uses existing rows (Room v16), with no phone schema or scheduler change.
 
-Production is net **+41 lines**, not a refactor-only reduction: new validation outcomes, Review's current-prompt lookup and explicit confirmation wording are required behavior. The old writer and caller-side validation/protection are replaced, not kept in parallel; no manager, dependency or configuration is added.
+Production is net **+48 lines** after its review follow-up, not a refactor-only reduction: new validation outcomes, Review's current-prompt lookup and explicit confirmation wording are required behavior. The old writer and caller-side validation/protection are replaced, not kept in parallel; no manager, dependency or configuration is added.
 
-**Owners:** `Sync.gradeNewCard` for validation, matching and the write; `LibraryDao` for the transaction; `ReviewSchedule` unchanged.
+**Owners (corrected during PR5 review):** `LibraryDao` for Practice and Review admission inside their write transactions, and the sole phone-side grade-range check in `saveReview`; `Sync.gradeNewCard` for ordering and cancellation protection; `ReviewSchedule` unchanged.
 
 - `scheduledQuestions` matches a question to a card by document and Canonical line text only; the prompt is dropped from the key. Two prompts over one Canonical line in one bank are one question; one prompt over two lines stays two.
-- Validation moves into `Sync.gradeNewCard` under `committed`: bank unchanged since asked, no existing reviewable card for that line, grade in range. `Practice.gradeNewQuestion`'s `withContext(NonCancellable)` and its "step 6 consolidates" comment are deleted; the screen only words the result.
+- Admission is inside `LibraryDao.saveCardWithFirstReview` under `Sync.committed`: bank unchanged since asked and no existing reviewable card for that line; `saveReview` alone checks grade range. `Practice.gradeNewQuestion`'s `withContext(NonCancellable)` and its "step 6 consolidates" comment are deleted; the screen only words the result.
 - One `@Transaction` DAO function writes the card and its first grade. Failure before commit leaves neither row; a second attempt after restoration finds the card and writes nothing.
 - Review shows the bank's current prompt for a card whose Canonical line matches a current bank question, from the bank pages the DAO already reads, and the card's saved prompt otherwise. If this needs more than a lookup over those pages, stop and report.
 - Wording: the grade confirms the Canonical line; the linked section is labelled as the saved copy. The existing "no section"/"could not be shown" messages stay and are not described as confirmed. Check Review as well as Practice.
-- Tests: JVM: prompt edit keeps the card and the question is not asked again; Canonical-line edit is a new question. Device, through the real Practice entry and DAO: card and grade appear together; a forced failure of the grade insert leaves no card; concurrent double tap writes one pair; Review labels a stale linked section.
+- Tests: JVM: prompt edit keeps the card and the question is not asked again; an unmatched Canonical-line edit is a new question. Device, through the real Practice entry and DAO: card and grade appear together; a forced failure of the grade insert leaves no card; concurrent double tap writes one pair; Review labels a stale linked section.
 - Docs: ADR-13 and ADR-20 amended (identity and confirmation boundary; D5 limitation named); feature-list's "renaming its heading makes it a new question" gap removed.
 - Out of scope: authored question ids, fuzzy matching, cross-device deduplication, question editing.
+- Accepted by the 2026-10-19 branch audit, recorded here and not changed: Review shows the bank's current prompt, but Notebook (`Notebook.kt:122`) and the reader's notes panel (`Notes.kt:170`) still show the prompt saved on the card, so a prompt-edited card reads differently in the two places until the card is recreated; feature-list records this known limit. Review now reads and parses every saved bank page before showing its first card, even when every card is hand-written; Practice already pays that cost and the lookup is the one the plan allowed.
 
 ### PR 5 — Close the audit (C5, C9, C10) and run the final check
 
-**Verification executed, 2026-10-19:** [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19) owns exact commands, outcomes, live mutations and the clock-rollback Review counter defect observed but not fixed. Latest main CI is green at `b6e3c82`; the full isolated Pixel run ended `OK (171 tests)`. The approved local restart, Dev/GitHub smoke and release 0.1.390 update were executed. The plan remains for Section 5, not for another execution of PR5.
+**Verified locally, 2026-10-19:** [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19) owns concise status and gaps; exact commands, outcomes and live mutations stay in git/PR evidence. The initial approved local restart, Dev/GitHub smoke and release 0.1.390 update remain recorded in history. Review corrections are locally verified only, not pushed or deployed; the clock-rollback Review counter remains a known gap. The plan remains for Section 5, not for another execution of PR5.
 
 - **C9:** `npm audit` in `android/reader-web` as its README documents; check GitHub Dependabot alerts on the repository. The user explicitly declined enabling them on 2026-10-19; leave the setting unchanged and record the coverage limit. Record Spring Boot, AGP, Compose BOM and Navigation 3 versions with the result in feature-list; each applicable finding gets a fix or an accepted reason, as the KaTeX advisory already has.
 - **C5:** read the hosted backend's `Library read; userId=… bytes=…` log line for the real account; record bytes and counts beside the 8 MiB ceiling in feature-list with the revisit trigger. No new code.
 - **C10:** one sentence under "Source traceability" in `invariants.md` stating the authorized-repository scope.
 - **Sweep:** grep production, tests and docs for the names retired by PRs 1–4 (`Changes`, `baseline`, `Figure`, `export`, `LocalCleanup`, `clearRetiredCopy`, `removalPending`, `Removing`, `INVALID_READING_STATE`, `RefusedChange.Kind.READING`) and by PR4 (`RefreshOnEntry`, `rememberLoad`, `StackSaver`, legacy format wording); fix ADR-06's measurement chronology against feature-list.
-- **Final check**, one row each in feature-list with command, exit and terminal result:
+- **Final check**, concise status in feature-list and exact commands, exits and terminal results in git/PR evidence:
   1. CI green on `main` for the last code PR (backend format and tests; Android format, Lint, JVM tests, reader bundle, both assemblies).
   2. One full device suite on the Pixel 8a Dev app: terminal `OK (n tests)`.
   3. Dev app against the Mac backend and real GitHub: open a note with an embedded image and a wide table, one Practice grade, one Review, an offline open, a reading position saved with the phone's clock set ahead, a sign-out and sign-in with every saved note still there.
   4. Release build installed over the phone's app, and the hosted backend's revision and health read as the backend README documents. Deploy and install need your go-ahead at the time.
   Room migration coverage is the preserved v15 migration and PR3's v16 migration (upgrades from exported v14 and v15); PR4 needs no schema change. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` are not rerun: no PR changes `Anchoring`, `ContentMoves` or the canonical rules.
-- **Retain this file after PR5 (user decision, 2026-10-19).** Section 5 is still needed for post-PR5 work, including images in Save all, mechanical moves and one owner for whether a grade may be written. Decisions live in the ADRs, executed status in feature-list and evidence in git/PRs; the four earlier implementation sections in feature-list now each have one status line naming their PR.
+- **Retain this file after PR5 (user decision, 2026-10-19).** Section 5 is still needed for post-PR5 work, including images in Save all and mechanical moves. Grade-write ownership was pulled forward during review. Decisions live in the ADRs, executed status in feature-list and evidence in git/PRs; the four earlier implementation sections in feature-list now each have one status line naming their PR.
 
 ## 4. Guardrails for PRs 2–5
 
@@ -152,7 +153,7 @@ Production is net **+41 lines**, not a refactor-only reduction: new validation o
 
 ## 5. Reducing the app's complexity
 
-Everything here comes after PR 5. The rule: a feature or layer is deleted when real use shows it unused or when a simpler mechanism gives the same result; it goes with its rows, routes, tests and docs in one PR. Files move only in PRs that move files. New features are built only where the reading or study loop is actually broken.
+Except for the grade-write ownership correction pulled forward below, everything here comes after PR 5. The rule: a feature or layer is deleted when real use shows it unused or when a simpler mechanism gives the same result; it goes with its rows, routes, tests and docs in one PR. Files move only in PRs that move files. New features are built only where the reading or study loop is actually broken.
 
 ### Build: images in Save all
 
@@ -169,6 +170,10 @@ One PR, moves only, verified by format check, compile and the existing suites:
 ### Next deletion to decide by use
 
 **Bookmarks.** A separate table, backend endpoint, pending flag, send pass, migration and Library tab, so a note can be starred. Reading positions already give "continue where I was". Decide after two weeks of use; if deleted, highlights remain the one annotation model.
+
+### One owner for "may this grade be written" (from the PR4 audit, 2026-10-19)
+
+**Pulled forward during PR5 review.** Both admission decisions now belong to the DAO transaction that writes the grade: `saveCardWithFirstReview` checks the saved bank version and existing schedule; `recordReview` checks the current card and answer. `saveReview` alone owns the phone's stored-grade range, including remote snapshots and acknowledgements. Sync's lock still orders operations but is not relied on for transactional admission. Direct-DAO, rollback and concurrent-submission regressions cover the boundary.
 
 ### Not simplified, and why
 

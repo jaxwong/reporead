@@ -273,8 +273,17 @@ enum class CardBlock(val reason: String) {
     UNCONFIRMED("Check this card: confirm its answer"),
 }
 
-/** The stored review-grade scale; the UI offers a subset of it. */
-internal val REVIEW_GRADE_RANGE = 0..5
+/** A new Practice grade writes both rows or neither; an already scheduled question is a successful no-op. */
+enum class NewCardGrade {
+    SAVED,
+    ALREADY_SCHEDULED,
+    BANK_CHANGED,
+    NOT_SAVED,
+}
+
+/** Distinguishes a bad server grade at the write boundary from a database or programmer failure. */
+internal class InvalidReviewGrade(mutationId: String, grade: Int) :
+    IllegalArgumentException("Review $mutationId has grade $grade; expected 0..5")
 
 /** Pending grades and the server log share the same immutable client mutation id. */
 @Entity(tableName = "review_log", indices = [Index("cardMutationId")])

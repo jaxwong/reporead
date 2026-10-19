@@ -78,19 +78,6 @@ class ReviewTest {
     }
 
     @Test
-    fun theSchedulerAcceptsEveryStoredGradeAndRejectsBothOutOfRangeEdges() {
-        for (value in 0..5) {
-            val step = if (value == 5) 1 else 0
-            assertEquals(step, nextStep(null, value))
-            assertEquals(step, scheduleReviews(0, listOf(grade(1, value, 0))).step)
-        }
-        for (value in listOf(-1, 6)) {
-            assertThrows(IllegalStateException::class.java) { nextStep(null, value) }
-            assertThrows(IllegalArgumentException::class.java) { scheduleReviews(0, listOf(grade(1, value, 0))) }
-        }
-    }
-
-    @Test
     fun newCardsAreDueAndGoodClimbsTheLadderOneStepAndEasyTwo() {
         assertEquals(ReviewSchedule(0, null), scheduleReviews(0, emptyList()))
         val good = listOf(grade(1, 4, 0), grade(2, 4, day), grade(3, 4, 4 * day))

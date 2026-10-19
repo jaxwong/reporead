@@ -130,10 +130,7 @@ class Api(
 
     suspend fun recordReview(id: Long, request: ReviewControllerGradeRequest): ReviewsReview =
         json("POST", "/api/annotations/$id/reviews", wireJson.encodeToString(request)) {
-            it.mutationId == request.mutationId &&
-                it.grade == request.grade &&
-                it.reviewedAt == request.reviewedAt &&
-                it.blobSha == request.blobSha
+            it.mutationId == request.mutationId && it.grade == request.grade && it.blobSha == request.blobSha
         }
 
     /** Blocking for WebView resource interception, which already runs on a background thread. */

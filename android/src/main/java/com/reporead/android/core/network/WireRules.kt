@@ -12,8 +12,6 @@ import com.reporead.android.core.network.wire.LibrarySnapshot
 import com.reporead.android.core.network.wire.ReadingStatesAnchor
 import com.reporead.android.core.network.wire.ReadingStatesState
 import com.reporead.android.core.network.wire.ReviewsNotebook
-import com.reporead.android.core.network.wire.ReviewsReview
-import com.reporead.android.data.REVIEW_GRADE_RANGE
 
 private val LOWERCASE_SHA = Regex("[0-9a-f]{40}")
 
@@ -51,7 +49,6 @@ internal fun checkRules(answer: Any) {
             // The server, not the app, chooses the session ceiling.
             require(answer.sessionLimit > 0) { "Expected a positive notebook sessionLimit" }
             answer.annotations.forEach(::checkRules)
-            answer.reviews.forEach(::checkRules)
         }
         is ReadingStatesState -> {
             require(answer.progressPercent in 0..100) { "Expected reading progressPercent in 0..100" }
@@ -79,8 +76,6 @@ internal fun checkRules(answer: Any) {
             ) {
                 "Expected a non-empty UTF-16 passage range matching exactText"
             }
-        is ReviewsReview ->
-            require(answer.grade in REVIEW_GRADE_RANGE) { "Expected review grade in $REVIEW_GRADE_RANGE" }
         // Snapshot identity prevents fetching images from an unrelated commit.
         is DocumentControllerContent ->
             require(answer.snapshotCommitSha.matches(LOWERCASE_SHA)) { "Expected a lowercase snapshot Git SHA-1" }

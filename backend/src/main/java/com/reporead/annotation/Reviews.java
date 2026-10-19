@@ -4,8 +4,10 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -57,25 +59,32 @@ public class Reviews {
     Review grade(long userId, long cardId, UUID mutation, int grade, Instant reviewedAt, String blobSha) {
         return transaction.execute(tx -> {
             var card = annotations.lockCard(userId, cardId);
+            Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+            Instant storedAt =
+                    reviewedAt.isBefore(Instant.EPOCH) ? Instant.EPOCH : reviewedAt.isAfter(now) ? now : reviewedAt;
             int inserted = db.sql("""
-                    insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha)
-                    values (:userId, :mutation, :id, :grade, :at, :sha) on conflict do nothing""")
+                    insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at)
+                    values (:userId, :mutation, :id, :grade, :at, :sha, :clientAt) on conflict do nothing""")
                     .param("userId", userId)
                     .param("mutation", mutation)
                     .param("id", cardId)
                     .param("grade", grade)
-                    .param("at", Timestamp.from(reviewedAt))
+                    .param("at", Timestamp.from(storedAt))
+                    .param("clientAt", reviewedAt.toString())
                     .param("sha", blobSha)
                     .update();
             var stored = db.sql(
-                            "select annotation_id, grade, reviewed_at, blob_sha from review_log where user_id = :userId and mutation_id = :mutation")
+                            "select annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at from review_log where user_id = :userId and mutation_id = :mutation")
                     .param("userId", userId)
                     .param("mutation", mutation)
                     .query(Stored.class)
                     .single();
+            // Before V15 the accepted client timestamp was stored unchanged.
+            String clientAt =
+                    stored.clientReviewedAt() == null ? stored.reviewedAt().toString() : stored.clientReviewedAt();
             if (stored.annotationId() != cardId
                     || stored.grade() != grade
-                    || !stored.reviewedAt().equals(reviewedAt)
+                    || !clientAt.equals(reviewedAt.toString())
                     || !stored.blobSha().equals(blobSha)) {
                 throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
             }
@@ -90,5 +99,10 @@ public class Reviews {
         });
     }
 
-    private record Stored(long annotationId, int grade, Instant reviewedAt, String blobSha) {}
+    private record Stored(
+            long annotationId,
+            int grade,
+            Instant reviewedAt,
+            String blobSha,
+            @Nullable String clientReviewedAt) {}
 }

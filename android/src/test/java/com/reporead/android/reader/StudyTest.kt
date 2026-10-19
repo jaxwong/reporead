@@ -118,7 +118,7 @@ class StudyTest {
     }
 
     @Test
-    fun followUpItemsTakeTheirGroupHeadingAsInstructionAndShareItsCanonicalPath() {
+    fun aFollowUpKeepsItsGroupInstructionAndRepeatsAreWarnings() {
         val html =
             page(
                 heading(0, "3. Design follow-ups") +
@@ -138,14 +138,15 @@ class StudyTest {
                     heading(6, "1. How many threads?", 3) +
                     answer(7, "Canonical answer", "path=core%2Fs.md" to "Sizing")
             )
-        val questions = interviewBank(html, bank).questions
-        assertEquals(listOf("Which key?", "What expires?", "How many threads?"), questions.map { it.text })
-        assertEquals(listOf("b3", "b4", "b6"), questions.map { it.blockId })
+        val parsed = interviewBank(html, bank)
+        val questions = parsed.questions
+        assertEquals(listOf("Which key?", "How many threads?"), questions.map { it.text })
+        assertEquals(listOf("b3", "b6"), questions.map { it.blockId })
         assertEquals("After you add a cache\n\nWhich key?", questions[0].prompt)
-        assertEquals(questions[0].answer, questions[1].answer)
-        assertEquals(listOf("Caching", "Expiry"), questions[1].answer.links.map { it.text })
-        assertEquals(emptyList<String>(), questions[1].guide)
-        assertEquals("How many threads?", questions[2].prompt)
+        assertEquals(listOf("Caching", "Expiry"), questions[0].answer.links.map { it.text })
+        assertEquals(emptyList<String>(), questions[0].guide)
+        assertEquals("How many threads?", questions[1].prompt)
+        assertEquals(listOf(BankProblem("b4", "What expires? — repeats a Canonical line")), parsed.unrecognized)
     }
 
     @Test
@@ -200,6 +201,24 @@ class StudyTest {
         val parsed = interviewBank(html, bank)
         assertEquals(listOf("b0"), parsed.questions.map { it.blockId })
         assertEquals(listOf(BankProblem("b2", "Repeated"), BankProblem("b3", "Repeated")), parsed.unrecognized)
+    }
+
+    @Test
+    fun aRepeatedCanonicalLineKeepsTheFirstQuestionAndWarnsAtTheLaterPrompt() {
+        val parsed =
+            interviewBank(
+                page(
+                    heading(1, "First?", 3) +
+                        block(2, "Canonical answer: X", "p") +
+                        heading(3, "Second?", 3) +
+                        block(4, "Canonical answer: X", "p") +
+                        heading(5, "Different?", 3) +
+                        block(6, "Canonical answer: Y", "p")
+                ),
+                bank,
+            )
+        assertEquals(listOf("First?", "Different?"), parsed.questions.map { it.text })
+        assertEquals(listOf(BankProblem("b3", "Second? — repeats a Canonical line")), parsed.unrecognized)
     }
 
     @Test

@@ -18,6 +18,7 @@ import com.reporead.auth.TestSessions;
 import com.reporead.datacontrol.ConnectionData;
 import com.reporead.repository.RepositoryConnections;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -866,6 +867,70 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
+    void skewedReviewTimesAreClampedAndTheirOriginalMutationsStillReplayExactly() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long id = createdId(cardBody());
+        for (Instant requested : List.of(
+                Instant.EPOCH.minusMillis(1),
+                Instant.parse("2999-01-01T00:00:00Z"),
+                Instant.parse("+500000-01-01T00:00:00Z"))) {
+            String mutation = UUID.randomUUID().toString();
+            String body = "{\"mutationId\":\"" + mutation + "\",\"grade\":4,\"reviewedAt\":\"" + requested
+                    + "\",\"blobSha\":\"" + OLD_SHA + "\"}";
+            Instant before = Instant.now().minusMillis(1);
+            String first = mvc.perform(post("/api/annotations/" + id + "/reviews")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+            Instant stored = db.sql(
+                            "select reviewed_at from review_log where user_id=1 and mutation_id=cast(:id as uuid)")
+                    .param("id", mutation)
+                    .query((row, n) -> row.getTimestamp(1).toInstant())
+                    .single();
+            if (requested.isBefore(Instant.EPOCH)) assertEquals(Instant.EPOCH, stored);
+            else assertTrue(!stored.isBefore(before) && !stored.isAfter(Instant.now()));
+            mvc.perform(post("/api/annotations/" + id + "/reviews")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(first));
+            mvc.perform(post("/api/annotations/" + id + "/reviews")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body.replace(
+                                    requested.toString(),
+                                    requested.plusMillis(1).toString())))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("MUTATION_ID_REUSED"));
+        }
+        assertEquals(3, count("review_log"));
+    }
+
+    @Test
+    void reviewsWrittenBeforeClientTimesWereSeparatedStillReplay() throws Exception {
+        moveNoteTo(OLD_SHA);
+        expectSource(ExpectedCount.once());
+        long id = createdId(cardBody());
+        String mutation = UUID.randomUUID().toString();
+        String first = grade(alice, id, mutation, 4, OLD_SHA)
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        db.sql("update review_log set client_reviewed_at = null").update();
+        grade(alice, id, mutation, 4, OLD_SHA)
+                .andExpect(status().isOk())
+                .andExpect(content().string(first));
+        assertEquals(1, count("review_log"));
+    }
+
+    @Test
     void reviewTimesAndMissingFieldsAreValidatedAndHighlightsCannotBeGraded() throws Exception {
         moveNoteTo(OLD_SHA);
         expectSource(ExpectedCount.once());
@@ -873,8 +938,6 @@ class AnnotationTest extends SharedSpringTest {
         grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isNotFound());
         for (String body : List.of(
                 "{}",
-                "{\"mutationId\":\"" + UUID.randomUUID() + "\",\"grade\":4,\"blobSha\":\"" + OLD_SHA
-                        + "\",\"reviewedAt\":\"2999-01-01T00:00:00Z\"}",
                 "{\"mutationId\":\"" + UUID.randomUUID() + "\",\"grade\":4,\"blobSha\":\"" + OLD_SHA
                         + "\",\"reviewedAt\":\"2026-01-01T00:00:00.000001Z\"}")) {
             mvc.perform(post("/api/annotations/" + id + "/reviews")

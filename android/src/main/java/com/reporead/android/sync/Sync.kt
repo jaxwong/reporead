@@ -24,15 +24,15 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.BookmarkRow
 import com.reporead.android.data.DocumentRow
+import com.reporead.android.data.InvalidReviewGrade
 import com.reporead.android.data.LocalStore
+import com.reporead.android.data.NewCardGrade
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
-import com.reporead.android.data.REVIEW_GRADE_RANGE
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.data.SavedVersion
-import com.reporead.android.data.scheduledLines
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -74,14 +74,6 @@ data class LocalSync(val refused: List<RefusedChange>, val notSent: ApiException
 
 /** The title is the document owner's snapshot at refusal, before a subsequent library replacement can remove it. */
 data class RefusedChange(val documentId: Long, val title: String?, val error: ApiException)
-
-/** A new Practice grade writes both rows or neither; an already scheduled question is a successful no-op. */
-enum class NewCardGrade {
-    SAVED,
-    ALREADY_SCHEDULED,
-    BANK_CHANGED,
-    NOT_SAVED,
-}
 
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
@@ -162,7 +154,11 @@ class Sync(
         val bookmarks = answer.bookmarks.map { BookmarkRow(it.documentId, true, false, it.createdAt.toEpochMilli()) }
         val annotations = answer.notebook.annotations.map { it.toRow() }
         val reviews = answer.notebook.reviews.map { it.toRow() }
-        dao.replaceFromServer(library, reading, bookmarks, annotations, reviews, answer.notebook.sessionLimit)
+        try {
+            dao.replaceFromServer(library, reading, bookmarks, annotations, reviews, answer.notebook.sessionLimit)
+        } catch (error: InvalidReviewGrade) {
+            throw invalidResponse(200, error)
+        }
         sweepImages()
     }
 
@@ -469,29 +465,13 @@ class Sync(
         }
 
     /**
-     * Validates and saves a Practice question's card and first grade under the one Sync lock, with no network calls.
-     * Identity is the bank and Canonical line, not the prompt. A restored or concurrent submission writes nothing if
-     * its card is already on the schedule. Room commits the pair atomically; an insert failure propagates with neither
-     * row saved, rather than falling back to a card without a grade.
+     * Saves a Practice question's card and first grade through the DAO transaction, with no network calls. Identity is
+     * the bank and Canonical line, not the prompt. A restored or concurrent submission writes nothing if its card is
+     * already on the schedule. Room commits the pair atomically; an insert failure propagates with neither row saved,
+     * rather than falling back to a card without a grade.
      */
     suspend fun gradeNewCard(passage: Passage, documentId: Long, question: String, grade: Int): NewCardGrade =
         committed {
-            require(grade in REVIEW_GRADE_RANGE) {
-                "Invalid Practice grade $grade; expected $REVIEW_GRADE_RANGE in Sync.gradeNewCard"
-            }
-            if ((documentId to passage.exactText) in scheduledLines(dao.notebook().first())) {
-                Log.i("RepoRead", "Practice grade already saved; documentId=$documentId")
-                return@committed NewCardGrade.ALREADY_SCHEDULED
-            }
-            val note = dao.note(documentId) ?: return@committed NewCardGrade.NOT_SAVED
-            val document = dao.document(documentId) ?: return@committed NewCardGrade.NOT_SAVED
-            if (note.blobSha != passage.blobSha || document.blobSha != passage.blobSha || document.deleted) {
-                Log.i(
-                    "RepoRead",
-                    "Practice grade not saved; bank changed; documentId=$documentId blobSha=${passage.blobSha}",
-                )
-                return@committed NewCardGrade.BANK_CHANGED
-            }
             val card = newAnnotation(passage, documentId, null, question)
             val review =
                 ReviewRow(
@@ -502,13 +482,10 @@ class Sync(
                     blobSha = passage.blobSha,
                     pending = true,
                 )
-            dao.saveCardWithFirstReview(card, review)
-            onPendingChange()
-            Log.i(
-                "RepoRead",
-                "Practice card and first grade saved; documentId=$documentId mutationId=${card.mutationId}",
-            )
-            NewCardGrade.SAVED
+            val result = dao.saveCardWithFirstReview(card, review)
+            if (result == NewCardGrade.SAVED) onPendingChange()
+            Log.i("RepoRead", "Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$result")
+            result
         }
 
     private fun newAnnotation(

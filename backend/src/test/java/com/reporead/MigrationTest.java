@@ -118,6 +118,46 @@ class MigrationTest {
     }
 
     @Test
+    void reviewClientTimeExpansionPreservesOldRowsAndThePreviousReleasesInsert() {
+        var database = TestEnvironment.emptyDatabase();
+        var db = JdbcClient.create(database);
+        flyway(database, "8").migrate();
+        long card = annotationAtV8(db, noteAtV8(db), "CARD");
+        mutationAtV8(db, CARD_MUTATION, card);
+        flyway(database, "14").migrate();
+        String oldInsert = """
+                insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha)
+                values (1, cast(:mutation as uuid), :card, 4, '2026-10-19T00:00:00Z', :sha)""";
+        db.sql(oldInsert)
+                .param("mutation", HIGHLIGHT_MUTATION)
+                .param("card", card)
+                .param("sha", SHA)
+                .update();
+
+        flyway(database, "latest").migrate();
+        assertEquals(
+                1,
+                db.sql(
+                                "select count(*) from review_log where client_reviewed_at is null and reviewed_at = '2026-10-19T00:00:00Z'")
+                        .query(Integer.class)
+                        .single());
+        db.sql(oldInsert)
+                .param("mutation", DELETED_MUTATION)
+                .param("card", card)
+                .param("sha", SHA)
+                .update();
+        assertEquals(
+                2,
+                db.sql("select count(*) from review_log where client_reviewed_at is null")
+                        .query(Integer.class)
+                        .single());
+        flyway(database, "latest").migrate();
+        assertEquals(
+                2,
+                db.sql("select count(*) from review_log").query(Integer.class).single());
+    }
+
+    @Test
     void aHighlightWithoutAMutationRecordStopsTheMigrationAndChangesNothing() {
         var database = TestEnvironment.emptyDatabase();
         var db = JdbcClient.create(database);
