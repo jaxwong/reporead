@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.TestEntries
 import com.reporead.android.TestHostActivity
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.awaitText
@@ -61,9 +62,12 @@ class ReviewLifecycleTest {
                 store,
                 File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
             ) {}
-        TestHostActivity.content = {
-            MaterialTheme { ReviewScreen(dao, sync, push = { error("Review fixture must not navigate") }, onBack = {}) }
-        }
+        TestHostActivity.content =
+            TestEntries(Screen.Review).content { entry ->
+                MaterialTheme {
+                    ReviewScreen(dao, sync, entry.id, push = { error("Review fixture must not navigate") }, onBack = {})
+                }
+            }
     }
 
     @After
@@ -141,9 +145,10 @@ class ReviewLifecycleTest {
                     File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
                 ) {}
             val pushed = mutableListOf<Screen>()
-            TestHostActivity.content = {
-                MaterialTheme { ReviewScreen(dao, sync, push = { pushed += it }, onBack = {}) }
-            }
+            TestHostActivity.content =
+                TestEntries(Screen.Review).content { entry ->
+                    MaterialTheme { ReviewScreen(dao, sync, entry.id, push = { pushed += it }, onBack = {}) }
+                }
             ActivityScenario.launch(TestHostActivity::class.java).use { click("Open note") }
             assertEquals(listOf(Screen.Reader(1, "Test-only review", OpenAt.Highlight("card1"))), pushed)
         }

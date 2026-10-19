@@ -17,25 +17,28 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
+import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.CardBlock
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
@@ -57,8 +60,11 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
@@ -93,8 +99,8 @@ internal fun revealedAnswer(html: String, path: String, passage: Passage): Revea
 /** What review holds now, from this phone's cards and grades; null while they are read. */
 @Composable
 internal fun rememberReviewOutlook(dao: LibraryDao): ReviewOutlook? {
-    val items by dao.notebook().collectAsState(null)
-    val reviews by dao.reviews().collectAsState(null)
+    val items by dao.notebook().collectAsStateWithLifecycle(null)
+    val reviews by dao.reviews().collectAsStateWithLifecycle(null)
     val today = rememberStartOfToday()
     val ready = items
     val log = reviews
@@ -213,20 +219,21 @@ private fun ColumnScope.CardAnswer(
 
 /**
  * A due card that cannot be graded, for [block], with what fixes it from here: confirming its answer in the note's new
- * version (a server call, so online only), or opening the note to save that version, find or reattach the answer, or
- * delete the card. [onConfirmed] runs once the server has confirmed it.
+ * version (a server call, so online only: [onConfirm], [confirming] while it runs, [problem] if it failed), or opening
+ * the note to save that version, find or reattach the answer, or delete the card.
  */
 @Composable
 private fun ColumnScope.FixCard(
     item: NotebookItem,
     block: CardBlock,
+    confirming: Boolean,
+    problem: String?,
     sync: Sync,
     dao: LibraryDao,
     push: (Screen) -> Unit,
-    onConfirmed: () -> Unit,
+    onConfirm: () -> Unit,
 ) {
     val row = item.annotation
-    val current = item.currentBlobSha
     val openNote =
         @Composable { label: String ->
             TextButton(
@@ -272,26 +279,6 @@ private fun ColumnScope.FixCard(
             openNote("Open note")
         }
         CardBlock.UNCONFIRMED -> {
-            var confirming by remember(row.mutationId) { mutableStateOf(false) }
-            var problem by remember(row.mutationId) { mutableStateOf<String?>(null) }
-            val scope = rememberCoroutineScope()
-            fun confirm() {
-                confirming = true
-                scope.launch {
-                    try {
-                        sync.checkCard(row, current)
-                        onConfirmed()
-                    } catch (error: ApiException) {
-                        Log.w(
-                            "RepoRead",
-                            "Card not confirmed from review; mutationId=${row.mutationId} code=${error.code}",
-                        )
-                        problem = "Not confirmed: ${error.describe()} Confirming needs the server."
-                    } finally {
-                        confirming = false
-                    }
-                }
-            }
             Text("The note changed since this card was checked. Is this still its answer?")
             problem?.let { StatusLine(it) }
             when (val answer = rememberRevealed(item, dao)) {
@@ -301,10 +288,130 @@ private fun ColumnScope.FixCard(
                 is Revealed.Shown -> CardAnswer(item, answer.answer, sync, dao, push)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(enabled = !confirming, onClick = ::confirm) { Text("Answer is still right") }
+                Button(enabled = !confirming, onClick = onConfirm) { Text("Answer is still right") }
                 openNote("Open note")
             }
         }
+    }
+}
+
+/** Where a review session's progress, and when it started, are kept for process restoration. */
+private const val SESSION = "session"
+private const val STARTED_AT = "startedAt"
+
+/**
+ * One review session, kept by its back-stack entry ([entryId]) and restored with it ([saved]): the due cards it asks,
+ * where it stands, the grade being saved and a card being confirmed. A rotation or a covering screen neither loses nor
+ * repeats either, and a grade or confirmation the server or this phone accepted is committed even if the screen is left
+ * (Sync).
+ */
+internal class ReviewViewModel(
+    private val sync: Sync,
+    private val saved: SavedStateHandle,
+    private val entryId: String,
+) : ViewModel() {
+    data class State(
+        val session: StudySession? = null,
+        /** When the session started; the grades saved since are this session's. */
+        val startedAt: Long = 0,
+        val saving: Boolean = false,
+        val notice: String? = null,
+        /** The card whose answer is being confirmed with the server. */
+        val confirming: String? = null,
+        /** Why a card's confirmation failed, by card. */
+        val problems: Map<String, String> = emptyMap(),
+    )
+
+    private val current =
+        MutableStateFlow(State(session = saved[SESSION], startedAt = saved.get<Long>(STARTED_AT) ?: 0))
+    val state: StateFlow<State> = current.asStateFlow()
+
+    private fun move(next: StudySession, notice: String? = current.value.notice) {
+        saved[SESSION] = next
+        current.update { it.copy(session = next, saving = false, notice = notice) }
+    }
+
+    /** Chooses the session once, from the cards due now. */
+    fun start(items: List<NotebookItem>, log: List<ReviewRow>, cap: Int) {
+        if (current.value.session != null) return
+        val startedAt = System.currentTimeMillis()
+        saved[STARTED_AT] = startedAt
+        current.update { it.copy(startedAt = startedAt) }
+        move(
+            StudySession(
+                dueSession(items, log, startedAt, cap, Random.nextInt(), ZoneId.systemDefault()).map {
+                    it.annotation.mutationId
+                }
+            )
+        )
+    }
+
+    fun reveal() {
+        current.value.session?.let { move(it.reveal()) }
+    }
+
+    fun skip() {
+        val now = current.value
+        val session = now.session ?: return
+        if (now.saving) Log.i("RepoRead", "Review skip not taken; entry=$entryId saving=true") else move(session.skip())
+    }
+
+    /**
+     * Each saved grade is one immutable local mutation; the background sync sends it. A card asked [again] only decides
+     * whether it comes back in this session.
+     */
+    fun grade(row: AnnotationRow, again: Boolean, grade: Int) {
+        val now = current.value
+        val session = now.session ?: return
+        if (session.current != row.mutationId) return
+        if (again) {
+            move(session.graded(grade))
+            return
+        }
+        if (now.saving || !current.compareAndSet(now, now.copy(saving = true))) {
+            Log.i("RepoRead", "Review grade not saved again; entry=$entryId mutationId=${row.mutationId}")
+            return
+        }
+        Log.i("RepoRead", "Review grade started; entry=$entryId mutationId=${row.mutationId}")
+        val review =
+            ReviewRow(
+                mutationId = UUID.randomUUID().toString(),
+                cardMutationId = row.mutationId,
+                grade = grade,
+                reviewedAt = System.currentTimeMillis(),
+                blobSha = row.drawn.blobSha,
+                pending = true,
+            )
+        viewModelScope.launch {
+            if (sync.recordReview(review)) move(session.graded(grade))
+            else move(session.skip(), "Card changed while answering; grade not saved. Open it to check the answer.")
+        }
+    }
+
+    /** Online only: the server checks [row]'s answer in [blobSha]; confirmed, it goes to the back of the session. */
+    fun confirmCard(row: AnnotationRow, blobSha: String) {
+        val now = current.value
+        if (now.confirming != null || !current.compareAndSet(now, now.copy(confirming = row.mutationId))) {
+            Log.i("RepoRead", "Card confirmation not started; entry=$entryId confirming=${now.confirming}")
+            return
+        }
+        Log.i("RepoRead", "Card confirmation started; entry=$entryId mutationId=${row.mutationId}")
+        viewModelScope.launch {
+            try {
+                sync.checkCard(row, blobSha)
+                current.update { it.copy(confirming = null, problems = it.problems - row.mutationId) }
+                current.value.session?.takeIf { it.current == row.mutationId }?.let { move(it.requeue()) }
+            } catch (error: ApiException) {
+                Log.w("RepoRead", "Card not confirmed from review; mutationId=${row.mutationId} code=${error.code}")
+                val problem = "Not confirmed: ${error.describe()} Confirming needs the server."
+                current.update { it.copy(confirming = null, problems = it.problems + (row.mutationId to problem)) }
+            }
+        }
+    }
+
+    /** A refused grade never reached the server and is not in the schedule; dismissing only forgets it. */
+    fun dismissRefused() {
+        viewModelScope.launch { sync.dismissRefusedReviews() }
     }
 }
 
@@ -314,28 +421,17 @@ private fun ColumnScope.FixCard(
  * answered right. A card that needs checking is shown with its fix instead.
  */
 @Composable
-internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, onBack: () -> Unit) {
-    val items by dao.notebook().collectAsState(null)
-    val reviews by dao.reviews().collectAsState(null)
-    val limit by dao.reviewLimit().collectAsState(null)
-    // Chosen once from the due cards when the session starts.
-    var session by rememberSaveable { mutableStateOf<StudySession?>(null) }
-    var startedAt by rememberSaveable { mutableLongStateOf(0L) }
-    var saving by remember { mutableStateOf(false) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (Screen) -> Unit, onBack: () -> Unit) {
+    val model = viewModel { ReviewViewModel(sync, createSavedStateHandle(), entryId) }
+    val state by model.state.collectAsStateWithLifecycle()
+    val items by dao.notebook().collectAsStateWithLifecycle(null)
+    val reviews by dao.reviews().collectAsStateWithLifecycle(null)
+    val limit by dao.reviewLimit().collectAsStateWithLifecycle(null)
     val ready = items
     val log = reviews
     val cap = limit
     LaunchedEffect(ready, log, cap) {
-        if (session != null || ready == null || log == null || cap == null) return@LaunchedEffect
-        startedAt = System.currentTimeMillis()
-        session =
-            StudySession(
-                dueSession(ready, log, startedAt, cap, Random.nextInt(), ZoneId.systemDefault()).map {
-                    it.annotation.mutationId
-                }
-            )
+        if (ready != null && log != null && cap != null) model.start(ready, log, cap)
     }
     Scaffold(topBar = { AppBar("Review", onBack = onBack) }) { padding ->
         // Not scrolled as a whole: a revealed answer takes the space left, and the grades stay under it.
@@ -347,16 +443,15 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                 Text("Loading saved cards…")
                 return@Column
             }
-            StatusLine(notice)
+            StatusLine(state.notice)
             val refused = log.filter { it.rejection != null }
             if (refused.isNotEmpty())
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // A refused grade never reached the server and is not in the schedule; dismissing only forgets it.
                     Text(
                         "${counted(refused.size, "grade")} not accepted by the server, so not counted: ${refused.last().rejection}",
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { scope.launch { sync.dismissRefusedReviews() } }) { Text("Dismiss") }
+                    TextButton(onClick = model::dismissRefused) { Text("Dismiss") }
                 }
             val pending = log.count { it.pending && it.rejection == null }
             if (pending > 0)
@@ -368,14 +463,16 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
                 Text("Review starts after one sync with the server: open Library while signed in and online.")
                 return@Column
             }
-            val asked = session
+            val asked = state.session
             if (asked == null) {
                 Text("Choosing due cards…")
                 return@Column
             }
             // The cards this session saved a grade for, from the log.
             val graded =
-                log.filter { it.rejection == null && it.reviewedAt >= startedAt }.map { it.cardMutationId }.toSet()
+                log.filter { it.rejection == null && it.reviewedAt >= state.startedAt }
+                    .map { it.cardMutationId }
+                    .toSet()
             val id = asked.current
             if (id == null) {
                 Text(
@@ -390,10 +487,9 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             SessionHeader(
                 listOfNotNull("${counted(asked.queue.size, "card")} left", item?.title).joinToString(" · "),
                 skip = "Skip",
-                enabled = !saving,
-            ) {
-                session = asked.skip()
-            }
+                enabled = !state.saving,
+                onSkip = model::skip,
+            )
             if (item == null) {
                 Text("This card was deleted.")
                 return@Column
@@ -402,14 +498,22 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             Text(checkNotNull(row.question), style = MaterialTheme.typography.titleLarge)
             val block = item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
             if (block != null) {
-                // Confirmed, it goes to the back of the session like any card still to answer.
-                FixCard(item, block, sync, dao, push, onConfirmed = { session = asked.requeue() })
+                FixCard(
+                    item,
+                    block,
+                    confirming = state.confirming == row.mutationId,
+                    problem = state.problems[row.mutationId],
+                    sync,
+                    dao,
+                    push,
+                    onConfirm = { model.confirmCard(row, item.currentBlobSha) },
+                )
                 return@Column
             }
             // Read while the question is asked, so the answer is ready when it is revealed.
             val answer = rememberRevealed(item, dao)
             if (!asked.revealed) {
-                AttemptFirst { session = asked.reveal() }
+                AttemptFirst(model::reveal)
                 return@Column
             }
             val again = id in graded
@@ -423,39 +527,11 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, push: (Screen) -> Unit, o
             TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(id))) }) {
                 Text("Open in note")
             }
-            // Each saved grade is one immutable local mutation; the background sync sends it. A card asked again only
-            // decides whether it comes back in this session.
-            fun saveGrade(grade: Int) {
-                if (again) {
-                    session = asked.graded(grade)
-                    return
-                }
-                saving = true
-                val review =
-                    ReviewRow(
-                        mutationId = UUID.randomUUID().toString(),
-                        cardMutationId = id,
-                        grade = grade,
-                        reviewedAt = System.currentTimeMillis(),
-                        blobSha = row.drawn.blobSha,
-                        pending = true,
-                    )
-                scope.launch {
-                    try {
-                        val saved = withContext(NonCancellable) { sync.recordReview(review) }
-                        if (saved) session = asked.graded(grade)
-                        else {
-                            notice = "Card changed while answering; grade not saved. Open it to check the answer."
-                            session = asked.skip()
-                        }
-                    } finally {
-                        saving = false
-                    }
-                }
-            }
             val step = scheduleReviews(row, log, ZoneId.systemDefault()).step
             if (answer is Revealed.Shown)
-                GradeBar(enabled = !saving, gaps = if (again) null else gaps(step), onGrade = ::saveGrade)
+                GradeBar(enabled = !state.saving, gaps = if (again) null else gaps(step)) { grade ->
+                    model.grade(row, again, grade)
+                }
         }
     }
 }
