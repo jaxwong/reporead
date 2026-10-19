@@ -139,7 +139,6 @@ class ApiTest {
                 "DELETE /api/repositories/7" to (200 to wire(testDisconnected())),
                 "GET /api/documents/1/content" to (200 to wire(testContent())),
                 "GET /api/documents/1/image?commitSha=$testCommit&path=img%2Fa+b.png" to (200 to "TEST_ONLY_BYTES"),
-                "GET /api/documents/1/changes?since=$testSha&to=$testCommit" to (200 to wire(testChanges())),
                 "PUT /api/documents/1/reading-state" to (200 to wire(testReading())),
                 "PUT /api/documents/1/bookmark" to (200 to wire(testBookmark())),
                 "DELETE /api/documents/1/bookmark" to (204 to ""),
@@ -171,7 +170,6 @@ class ApiTest {
             api.disconnectRepository(7)
             api.noteContent(1)
             assertEquals("TEST_ONLY_BYTES", api.noteImage(1, testCommit, "img/a b.png").toString(Charsets.UTF_8))
-            api.changes(1, testSha, testCommit)
             api.saveReading(1, reading(50, testAt))
             api.setBookmark(1)
             api.clearBookmark(1)
@@ -266,11 +264,6 @@ class ApiTest {
                     { it.reattachAnnotation(9, reattach) },
                 ),
                 Triple("POST /api/annotations/9/check", wrongAnnotation, { it.checkCard(9, check) }),
-                Triple(
-                    "GET /api/documents/1/changes?since=$testSha&to=$testCommit",
-                    wire(testChanges().copy(sinceBlobSha = "c".repeat(40))),
-                    { it.changes(1, testSha, testCommit) },
-                ),
                 Triple(
                     "POST /api/annotations/10/reviews",
                     wire(testReview().copy(grade = 3)),

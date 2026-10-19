@@ -19,8 +19,8 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * What deleting saved images and exports leaves on the phone, with real files in a temporary folder. A folder the app
- * may not write stands in for a file that cannot be deleted; the tests need a user that is not root.
+ * What deleting saved images leaves on the phone, with real files in a temporary folder. A folder the app may not write
+ * stands in for a file that cannot be deleted; the tests need a user that is not root.
  */
 class NoteImagesDeletionTest {
     @get:Rule val temporary = TemporaryFolder()

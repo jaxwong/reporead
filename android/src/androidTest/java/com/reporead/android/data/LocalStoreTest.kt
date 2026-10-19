@@ -448,28 +448,6 @@ class LocalStoreTest {
     }
 
     @Test
-    fun aNewVersionKeepsTheOldOneAsBaselineUntilItsChangesAreShown() = runBlocking {
-        val (a, b, c) = listOf("a".repeat(40), "b".repeat(40), "c".repeat(40))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "n", c, changedAt = 5)))
-        dao.saveDisplayedReading(readAt(1, a, at = 1).copy(pending = true))
-        assertNull(dao.changeBaseline(1))
-        // Opened version b (the summary never loaded, e.g. offline), then c: the summary still starts from a.
-        dao.saveDisplayedReading(readAt(1, b, at = 2).copy(pending = true))
-        dao.saveDisplayedReading(readAt(1, c, at = 3).copy(pending = true))
-        assertEquals(a, dao.changeBaseline(1))
-        // Server merges never touch it, and the note stays in Updated since you read even though c is current.
-        dao.replaceRemoteReading(listOf(readAt(1, c, at = 4)))
-        assertEquals(listOf(1L to a), dao.updatedSinceRead().first().map { it.documentId to it.lastReadBlobSha })
-        assertTrue(dao.recentlyChanged(5).first().isEmpty())
-        dao.changesSeen(1, b)
-        assertEquals(a, dao.changeBaseline(1))
-        dao.changesSeen(1, a)
-        assertNull(dao.changeBaseline(1))
-        assertTrue(dao.updatedSinceRead().first().isEmpty())
-        assertEquals(listOf(1L), dao.recentlyChanged(5).first().map { it.documentId })
-    }
-
-    @Test
     fun aCreationDeletedBeforeItsAcknowledgementStaysDeletedThroughServerLists() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.saveAnnotation(

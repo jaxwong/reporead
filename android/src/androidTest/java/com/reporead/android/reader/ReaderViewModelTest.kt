@@ -12,14 +12,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.Load
 import com.reporead.android.core.network.TEST_HIGHLIGHT_MUTATION
-import com.reporead.android.core.network.testChanges
 import com.reporead.android.core.network.testHighlight
 import com.reporead.android.core.network.testSha
 import com.reporead.android.core.network.wire
-import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
-import com.reporead.android.data.ChangeBaselineRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.LoopbackServer
@@ -30,18 +26,15 @@ import com.reporead.android.sync.Sync
 import com.reporead.android.sync.toRow
 import java.io.File
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -134,141 +127,6 @@ class ReaderViewModelTest {
                     listOf("PATCH /api/annotations/9", "DELETE /api/annotations/9?expectedVersion=2"),
                     server.requests,
                 )
-            }
-    }
-
-    private suspend fun model(sync: Sync, saved: SavedStateHandle = SavedStateHandle()): ReaderViewModel =
-        withContext(Dispatchers.Main) {
-            val factory = viewModelFactory {
-                initializer { ReaderViewModel(sync, store.library(), saved, 1, "test-only-entry") }
-            }
-            ViewModelProvider.create(owners, factory)[ReaderViewModel::class]
-        }
-
-    @Test
-    fun aSummaryLoadsOnlyWhenReadyAndSignedInAndRetriesOnlyWhenAsked() = runBlocking {
-        val from = "c".repeat(40)
-        store.library().saveBaseline(ChangeBaselineRow(1, from))
-        val changes = "GET /api/documents/1/changes?since=$from&to=$testSha"
-        val routes =
-            ConcurrentHashMap(
-                mapOf(
-                    "GET /api/documents/1/annotations" to
-                        (200 to wire(AnnotationControllerAnnotationList(emptyList()))),
-                    changes to (503 to """{"code":"TEST_ONLY_DOWN","message":"Test-only failure"}"""),
-                )
-            )
-        LoopbackServer(routes).use { server ->
-            val sync = Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
-            val model = model(sync)
-            withContext(Dispatchers.Main) { model.shown(false) }
-            withTimeout(10_000) { while (model.state.value.page !is Load.Ready) delay(20) }
-            assertTrue(server.requests.isEmpty())
-            withContext(Dispatchers.Main) {
-                model.shown(true)
-                model.shown(true)
-            }
-            withTimeout(10_000) { while (model.state.value.changes !is Load.Failed) delay(20) }
-            assertEquals(1, server.requests.count { it == changes })
-            withContext(Dispatchers.Main) { model.shown(true) }
-            assertEquals(1, server.requests.count { it == changes })
-            routes[changes] = 200 to wire(testChanges().copy(sinceBlobSha = from, toBlobSha = testSha))
-            withContext(Dispatchers.Main) {
-                model.retryChanges()
-                model.retryChanges()
-            }
-            withTimeout(10_000) { while (model.state.value.changes !is Load.Ready) delay(20) }
-            assertEquals(2, server.requests.count { it == changes })
-            assertEquals(from, store.library().changeBaseline(1))
-            withContext(Dispatchers.Main) { model.changesShown() }
-            withTimeout(10_000) { while (store.library().changeBaseline(1) != null) delay(20) }
-        }
-    }
-
-    @Test
-    fun signingOutAndPoppingCannotCancelAPresentedAcknowledgementWaitingForTheLock() = runBlocking {
-        val dao = store.library()
-        dao.saveBaseline(ChangeBaselineRow(1, testSha))
-        val arrived = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val held = "GET /api/documents/2/changes?since=${"c".repeat(40)}&to=$testSha"
-        LoopbackServer(
-                mapOf(
-                    held to
-                        (200 to
-                            wire(
-                                testChanges().copy(documentId = 2, sinceBlobSha = "c".repeat(40), toBlobSha = testSha)
-                            )),
-                    "GET /api/documents/1/annotations" to
-                        (200 to wire(AnnotationControllerAnnotationList(emptyList()))),
-                )
-            ) { key ->
-                if (key == held) {
-                    arrived.countDown()
-                    check(release.await(10, SECONDS))
-                }
-            }
-            .use { server ->
-                val sync =
-                    Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
-                val model = model(sync)
-                withContext(Dispatchers.Main) { model.shown(false) }
-                withTimeout(10_000) { while (model.state.value.page !is Load.Ready) delay(20) }
-                val load = async(Dispatchers.IO) { sync.changes(2, "c".repeat(40), testSha) }
-                try {
-                    assertTrue(arrived.await(10, SECONDS))
-                    withContext(Dispatchers.Main) {
-                        // Presentation may precede the UI's sign-in LaunchedEffect; this local write needs no token.
-                        model.changesShown()
-                        model.shown(false)
-                        owners.clear()
-                    }
-                } finally {
-                    release.countDown()
-                }
-                load.await()
-                withTimeout(10_000) { while (dao.changeBaseline(1) != null) delay(20) }
-                assertNull(dao.changeBaseline(1))
-                assertEquals(listOf(held), server.requests)
-            }
-    }
-
-    @Test
-    fun signingOutDiscardsOnlyTheSummaryFetchAndSigningInLoadsAgain() = runBlocking {
-        val from = "c".repeat(40)
-        store.library().saveBaseline(ChangeBaselineRow(1, from))
-        val changes = "GET /api/documents/1/changes?since=$from&to=$testSha"
-        val arrived = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        LoopbackServer(
-                mapOf(
-                    changes to (200 to wire(testChanges().copy(sinceBlobSha = from, toBlobSha = testSha))),
-                    "GET /api/documents/1/annotations" to
-                        (200 to wire(AnnotationControllerAnnotationList(emptyList()))),
-                )
-            ) { key ->
-                if (key == changes && arrived.count > 0) {
-                    arrived.countDown()
-                    check(release.await(10, SECONDS)) { "Test never released the first summary" }
-                }
-            }
-            .use { server ->
-                val sync =
-                    Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
-                val model = model(sync)
-                withContext(Dispatchers.Main) { model.shown(true) }
-                try {
-                    assertTrue(arrived.await(10, SECONDS))
-                    withContext(Dispatchers.Main) { model.shown(false) }
-                    assertNull(model.state.value.changes)
-                } finally {
-                    release.countDown()
-                }
-                // Queue behind the cancelled request; its old answer cannot overwrite this new load.
-                withContext(Dispatchers.Main) { model.shown(true) }
-                withTimeout(10_000) { while (model.state.value.changes !is Load.Ready) delay(20) }
-                assertEquals(2, server.requests.count { it == changes })
-                assertEquals(from, store.library().changeBaseline(1))
             }
     }
 }

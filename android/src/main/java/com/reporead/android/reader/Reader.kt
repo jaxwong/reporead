@@ -36,7 +36,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
@@ -49,7 +48,6 @@ import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.Load
 import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.describe
-import com.reporead.android.core.network.wire.DocumentControllerChanges
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
@@ -60,7 +58,6 @@ import com.reporead.android.ui.AppIcon
 import java.io.Serializable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -99,7 +96,6 @@ internal sealed interface ReaderOverlay : Serializable {
 }
 
 /** What a reader entry keeps for process restoration. */
-private const val SINCE = "since"
 private const val REATTACHING = "reattaching"
 private const val EDIT = "edit"
 
@@ -109,10 +105,9 @@ private data class SubmittedEdit(val mutationId: String, val text: String?) : Se
 internal data class ReaderConflict(val current: AnnotationRow, val mine: String?)
 
 /**
- * One reader entry's work ([entryId]), kept across rotation and while it is covered: the opened page, the summary of
- * changes since it was last read, the highlights' refresh and every change made to them, and what they reported. A
- * change the server or this phone accepted is committed even if the reader is left (Sync). [saved] restores the version
- * the summary starts from and the highlight being reattached.
+ * One reader entry's work ([entryId]), kept across rotation and while it is covered: the opened page, the highlights'
+ * refresh and every change made to them, and what they reported. A change the server or this phone accepted is
+ * committed even if the reader is left (Sync). [saved] restores the highlight being reattached and a submitted edit.
  */
 internal class ReaderViewModel(
     private val sync: Sync,
@@ -123,14 +118,6 @@ internal class ReaderViewModel(
 ) : ViewModel() {
     data class State(
         val page: Load<StudyPage> = Load.Loading,
-        /**
-         * “Changed since you last read” compares the version on screen with this one: the oldest version whose changes
-         * were never shown, else the version last read; null when the note was never read. It is read once per opening,
-         * before the reader marks the version on screen as read.
-         */
-        val since: String? = null,
-        /** Null when there is nothing to compare: never read, signed out, or reading the same version again. */
-        val changes: Load<DocumentControllerChanges>? = null,
         val message: String? = null,
         /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach. */
         val reattaching: AnnotationRow? = null,
@@ -141,14 +128,11 @@ internal class ReaderViewModel(
         val overlay: ReaderOverlay? = null,
     )
 
-    private val current =
-        MutableStateFlow(State(since = saved[SINCE], reattaching = saved.get<AnnotationRow>(REATTACHING)))
+    private val current = MutableStateFlow(State(reattaching = saved.get<AnnotationRow>(REATTACHING)))
     val state: StateFlow<State> = current.asStateFlow()
 
     /** The sign-in state the screen last showed; null before it was first shown. */
     private var signedIn: Boolean? = null
-    private var summaryFetch: Job? = null
-    private var changesAcknowledged = false
 
     init {
         open("created")
@@ -178,11 +162,6 @@ internal class ReaderViewModel(
     private fun open(reason: String) {
         Log.i("RepoRead", "Reader open started; entry=$entryId documentId=$documentId reason=$reason")
         viewModelScope.launch {
-            if (!saved.contains(SINCE)) {
-                val since = dao.changeBaseline(documentId) ?: dao.reading(documentId)?.lastReadBlobSha
-                saved[SINCE] = since
-                current.update { it.copy(since = since) }
-            }
             val page =
                 try {
                     val opened = sync.openNote(documentId)
@@ -191,7 +170,6 @@ internal class ReaderViewModel(
                     Load.Failed(error)
                 }
             current.update { it.copy(page = page) }
-            loadChanges()
         }
     }
 
@@ -208,12 +186,6 @@ internal class ReaderViewModel(
         val was = this.signedIn
         this.signedIn = signedIn
         if (signedIn && was != true) refreshHighlights(if (was == null) "created" else "signedIn")
-        if (signedIn) loadChanges()
-        else {
-            summaryFetch?.cancel()
-            summaryFetch = null
-            current.update { it.copy(changes = null) }
-        }
     }
 
     private fun refreshHighlights(reason: String) {
@@ -225,47 +197,6 @@ internal class ReaderViewModel(
                 showMessage("Showing highlights saved on this phone. ${error.describe()}")
             }
         }
-    }
-
-    /**
-     * The baseline and displayed page are fixed for this entry. Load once when both are ready and signed in; failures
-     * wait for an explicit retry. Only the fetch is cancelled on sign-out, never a presentation write.
-     */
-    private fun loadChanges() {
-        val now = current.value
-        val from = now.since
-        val displayed = (now.page as? Load.Ready)?.value?.opened?.note?.blobSha
-        if (from == null || displayed == null || from == displayed || signedIn != true || now.changes != null) return
-        Log.i("RepoRead", "Reader changes load started; entry=$entryId documentId=$documentId")
-        current.update { it.copy(changes = Load.Loading) }
-        summaryFetch = viewModelScope.launch {
-            val changes =
-                try {
-                    Load.Ready(sync.changes(documentId, from, displayed))
-                } catch (error: ApiException) {
-                    Load.Failed(error)
-                }
-            current.update { it.copy(changes = changes) }
-        }
-    }
-
-    fun retryChanges() {
-        val now = current.value
-        if (now.changes !is Load.Failed || !current.compareAndSet(now, now.copy(changes = null))) return
-        loadChanges()
-    }
-
-    /**
-     * The summary is on the screen: only now is its baseline cleared, so one fetched while the reader was covered is
-     * still shown at the next opening if it never was. Offline or failing, the baseline stays for the next opening too.
-     */
-    fun changesShown() {
-        val now = current.value
-        val from = now.since ?: return
-        val displayed = (now.page as? Load.Ready)?.value?.opened?.note?.blobSha ?: return
-        if (changesAcknowledged || (from != displayed && now.changes !is Load.Ready)) return
-        changesAcknowledged = true
-        viewModelScope.launch { sync.changesSeen(documentId, from) }
     }
 
     fun showMessage(text: String?) = current.update { it.copy(message = text) }
@@ -468,7 +399,6 @@ fun ReaderScreen(
     // True once the screen's one-time target (a linked heading or a notebook passage) has been opened. Saved, so
     // rotating or coming back to this screen restores the reading position instead of jumping to the target again.
     var targetShown by rememberSaveable(screen.documentId) { mutableStateOf(false) }
-    var changesExpanded by rememberSaveable(screen.documentId) { mutableStateOf(true) }
     val bookmark by dao.bookmark(screen.documentId).collectAsStateWithLifecycle(null)
     val annotations by dao.annotations(screen.documentId).collectAsStateWithLifecycle(emptyList())
     var notesOpen by rememberSaveable(screen.documentId) { mutableStateOf(false) }
@@ -523,17 +453,6 @@ fun ReaderScreen(
                     study = ready.study,
                     studying = { studying },
                     onNoteLink = model::followNoteLink,
-                    onFigure = { figure ->
-                        push(
-                            Screen.Figure(
-                                opened.note.documentId,
-                                opened.note.blobSha,
-                                figure,
-                                opened.note.title,
-                                opened.note.snapshotCommitSha,
-                            )
-                        )
-                    },
                     reattaching = { state.reattaching != null },
                     onMessage = model::showMessage,
                     onSelection = ::useSelection,
@@ -595,9 +514,6 @@ fun ReaderScreen(
             opened.staleReason?.let { Notice("Showing your saved copy. ${it.describe()}") }
             session.restoreNotice?.let { Notice(it) }
             state.message?.let { Notice(it) }
-            val since = state.since
-            if (since != null && since != opened.note.blobSha && !signedIn)
-                Notice("This note changed since you last read it. Sign in to see what changed.")
             state.reattaching?.let { row ->
                 Row(
                     Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
@@ -619,31 +535,6 @@ fun ReaderScreen(
                 }
                 lifecycle.addObserver(observer)
                 onDispose { lifecycle.removeObserver(observer) }
-            }
-            if (signedIn && since != null && (since == opened.note.blobSha || state.changes is Load.Ready))
-                LifecycleResumeEffect(Unit) {
-                    model.changesShown()
-                    onPauseOrDispose {}
-                }
-            state.changes?.let { comparison ->
-                ChangesPanel(
-                    comparison,
-                    changesExpanded,
-                    onToggle = { changesExpanded = !changesExpanded },
-                    onRetry = model::retryChanges,
-                    onOpen =
-                        if (!session.opened) null
-                        else
-                            { section ->
-                                changesExpanded = false
-                                scope.launch {
-                                    if (!session.showBlock(section.blockId))
-                                        model.showMessage(
-                                            "That section isn't in the version on screen; reopen the note."
-                                        )
-                                }
-                            },
-                )
             }
             if (!session.stopped)
                 AndroidView(

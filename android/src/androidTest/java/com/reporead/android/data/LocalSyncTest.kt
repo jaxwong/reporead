@@ -1110,12 +1110,6 @@ class LocalSyncTest {
             it.writeText("test-only image")
         }
 
-    private fun export() =
-        File(directory, "exports/notebook.md").also {
-            it.parentFile!!.mkdirs()
-            it.writeText("test-only export")
-        }
-
     /** A test-only image of [documentId] in a folder the app may not write, so it cannot be deleted until [after]. */
     private suspend fun <T> withStuckImage(documentId: Long, after: suspend (stuck: File) -> T): T {
         val stuck = image(documentId)
@@ -1159,7 +1153,6 @@ class LocalSyncTest {
     @Test
     fun clearingThePhoneDeletesRoomAndReturnsTheFilesItCouldNotDeleteUntilItRunsAgain() = runBlocking {
         dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
-        val export = export()
         val sync = sync("http://127.0.0.1:${closedPort()}")
         sync.retire()
         withStuckImage(1) { stuck ->
@@ -1167,16 +1160,14 @@ class LocalSyncTest {
             assertTrue(left.toString(), left is LocalCleanup.FilesLeft && left.paths.first() == stuck)
         }
         assertNull(dao.note(1))
-        assertFalse(export.exists())
         assertEquals(LocalCleanup.Done, sync.clearRetiredCopy())
         assertEquals(0, File(directory, "images").list()!!.size)
     }
 
     @Test
-    fun aDisconnectRunAgainAfterItsAnswerWasLostDeletesExportsAndImagesToo() = runBlocking {
+    fun aDisconnectRunAgainAfterItsAnswerWasLostDeletesImagesToo() = runBlocking {
         savedRepository()
         val image = image(1)
-        val export = export()
         LoopbackServer(
                 mapOf(
                     "DELETE /api/repositories/7" to failure(404, "NOT_FOUND"),
@@ -1192,7 +1183,6 @@ class LocalSyncTest {
             }
         assertTrue(dao.repositoryIds().isEmpty())
         assertNull(dao.note(1))
-        assertFalse(export.exists())
         assertFalse(image.exists())
     }
 
@@ -1212,17 +1202,15 @@ class LocalSyncTest {
     }
 
     @Test
-    fun startingDeletesExportsAndEveryImageNoSavedPageShows() = runBlocking {
+    fun startingDeletesEveryImageNoSavedPageShows() = runBlocking {
         savedRepository()
         val kept = image(1)
         val older = image(1, "b".repeat(40))
         val unsaved = image(2)
-        val export = export()
         sync("http://127.0.0.1:${closedPort()}").startUp()
         assertTrue(kept.exists())
         assertFalse(older.exists())
         assertFalse(unsaved.exists())
-        assertFalse(export.exists())
     }
 }
 

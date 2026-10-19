@@ -21,8 +21,8 @@ import org.json.JSONObject
 import org.json.JSONTokener
 
 /*
- * One owner for how a rendered note page is hosted, shared by the reader and the pages shown beside it (the full-screen
- * figure, a link preview, a bank answer): the same isolation, the same resources, and the same wait for rendering.
+ * One owner for how a rendered note page is hosted, shared by the reader and the pages shown beside it (a link preview,
+ * a bank answer): the same isolation, the same resources, and the same wait for rendering.
  */
 
 internal const val ASSET_HOST = "appassets.androidplatform.net"
@@ -150,18 +150,16 @@ internal fun awaitRendered(view: WebView, main: Handler, then: (state: String) -
 }
 
 /**
- * Shows the saved [note] in this WebView as a page beside the reader: the full-screen figure, a link preview, or a bank
- * answer. It stays hidden while it renders; then [script] (null: none) keeps the part to show, and [reveal] receives
- * whether that part is in this version and returns whether to show the page. [onFailed] runs when the page does not
- * render or its renderer stops, and the host then removes it; [name] says which page in the log. Nothing navigates; a
- * tapped Full screen link passes its figure id to [onFullScreen], when given.
+ * Shows the saved [note] in this WebView as a page beside the reader: a link preview or a bank answer. It stays hidden
+ * while it renders; then [script] (null: none) keeps the part to show, and [reveal] receives whether that part is in
+ * this version and returns whether to show the page. [onFailed] runs when the page does not render or its renderer
+ * stops, and the host then removes it; [name] says which page in the log. Nothing navigates.
  */
 internal fun WebView.showIsolatedPage(
     images: NoteImages,
     note: NoteRow,
     name: String,
     script: String?,
-    onFullScreen: ((String) -> Unit)?,
     onFailed: () -> Unit,
     reveal: (found: Boolean) -> Boolean,
 ) {
@@ -171,12 +169,7 @@ internal fun WebView.showIsolatedPage(
     alpha = 0f
     webViewClient =
         object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val url = request.url
-                if (onFullScreen != null && request.hasGesture() && url.host == ASSET_HOST && url.path == FULL_SCREEN)
-                    url.getQueryParameter("figure")?.let(onFullScreen)
-                return true
-            }
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
                 readerResource(assets, images, note, request.url)

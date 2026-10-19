@@ -18,8 +18,8 @@ import androidx.compose.ui.Modifier
 
 internal const val NAVIGATION_STATE_FORMAT_KEY = "navigationStateFormat"
 /** Change only when the saved navigation/UI format becomes incompatible, never for an ordinary build. */
-// PR4 moved session/reader state from Compose into SavedStateHandle; format 1 cannot restore those owners.
-internal const val NAVIGATION_STATE_FORMAT = 2
+// PR1 removes the serialized Figure destination; format 2 may still contain one.
+internal const val NAVIGATION_STATE_FORMAT = 3
 
 /**
  * Compose keys saved UI state by position, so the old string-list stack cannot be read as Navigation 3 state. Drop

@@ -41,8 +41,6 @@ import org.json.JSONObject
 private const val NOTE_LINK = "/note-link"
 /** The reader page's Copy link on a code block (reader.js addCodeTools); the text is then read with codeText(). */
 private const val COPY_CODE = "/copy-code"
-/** The reader page's Full screen link on a wide table or a diagram (reader.js addFigureTools). */
-internal const val FULL_SCREEN = "/full-screen"
 private const val SAVE_AFTER_SCROLL_MS = 700L
 private const val SECTION_AFTER_SCROLL_MS = 150L
 /** How far one swipe must scroll before the bars hide or come back, so small jitters do nothing. */
@@ -79,8 +77,6 @@ internal class ReaderSession(
      * to a heading of this note is followed here.
      */
     private val onNoteLink: (target: String?, path: String?, heading: String?) -> Unit,
-    /** A tapped Full screen link: the page's id for that table or diagram. */
-    private val onFigure: (String) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
     private val reattaching: () -> Boolean,
     /** A short message about something the page could not do (a link, the browser, rendering). */
@@ -201,7 +197,6 @@ internal class ReaderSession(
             when (url.path) {
                 NOTE_LINK -> openNoteLink(url)
                 COPY_CODE -> url.getQueryParameter("block")?.let { appScope.launch { copyCode(it) } }
-                FULL_SCREEN -> url.getQueryParameter("figure")?.let(onFigure)
             }
         } else if (url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto") {
             try {

@@ -371,47 +371,6 @@
         "tags" : [ "bookmark-controller" ]
       }
     },
-    "/api/documents/{id}/changes" : {
-      "get" : {
-        "operationId" : "changes",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "required" : true,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        }, {
-          "in" : "query",
-          "name" : "since",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "in" : "query",
-          "name" : "to",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/DocumentControllerChanges"
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        },
-        "tags" : [ "document-controller" ]
-      }
-    },
     "/api/documents/{id}/content" : {
       "get" : {
         "operationId" : "content",
@@ -1012,44 +971,6 @@
           }
         }
       },
-      "DocumentControllerChanges" : {
-        "required" : [ "addedLines", "documentId", "reason", "removedLines", "sections", "sinceBlobSha", "status", "toBlobSha" ],
-        "type" : "object",
-        "properties" : {
-          "addedLines" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "documentId" : {
-            "type" : "integer",
-            "format" : "int64"
-          },
-          "reason" : {
-            "type" : "string",
-            "nullable" : true
-          },
-          "removedLines" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "sections" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/NoteChangesSection"
-            }
-          },
-          "sinceBlobSha" : {
-            "type" : "string"
-          },
-          "status" : {
-            "type" : "string",
-            "enum" : [ "CHANGED", "UNCHANGED", "SINCE_UNAVAILABLE", "TOO_LARGE" ]
-          },
-          "toBlobSha" : {
-            "type" : "string"
-          }
-        }
-      },
       "DocumentControllerContent" : {
         "required" : [ "documentId", "html", "path", "renderFormat", "snapshotCommitSha", "sourceBlobSha", "text", "title" ],
         "type" : "object",
@@ -1173,34 +1094,6 @@
             "items" : {
               "$ref" : "#/components/schemas/LibraryRepository"
             }
-          }
-        }
-      },
-      "NoteChangesSection" : {
-        "required" : [ "addedLines", "blockId", "change", "headingPath", "removedLines" ],
-        "type" : "object",
-        "properties" : {
-          "addedLines" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "blockId" : {
-            "type" : "string",
-            "nullable" : true
-          },
-          "change" : {
-            "type" : "string",
-            "enum" : [ "ADDED", "CHANGED", "REMOVED" ]
-          },
-          "headingPath" : {
-            "type" : "array",
-            "items" : {
-              "type" : "string"
-            }
-          },
-          "removedLines" : {
-            "type" : "integer",
-            "format" : "int32"
           }
         }
       },

@@ -264,19 +264,4 @@ class ReviewTest {
         )
         assertNull(revealedAnswer(html, "core/interview/bank.md", answer.copy(exactText = "changed")))
     }
-
-    @Test
-    fun exportedBlockquotesRoundTripEveryCharacter() {
-        val quote = "  😀 **bold** & <code>\r\n\n> nested\ntrailing  \n"
-        val item = card(1).let { it.copy(annotation = it.annotation.copy(exactText = quote, endOffset = quote.length)) }
-        val markdown = notebookMarkdown(listOf(item))
-        val recovered =
-            markdown
-                .substringAfter("Source: topic/a.md\n\nQuestion:\n\nWhy?\n\n")
-                .removeSuffix("\n\n")
-                .split('\n')
-                .joinToString("\n") { it.removePrefix("> ") }
-        assertEquals(quote, recovered)
-        assertEquals("# RepoRead notebook\n\n", notebookMarkdown(emptyList()))
-    }
 }

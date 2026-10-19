@@ -35,9 +35,6 @@ class NavigationTest {
                 Entry("linked", Screen.Reader(2, "Linked", OpenAt.Heading("Answer"))),
                 Entry("card", Screen.Reader(3, "Card", OpenAt.Highlight("mutation"))),
                 Entry("warning", Screen.Reader(4, "Warning", OpenAt.Block(sha, "b20"))),
-                Entry("figure", Screen.Figure(1, sha, "t0", "Note", "b".repeat(40))),
-                // From a page saved before its snapshot was recorded: none is invented.
-                Entry("unknown-snapshot", Screen.Figure(1, sha, "t0", "Note", null)),
                 Entry("notebook", Screen.Notebook),
                 Entry("review", Screen.Review),
                 Entry("topic", Screen.Practice("topic")),
@@ -76,6 +73,12 @@ class NavigationTest {
             }
         assertSame(saved, compatibleSavedState(saved))
         assertNull(compatibleSavedState(null))
+    }
+
+    @Test
+    fun stateThatCouldContainARetiredDestinationIsNotRestored() {
+        val saved = Bundle().apply { putInt(NAVIGATION_STATE_FORMAT_KEY, 2) }
+        assertNull(compatibleSavedState(saved))
     }
 
     @Test
