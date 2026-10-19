@@ -1,10 +1,10 @@
 package com.reporead.android.library
 
 import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.NotebookItem
+import com.reporead.android.data.REVIEW_GRADE_RANGE
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.data.reviewable
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -33,7 +33,7 @@ internal const val GRADE_MEANING =
  */
 internal fun nextStep(step: Int?, grade: Int): Int =
     when {
-        grade !in 0..5 -> error("Grade $grade; expected 0..5")
+        grade !in REVIEW_GRADE_RANGE -> error("Grade $grade; expected $REVIEW_GRADE_RANGE")
         isMiss(grade) -> 0 // Again: back to the first step.
         grade == 3 -> step ?: 0 // Hard: stay.
         grade == 4 -> ((step ?: -1) + 1).coerceAtMost(STEPS.lastIndex) // Good: climb one.
@@ -52,19 +52,13 @@ internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: Zo
     log.filter { it.cardMutationId == card.mutationId && it.rejection == null }
         .sortedWith(compareBy({ it.reviewedAt }, { it.mutationId }))
         .fold(ReviewSchedule(card.createdAt, null)) { state, review ->
-            require(review.grade in 0..5) { "Review ${review.mutationId} has grade ${review.grade}; expected 0..5" }
+            require(review.grade in REVIEW_GRADE_RANGE) {
+                "Review ${review.mutationId} has grade ${review.grade}; expected $REVIEW_GRADE_RANGE"
+            }
             val step = nextStep(state.step, review.grade)
             val day = Instant.ofEpochMilli(review.reviewedAt).atZone(zone).toLocalDate()
             ReviewSchedule(day.plusDays(STEPS[step]).atStartOfDay(zone).toInstant().toEpochMilli(), step)
         }
-
-/**
- * A card on the review schedule: the server did not refuse it and its note is still listed. Review shows it (one that
- * needs checking, with its fix), and Practice does not ask its question again; refused and removed ones are listed in
- * Notebook.
- */
-internal fun reviewable(item: NotebookItem) =
-    item.annotation.type == AnnotationType.CARD && item.annotation.state != AnnotationState.REFUSED && !item.deleted
 
 /**
  * When each reviewable card is next due. The log is grouped by card once: each card's own grades, not the whole log.

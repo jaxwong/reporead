@@ -519,6 +519,34 @@ class LocalStoreTest {
     }
 
     @Test
+    fun localReviewsAcceptBothGradeBoundsAndRejectValuesOutsideThemWithoutWriting() = runBlocking {
+        val sha = "a".repeat(40)
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "Test-only note", sha)))
+        dao.saveNote(NoteRow(1, sha, "a.md", "Test-only note", "<html/>", 0))
+        dao.saveAnnotation(
+            annotation("card", null, null, AnnotationState.UNSENT)
+                .copy(
+                    type = AnnotationType.CARD,
+                    question = "Test-only question?",
+                    checkedBlobSha = sha,
+                )
+        )
+        for (grade in listOf(0, 5)) {
+            assertTrue(dao.recordReview(ReviewRow("grade-$grade", "card", grade, grade.toLong(), sha, true)))
+        }
+        for (grade in listOf(-1, 6)) {
+            val id = "invalid-grade-$grade"
+            try {
+                dao.recordReview(ReviewRow(id, "card", grade, 0, sha, true))
+                throw AssertionError("Local review grade $grade must fail")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message.orEmpty().contains(id))
+            }
+        }
+        assertEquals(listOf(0, 5), dao.reviews().first().map { it.grade })
+    }
+
+    @Test
     fun gradesSurviveNotebookRefreshAndAcknowledgementAndOnlyCurrentAnswersCanBeGraded() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))

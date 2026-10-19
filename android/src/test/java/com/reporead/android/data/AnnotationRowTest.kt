@@ -24,6 +24,50 @@ class AnnotationRowTest {
         )
 
     @Test
+    fun scheduledLinesUseOnlyReviewableCardsAndDeduplicateByBankAndDrawnText() {
+        val line = "Canonical answer: Test-only"
+        val card =
+            NotebookItem(
+                unsent.copy(
+                    type = AnnotationType.CARD,
+                    question = "Test-only prompt?",
+                    startOffset = 0,
+                    endOffset = line.length,
+                    exactText = line,
+                ),
+                "Test-only bank",
+                "test-only/interview/bank.md",
+                unsent.sourceBlobSha,
+                false,
+                unsent.sourceBlobSha,
+            )
+        val refused = card.copy(annotation = card.annotation.copy(state = AnnotationState.REFUSED))
+        val removed = card.copy(deleted = true)
+        val highlight = card.copy(annotation = card.annotation.copy(type = AnnotationType.HIGHLIGHT))
+        assertTrue(reviewable(card))
+        for (item in listOf(refused, removed, highlight)) assertFalse(reviewable(item))
+        assertEquals(emptySet<Pair<Long, String>>(), scheduledLines(emptyList()))
+        assertEquals(emptySet<Pair<Long, String>>(), scheduledLines(listOf(refused, removed, highlight)))
+        val editedPrompt = card.copy(annotation = card.annotation.copy(question = "Test-only edited prompt?"))
+        val elsewhere = card.copy(annotation = card.annotation.copy(documentId = 8))
+        val movedLine = "Canonical answer: Test-only moved"
+        val moved =
+            card.copy(
+                annotation =
+                    card.annotation.copy(
+                        location = Passage("c".repeat(40), "b9", 0, movedLine.length, movedLine),
+                        status = AnchorStatus.REANCHORED,
+                    )
+            )
+        assertEquals(
+            setOf(7L to line, 8L to line, 7L to movedLine),
+            scheduledLines(listOf(card, editedPrompt, elsewhere, moved, refused, removed, highlight)),
+        )
+        // Needing an answer check blocks grading, not membership of the review schedule.
+        assertTrue(reviewable(card.copy(annotation = card.annotation.copy(status = AnchorStatus.ORPHANED))))
+    }
+
+    @Test
     fun aPendingCreationIsDrawnWhereItWasMade() {
         assertEquals(Passage("a".repeat(40), "b2", 12, 30, "declarative transactions"), unsent.drawn)
         assertFalse(unsent.orphanedIn("a".repeat(40)))
