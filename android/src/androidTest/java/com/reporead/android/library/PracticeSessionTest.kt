@@ -13,6 +13,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.TestEntries
 import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
@@ -24,6 +25,7 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.findText
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
+import com.reporead.android.saveActivityState
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
 import java.io.File
@@ -127,11 +129,12 @@ class PracticeSessionTest {
         )
         val sync =
             Sync(Api("http://127.0.0.1:1", { error("Practice fixture must not call the network") }) {}, store, files) {}
-        TestHostActivity.content = {
-            MaterialTheme {
-                PracticeScreen(dao, sync, "test-only/topic", push = { pushed += it }, onBack = {})
+        TestHostActivity.content =
+            TestEntries(Screen.Practice("test-only/topic")).content { entry ->
+                MaterialTheme {
+                    PracticeScreen(dao, sync, "test-only/topic", entry.id, push = { pushed += it }, onBack = {})
+                }
             }
-        }
     }
 
     @After
@@ -253,6 +256,30 @@ class PracticeSessionTest {
                 awaitText(
                     "No new questions here: each question in its up-to-date banks already has a card. They come back under Review when due."
                 )
+            }
+        }
+
+    /** T15: a fresh process restores the session where it stood, with a new owner and nothing graded again. */
+    @Test
+    fun aRestoredProcessResumesTheSessionWithoutGradingAgain() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val saved =
+                ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+                    awaitText("2 questions left · Foundations · Test-only bank")
+                    click("Show answer")
+                    click("Good")
+                    withTimeout(5_000) { while (dao.pendingReviews().size != 1) delay(20) }
+                    awaitText("1 question left · Foundations · Test-only bank")
+                    click("Show answer")
+                    awaitText("Good")
+                    saveActivityState(scenario)
+                }
+            TestHostActivity.restoredState = saved
+            ActivityScenario.launch(TestHostActivity::class.java).use {
+                awaitText("1 question left · Foundations · Test-only bank")
+                awaitText("Good")
+                assertEquals(1, dao.pendingReviews().size)
             }
         }
 

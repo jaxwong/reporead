@@ -531,31 +531,59 @@ class Sync(
      */
     suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? =
         committed {
-            val row =
-                AnnotationRow(
-                    mutationId = UUID.randomUUID().toString(),
-                    serverId = null,
-                    documentId = documentId,
-                    sourceBlobSha = passage.blobSha,
-                    blockId = passage.blockId,
-                    startOffset = passage.startOffset,
-                    endOffset = passage.endOffset,
-                    exactText = passage.exactText,
-                    note = note,
-                    version = 1,
-                    createdAt = System.currentTimeMillis(),
-                    state = AnnotationState.UNSENT,
-                    type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
-                    question = question,
-                    checkedBlobSha = if (question == null) null else passage.blobSha,
-                )
-            if (!dao.saveLocalAnnotation(row)) {
-                Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
-                return@committed null
-            }
-            onPendingChange()
-            row.mutationId
+            saveNewAnnotation(passage, documentId, note, question)
         }
+
+    /**
+     * A new question's card for [passage] with its first [grade], committed together, so leaving the screen between
+     * them cannot keep the card without its grade. Null when the page is gone and nothing was saved; otherwise whether
+     * the grade was saved too ([recordReview]).
+     */
+    suspend fun gradeNewCard(passage: Passage, documentId: Long, question: String, grade: Int): Boolean? = committed {
+        val card = saveNewAnnotation(passage, documentId, null, question) ?: return@committed null
+        val review =
+            ReviewRow(
+                mutationId = UUID.randomUUID().toString(),
+                cardMutationId = card,
+                grade = grade,
+                reviewedAt = System.currentTimeMillis(),
+                blobSha = passage.blobSha,
+                pending = true,
+            )
+        dao.recordReview(review).also { if (it) onPendingChange() }
+    }
+
+    private suspend fun saveNewAnnotation(
+        passage: Passage,
+        documentId: Long,
+        note: String?,
+        question: String?,
+    ): String? {
+        val row =
+            AnnotationRow(
+                mutationId = UUID.randomUUID().toString(),
+                serverId = null,
+                documentId = documentId,
+                sourceBlobSha = passage.blobSha,
+                blockId = passage.blockId,
+                startOffset = passage.startOffset,
+                endOffset = passage.endOffset,
+                exactText = passage.exactText,
+                note = note,
+                version = 1,
+                createdAt = System.currentTimeMillis(),
+                state = AnnotationState.UNSENT,
+                type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
+                question = question,
+                checkedBlobSha = if (question == null) null else passage.blobSha,
+            )
+        if (!dao.saveLocalAnnotation(row)) {
+            Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
+            return null
+        }
+        onPendingChange()
+        return row.mutationId
+    }
 
     /**
      * Sends pending creations; a failure that is not one item's refusal stops it, and the rest wait, unsent, for the
