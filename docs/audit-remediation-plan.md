@@ -1,6 +1,51 @@
 # Codebase audit and root-cause remediation plan
 
-Audited: **2026-10-18**. Status: **steps 1, 2, 3, 5, 8, 9 and 10 complete and verified; the section 5 decisions are made (2026-10-18), except refactor scope and style**.
+Audited: **2026-10-18**. Reconciled: **2026-10-19**, while Android foundations PR4 is underway. **Freeze scope decisions D1–D7 are settled in section 5.** Steps **1, 2, 3, 5, 8, 9 and 10** have implementation evidence within the scopes recorded below; steps **4, 6, 7 and 11** and the final-candidate gates remain open. **This is the reconciled execution plan, not a claim that remediation is finished or code is frozen.**
+
+## Freeze scope and closure
+
+This document owns audit scope, remediation disposition and freeze acceptance. [Invariants](invariants.md), [ADRs](adrs.md), the module READMEs and [feature status](feature-list.md) retain their existing owners; link to their contracts rather than introducing competing ones here. The [Android foundations plan](android-foundations-plan.md) owns PR4's detailed lifecycle acceptance cases. Its original baseline/proposal wording is not evidence that implementation has not begun: PR4 is underway, and ADR-27 records the implemented Navigation 3 direction.
+
+### Required sequence
+
+1. **Finish and merge foundations PR4.** Require its T1–T17 and D1–D3 checks under the recorded policies, complete screen conversions and replacement cleanup, full device execution, and its ADR/architecture/invariant updates. Record the actual B1 refresh-on-return decision; neither this reconciliation nor silence approves B1. Do not reopen Navigation 3, the approved saved-state format policy or the existing mutation/retirement owner.
+2. **Rebase the remaining remediation onto that merged code.** Re-grep owners, callers and tests. Step 4 precedes step 6's question-to-current-passage matching; step 7 extends PR4's annotation operation ownership. Extend any first-grade operation introduced by PR4 rather than creating another one. Complete steps 4, 6, 7 and 11. Package/file moves and formatter changes are excluded by D1.
+3. **Nominate an exact candidate and perform the final audit.** Section 8 defines evidence and pass criteria. Stop discretionary code changes during verification, but permit fixes for failed gates. A code, schema, generated-contract or packaged-asset change creates a new candidate and invalidates affected evidence; rerun mandatory combined checks/device execution on the final executable candidate. Never freeze a known failed candidate to meet a date.
+4. **Freeze only after every required gate passes and every retained limit has an explicit disposition.** The matching signed release APK and hosted-backend checks are required by D3; deployment, installation and live mutations still need separately scoped approval. Later changes reopen affected audit gates; a documentation-only evidence update identifies the unchanged executable revision.
+
+The target remains the existing single-user Android app, supported phone and backend—not a multi-user scale redesign or an exhaustive security proof. The fixture demo, two-week usage/product gates, paging and other existing product deferrals remain visible in feature-list.md; audit closure does not mark those product gates complete. New audit defects join the closure table before sign-off rather than disappearing into an unowned exclusions paragraph.
+
+### Closure table
+
+“Implemented” means the recorded slice passed its stated checks, **not** that the future freeze candidate has passed. Final-candidate results belong to section 8. An accepted limit needs the user's decision, impact, named owner and revisit condition; a pending decision is not a waiver.
+
+| Item | Current disposition / evidence owner | Required before freeze |
+| --- | --- | --- |
+| A1 — delivered page size | Implemented, section 9 | Retain exact-limit/Save all regressions; legacy unreadable rows close under step 4, not A1's new-output cap. |
+| A2 — immutable image identity | Implemented, section 10 | Preserve snapshot/legacy-cache/deletion behavior and verify the packaged image path. |
+| A3 — removal lifetime | Implemented with follow-ups, sections 15–16 | Recheck against PR4's admitted mutations, pending work, exports, startup and fresh local-copy owners. |
+| A4 — saved/canonical compatibility | Required, step 4; D2/D4 decided | Narrow unusable-cache retirement and demonstrated shipped incompatibilities only; freeze canonical rules, no general migration system. |
+| A5 — search membership/limit | Implemented, section 11 | Preserve distinct-note, rename and removed-note behavior. |
+| A6 — terminal reading refusal | Required, step 4; schema change previously approved | Preserve local resume across library replacement/restart; unchanged work is not resent or counted waiting. |
+| A7 — study continuity/first grade | Required, step 6; D5 decided | One question-matching rule and one atomic/idempotent local command; no identity based on mutable prompt text. |
+| A8 — confirmation boundary | Product decision recorded in section 5; implementation closure in step 6 | Canonical line alone is confirmed; linked saved explanation and its stale/unavailable state are explicit. |
+| A9 — page-independent management | Required, step 7 | Edit/delete from Notebook without fetching content; preserve conflicts and PR4's entry lifetime. |
+| A10 — library replacement | Implemented, section 13 | No legacy routes/callers/old-only suites; matching app/backend contract. |
+| A11 — HTTP/failure/credential boundaries | Implemented, Step 9 verification | Preserve generated contract, whole-answer validation, positive refusals, lifecycle ordering and runtime deadlines. |
+| A12 — verification wiring | Implemented, section 12 | Current workflow triggers run packaged-asset/contract checks; device compilation is not execution. |
+| C1 — cached image read versus deletion | Implemented in step 2 | Retain file-interleaving coverage; no failed-read network fallback. |
+| C2 — baseline creation versus acknowledgement | Required, step 4 and PR4 T16 | Both completion orders and covered/left/reopened entries; only presentation acknowledges. |
+| C3 — credential writers/removal ordering | Implemented in step 9 | Keep alternate/encoded callback, renewal and removal race coverage. |
+| C4 — unowned local data | Decided and implemented in step 3 | Valid callback before cleanup; fresh navigation root for the fresh copy. |
+| C5 — library allocation/history limit | Accepted under D6, measurement required in step 11 | Record actual candidate/corpus usage, the pre-check allocation risk and the existing size-based revisit condition; no paging/new cap. |
+| C6 — runtime SQL/socket failure | Implemented in step 9 | Preserve real PostgreSQL cancellation/rollback/recovery tests; do not claim a total HTTP deadline. |
+| C7 — retained backups/privacy wording | Implemented in step 10 | Wording matches retention; current-schema recovery evidence is addressed in section 8. No incidental backup deletion. |
+| C8 — note content in logs | Newly code-derived; required, step 11 | Remove content-bearing logging at its owner and verify the missing-heading failure path without exposing note text. |
+| C9 — dependency/advisory assessment | Required, step 11; current assessment not executed | Inventory resolved dependencies, assess advisories, and fix or explicitly accept each applicable finding. |
+| C10 — document-history provenance | Accepted under D7 | Preserve authorized-repository and exact-selection validation; make no document-history claim. Revisit if that stronger guarantee is required. |
+| Foundations PR4 | Underway, companion plan | Merge evidence covers actual screen owners, mutation completion, UI-result consumption, restoration and replacement cleanup. |
+
+Historical branch names, totals and exclusions below describe their own revisions. They are not the current branch state, a current test count, or automatic exemptions from final gates.
 
 ### Implementation progress
 
@@ -20,7 +65,7 @@ Audited: **2026-10-18**. Status: **steps 1, 2, 3, 5, 8, 9 and 10 complete and ve
 - **Step 10 complete:** Android CI's test job runs `:app:mergeDebugAssets`, which runs `bundleReader` (`npm run build`: syntax check + bundle) through the packaged app's asset wiring; the workflow also triggers on `Library.java` and `assetlinks.json`. The `MAX_RESPONSE_BYTES` scrape is kept and contained by that trigger: it fails loudly, both files name each other, and a shared config file would be a second mechanism, not a simpler single owner. Deletion wording in both dialogs, ADR-11 and the privacy invariant now names retained server backups. Evidence in section 12.
 - **Step 8 complete:** the five legacy GET routes, their response records, `Documents.list`, `DocumentController`'s unused `connections` and `Reviews`' standalone notebook snapshot are deleted; `Library.read` is the one snapshot owner. Every test assertion that used them reads `GET /api/library`, with no test deleted. ADR-08/24 record that older releases are unsupported once the backend deploys. Evidence in section 13.
 - **Step 3 follow-up:** PR #66's initial DAO existence check was insufficient for a re-created same-account store, exports or background startup. The user approved retiring the old `Sync`/image lifetime and publishing a fresh instance only after successful cleanup. Local writes and exports now share that lifetime's existing lock; stale calls cancel instead of gaining access to a new copy. `Account` owns startup for both activity and worker. Section 15 records the callback/notice fixes; section 16 records lifetime verification and remaining exclusions. The original evidence in section 14 is historical, not proof of the follow-up's acceptance criteria.
-- **Branches:** steps 1–2 were published on `fix/saved-page-integrity` (renamed from `audit-root-cause-cleanup` before publication); step 3 and its audit fixes are on PR #66, `fix/removal-one-owner`. Step 1 is commit `dbf4b10`; the user's approved local-main correction left `main` at `f8ccf82`. No existing remote history was rewritten.
+- **Historical branches:** steps 1–2 were published on `fix/saved-page-integrity` (renamed from `audit-root-cause-cleanup` before publication); step 3 and its audit fixes were on PR #66, `fix/removal-one-owner`. Step 1 is commit `dbf4b10`; the user's approved local-main correction at that time left `main` at `f8ccf82`. No existing remote history was rewritten.
 
 ## Goal and verdict
 
@@ -56,10 +101,10 @@ The findings below describe the audit baseline, before remediation. Implementati
 | A8 | P2 | **Bank-card freshness covers the bank, not necessarily the displayed answer.** Cards anchor the bank's Canonical line, but `Answer.kt:109–159` displays a separately saved linked note. `AnnotationRow.cardBlock` and server `Annotations.Card` check the card's own document version only. A linked answer can change without changing that bank line. **Code-derived product/safety gap.** | The product has not made the boundary between authoritative answer and supplementary linked explanation sufficiently explicit. |
 | A9 | P2 | **Managing an annotation unnecessarily depends on opening its page.** `Notebook.kt:154–171` offers Open passage, while edit/delete controls are inside `Reader.kt:355–434`, after content loads. On another device, an annotation can be synced for a removed or unsupported note with no saved page; fetching that page fails, so its database-only management actions are unreachable. **Code-derived missing feature path.** | User-owned annotations are treated as controls on a successfully rendered page rather than independently manageable records. |
 | A10 | P2 | **The library replacement still has five legacy read routes and callers in tests.** The current Android production code uses `/api/library`, not `/api/repositories`, `/api/repositories/{id}/documents`, `/api/reading-states`, `/api/bookmarks`, or `/api/notebook`. Backend tests still call them, and `Documents.list` and `Reviews`' standalone snapshot remain. ADR-08/24 explicitly defer their removal for the installed older APK. **Verified caller search; documented policy debt.** | A replacement is intentionally unfinished. The ADR's compatibility exception conflicts with the stricter no-parallel-replacement rule in `AGENTS.md`. |
-| A11 | P2 | **Historical finding, now partially resolved by the typed HTTP contract (step 9): successful-response and failure-response validation were inconsistent.** `ServerJson.kt:18` accepts missing nullable fields as null; `annotationRow` accepts a CARD with no question, which later meets `checkNotNull(row.question)` in `Review.kt:402`. Numeric `org.json` getters remain coercive. Error codes/messages use `optString` at `Api.kt:109–112`, while `refusesItem` trusts any non-`HTTP_` code at selected statuses. `Api.kt:114–119` also discards the original I/O cause and request context. **Code-derived boundary gaps.** | The boundary validates some scalar types but not the complete response or its cross-field invariants. Recovery policy partly relies on a string-prefix heuristic. |
+| A11 | P2 | **Historical finding, resolved within step 9's recorded scope: successful-response and failure-response validation were inconsistent.** `ServerJson.kt:18` accepts missing nullable fields as null; `annotationRow` accepts a CARD with no question, which later meets `checkNotNull(row.question)` in `Review.kt:402`. Numeric `org.json` getters remain coercive. Error codes/messages use `optString` at `Api.kt:109–112`, while `refusesItem` trusts any non-`HTTP_` code at selected statuses. `Api.kt:114–119` also discards the original I/O cause and request context. **Code-derived boundary gaps.** | The boundary validates some scalar types but not the complete response or its cross-field invariants. Recovery policy partly relies on a string-prefix heuristic. |
 | A12 | P2 | **CI omits dependencies of the behavior it claims to check.** The Android test job installs npm dependencies but runs neither the reader check nor bundle build; compiling device tests does not execute reader behavior. Its path filters also omit `backend/.../library/Library.java`, which `android/build.gradle.kts:43–52` parses to generate a client constant. **Verified workflow/build trace.** | Build dependencies are hidden across module boundaries, and compilation is mistaken for broader verification. |
 
-Additional bounded concerns to include in the relevant fixes, not turn into unrelated refactors:
+Additional concerns at the original audit baseline are listed below. The closure table above owns their current disposition; statements about missing checks/writers here are historical, not claims that completed fixes remain absent.
 
 - The image cache's hit path checks `isFile` and then reads outside its deletion lock (`NoteImages.kt:45`). A sweep can delete between those operations. Existing tests exercise deletion during an HTTP fetch, not this cached-read interleaving.
 - Change-summary acknowledgement and baseline creation are ordered in different owners: `Reader.kt:140–142` can clear a baseline before `ReaderSession.open` saves the newly displayed version and `LibraryDao.saveDisplayedReading` creates that baseline. Test both completion orders; do not infer “seen” merely from a completed request.
@@ -84,6 +129,8 @@ Additional bounded concerns to include in the relevant fixes, not turn into unre
 | WorkManager, immutable mutation IDs, original anchors, migration history | Retain. They satisfy named requirements; they are not disposable merely because queues, state, or historical schemas exist. |
 
 ### Where the current structure increases working memory
+
+These are original-audit observations. Account/navigation ownership has since changed, and PR4 owns the screen-lifetime replacement. The superseded package moves are excluded by D1; this historical diagnosis does not authorize reintroducing removed code or expanding freeze scope.
 
 1. **`library/` no longer means library browsing.** It also owns Practice, Review, scheduling, session mechanics, and export. Meanwhile bank parsing and bank answers live under `reader/`. Understanding one study session requires searching both folders.
 2. **Some shared behavior lives in a misleading feature file.** `ReviewSchedule.dueSession` calls `interleaveByNote` in `Practice.kt`; Notebook calls `practiceTopics` and `inPracticeFolder` there too. These are real callers, not dead helpers. Move them to their actual concern rather than deleting them based on their names.
@@ -116,6 +163,8 @@ Reduce cognitive load by giving each transition an owner and taking these facts 
 ## 3. Implementation sequence
 
 The user approved proceeding with this sequence and committing each completed step. Concrete migration, deletion, route, infrastructure and product-policy gates in section 5 still apply. For each approved step: reproduce first, fix the owner, migrate every caller, remove superseded paths/tests, execute checks, and commit the working slice. Do not combine correctness fixes with a repository-wide move or reformat.
+
+Steps already implemented below retain their original requirements as a behavior checklist. They are not instructions to reintroduce removed code. The post-PR4 work is steps 4, 6, 7 and 11, followed by section 8's final-candidate audit. Recheck all locations against merged PR4 before implementation; its changes can satisfy part of a requirement but do not waive the remaining acceptance behavior.
 
 ### Step 1 — Bound render output at its owner (A1)
 
@@ -159,14 +208,15 @@ The user approved proceeding with this sequence and committing each completed st
 
 **Owners:** renderer for page compatibility; `Sync` for fetch/send decisions; DAO for atomic local transitions; reader for reporting display/acknowledgement events.
 
-- Define what changes require refetching an existing saved page. Bump the existing format for incompatible presentation/metadata changes and test previously shipped pages, not only the current personal corpus.
-- Do not use a format bump as a substitute for canonical-anchor migration. If block identity/text changes for an unchanged blob, first specify how existing anchors remain trustworthy; never reinterpret their old offsets silently.
-- Return a visible compatibility limitation when a required upgrade cannot be fetched. Do not turn “same source blob” into “no reason to tell the user.”
-- Add a terminal local refusal state/reason for a reading save. A newer user save can replace it; unchanged refused work must not remain in `pendingReading` or the waiting count. Preserve the position for local resume.
-- Put baseline creation and summary acknowledgement under a coherent transition. Cover both request-before-page-ready and page-ready-before-request completion, leaving early, offline opening, and reopening.
-- Replace the existing assertion that a refused reading position remains sendable with assertions that its local value survives and the next sync does not resend it. Retain coverage that other work still proceeds.
+- **Presentation compatibility:** enumerate shipped saved-page formats and the actual heading-cap/BOM/URL-only-footnote changes. Bump the existing format when presentation or metadata requires refetch, with pre-upgrade fixtures, Unicode and boundary cases. Neither the current personal corpus nor an unchanged source SHA proves that every old page is compatible.
+- **Canonical contract (D4 decided):** keep annotations and automatic re-anchoring for ordinary source edits. Freeze the current canonical block/text rules; presentation-only upgrades must not alter them. Limit upgrade work to demonstrated incompatibilities in already-shipped heading-cap/BOM/URL-only-footnote behavior, using old-page/selection fixtures and stored evidence. Preserve original selections/history and verify exact correspondence before using a location. If correspondence cannot be established for an affected case, use the existing conservative orphan/reattach and card-confirmation behavior rather than guess offsets; do not delete annotations or silently grade an uncertain answer. Do not introduce a general anchor-migration framework, new canonical-version registry or parallel old renderer. If the concrete cases cannot be contained without a new schema/API contract or broad migration, stop and present that trade-off before implementation; such a change is not pre-approved by D4.
+- **Unusable legacy cache (D2 approved):** retire only rendered-page caches demonstrated unusable under the supported storage contract, together with their derived links/images as appropriate. Preserve readable saved pages, original annotations, review history, reading positions, bookmarks and pending work. Do not first materialize an oversized row to decide whether it is safe: characterize the existing full-row reads, including reader/preview/figure/answer, Practice and search projections. Use the existing storage owner for the narrow cleanup and its existing image sweep; no second cache layout or startup manager. Do not guess image identity. Offline, or when refetch is refused, show that the page is unavailable and needs a supported online replacement; do not claim the text was preserved after retiring it.
+- **Upgrade failure:** a supported but old-format saved page remains readable when possible and visibly states the compatibility limitation if refetch fails, even for the same source blob. A failed fetch never replaces a readable complete copy. Test zero backend calls offline where applicable, one content request for an admitted refresh, typed unsupported content, failed fetch, second open and Save all's second run.
+- **Terminal reading refusal:** add a durable refusal state/reason at the existing reading-row owner. Preserve the position locally, exclude unchanged refused work from `pendingReading` and waiting counts, and let a genuinely newer local save replace the refusal. A non-pending flag alone is insufficient: `clearAcknowledgedReading` currently deletes non-pending rows. Define library merge/deletion and newer-server-write behavior coherently with last-write-wins; an older server value cannot erase a newer refused local resume point. Preserve intentional disconnection/removal behavior and distinguish unsent-loss counts from sendable waiting counts. Unknown/malformed responses remain uncertainty, not terminal refusal.
+- **Display acknowledgement:** baseline creation and acknowledgement are one coherent transition across DAO/Sync and PR4's Reader entry owner. A fetched summary is not a presented summary. Cover request-before-page-ready and page-ready-before-request, covered/popped entries, offline opening, reopening and a baseline changed while an earlier result was in flight. Acknowledge only the exact version/baseline actually presented.
+- **Migration and regression:** exercise the approved reading-refusal upgrade from the last shipped schema, pending/acknowledged rows, a refused value surviving library replacement and process restart, a later user save, partial sending failure and the second sync. Start a separate legacy-page regression with a pre-cap oversized row and prove affected entry points cannot crash before the upgrade/refetch decision. Replace the old resend assertion, retaining coverage that unrelated pending work proceeds. Test retirement interrupted and run again; never erase user-owned data as cache cleanup.
 
-**Exit:** page compatibility, local resume, refusal, waiting counts, and unseen-change status agree after failure and after a second opening/sync.
+**Exit:** demonstrated shipped incompatibilities are contained without broadening the canonical contract; no untrusted offset is silently reused; legacy unusable rows cannot crash a full-row read; local resume, refusal, waiting/loss counts and unseen-change status agree after failure, restart and a second opening/sync. A general renderer-evolution subsystem is explicitly out of scope.
 
 ### Step 5 — Fix search at the query (A5)
 
@@ -179,17 +229,19 @@ The user approved proceeding with this sequence and committing each completed st
 
 **Exit:** 50 distinct matching notes can occupy the 50-note result budget, and result names have one owner.
 
-### Step 6 — Decide and implement the study identity boundary (A7, A8)
+### Step 6 — Implement the decided study identity boundary (A7, A8)
 
-**Owners:** study extraction for the authored question identity; existing local mutation boundary/DAO for atomic card + first-grade creation; `Annotations` for server confirmation/gradeability; `ReviewSchedule` only for scheduling.
+**Owners:** existing study extraction for the current bank question; existing `Sync` mutation boundary/DAO for question-to-card matching and atomic card + first-grade creation; `Annotations` for server confirmation/gradeability; `ReviewSchedule` only for scheduling. PR4's entry owner owns the session and visible outcome, not another durable mutation implementation.
 
-- First decide whether editing a prompt/Canonical line intentionally creates a new question. If continuity is required, use an explicit stable authored identity; do not guess continuity through increasingly fuzzy text matching.
-- Make local “create this question's card and first grade” one validated, idempotent transaction. Recheck current source and existing identity there, rather than relying on an earlier screen read or `NonCancellable`.
-- Decide whether a linked answer section is authoritative or supplementary. If authoritative, confirmation must account for the linked source actually shown; checking only the bank SHA is insufficient. If supplementary, narrow the UI and safety claim explicitly.
+- **Continuity is decided:** an edited prompt is not a new question. A card follows its authored Canonical passage through the server's existing conservative re-anchoring; show the current bank prompt only when the current question-to-location correspondence is unambiguous. Use the source version and resolved passage identity, not prompt/answer-text equality, a version-local block id treated as eternal, or new fuzzy matching. No new authored-ID syntax or global question registry is required by this plan.
+- **D5 guarantee:** prevent duplicate creation on this phone, including a card already synced to it. Independently created offline cards on different devices may remain separate records; global question uniqueness is not promised. Existing duplicates/history are preserved, not automatically merged or deleted. If several cards match, or correspondence is ambiguous/orphaned, show the problem and the existing management/reattachment route rather than silently selecting one, merging logs or creating another card to hide it.
+- **One local transaction:** extend PR4's existing first-grade command if present. Validate grade, current saved/listed source, question correspondence and existing local card inside the same accepted lifetime/Room transaction that writes a new card and its first grade. Concurrent actions/entries and a second attempt cannot create a second pair. A lock or `NonCancellable` alone does not roll back a card when the grade write fails. Failure before commit leaves neither row; no screen-level precheck is the uniqueness authority.
+- **Remote delivery remains separate:** local creation makes zero HTTP calls and publishes pending work through the existing sender. A remotely accepted card followed by a refused/uncertain grade is not an atomic remote transaction: preserve and explain the existing typed refusal/pending behavior, with no compensation request, automatic history merge or alternate strategy. Retain the existing immutable mutation ids and per-pass ceilings.
+- **Confirmation is decided:** only the bank's Canonical line is confirmed. A linked note is supplementary and shown from its saved copy; stale, missing or unrenderable linked content is visibly labelled, never described as confirmed current. The author keeps bank/linked notes in step on GitHub. Test Review as well as Practice; an unavailable supplementary section does not silently strengthen or change what the grade claims to confirm.
 - Keep scheduling derived from the immutable log. Do not introduce duplicate persisted scheduling state to patch identity problems.
-- Test edits to prompt, answer line, link target, and linked note independently; interruption between card and grade; concurrent submissions; rotation during grading; server rejection; and the second attempt.
+- Test prompt-only, Canonical-line, link-target and linked-note edits independently; identical prompts/passages in different locations; multiple existing cards; orphaned correspondence; same-blob page upgrades under step 4; interruption/write failure between card and grade; concurrent entries/submissions; rotation/pop/removal; server refusal; library reload and the second attempt. Preserve a manually authored non-bank card's behavior. Run the actual Practice/Review entry owners and real DAO transaction, not only a matching helper.
 
-**Exit:** question continuity and answer freshness have explicit product semantics, and one local operation cannot leave accidental duplicate cards or an unexplained missing first grade.
+**Exit:** prompt edits preserve an unambiguously matched card/history, uncertain mappings are explicit, the local card/first-grade operation is atomic and idempotent, and UI wording matches the Canonical-only confirmation boundary. Cross-device duplicates remain the named D5 limitation, not a hidden promise.
 
 ### Step 7 — Manage annotations without requiring a page (A9)
 
@@ -198,6 +250,7 @@ The user approved proceeding with this sequence and committing each completed st
 - Expose existing edit/delete behavior for synced annotations independently of content loading. Reuse the existing operations and relevant dialogs rather than building a second annotation implementation.
 - Keep reveal/selection/reattachment page-dependent; do not disable unrelated database-only management when the page is absent.
 - Test a second-device notebook containing an annotation on a removed or unsupported note with no saved HTML. Verify ownership checks and optimistic conflicts remain unchanged and management makes no GitHub content request.
+- Extend PR4's actual Notebook/Reader entry-owned outcomes and current-resumed UI consumption. Reuse existing dialogs/operations without introducing another annotation service or bypassing `Sync` retirement. Keep acknowledged edits/deletes online and existing pending-deletion behavior offline; do not add question editing or new authoring features. Exercise conflict, refusal, actual timeout, rotation/cover/pop, account removal, Cancel, partial failure and an explicit second attempt. A missing page must not prevent deletion of an otherwise manageable card and its explicitly confirmed history loss.
 
 **Exit:** users can manage their records even when RepoRead cannot render their source.
 
@@ -217,7 +270,7 @@ The user approved proceeding with this sequence and committing each completed st
 
 **Status:** complete and verified (2026-10-18), within the isolated/runtime/device scope and live/release exclusions recorded below. [Step 9 verification](#step-9-verification) owns the evidence, limits and exclusions.
 
-**Owners:** `Api`/`Contract.kt`/`WireJson.kt` for typed wire validation, correspondence and transport/envelope failures; `ServerRows` for typed row mapping; `Sync` for pending-item disposition; the existing operation owner for other expected failures; UI for wording.
+**Owners:** backend controllers/records and their derived `backend/openapi.json` for published shapes; build-generated Android wire models plus `Api`/`WireJson`/`WireRules` for wire validation, correspondence and transport/envelope failures; `ServerRows` for typed row mapping; `Sync` for pending-item disposition; the existing operation owner for other expected failures; UI for wording. `Contract.kt` is retired, not an owner to recreate.
 
 - **Complete:** validate complete server records once: strict scalar types, required-vs-nullable field presence, and cross-field constraints such as CARD requiring a question. Reject a broken response before any replacement transaction. Android's [JSONObject contract](https://developer.android.com/reference/org/json/JSONObject) explicitly permits scalar coercion and treats an absent mapping as null in `isNull`; those methods alone do not enforce RepoRead's stricter contract.
 - **Complete:** define refusal dispositions from the known server contract. Unknown/malformed error envelopes are not evidence that an individual mutation should be permanently dropped.
@@ -241,74 +294,70 @@ The user approved proceeding with this sequence and committing each completed st
 
 **Exit:** a reader or consumed-contract change cannot bypass its relevant existing verification, and a green report accurately names what ran.
 
+### Step 11 — Close remaining audit concerns and nominate the candidate (C5, C8–C10)
+
+**Owners:** existing Library/transaction owners for capacity, existing logging call sites for privacy, build/lockfiles for resolved dependency identity, NoteVersions/AnnotationService for provenance, and this document for the audit disposition. No new production subsystem is implied.
+
+- **C5, accepted limit:** measure the real candidate/corpus, not invented seeded records. Record library bytes and list/log counts, measurement environment and observed resource behavior. Synthetic near-limit/worst-case regression data stays labelled and isolated. Preserve whole-answer refusal/previous complete phone snapshot behavior. D6 accepts pre-check allocation and unpaged growth, not an observed OOM or a false claim that the wire cap bounds heap. A resource failure reopens the candidate; present the smallest containment versus broader fix before expanding scope.
+- **C8, required privacy fix:** `reader/Answer.kt` logs the linked note's heading on the missing-heading path. This is note-derived content, contrary to the privacy invariant. Reproduce/characterize that path with a labelled fixture, remove content from logging at its current owner and verify useful safe ids/state remain. Inspect adjacent reader/network/server failure logs and exception logging for content/credential exposure; report actual findings, not a blanket safe-logs claim. Do not add a logging framework, new telemetry or content-bearing measurement output to the repository.
+- **C9, required current assessment:** inventory actual resolved direct/transitive npm, backend and Android dependencies plus packaged assets and pinned delivery actions/runtime inputs. Use `npm audit` as documented by reader-web/README.md; no dedicated JVM/Android advisory scanner was found in the inspected verification scripts. Record the chosen verified assessment method, versions/data date, coverage and gaps rather than inventing a Gradle task or adding a scanner dependency by default. Historical npm results are not the current assessment. Each applicable finding gets a fix or explicit user-accepted impact/reason/revisit condition; dependency upgrades require approval. An unavailable assessment or unanswered applicable risk is not a green security gate.
+- **C10, accepted limit:** carry D7 into the source-traceability wording; retain repository isolation, byte-SHA/selection validation and current failure/call ceilings. Do not add history fetching or imply document-history verification was performed.
+- **Evidence reconciliation:** ADR-06 reports an October 15 corpus rerun but its following paragraph and feature-list.md still describe post-October-9 measurement as outstanding. Bind any reusable report to its actual source/corpus revision; do not infer current coverage from the date or counts alone. The final corpus gate below resolves candidate coverage. Amend the stale chronology/status in the owning docs with verified evidence, without inventing a rerun. Likewise update old composition-owned/No ViewModel descriptions from PR4's actual completed wiring.
+- **Replacement sweep:** grep production, tests, docs and scripts for retired routes/types/helpers and for screen-owned work forbidden by PR4. Update all surviving callers and behavior assertions; do not keep aliases, wrappers, parallel old-path suites or stale active instructions. Preserve migration history and labelled negative tests of refused old shapes where those remain current behavior.
+
+**Exit:** C8 is fixed and verified, C9 is assessed/dispositioned, C5/C10 have the recorded accepted limits and required measurements, and the exact candidate has no unowned audit finding. This step does not execute release/deployment actions or create an automated live-write harness.
+
 ## 4. Targeted folder and file simplification
 
-Perform these moves after the relevant behavior has an owner and regression coverage. They are proposed destinations, not files already present or additional implementation layers.
+**D1, decided 2026-10-19: no optional package/file moves or formatter migration before freeze.** The earlier target tree and move table are superseded, not a second backlog to execute during correctness work. Keep the current packages, file names and Palantir/Kotlinlang formatters. A small ownership extraction required by a correctness fix still needs its concrete justification and caller/test migration; it does not authorize the former package reorganization.
 
-### Android target
-
-```text
-com.reporead.android/
-  MainActivity.kt
-  RepoReadApplication.kt          application-lifetime wiring/operations
-  RepoReadApp.kt                  root rendering and navigation dispatch
-  Navigation.kt                  existing Screen/OpenAt + saver/encoding, moved once
-  auth/                          sign-in and encrypted persisted session facts
-  data/                          Room schema, queries, atomic local transitions
-  network/                       existing HTTP/JSON client; replaces core/network
-  sync/                          one server/local reconciliation coordinator and worker
-  library/                       library, repositories, folders, Notebook
-  study/                         Practice, Review, scheduling, bank extraction/answers
-  reader/                        reading UI, live WebView, page hosting, links/figures
-  search/                        local search UI and formatting
-  ui/                            shared visual components, loading UI, error wording
-```
-
-### Exact moves and ownership corrections
-
-| Current location | Proposed change | Why it is worth another navigation boundary |
-| --- | --- | --- |
-| `library/Practice.kt`, `Review.kt`, `ReviewSchedule.kt`, `StudySession.kt` | Move together into `study/`; keep feature-local helpers beside their use. Move shared interleaving into the existing `StudySession.kt`. | A study feature becomes one discoverable cluster; Review no longer reaches into a Practice screen file for session ordering. |
-| Bank extraction within `reader/Study.kt` | Move bank recognition/models into `study/InterviewBanks.kt`; leave reader-only collapse recognition in the reader. | Bank source format is a study concern used by Practice and Review, not a WebView concern. This is a concrete split of two themes, not a generic parser framework. |
-| `reader/Answer.kt` | Move to `study/BankAnswer.kt`, continuing to call shared `reader/ReaderPage.kt` hosting. | Study owns what answer to show; reader hosting owns how an isolated page is displayed. No second WebView implementation. |
-| `practiceTopics` / `inPracticeFolder` in `Practice.kt` | Move into `Notebook.kt` and give them Notebook/folder names; their only production callers are there. Move their behavior assertions with them. | Removes false Practice ownership without creating `utils/Paths.kt` for two local helpers. |
-| `core/network/Load.kt` | Move the existing Compose loading implementation to `ui/Load.kt`. | A file rendering buttons/spinners belongs with UI; do not create another loader. |
-| `Api.describe()` inside the HTTP client file | Move its existing mapping to `ui/ApiMessages.kt`; move `Api.kt` into the shallow `network/` package. | Transport no longer owns screen vocabulary; removes a mostly empty `core` hierarchy. Update every import at once. |
-| Navigation declarations/serialization in `RepoReadApp.kt` | Move to root `Navigation.kt`; keep one saver/encoding implementation. | Separates the independently testable saved-navigation contract from account lifecycle and root rendering. No navigation framework is required. |
-| `reader/Notes.kt` | Rename to `reader/Annotations.kt` while sharing its page-independent management UI for step 7. | Distinguishes annotations from source notes and Notebook. Do not create parallel reader/Notebook editing code. |
-
-Do **not** mechanically split `Rows.kt`, `LibraryDao`, `MarkdownRenderer`, or `ReaderSession` by line count. Extract a file only where it exposes a real owner or removes a demonstrated dependency. Small types and functions of one theme can remain together.
-
-Keep the backend package structure. Finish the obsolete routes and snapshot path rather than introducing `domain/`, `application/`, `infrastructure/`, `ports/`, or one interface per class. Keep `backend/deploy/` as the deployment-script owner; `notes/` explainers must not become a second operational contract alongside the backend README.
+Navigation 3 owns the back stack, saved-state decoration and entry ViewModel stores (ADR-27). Do not recreate or move the retired `StackSaver`, legacy encoder/decoder, state maps or handlers. PR4's entry-scoped ViewModels are the demonstrated narrow state holders, not an invitation to add a repository layer or generic MVVM scaffolding. Keep the backend's feature packages and existing transaction owners; `backend/deploy/` remains the deployment-script owner, not `notes/`.
 
 ### State patterns to use—and patterns not to introduce
 
-- **Explicit state transitions:** extend the existing sealed-state/enum approach for removal, reading refusal, and mutually exclusive screen operations. Reuse the idea behind `ReaderOverlay`, not a state-machine framework. Keep independent state independent: tab selection is not a network-operation phase.
-- **Immutable identity/value data:** carry the snapshot or confirmed answer actually being used; stop reconstructing its meaning from unrelated strings and flags in callers.
-- **Atomic/idempotent commands:** use existing Room/PostgreSQL transactions and mutation identities for multi-row operations. A busy flag or non-cancellable coroutine is not an atomicity guarantee.
-- **Unidirectional state ownership:** long-lived jobs update their long-lived owner; composables observe immutable outcomes and emit user actions. Do not let application jobs retain obsolete composition-local status/overlay callbacks.
-- **Pure core, explicit I/O:** keep the existing pure scheduling, anchoring, and diff functions. Keep HTTP, persistence, and UI rendering at their named boundaries.
-- **Do not introduce:** factories, event buses, generic use-case classes, service locators, retry frameworks, generic operation managers, multiple repositories wrapping the same DAO, or wholesale MVVM/Clean Architecture scaffolding. A narrowly scoped state holder is justified only where it replaces the demonstrated lifetime/transition coordination.
+- **Explicit transitions:** use the existing sealed/enum approach for mutually exclusive operations and refusal. Independent tabs/drafts remain independent; no state-machine framework.
+- **Immutable facts:** retain the displayed snapshot, original/current anchor and confirmed source separately; never collapse them into an ambiguous version or loaded flag.
+- **Atomic/idempotent commands:** existing Room/PostgreSQL transactions and mutation identities own multi-row correctness. A busy flag or non-cancellable coroutine is not a transaction.
+- **Entry-owned work:** after PR4, loads/progress/operation outcomes belong to the entry's ViewModel, accepted mutations to Sync's existing boundary, and account operations/current-copy publication to Account. Compose observes state and emits actions. Only the current resumed UI consumes navigation/share results; no retained composition callbacks or second event queue. Saveable drafts, minimal restoration inputs and the live WebView keep PR4's specified owners.
+- **Pure core, explicit I/O:** keep scheduling, anchoring and diff logic pure. No factories, event buses, generic use-case classes, service locators, retry frameworks, operation managers or wrappers around the same DAO.
 
-Google's [Compose state-hoisting guidance](https://developer.android.com/develop/ui/compose/state-hoisting) supports keeping state with its actual consumers/owner and exposing state plus events; it does not require moving every small composable into a new architecture layer.
+The [foundations owner table](android-foundations-plan.md#owners-after-this-plan) owns the detailed lifecycle contract. Follow it when implementing steps 4, 6 and 7; do not reintroduce composition-owned jobs, blanket non-cancellable sync, automatic mutation replay or refresh-on-return as a repair for a lost confirmed local commit.
 
 ## 5. Decisions/approvals required before implementation
 
-1. **Old app support:** decided 2026-10-18: drop the legacy read routes. Step 2 already replaced the image contract without backward compatibility, so an older APK is unsupported against the current backend either way.
-2. **Persistence/API changes:** image identity, Room v14, retiring the image contract/cache and the single-serialization DOM refactor were explicitly approved and completed in step 2. The reading-refusal schema/contract in step 4 was approved 2026-10-18.
-3. **Account-deletion interruption:** decided 2026-10-18: keep local data. Only a server acknowledgement of the deletion leads to local cleanup; an interrupted or unknown result does not.
-4. **Legacy unowned data:** decided 2026-10-18: delete nonempty local data with no recorded owner before a session is issued over it.
-5. **Study semantics:** decided 2026-10-18: editing a prompt does not create a new question; a card follows its Canonical line through the server's existing re-anchoring and shows the bank's current prompt. The linked answer section is not part of confirmation: only the bank's Canonical line is confirmed, and the linked section is shown as currently saved. Keeping a bank and its linked notes in step is the author's rule when pushing to GitHub. Whether Review can show an outdated saved copy of the linked note is checked in step 6.
-6. **Refactor scope:** approve the targeted package moves separately from correctness slices. Each move removes its old location/import path; no forwarding wrappers. Where a refactor adds production lines, explain the named requirement or shrink it.
-7. **Style:** choose exact Google Java/Android Kotlin style versus the repository's current Palantir/Kotlinlang variants. The current formatters intentionally do not enforce the requested exact guides. Use one mechanical change after functional fixes, not a manual reformat mixed into them.
+### Previously decided — preserved
+
+1. **Old app support (2026-10-18):** drop the legacy read routes. The replaced image contract already requires a matching app/backend; no backward-compatibility endpoint is restored.
+2. **Persistence/API changes:** image identity, Room v14, image-contract/cache retirement and the single-serialization DOM refactor were explicitly approved and completed in step 2. The reading-refusal schema/contract in step 4 was approved 2026-10-18. These approvals do not cover unspecified later migrations.
+3. **Account-deletion interruption (2026-10-18):** keep local data unless the server confirms deletion. An interrupted/unknown result or 401 is not evidence of deletion.
+4. **Legacy unowned data (2026-10-18):** remove unowned local data before issuing a session over it, only after validating the pending sign-in callback.
+5. **Study semantics (2026-10-18):** editing a prompt does not create a new question; the card follows its Canonical line through existing re-anchoring and shows the bank's current prompt when matched. Only the bank's Canonical line is confirmed. The linked section is supplementary, displayed as saved, and the author keeps bank/linked notes in step. Step 6 verifies stale/missing linked copies in both Practice and Review; it does not introduce authored IDs or reopen this decision.
+
+### Freeze decisions — user responses on 2026-10-19
+
+These D-identifiers are audit decisions, not the foundations plan's D1–D3 confirmation tests.
+
+| Decision | User disposition | Impact, owner and scope |
+| --- | --- | --- |
+| D1 — optional moves/style | **Decided: correctness only; keep current layout and formatters.** | Section 4's prior move program is retired. No exact Google/Android style migration or new style tool. |
+| D2 — unusable legacy page cache | **Approved: narrowly targeted cache retirement.** | Sync/DAO may retire only demonstrated unusable oversized rendered caches and derived artifacts. User-owned annotations/grades/positions/bookmarks/pending work and readable saved pages survive; affected text needs a supported online refetch. Step 4 verifies interruption and second run. |
+| D3 — freeze versus deployment | **Decided: release/hosted checks before freeze.** | Require matching signed release APK and hosted-backend smoke evidence, not Dev/loopback alone. Actual deploy/install, phone settings, account actions and live writes still need specific execution approval; this decision does not perform or authorize them implicitly. |
+| D4 — canonical compatibility scope | **Decided: keep annotations/re-anchoring; narrow renderer-upgrade scope.** | Freeze canonical block/text rules and address only demonstrated shipped incompatibilities, preserving original selections/history and conservative existing reattachment/confirmation behavior. No general renderer-migration/versioning system or removal of the annotation feature. A broader schema/API/migration requirement needs a new concrete approval. |
+| D5 — question uniqueness | **Decided: local/synced-card guarantee, no global cross-device uniqueness promise.** | Existing Sync/DAO command owns local atomicity and matching. Independently authored offline duplicates can remain separate; no automatic deletion or history merging. Revisit only if global uniqueness becomes a requirement. |
+| D6 — whole-library allocation/history | **Accepted for this single-user freeze, subject to measuring actual usage.** | Library retains the unpaged response and 8 MiB wire ceiling; reads/serialization can allocate before refusal. Measure current corpus, response size and observed resource behavior; do not call heap/work bounded by 8 MiB. Revisit as actual size approaches the existing response limit or measured resource failure occurs; no paging or new cap now. |
+| D7 — source provenance | **Accepted: authorized-repository-level provenance.** | NoteVersions/AnnotationService still validate exact blob bytes and selected canonical text in the authorized repository, but do not prove membership in this document's history. Retain the documented limit and no stronger claim. Revisit before requiring document-history provenance; no hidden history walk or new GitHub calls. |
+
+### Execution approvals are not scope decisions
+
+Before running a concrete migration, dependency upgrade, deployment, app update, destructive live mutation or phone-setting change, state its exact changes/data impact and obtain the required approval. Use isolated stores for destructive failure coverage. A newly found advisory needs a current applicability/risk decision; D6/D7 do not waive unrelated security findings. B1 remains owned by foundations PR4: record its actual decision and behavior there before final audit, rather than asking again or assuming approval here.
 
 ## 6. Style, redundancy, and feature-completeness disposition
 
 - `backend/build.gradle.kts:12–15` selects Palantir Java formatting. Java sources use four-space block indentation; numerous tests keep wildcard static imports. That is not exact [Google Java style](https://google.github.io/styleguide/javaguide.html), which specifies two-space blocks, a 100-column limit, and no wildcard imports.
 - `android/build.gradle.kts:10–14` selects Kotlinlang ktfmt with 120 columns. The [Android Kotlin guide](https://developer.android.com/kotlin/style-guide) specifies 100 columns and braces for multiline conditional expressions; existing code contains multiline braceless expressions. Spotless passing proves conformance to the current formatter, not those full guides.
-- Fix correctness and ownership first. Formatter selection, import enforcement, and any build-script/JavaScript formatting coverage belong to a separate, approved mechanical slice. Do not add multiple competing style tools.
+- D1 retains the existing formatters and package layout for this freeze. Their passing checks do not claim exact Google/Android style. A future formatter/import/build-script/JavaScript style change is a separately approved mechanical slice, not unfinished freeze work.
 - No evidence was found of a second current scheduler or a second production Markdown parser. Mirrored wire types, intentionally separate original/current anchors, shipped migrations, and test-only fixtures are not by themselves duplicated implementations.
-- The five legacy read endpoints are a concrete parallel path. The search union/post-deduplication is another concrete competing-representation repair. Remove these at their owners rather than adding wrappers.
+- The five legacy read endpoints and search union/post-deduplication were concrete parallel paths; steps 8 and 5 removed them. Preserve those replacements rather than reopening the old paths.
 - Explicitly deferred scope remains deferred unless approved: fixture demo, two-week real-use gates, editable card questions, notebook/history paging, and offline fetching of never-opened images. Do not silently label the entire product complete because unit tests pass. See [feature-list.md](feature-list.md) for authoritative current status.
 - Keep behavioral tests. Remove old-implementation-only tests only after transferring surviving assertions. The refused-reading test needs a deliberate behavior change, not deletion to obtain green.
 
@@ -384,6 +433,65 @@ At the original audit's completion, no physical-device run, live OAuth/GitHub ru
 ## 8. Completion rule for the cleanup
 
 A slice is complete only when its owner and invariant are explicit, its failure is reproduced or characterized, its regression passes through real wiring, every affected caller is updated, the replaced implementation and old-only tests/docs are removed, and exact verification commands/results are recorded. Fewer files, more patterns, or a green pre-existing suite alone do not satisfy that rule.
+
+### Final-candidate gates
+
+**Current state: not executed for a final candidate; PR4 and remaining remediation are unfinished.** D1–D7 are settled. The records in sections 9–16 and Step 9 verification remain historical slice evidence. They cannot be added together to manufacture a current full-system pass. Record one final result per gate here, referencing the owning artifacts/reports rather than duplicating every historical transcript.
+
+| Gate | Required evidence and pass condition |
+| --- | --- |
+| F1 — candidate identity and scope | Exact committed source revision, PR4 merge revision and tracked acceptance/policy record, generated spec identity, resolved dependency/lockfile identity, app variant/version/signing identity and APK/test-APK/JAR hashes. No unexplained dirty production/generated files or reliance on an unpublished/untracked companion plan for acceptance. Closure items are verified fixes or explicitly accepted limits, not unanswered exclusions. |
+| F2 — combined automated checks | Run backend format/tests and Android format/Lint/JVM tests, packaged reader assets and debug/test APK builds against this candidate. Record compiler/typecheck success, terminal output, exit codes, test totals and every skip. Generated spec/refusal-registry checks run with the backend suite; stale generated output means fix/commit and a new candidate, not an artifact edited around the gate. No format-apply command in a verification-only pass. |
+| F3 — full supported-device suite | Install the matching Dev/test APKs preserving data and run the whole suite exclusively on the supported phone. Success is terminal `OK (n tests)`, with failures/skips accounted for—not adb exit 0 or device-test compilation. Exercise PR4's actual entry owners plus the step 4/6/7 regressions, admission/concurrency, real configured timeouts, cancellation/partial failure, retirement, restoration and second attempts. Isolated stores/loopback fixtures never become claims of live GitHub coverage. |
+| F4 — canonical/study/anchoring corpus | Record source and private corpus revisions, eligible/excluded counts, seeds, exact commands and private report locations. Compare unchanged canonical blocks against the supported baseline and shipped edge-case fixtures; zero unexplained differences or wrong attachments. Explicitly account for D4's demonstrated legacy cases rather than declaring them compatible from source SHA alone. Run RenderedCorpus/StudyCorpus and resolve current anchoring measurement coverage with AnchorMeasurement; ordinary suite skips are not this gate. Run MoveMeasurement if move logic or its canonical inputs changed. Review ambiguous/failure samples without committing private notes. |
+| F5 — privacy/security boundaries | C8 regression/failure-path evidence and C9's current dependency assessment/dispositions. Review actual auth/session/PKCE/callback routing, repository ownership, WebView/resource isolation, backup/export exclusions and release debug/network policy against existing tests/config. No claim of exhaustive security proof, and no advisory downgrade/upgrade or waived finding without its own approval. |
+| F6 — real Dev end-to-end | Approved Dev → real backend → real GitHub check: browse/refresh, content and snapshot-pinned embedded image, navigation/reading-position resume, a changed-version summary, offline read and same-id pending replay, and Practice/Review/Notebook outcomes affected by remediation. Use a specifically approved scratch-only write scope; enumerate pre-existing pending work before any operation that may send it. No revival of the deleted unsafe live-write harness. Capture observable outcomes and request/log counts, not screenshots alone. Destructive failure/interruption cases stay isolated unless separately approved. |
+| F7 — upgrade and recovery | Actual last-shipped Room schema → candidate tests preserve user data/pending work and implement only D2's approved cache retirement. Verify repeat/interrupted startup and all affected saved-page consumers. For backend schema changes, verify expand-only/previous-release compatibility and rehearse restoring a current-schema backup into an isolated empty database, including the documented token-key/sign-in consequence. If no backend schema/recovery-path change occurred, name the applicable prior restore/schema evidence and its scope instead of claiming a fresh exercise. No restore against live data. |
+| F8 — release/hosted pairing, mandatory under D3 | Build/identify the signed release APK and backend JAR; verify signing certificate, backend origin, release manifest/non-debug policy and absence of the debug test host. With specific execution approval, install/update preserving data and deploy/identify the matching hosted backend, record served revision/health and perform release sign-in/App Link, library/content/image/cache smoke checks. Distinguish an existing-session deploy-survival check from a fresh OAuth check. The release APK and deployed backend must implement the matching contract; Dev success alone cannot close this gate. A missing approval/access leaves it unverified, not waived. |
+| F9 — final review and freeze sign-off | Inspect the complete final diff, coupled callers/shared-state/ordering and replaced-code absence, not just green tests. Reconcile ADR/architecture/invariant/module/feature docs with actual ownership and accepted limits; keep product gates distinct. List each remaining test-only/live limitation from feature-list.md with its disposition and actual evidence; no blanket carry-forward of “not verified.” The user confirms the final scope/accepted risks and freeze only after F1–F8 pass. |
+
+All measurements must name what they bound: response size is not heap/work, a statement/socket timeout is not a total request deadline, `NonCancellable` is not crash durability, and mocked authorization is not a second real user's GitHub access. For real-OS termination, hardware/Keystore failure and other non-deterministic cases, state the observed or simulated scope explicitly. Do not manufacture destructive live faults simply to turn an exclusion green; a necessary new acceptance decision reopens the gate before freeze.
+
+### Commands and evidence format
+
+Commands below compose existing README/plan verification tasks; run them only during the approved final audit, not as evidence of this documentation reconciliation. Confirm any additional diagnostic command/flag with `--help` before using it. Signing credentials, private corpus paths, phone serial and live action scope must be supplied/verified, never guessed.
+
+```sh
+# From repository root, with the documented PostgreSQL/Testcontainers and Android prerequisites available.
+DEBUG=false ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :backend:spotlessCheck :backend:test :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks --no-daemon
+
+# Supported phone, exclusive automation access; preserve the installed Dev app's data.
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r android/build/outputs/apk/debug/app-debug.apk
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+~/Library/Android/sdk/platform-tools/adb -s <device-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+
+# Release artifacts; signing setup is owned by android/README.md. Deployment/install needs separate approval.
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :backend:bootJar :app:assembleRelease --no-daemon
+```
+
+Corpus commands and environment variables are owned by [backend Verify](../backend/README.md#verify) and [Android Real-corpus check](../android/README.md#real-corpus-check). Reader restore commands are owned by [reader-web's device check](../android/reader-web/README.md#device-check-reading-position-restore). Release signing/install and hosted health/revision/deploy/backup procedures remain in their module READMEs; do not copy credentials or create a second operational runbook here. Dependency assessment uses the actually selected method from step 11, not an invented scanner task.
+
+For each gate, record **candidate/source and artifact identity; environment; exact command/action; process exit; pasted terminal outcome; test counts/skips; result; evidence scope; remaining accepted limits**. A transport interruption is not a captured terminal success. Record user-reported results as such. Any code fix gets its own reproduction/regression evidence and a new candidate; rerun F2/F3 and every other gate affected by the change. Reuse unaffected evidence only with an explicit source/artifact comparison and reason. Docs-only evidence amendments identify the unchanged executable candidate and do not imply its APK was rebuilt or installed.
+
+### Verification of the 2026-10-19 plan reconciliation
+
+This revision changes documentation only and records the user's D1–D7 responses. Production code, generated models, dependencies, schemas, app data, phone settings and hosting are unchanged by this work. No Gradle/typecheck/device/corpus/advisory/live/release/deployment checks are claimed. Documentation checks and the exact reconciliation commit, if made, are recorded with the final handoff; the user's ongoing PR4 changes and untracked companion plan are not committed incidentally.
+
+Documentation checks, each exit **0**:
+
+```sh
+python3 /tmp/reporead-plan-check-2026-10-19.py
+git diff --check -- docs/audit-remediation-plan.md
+```
+
+```text
+PASS: 12 local Markdown links/anchors; fences/newlines/whitespace.
+PASS: A1-A12/C1-C10 closure rows; D1-D7 decided; F1-F9 gates; retired instructions absent.
+PASS: original audit and implementation verification transcripts unchanged from HEAD.
+NOT RUN: 3 external links, product tests/typecheck, device/corpus/advisory/live/release checks.
+```
+
+The checker is a temporary documentation probe outside the repository, not shipped regression coverage. Its initial predicate falsely treated “pending work” in a decision's impact column as an unanswered decision; checking the disposition column corrected that probe. No product test or evidence assertion was weakened. `git diff --check` produced no output.
 
 ## 9. Step 1 verification — 2026-10-18
 
