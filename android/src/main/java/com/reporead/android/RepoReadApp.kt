@@ -208,7 +208,7 @@ fun RepoReadApp(
                 is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, screen, onBack, push)
                 is Screen.Figure -> FigureScreen(sync, dao, screen, onBack)
                 Screen.Notebook -> NotebookScreen(dao, sync, entry.id, push, onBack)
-                Screen.Review -> ReviewScreen(dao, sync, push, onBack)
+                Screen.Review -> ReviewScreen(dao, sync, entry.id, push, onBack)
                 is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, entry.id, push, onBack)
                 Screen.Search -> SearchScreen(dao, push, onBack)
             }
