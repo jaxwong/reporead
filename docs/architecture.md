@@ -267,6 +267,10 @@ One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), whose back stack 
 
 ### Screens and layers
 
+The reader's summary has fixed inputs for its entry; sign-out cancels only its fetch, while Sync commits a presented
+acknowledgement. Submitted edit/conflict state belongs to the ViewModel, restoring only the submitted id/text and
+reloading the annotation. Unsubmitted overlays remain UI-owned; rejection cannot close their editor (ADR-28).
+
 ```mermaid
 flowchart TB
     Main["MainActivity<br/>receives the sign-in redirect"]

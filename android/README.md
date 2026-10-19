@@ -79,8 +79,10 @@ They need the debug build (RepoRead Dev) installed; the release app is untouched
 Navigation restoration tests pass a real Activity saved-instance-state Bundle through a Parcel into a fresh debug host,
 using the same format policy as `MainActivity`. The historical string-list fixture is constructed from the old saver
 format, not captured from an old APK. `EntryLifetimeTest` probes real Navigation 3 decorators with labelled test-only
-ViewModels; production screen work remains composition-owned until foundations PR 4. [ADR-27](../docs/adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)
-records decisions and executed evidence.
+ViewModels; the production screens' work now belongs to their entry owners (ADR-28). PR4's saved-state format 2
+resets format 1's incompatible Compose-owned session/UI state without changing Room, files or pending mutations.
+[ADR-27](../docs/adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)
+and ADR-28 record decisions and executed evidence.
 
 ### Historical live verification
 

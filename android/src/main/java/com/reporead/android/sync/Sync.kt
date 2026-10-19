@@ -791,7 +791,7 @@ class Sync(
         file
     }
 
-    suspend fun changesSeen(documentId: Long, since: String) = locked { dao.changesSeen(documentId, since) }
+    suspend fun changesSeen(documentId: Long, since: String) = committed { dao.changesSeen(documentId, since) }
 
     suspend fun dismissRefusedReviews() = locked { dao.dismissRefusedReviews() }
 

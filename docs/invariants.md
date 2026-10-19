@@ -193,6 +193,10 @@ These come from the original implementation spec's engineering invariants and th
 - Checks: `AppNavigationTest` (recreation, covering, pop, double taps, restoration and a real read timeout through the real app); `CommittedMutationTest` (each mutation committed after its caller is cancelled, queued writes, retirement); `ReaderViewModelTest`; `PracticeSessionTest`, `ReviewLifecycleTest`, `ReaderLifecycleTest` and `AccountTest` in decorated entries. Execution evidence is recorded in ADR-28.
 - Why: [ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync).
 
+A submitted Practice grade survives its validation reads as well as Sync's write. Reader edit/delete dialogs close
+only after admission; rejected input remains editable. A presented change acknowledgement survives sign-out/pop,
+subject to copy retirement. Restored submitted edits reload their saved annotation and never replay a mutation.
+
 ## Constraints on reader code
 
 These are facts of the platform, not decisions, but breaking them breaks the reader:

@@ -49,6 +49,7 @@ import com.reporead.android.data.RepositoryRow
 import com.reporead.android.reader.testPage
 import com.reporead.android.sync.RENDER_FORMAT
 import com.reporead.android.sync.Sync
+import com.reporead.android.sync.toRow
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -1090,10 +1091,141 @@ class AppNavigationTest {
             }
     }
 
-    /**
-     * T16: a summary of changes fetched while the reader was covered is not yet seen: its baseline stays until the
-     * reader is shown again with it, and it is not fetched again.
-     */
+    @Test
+    fun aBusyReaderKeepsTheNextSubmittedEditInItsEditor() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("PATCH /api/annotations/9")
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(),
+                    highlights,
+                    "PATCH /api/annotations/9" to (200 to wire(testHighlight().copy(note = "First edit", version = 2))),
+                ),
+                hold::hook,
+            )
+            .use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                try {
+                    openNoteAWithItsHighlight(server)
+                    click("Edit note")
+                    type("First edit")
+                    click("Save")
+                    hold.awaitArrived()
+                    click("Edit note")
+                    type("Second edit must stay")
+                    click("Save")
+                    awaitText("Second edit must stay")
+                    awaitText("Cancel")
+                    scenario!!.recreate()
+                    awaitText("Second edit must stay")
+                } finally {
+                    hold.release.countDown()
+                }
+                click("Cancel")
+                assertEquals(1, server.requests.count { it == "PATCH /api/annotations/9" })
+            }
+    }
+
+    @Test
+    fun aRestoredConflictReloadsItsAnnotationAndKeepMineIsAnExplicitSecondAttempt() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val current = testHighlight().copy(note = "Test-only other edit", version = 2)
+        val routes =
+            ConcurrentHashMap(
+                mapOf(
+                    "GET /api/library" to library(),
+                    highlights,
+                    "PATCH /api/annotations/9" to failure(409, "ANNOTATION_CONFLICT"),
+                )
+            )
+        LoopbackServer(routes) { key ->
+                if (key == "PATCH /api/annotations/9" && routes[key]?.first == 409)
+                    routes[highlights.first] = 200 to wire(AnnotationControllerAnnotationList(listOf(current)))
+            }
+            .use { server ->
+                val api = api(server)
+                val account = account(api)
+                launchApp(account, api)
+                openNoteAWithItsHighlight(server)
+                click("Edit note")
+                type("Test-only my edit")
+                click("Save")
+                awaitText("Current note: Test-only other edit")
+                scenario!!.recreate()
+                awaitText("Your edit: Test-only my edit")
+                val saved = saveActivityState(scenario!!)
+                @Suppress("DEPRECATION")
+                fun savedValues(value: Any?): String =
+                    when (value) {
+                        is android.os.Bundle -> value.keySet().joinToString { "$it=${savedValues(value.get(it))}" }
+                        is List<*> -> value.joinToString { savedValues(it) }
+                        is Map<*, *> -> value.entries.joinToString { "${it.key}=${savedValues(it.value)}" }
+                        else -> value.toString()
+                    }
+                assertTrue(
+                    "Submitted edit absent from saved state: ${savedValues(saved)}",
+                    savedValues(saved).contains("Test-only my edit"),
+                )
+                scenario!!.close()
+                scenario = null
+                val newer = current.copy(note = "Test-only newer saved edit", version = 3)
+                dao.saveServerAnnotation(newer.toRow())
+                routes[highlights.first] = 200 to wire(AnnotationControllerAnnotationList(listOf(newer)))
+                TestHostActivity.restoredState = saved
+                launchApp(account, api)
+                awaitText("Current note: Test-only newer saved edit")
+                assertEquals(1, server.requests.count { it == "PATCH /api/annotations/9" })
+                routes["PATCH /api/annotations/9"] = 200 to wire(current.copy(note = "Test-only my edit", version = 4))
+                click("Keep mine")
+                withTimeout(10_000) {
+                    while (dao.annotation(TEST_HIGHLIGHT_MUTATION)?.note != "Test-only my edit") delay(20)
+                }
+                assertEquals(2, server.requests.count { it == "PATCH /api/annotations/9" })
+            }
+    }
+
+    @Test
+    fun aSubmittedReaderDraftRestoresWithoutReplayingItsMutation() = runBlocking {
+        sessions.save("TEST_ONLY_SESSION")
+        val hold = Held("PATCH /api/annotations/9")
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(),
+                    highlights,
+                    "PATCH /api/annotations/9" to failure(503, "TEST_ONLY_DOWN"),
+                ),
+                hold::hook,
+            )
+            .use { server ->
+                val api = api(server)
+                val account = account(api)
+                launchApp(account, api)
+                val saved =
+                    try {
+                        openNoteAWithItsHighlight(server)
+                        click("Edit note")
+                        type("Test-only interrupted draft")
+                        click("Save")
+                        hold.awaitArrived()
+                        saveActivityState(scenario!!).also {
+                            scenario!!.close()
+                            scenario = null
+                        }
+                    } finally {
+                        hold.release.countDown()
+                    }
+                TestHostActivity.restoredState = saved
+                launchApp(account, api)
+                awaitText("Your edit: Test-only interrupted draft")
+                click("Keep current")
+                awaitText("Note A")
+                assertNothingMoreSent(server, server.requests.toList())
+                assertEquals(1, server.requests.count { it == "PATCH /api/annotations/9" })
+            }
+    }
+
+    /** A fetched summary is acknowledged only by the resumed reader. */
     @Test
     fun aChangeSummaryFetchedWhileCoveredIsAcknowledgedOnlyOnceShown() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")

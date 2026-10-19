@@ -82,14 +82,11 @@ internal sealed interface ReaderOverlay : Serializable {
     /** A new note is being written for [passage]. */
     data class Note(val passage: Passage) : ReaderOverlay
 
-    /** Keeps the annotation snapshot being edited across recreation. */
-    data class EditNote(val row: AnnotationRow) : ReaderOverlay
+    /** An unsubmitted editor; [initial] also recovers a submitted edit that failed. */
+    data class EditNote(val row: AnnotationRow, val initial: String = row.note.orEmpty()) : ReaderOverlay
 
     /** Keeps the exact annotation whose deletion is awaiting confirmation. */
     data class Delete(val row: AnnotationRow) : ReaderOverlay
-
-    /** An edit the server refused because another edit landed first: the user picks which text to keep. */
-    data class Conflict(val current: AnnotationRow, val mine: String?) : ReaderOverlay
 
     /** A tapped link to one note and its heading, previewed before opening. */
     data class Preview(val target: DocumentRow, val heading: String?) : ReaderOverlay
@@ -104,6 +101,12 @@ internal sealed interface ReaderOverlay : Serializable {
 /** What a reader entry keeps for process restoration. */
 private const val SINCE = "since"
 private const val REATTACHING = "reattaching"
+private const val EDIT = "edit"
+
+/** Only the user's submitted input is restored; the annotation is read again, and no mutation is replayed. */
+private data class SubmittedEdit(val mutationId: String, val text: String?) : Serializable
+
+internal data class ReaderConflict(val current: AnnotationRow, val mine: String?)
 
 /**
  * One reader entry's work ([entryId]), kept across rotation and while it is covered: the opened page, the summary of
@@ -131,9 +134,10 @@ internal class ReaderViewModel(
         val message: String? = null,
         /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach. */
         val reattaching: AnnotationRow? = null,
-        /** A server change to a highlight runs; one at a time. */
+        /** A highlight operation runs; one at a time. */
         val changing: Boolean = false,
-        /** An overlay an operation opens (a conflict, a followed link), taken once by the screen ([claimOverlay]). */
+        val conflict: ReaderConflict? = null,
+        /** A followed link or recovered editor, taken once by the screen ([claimOverlay]). */
         val overlay: ReaderOverlay? = null,
     )
 
@@ -143,13 +147,32 @@ internal class ReaderViewModel(
 
     /** The sign-in state the screen last showed; null before it was first shown. */
     private var signedIn: Boolean? = null
-    /** The (since, displayed) versions the summary was loaded for, and the ones the screen has shown. */
-    private var compared: Pair<String, String>? = null
-    private var acknowledged: Pair<String, String>? = null
-    private var comparing: Job? = null
+    private var summaryFetch: Job? = null
+    private var changesAcknowledged = false
 
     init {
         open("created")
+        saved.get<SubmittedEdit>(EDIT)?.let { draft ->
+            Log.i("RepoRead", "Reader edit restored; entry=$entryId mutationId=${draft.mutationId}")
+            current.update { it.copy(changing = true) }
+            viewModelScope.launch {
+                val row = dao.annotation(draft.mutationId)
+                if (row == null || row.note == draft.text) saved[EDIT] = null
+                current.update {
+                    it.copy(
+                        changing = false,
+                        conflict = row?.takeIf { it.note != draft.text }?.let { ReaderConflict(it, draft.text) },
+                        message =
+                            when {
+                                row == null -> "The edited highlight is no longer on this phone."
+                                row.note == draft.text -> "The previous edit is saved on this phone."
+                                else ->
+                                    "The previous edit was interrupted. Check the saved note before submitting again."
+                            },
+                    )
+                }
+            }
+        }
     }
 
     private fun open(reason: String) {
@@ -168,7 +191,7 @@ internal class ReaderViewModel(
                     Load.Failed(error)
                 }
             current.update { it.copy(page = page) }
-            compare(retry = false)
+            loadChanges()
         }
     }
 
@@ -185,7 +208,12 @@ internal class ReaderViewModel(
         val was = this.signedIn
         this.signedIn = signedIn
         if (signedIn && was != true) refreshHighlights(if (was == null) "created" else "signedIn")
-        if (signedIn != was) compare(retry = false)
+        if (signedIn) loadChanges()
+        else {
+            summaryFetch?.cancel()
+            summaryFetch = null
+            current.update { it.copy(changes = null) }
+        }
     }
 
     private fun refreshHighlights(reason: String) {
@@ -200,31 +228,17 @@ internal class ReaderViewModel(
     }
 
     /**
-     * Loads the summary once per (since, displayed) pair while signed in; a newer pair supersedes a load still running.
-     * Reading the same version again needs no summary, so its baseline is cleared at once.
+     * The baseline and displayed page are fixed for this entry. Load once when both are ready and signed in; failures
+     * wait for an explicit retry. Only the fetch is cancelled on sign-out, never a presentation write.
      */
-    private fun compare(retry: Boolean) {
+    private fun loadChanges() {
         val now = current.value
         val from = now.since
         val displayed = (now.page as? Load.Ready)?.value?.opened?.note?.blobSha
-        if (from == null || displayed == null || signedIn != true) {
-            comparing?.cancel()
-            compared = null
-            current.update { it.copy(changes = null) }
-            return
-        }
-        val versions = from to displayed
-        if (versions == compared && !retry) return
-        compared = versions
-        comparing?.cancel()
-        if (from == displayed) {
-            current.update { it.copy(changes = null) }
-            comparing = viewModelScope.launch { sync.changesSeen(documentId, from) }
-            return
-        }
-        Log.i("RepoRead", "Reader changes load started; entry=$entryId documentId=$documentId retry=$retry")
+        if (from == null || displayed == null || from == displayed || signedIn != true || now.changes != null) return
+        Log.i("RepoRead", "Reader changes load started; entry=$entryId documentId=$documentId")
         current.update { it.copy(changes = Load.Loading) }
-        comparing = viewModelScope.launch {
+        summaryFetch = viewModelScope.launch {
             val changes =
                 try {
                     Load.Ready(sync.changes(documentId, from, displayed))
@@ -235,17 +249,23 @@ internal class ReaderViewModel(
         }
     }
 
-    fun retryChanges() = compare(retry = true)
+    fun retryChanges() {
+        val now = current.value
+        if (now.changes !is Load.Failed || !current.compareAndSet(now, now.copy(changes = null))) return
+        loadChanges()
+    }
 
     /**
      * The summary is on the screen: only now is its baseline cleared, so one fetched while the reader was covered is
      * still shown at the next opening if it never was. Offline or failing, the baseline stays for the next opening too.
      */
     fun changesShown() {
-        val versions = compared ?: return
-        if (current.value.changes !is Load.Ready || versions == acknowledged) return
-        acknowledged = versions
-        viewModelScope.launch { sync.changesSeen(documentId, versions.first) }
+        val now = current.value
+        val from = now.since ?: return
+        val displayed = (now.page as? Load.Ready)?.value?.opened?.note?.blobSha ?: return
+        if (changesAcknowledged || (from != displayed && now.changes !is Load.Ready)) return
+        changesAcknowledged = true
+        viewModelScope.launch { sync.changesSeen(documentId, from) }
     }
 
     fun showMessage(text: String?) = current.update { it.copy(message = text) }
@@ -254,7 +274,12 @@ internal class ReaderViewModel(
     fun claimOverlay(): ReaderOverlay? {
         val now = current.value
         val overlay = now.overlay ?: return null
-        return if (current.compareAndSet(now, now.copy(overlay = null))) overlay else null
+        if (!current.compareAndSet(now, now.copy(overlay = null))) return null
+        if (overlay is ReaderOverlay.EditNote) {
+            Log.i("RepoRead", "Reader edit returned to editor; entry=$entryId mutationId=${overlay.row.mutationId}")
+            saved[EDIT] = null
+        }
+        return overlay
     }
 
     /**
@@ -295,17 +320,24 @@ internal class ReaderViewModel(
     fun stopReattaching() = placing(null)
 
     /** Starts one server change to a highlight ([what]); another while it runs starts nothing. */
-    private fun change(what: String, row: AnnotationRow, work: suspend () -> String?) {
+    private fun change(what: String, row: AnnotationRow, work: suspend () -> String?): Boolean {
         val now = current.value
-        if (now.changing || !current.compareAndSet(now, now.copy(changing = true))) {
+        if (
+            now.changing ||
+                now.conflict != null ||
+                now.overlay is ReaderOverlay.EditNote ||
+                !current.compareAndSet(now, now.copy(changing = true, message = null))
+        ) {
             Log.i("RepoRead", "Reader $what not started; entry=$entryId mutationId=${row.mutationId} changing=true")
-            return
+            showMessage("Finish the current highlight change before submitting another.")
+            return false
         }
         Log.i("RepoRead", "Reader $what started; entry=$entryId mutationId=${row.mutationId}")
         viewModelScope.launch {
             val message = work()
             current.update { it.copy(changing = false, message = message) }
         }
+        return true
     }
 
     /** Online: the server verifies the new selection against the version it was made on. */
@@ -324,23 +356,50 @@ internal class ReaderViewModel(
     // Editing and deleting acknowledged highlights need the server; offline they fail visibly and change nothing.
     fun editNote(row: AnnotationRow, note: String?, expectedVersion: Int) =
         change("edit", row) {
+            saved[EDIT] = SubmittedEdit(row.mutationId, note)
+            Log.i("RepoRead", "Reader edit input retained; entry=$entryId mutationId=${row.mutationId}")
             try {
                 sync.editAnnotation(row, note, expectedVersion)
+                Log.i("RepoRead", "Reader edit committed; entry=$entryId mutationId=${row.mutationId}")
+                saved[EDIT] = null
                 null
             } catch (error: ApiException) {
-                if (error.code != "ANNOTATION_CONFLICT") "Edit not saved. ${error.describe()}"
-                else
+                Log.i(
+                    "RepoRead",
+                    "Reader edit not committed; entry=$entryId mutationId=${row.mutationId} code=${error.code}",
+                )
+                if (error.code != "ANNOTATION_CONFLICT") {
+                    current.update { it.copy(overlay = ReaderOverlay.EditNote(row, note.orEmpty())) }
+                    "Edit not saved. ${error.describe()}"
+                } else
                     try {
                         sync.refreshAnnotations(row.documentId)
-                        dao.annotation(row.mutationId)?.let {
-                            current.update { state -> state.copy(overlay = ReaderOverlay.Conflict(it, note)) }
+                        val latest = dao.annotation(row.mutationId)
+                        if (latest == null) {
+                            saved[EDIT] = null
+                            "This highlight was deleted elsewhere."
+                        } else {
+                            current.update { it.copy(conflict = ReaderConflict(latest, note)) }
                             null
-                        } ?: "This highlight was deleted elsewhere."
+                        }
                     } catch (refresh: ApiException) {
+                        current.update { it.copy(overlay = ReaderOverlay.EditNote(row, note.orEmpty())) }
                         "This note was changed elsewhere, and the latest version could not be loaded. ${refresh.describe()}"
                     }
             }
         }
+
+    fun dismissConflict() {
+        Log.i("RepoRead", "Reader conflict dismissed; entry=$entryId conflict=${current.value.conflict != null}")
+        saved[EDIT] = null
+        current.update { it.copy(conflict = null) }
+    }
+
+    fun keepMine() {
+        val conflict = current.value.conflict ?: return
+        current.update { it.copy(conflict = null) }
+        editNote(conflict.current, conflict.mine, conflict.current.version)
+    }
 
     fun delete(row: AnnotationRow) =
         change("delete", row) {
@@ -415,7 +474,9 @@ fun ReaderScreen(
     var notesOpen by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var overlay by rememberSaveable(screen.documentId) { mutableStateOf<ReaderOverlay?>(null) }
     // An overlay an operation opened becomes the screen's own, the one value ADR-25 keeps.
-    LaunchedEffect(state.overlay) { model.claimOverlay()?.let { overlay = it } }
+    LaunchedEffect(state.overlay, overlay) {
+        if (overlay == null) model.claimOverlay()?.let { overlay = it }
+    }
     val scope = rememberCoroutineScope()
 
     /** Closes [shown] if it is still open; false when a tap already closed it, so it acts only once. */
@@ -559,13 +620,12 @@ fun ReaderScreen(
                 lifecycle.addObserver(observer)
                 onDispose { lifecycle.removeObserver(observer) }
             }
+            if (signedIn && since != null && (since == opened.note.blobSha || state.changes is Load.Ready))
+                LifecycleResumeEffect(Unit) {
+                    model.changesShown()
+                    onPauseOrDispose {}
+                }
             state.changes?.let { comparison ->
-                // Shown, not merely fetched: only then is the baseline cleared.
-                if (comparison is Load.Ready)
-                    LifecycleResumeEffect(comparison) {
-                        model.changesShown()
-                        onPauseOrDispose {}
-                    }
                 ChangesPanel(
                     comparison,
                     changesExpanded,
@@ -675,28 +735,30 @@ fun ReaderScreen(
             NoteDialog(
                 title = "Edit note",
                 quote = shown.row.exactText,
-                initial = shown.row.note ?: "",
+                initial = shown.initial,
+                status = state.message,
                 onDismiss = { overlay = null },
                 onSave = { text ->
-                    if (close(shown)) model.editNote(shown.row, text.ifBlank { null }, shown.row.version)
+                    if (overlay == shown && model.editNote(shown.row, text.ifBlank { null }, shown.row.version))
+                        close(shown)
                 },
             )
         is ReaderOverlay.Delete ->
             DeleteDialog(
                 shown.row,
                 onDismiss = { overlay = null },
-                onConfirm = { if (close(shown)) model.delete(shown.row) },
-            )
-        is ReaderOverlay.Conflict ->
-            ConflictDialog(
-                shown.current,
-                shown.mine,
-                onDismiss = { overlay = null },
-                onKeepMine = {
-                    if (close(shown)) model.editNote(shown.current, shown.mine, shown.current.version)
-                },
+                onConfirm = { if (overlay == shown && model.delete(shown.row)) close(shown) },
             )
     }
+    if (overlay == null)
+        state.conflict?.let { conflict ->
+            ConflictDialog(
+                conflict.current,
+                conflict.mine,
+                onDismiss = model::dismissConflict,
+                onKeepMine = model::keepMine,
+            )
+        }
 }
 
 /**

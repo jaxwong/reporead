@@ -187,6 +187,11 @@ Navigation 3 owns the back stack and each entry's saved state/ViewModel store; c
 
 Each screen that starts work keeps it in its back-stack entry's ViewModel: a rotation or a covering screen no longer cancels or repeats a refresh, preview, connect, export, grade, card confirmation or highlight change, or loses what it reported; a mutation the server confirmed, or a local write accepted, is committed even if its screen is left, and only the screen shown navigates or shares, once ([ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync)). Library and the folder root still sync on return (B1 not approved). This is PR 4 of the Android foundations plan; the ADR records the evidence and what remains unverified.
 
+PR4's audit follow-up protects Practice's pre-write validation, retains rejected/submitted reader drafts, and separates
+summary-fetch cancellation from committed acknowledgement. Format 2 explicitly resets incompatible pre-PR4 UI state;
+Room and pending changes stay. Audit steps 4 (baseline ordering) and 6 (matching and transactional first grade) remain
+separate, as approved; this follow-up does not claim either complete. ADR-28 records the regression evidence.
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
