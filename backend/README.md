@@ -173,12 +173,12 @@ Meters appear after their first use. They are in memory and reset when the serve
 | Note source | 1 MiB UTF-8, 4,096 blocks, 16 diagrams of 20,000 UTF-16 units | 422 `UNSUPPORTED_CONTENT` |
 | Saved page | 1 MiB UTF-8 across HTML, canonical search text, path, title, blob SHA and image snapshot SHA (`MarkdownRenderer.MAX_PAGE_BYTES`); HTML serialization stops at this ceiling rather than building an oversized string | 422 `UNSUPPORTED_CONTENT`; no partial content sent |
 | Mermaid edges | 200 per diagram, passed to the reader as `data-max-edges` | Enforced by Mermaid on the phone: that diagram shows as an error with its source; the note itself renders (200) |
-| Heading paths | Each heading in a block's path at most 500 UTF-16 units; a longer heading (for example a long paragraph directly followed by `---`) is cut and ends in `…`. The heading's own block text is not cut | None: rendered pages always fit the reading-state limit below |
+| Heading paths | Each heading in a block's path at most 500 UTF-16 units; a longer heading (for example a long paragraph directly followed by `---`) is cut and ends in `…`. The heading's own block text is not cut | None: presentation only; reading anchors have no heading-length limit |
 | Repository images | 64 per note; 5 MiB each | Extra images render as `[Image limit reached]`; larger images 422 `UNSUPPORTED_CONTENT` |
 | Annotation | selection, note, and card question at most 10,000 UTF-16 units each; one block per selection; a selection, note or question with NUL or an unpaired surrogate (a selection that splits a character), which PostgreSQL cannot store exactly | 400 `INVALID_ANNOTATION` |
 | Review | grades 0–5; client UUID; millisecond timestamp from 1970 through 5 minutes ahead | 400 `INVALID_REVIEW`; changed answers 409 `CARD_CHANGED` |
 | Review session | 40 cards, reported as `sessionLimit` in the notebook; the phone has no limit of its own and starts no session without it | Applied where sessions are built, on the phone, because scheduling runs there so review works offline (ADR-13). Grades are not refused for it: refusing a grade can only discard a review already done |
-| Reading state | 6 headings of 500 chars, 200-char text prefix, block index 0–4095, `lastReadAt` from 1970 to at most 5 minutes ahead | 400 `INVALID_READING_STATE` |
+| Reading state | Blob SHA, progress 0–100, timestamp and a typed anchor; anchor text has no NUL or unpaired surrogate. No anchor-size limit beyond the request body; `lastReadAt` is clamped to [1970, server now] | 400 `INVALID_REQUEST` for malformed input; 404 for a note not owned by the user |
 
 Clients cannot change these ceilings. The saved-page ceiling was checked against real Room reads on the Pixel 8a, Android 14: complete string payloads of 1 MiB and 2 MiB minus 4 KiB read successfully; 2 MiB failed with `SQLiteBlobTooBigException`. The 1 MiB ceiling leaves space for row overhead, and even sixfold JSON escaping stays below the app's existing 8 MiB content-response limit. Other limits remain chosen ceilings, not measured ones. The renderer still parses the bounded source into a DOM; the output ceiling is not a claim that total render heap usage is 1 MiB.
 
@@ -200,7 +200,7 @@ The renderer turns `[[note]]`, `[[note|alias]]`, `[[note#Heading]]` (block refer
 
 ### Reading state and bookmarks
 
-Only the reader writes reading state, recording the blob SHA actually displayed; repository refreshes never change it. A write older than or equal to the stored `lastReadAt` is ignored and the current state is returned, so replaying a stale offline save cannot overwrite newer progress. Deleting a document upstream keeps its reading state and bookmarks. Bookmarks live in the `annotations` table as type `BOOKMARK` (one per user and document).
+Only the reader writes reading state, recording the blob SHA actually displayed; repository refreshes never change it. The controller clamps `lastReadAt` into [1970, server now] before last-write-wins storage. A write older than or equal to the stored time is ignored and the current state is returned, so replaying a stale offline save cannot overwrite newer progress. Anchor strings are stored exactly, with no heading-count/length, prefix-length or block-index bounds beyond their types and the request-body limit; NUL and unpaired surrogates are malformed, not sanitized. Each save makes zero GitHub calls. Deleting a document upstream keeps its reading state and bookmarks. Bookmarks live in the `annotations` table as type `BOOKMARK` (one per user and document).
 
 ### Annotations
 
