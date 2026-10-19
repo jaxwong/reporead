@@ -162,9 +162,44 @@ Merged as [#80](https://github.com/jaxwong/reporead/pull/80): prompt edits keep 
 
 ## Audit PR5 — Closure check (2026-10-19)
 
-Initial closure checks passed: main CI/hosted health at `b6e3c82`, local backend/Android gates, Pixel `OK (171 tests)`, approved Dev real-account smoke and release 0.1.390 update; evidence is in git history (`44c71f7`). The user explicitly retained the plan for Section 5. Review corrections passed local gates (292 backend / 82 JVM tests, no failures), the full Pixel suite (171 tests) and final focused regressions (82 tests). Exact commands and outputs stay in git history; these corrections have not been pushed, deployed, installed as release, or smoke-tested against the real account.
+Initial closure checks passed: main CI/hosted health at `b6e3c82`, local backend/Android gates, Pixel `OK (171 tests)`, approved Dev real-account smoke and release 0.1.390 update; evidence is in git history (`44c71f7`). The user explicitly retained the plan for Section 5. Review corrections passed local gates (292 backend / 82 JVM tests, no failures), the full Pixel suite (171 tests) and final focused regressions (82 tests). Exact commands and outputs stay in git history. The user confirmed PR5 merged and pending deployment on 2026-10-19; no subsequent deployment, release install or real-account smoke test is claimed here.
 
 **Coverage limits:** npm audit reported two low-severity KaTeX/Mermaid findings (accepted, no upgrade); Dependabot alerts remain disabled at the user's request. The version inventory (Boot 4.1.1 / Security 7.1.1, AGP 9.1.1, Compose BOM 2026.08.00, Navigation 3 1.2.0) and bounded manual Spring-advisory check are not a transitive-graph scan. The live clock-rollback completion counter and other real-system gaps remain listed above/below. Canonical/anchoring opt-in measurements were not rerun because these rules did not change.
+
+## Mechanical moves — Local verification (2026-10-20)
+
+Implemented locally on `mechanical-moves`, code commit `92ee00f`: Compose load UI moves to `ui/`; Practice, Review, recognition, answer views, scheduling and session progression move to `study/`; folder helpers move to `library/Folder.kt`. Their callers and JVM/device tests follow, without aliases or duplicate implementations. Production Kotlin is net **+3 lines**, solely the imports needed across the new package boundaries; all 38 production file bodies were compared before/after, allowing only the three helper relocations and the approved saved-state format change. All existing test bodies/assertions are preserved, with the two folder tests moved to `FolderTest`.
+
+**Compatibility:** the user approved saved-UI-state format 4 because a serialized session names its old package (ADR-27). Navigation, drafts and in-progress sessions reset once; Room, saved pages/images, the stored sign-in session and pending work are not cleared. The format-3 rejection test was run before the bump and failed (`Tests run: 1, Failures: 1`); after the bump it ended with `OK (1 test)`.
+
+Executed Gradle gates (exit **0**):
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:mergeDebugAssets :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+# BUILD SUCCESSFUL in 29s
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:mergeDebugAssets --rerun-tasks --no-daemon
+# BUILD SUCCESSFUL in 1m 5s; 51 actionable tasks: 51 executed
+```
+
+The fresh JVM report contains **82 tests, 0 failures, 0 errors, 1 skipped** (the opt-in private-corpus harness). Lint has no errors or warnings, only seven informational dependency/target hints; the installed SDK XML-version notice remains unchanged. Reader JavaScript syntax checks and packaging also ran again. The compiled runtime JAR contains all 26 relocated top-level types/file facades under their new owners, with no former types, nested/lambda classes or Compose singletons left behind. Backend, dependencies, schema history and workflows are unchanged.
+
+The debug APKs were installed with the Android README's data-preserving `install -r` / `install -r -t` commands; no release install or live-account operation was performed. The first full `am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` run ended with **`Tests run: 172, Failures: 1`**: `AppNavigationTest.anUnansweredDisconnectKeepsTheCopyUntilTheUserTriesAgain` timed out after 60 seconds. ADB exited **0**, which is not a passing test result. All moved study suites and the new format regression passed in that run. An isolated rerun of that disconnect test passed without code changes (`OK (1 test)`, 49.364 s); the original timeout's cause is not established. No timeout, assertion or production behavior was changed to hide the failure.
+
+The second full run passed without code changes (exit **0**). `ANDROID_SERIAL` selected the user-provided phone; its address is intentionally omitted here. Command and terminal output:
+
+```sh
+~/Library/Android/sdk/platform-tools/adb shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+Time: 243.049
+
+OK (172 tests)
+```
+
+`git diff --check` also exited **0** with no output. Device coverage uses the existing isolated Room/loopback fixtures, not the live account; no production stub was introduced.
+
+**Limits:** backend tests and opt-in private-corpus measurements were not rerun because their code/rules did not change. Actual `MainActivity` restoration across a release update remains unverified; format tests use a constructed marker, not captured old-APK state. Images in Save all and the remaining Section 5 work stay deferred. Ignored local `notes/` files are outside this change. No push or deployment was performed.
 
 ## Not yet verified on the real system
 

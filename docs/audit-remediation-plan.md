@@ -1,6 +1,6 @@
 # Codebase audit and remediation plan
 
-Audited **2026-10-18**. The foundations and earlier audit steps are closed; their evidence is in merged PRs #62–#66 and #69–#73 and this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). Audit PRs 1–4 are merged (#75, #76, #78, #80); PR5's executed checks and remaining known limits are in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19). **Retain this file after PR5**, as the user explicitly requested on 2026-10-19: Section 5 still owns images in Save all, the mechanical moves and other post-audit work. Grade-write ownership was pulled forward during PR5 review; the other Section 5 items remain deferred.
+Audited **2026-10-18**. The foundations and earlier audit steps are closed; their evidence is in merged PRs #62–#66 and #69–#73 and this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). Audit PRs 1–4 are merged (#75, #76, #78, #80); the user confirmed PR5 merged and pending deployment on 2026-10-19. PR5's executed checks and remaining known limits are in [feature status](feature-list.md#audit-pr5--closure-check-2026-10-19). **Retain this file after PR5**, as the user explicitly requested on 2026-10-19: Section 5 still owns images in Save all, the mechanical moves and other post-audit work. Grade-write ownership was pulled forward during PR5 review; the mechanical moves are implemented locally below, and the other Section 5 items remain deferred.
 
 [Invariants](invariants.md), [ADRs](adrs.md), [architecture](architecture.md) and [feature status](feature-list.md) keep their owners; this plan links to them and does not restate them. ADR-27 and ADR-28 own the Android foundations; the uncommitted `docs/android-foundations-plan.md` is superseded by them and is deleted, not committed.
 
@@ -32,7 +32,7 @@ Do not re-ask these. Each is recorded in, or is moved into, the owning ADR by th
 | Account deletion interrupted (2026-10-18) | Keep local data unless the server confirmed. A 401 is not confirmation. Implemented (#66). |
 | Unowned local data (2026-10-18) | Removed before a session is issued over it, after validating the callback. Implemented (#66). |
 | Question identity (decision 5, 2026-10-18; D5, 2026-10-19) | Editing a prompt is not a new question; the card follows its Canonical line and shows the bank's current prompt. Only the Canonical line is confirmed; the linked section is supplementary. Uniqueness is local to this phone's cards; cross-device duplicates may remain separate. |
-| D1 — moves and formatters | Correctness only before the freeze; current packages and formatters stay. The moves are listed in section 5 as the first work after the freeze, not retired. |
+| D1 — moves and formatters | Correctness only before the freeze; packages and formatters stayed then. Post-PR5 mechanical moves are implemented locally in Section 5; the formatters remain unchanged. |
 | D2 — unusable legacy page cache | Retire only rows demonstrated unreadable (2 MiB on the Pixel 8a). Annotations, grades, positions, bookmarks and pending work survive. |
 | D3 — freeze versus deployment | Release app and hosted backend are checked before the freeze. Deploy and install need their own go-ahead. |
 | D4 — canonical compatibility | Canonical block/text rules are frozen; annotations and re-anchoring stay. Presentation upgrades must not change them. No renderer-migration system. |
@@ -153,19 +153,21 @@ Production is net **+48 lines** after its review follow-up, not a refactor-only 
 
 ## 5. Reducing the app's complexity
 
-Except for the grade-write ownership correction pulled forward below, everything here comes after PR 5. The rule: a feature or layer is deleted when real use shows it unused or when a simpler mechanism gives the same result; it goes with its rows, routes, tests and docs in one PR. Files move only in PRs that move files. New features are built only where the reading or study loop is actually broken.
+Except for the grade-write ownership correction pulled forward below, everything here comes after PR 5. The user approved the mechanical moves on local branch `mechanical-moves` while PR5 deployment is pending. The rule: a feature or layer is deleted when real use shows it unused or when a simpler mechanism gives the same result; it goes with its rows, routes, tests and docs in one PR. Files move only in PRs that move files. New features are built only where the reading or study loop is actually broken.
 
 ### Build: images in Save all
 
 The one functional gap worth a slot. An embedded image is unavailable offline until its note is opened online once (feature-list, known gaps). Save all already fetches each outdated note sequentially; it fetches that note's images through the existing `NoteImages` owner in the same pass, bounded by the existing 64 references per page. No new mechanism, no new table.
 
-### Mechanical moves: one PR, no behaviour change (D1 lifted)
+### Mechanical moves: local implementation (D1 lifted)
 
-One PR, moves only, verified by format check, compile and the existing suites:
+One local change, with no study/network behaviour changes:
 
-1. `core/network/Load.kt` is Compose UI; move to `ui/`. Two importers after the deletions: `Reader.kt`, `Available.kt`.
-2. Practice, Review, `ReviewSchedule`, `StudySession`, `reader/Study.kt` and `reader/Answer.kt` into a `study/` package. `library/` then means library browsing again.
-3. `interleaveByNote`, `practiceTopics` and `inPracticeFolder` leave `Practice.kt` for the file that owns their concern (`StudySession.kt`; `Folder.kt`).
+1. `Load.kt` now belongs to `ui/`; `Reader.kt` and `Available.kt` import it there, leaving no Compose code in `core/network`.
+2. Practice, Review, `ReviewSchedule`, `StudySession`, recognition (`Study.kt`) and answer views (`Answer.kt`) now belong to `study/`, with their JVM/device test suites. `library/` means library browsing again. Every caller imports the new owner; no aliases or old implementations remain.
+3. `interleaveByNote` now belongs to `study/StudySession.kt`; `practiceTopics` and `inPracticeFolder` belong to `library/Folder.kt`, with their folder assertions moved to `FolderTest`.
+
+**Approved compatibility exception (2026-10-19):** moving the Serializable `StudySession` changes its saved class name. The user approved advancing saved-UI-state format 3 → 4 rather than retaining the former class. Navigation, drafts and in-progress sessions reset once; Room, saved notes, images and pending mutations remain untouched (ADR-27). This is not a database migration. Verification and limits are recorded in [feature status](feature-list.md#mechanical-moves--local-verification-2026-10-20); this work is not pushed or deployed.
 
 ### Next deletion to decide by use
 
