@@ -263,7 +263,7 @@ Concurrency: syncs, reconnects (whose upsert locks the row), disconnects and eve
 
 ## 4. Android app
 
-One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), whose back stack Navigation 3 owns: `Entry(id, screen)` keys saved with the activity and across process death, each entry keeping saved UI state and a ViewModel store while in the stack. Activity state restores only when its saved format marker is compatible, independently of build number (ADR-27). No DI framework; background work runs only in WorkManager: the background sync of local changes (ADR-08) and Save all (ADR-19).
+One Activity (`MainActivity`) hosting Compose (`RepoReadApp`), whose back stack Navigation 3 owns: `Entry(id, screen)` keys saved with the activity and across process death, each entry keeping saved UI state and a ViewModel store while in the stack. Activity state restores only when its saved format marker is compatible, independently of build number (ADR-27). Each screen that starts work has one ViewModel in its entry, which owns its loads, operations and outcomes; screens draw its state and call its actions (ADR-28). No DI framework; background work runs only in WorkManager: the background sync of local changes (ADR-08) and Save all (ADR-19).
 
 ### Screens and layers
 
@@ -286,6 +286,9 @@ flowchart TB
     end
     App --> Screens
 
+    Models["Their entries' ViewModels (ADR-28)<br/>Library · Folder · Available · Notebook · Practice · Review · Reader"]
+    Screens -- "state ↑ · actions ↓" --> Models
+
     subgraph Core["Shared code"]
         Sync["sync/Sync<br/>owns every server call<br/>whose answer reaches Room"]
         Store["data/LocalStore<br/>Room database + DAOs"]
@@ -303,8 +306,9 @@ flowchart TB
         Page --> WebV
     end
 
-    Screens --> Sync
-    Screens --> Store
+    Models --> Sync
+    Models --> Store
+    Screens -- "Room flows" --> Store
     Practice --> StudyK
     Practice --> Sched
     Review --> Sched
@@ -314,7 +318,7 @@ flowchart TB
     Figure --> Page
     Sync --> Api
     App -- "sign-in, sign-out" --> Api
-    Available -- "list, connect" --> Api
+    Models -- "Add repository's list" --> Api
     Sync --> Store
     Api --> Session
     Page -- "images" --> Images
@@ -328,9 +332,9 @@ flowchart TB
 | `auth` | PKCE sign-in through a Custom Tab and the code exchange; the encrypted bearer session, deleted only when it can never be read; the data's owner and the pending removal of the phone's copy (`SessionStore`) |
 | `core/network` | `Api`: the only executor of backend paths, with one named function per app-used route, exact success statuses, bounded responses and request/response correspondence; `wire/`: the wire models, generated at build time from `backend/openapi.json` (never committed or edited); `WireRules.kt`: the value rules a generated shape cannot state; `WireJson.kt`: one decoding policy, strict scalar/time serializers and `INVALID_RESPONSE` with its cause. Unknown fields are compatible, missing required-nullable keys are not. `ApiException(status, code)` carries a strictly decoded server error or a local HTTP/I/O failure; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `data` | `LocalStore`: the Room database and its migrations; `Rows.kt`: its tables and query results; `LibraryDao.kt`: its queries (schema history in `android/schemas/`) |
-| `sync` | `Sync`: refreshes, opening notes, pending and local changes, annotation/card mutations, disconnect, exports and startup sweeps for one local-copy lifetime. Account retires it and its `NoteImages` before clearing (`clearRetiredCopy`, returning `LocalCleanup`); its existing lock serializes all local mutations, server answers and export publication. Late operations cancel permanently; only successful cleanup publishes a fresh instance. Images retain their separate blocking file lock and deletion generation. DAO note-existence predicates cover disconnection, not lifetime authority. `ServerRows.kt` maps already validated wire records into local rows before acknowledgement or a replacement transaction; `Sync.refusesItem()` alone decides permanent item refusal from known status/code pairs; `BackgroundSync.kt`: the WorkManager jobs, the sync after each local change and Save all, each entering through `Account`, and what the folder screens read of Save all. Repository-level Stop awaits cancellation there; Account removal awaits cancellation and pruning before a fresh copy can be published. WorkManager database failures use the existing removal/Retry outcome, not another cleanup path. Account calls Api for sign-in, sign-out and deletion; **Add repository** still calls Api directly and its lists are later loaded through Sync |
-| `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), both moved by `StudySession.kt`, the folder screen (`Folder.kt`), and Add repository (`Available.kt`) |
-| `reader` | The reader screen, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
+| `sync` | `Sync`: refreshes, opening notes, pending and local changes, annotation/card mutations, disconnect, exports and startup sweeps for one local-copy lifetime. Account retires it and its `NoteImages` before clearing (`clearRetiredCopy`, returning `LocalCleanup`); its existing lock serializes all local mutations, server answers and export publication. Late operations cancel permanently; only successful cleanup publishes a fresh instance. Images retain their separate blocking file lock and deletion generation. DAO note-existence predicates cover disconnection, not lifetime authority. `ServerRows.kt` maps already validated wire records into local rows before acknowledgement or a replacement transaction; `Sync.refusesItem()` alone decides permanent item refusal from known status/code pairs; `BackgroundSync.kt`: the WorkManager jobs, the sync after each local change and Save all, each entering through `Account`, and what the folder screens read of Save all. Repository-level Stop awaits cancellation there; Account removal awaits cancellation and pruning before a fresh copy can be published. WorkManager database failures use the existing removal/Retry outcome, not another cleanup path. `Sync.committed` keeps a screen's mutations, from waiting for the lock to their local commit, from being cancelled by their screen (ADR-28). Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through `Sync.connect` |
+| `library` | Library tabs, Notebook with its Markdown export (`Notebook.kt`), Practice sessions (`Practice.kt`), Review sessions (`Review.kt`) with the review scheduler (`ReviewSchedule.kt`), both moved by `StudySession.kt`, the folder screen (`Folder.kt`), and Add repository (`Available.kt`); each screen's ViewModel is in its file (ADR-28) |
+| `reader` | The reader screen and its ViewModel, page hosting and isolation, outline, notes sheet, backlinks, link resolution and previews, changes since last read, study view, answer views, full-screen figures |
 | `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
 

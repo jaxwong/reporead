@@ -181,14 +181,18 @@ The live Dev check used an existing scratch note and the real Mac backend/GitHub
 
 ## Navigation 3 (2026-10-19)
 
-Navigation 3 owns the back stack and each entry's saved state/ViewModel store; compatible-format Activity state survives ordinary build updates ([ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)). Every fresh local copy starts a fresh root, including ownerless sign-in cleanup. This is PR 3 of the Android foundations plan; production screen work remains composition-owned until PR 4. The ADR records test scope and execution evidence.
+Navigation 3 owns the back stack and each entry's saved state/ViewModel store; compatible-format Activity state survives ordinary build updates ([ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)). Every fresh local copy starts a fresh root, including ownerless sign-in cleanup. This is PR 3 of the Android foundations plan. The ADR records test scope and execution evidence.
+
+## Screen work in its entry (2026-10-19)
+
+Each screen that starts work keeps it in its back-stack entry's ViewModel: a rotation or a covering screen no longer cancels or repeats a refresh, preview, connect, export, grade, card confirmation or highlight change, or loses what it reported; a mutation the server confirmed, or a local write accepted, is committed even if its screen is left, and only the screen shown navigates or shares, once ([ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync)). Library and the folder root still sync on return (B1 not approved). This is PR 4 of the Android foundations plan; the ADR records the evidence and what remains unverified.
 
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
 
 - The format reset in the live `MainActivity` across an app update (ADR-27): Android 14 discarded state before the earlier update could exercise it. Isolated tests use the debug Activity boundary; `MainActivity` wiring is reviewed only. Deep account gates and cleanup are tested with loopback data, never by deleting the live phone copy.
-- Connecting a repository and landing on its folder above the Library (ADR-27): covered only by its parts, the return to the Library that a disconnect test checks and an ordinary push; no device test drives Add repository.
+- Connecting a repository and landing on its folder above the Library against live GitHub (ADR-27, ADR-28): a device test drives Add repository against a loopback server only.
 - A branch rewind or a missing old blob against live GitHub (`SINCE_UNAVAILABLE`), and a too-large comparison.
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.
 - Airplane mode itself: it ends wireless debugging, so offline checks removed `adb reverse` instead.
