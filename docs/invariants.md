@@ -119,14 +119,14 @@ These come from the original implementation spec's engineering invariants and th
 
 - Enforced by: the content boundary captures document/checkpoint and image paths together, binds embeds once, and returns `snapshotCommitSha`; `NoteRow` and shared reader resources preserve it; image requests require that commit, and `NoteImages` uses one commit-keyed layout. An unknown legacy identity means unavailable images, never a latest-snapshot fallback.
 - Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `LocalSyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest` and `NavigationTest` (image-only refresh, repeat reads, cache/deletion interleavings, preserved legacy data and saved navigation).
-- Why: [Images contract](../backend/README.md#images), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
+- Why: [Images contract](../backend/README.md#images), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone).
 
 ### The user's data leaves only when the user sends it
 
-**Notes and annotations are not backed up off the phone, transferred, logged, or kept in live data after the user removes them; the server's database backups keep their copies until replaced.**
+**Notes and annotations are not backed up off the phone, transferred or logged. Ending a session keeps the phone's notes; account deletion clears the live server, not the phone. Server backups keep their copies until replaced.**
 
-- Enforced by: Android backup and device transfer excluded; logs carry no content; disconnect and account deletion remove everything stored for them in the live database and on the phone, and their dialogs say that existing backups keep a copy until replaced (retention in backend/README.md, Backups); a sign-out, or an account deletion the server confirmed, stays pending on disk until Room's rows and every file are gone, and only then forgets the data's owner; Account permanently retires the old Sync/image lifetime before clearing and publishes a new one only after successful cleanup; local writes and server answers share that lifetime's lock, so no stale caller can recreate rows or files, including after same-account re-sign-in; worker and activity share Account startup before sending; a sign-in over unowned data requires a pending verifier before cleanup; saved images are derived from Room's saved snapshots, cache reads share the deletion lock, and a fetch that began before a deletion does not write.
-- Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone-and-belongs-to-one-account).
+- Enforced by: Android backup/device transfer excluded; logs carry no content; disconnect removes its server and local copies; account deletion removes server data and explicitly clears the session only on confirmation (a 401 can independently end it). Sign-out attempts one revocation and clears only the session. Dialogs distinguish these effects and name existing backup copies (retention in backend/README.md). One process-lifetime Sync keeps local writes ordered independently of sessions. Image sweeps derive retained files from Room; cached reads share the deletion lock and an older fetch cannot write after a deletion.
+- Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone).
 
 ## Failure behaviour
 
@@ -140,8 +140,8 @@ These come from the original implementation spec's engineering invariants and th
 
 **A complete, valid, request-matching response is required before acknowledging a mutation. Only a known item-refusal status/code pair authorizes its permanent rejection.**
 
-- Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence (generated from `backend/openapi.json`), the value rules (`WireRules.kt`) and echoed identity checks; `SignIn` owns the recorded account match, and `Sync` owns a review's local card match. `Sync.refusesItem()` owns the positive refusal decision. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
-- Checked by: `OpenApiSpecTest` (the committed spec is the backend's, and its mapper's actual output conforms), `ContractTest`, `ItemRefusalsTest` with `RefusalTest`, `ApiTest`, `LocalSyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot authorize local removal.
+- Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence (generated from `backend/openapi.json`), the value rules (`WireRules.kt`) and echoed identity checks; `Sync` owns a review's local card match. `Sync.refusesItem()` owns the positive refusal decision. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
+- Checked by: `OpenApiSpecTest` (the committed spec is the backend's, and its mapper's actual output conforms), `ContractTest`, `ItemRefusalsTest` with `RefusalTest`, `ApiTest`, `LocalSyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot report success or explicitly clear the session (a 401 may independently end it).
 - Why: [ADR-26](adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
 
 ### Server-owned limits and no fallback
@@ -179,18 +179,18 @@ These come from the original implementation spec's engineering invariants and th
 
 ### Saved screen state belongs to its entry and its format
 
-**A back-stack entry's saved UI state and ViewModel store are its own from push to pop; compatible saved state survives ordinary build updates, and a new local copy starts a fresh root.**
+**A back-stack entry's saved UI state and ViewModel store are its own from push to pop; compatible saved state survives ordinary build updates; account operations retain it.**
 
-- Enforced by: Navigation 3's saved-state and ViewModel-store decorators above the account gate, keyed by each `Entry`'s id; the back stack's `Account.sync` input; `compatibleSavedState` at the Activity boundary.
-- Checks: `AppNavigationTest` drives real screens/account gates, fresh-copy resets and Activity restoration; `NavigationTest` checks every destination and format acceptance; `EntryLifetimeTest` probes real decorated Navigation 3 owners, including cover/rotation/pop/removal and fresh-Activity restoration. The debug host uses the production format policy at its Activity boundary. `MainActivity` wiring itself remains checked by review; tests do not launch the live app's store. Execution status is recorded in ADR-27.
+- Enforced by: Navigation 3's saved-state and ViewModel-store decorators above the account gate, keyed by each `Entry`'s id; `compatibleSavedState` at the Activity boundary.
+- Checks: `AppNavigationTest` drives real screens/account gates, session changes without resets and Activity restoration; `NavigationTest` checks every destination and format acceptance; `EntryLifetimeTest` probes real decorated Navigation 3 owners, including cover/rotation/pop/removal and fresh-Activity restoration. The debug host uses the production format policy at its Activity boundary. `MainActivity` wiring itself remains checked by review; tests do not launch the live app's store. Execution status is recorded in ADR-27.
 - Why: Compose keeps saved state by place, so incompatible formats must be rejected without discarding compatible state at every update; [ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format).
 
 ### A screen's work belongs to its entry; a confirmed change belongs to Sync
 
-**Rotation or covering neither cancels nor repeats a screen's work, and leaving a screen never abandons a change the server confirmed or a local write it accepted. Only the resumed current entry navigates, once; a removed local copy refuses late work.**
+**Rotation or covering neither cancels nor repeats a screen's work, and leaving a screen never abandons a change the server confirmed or a local write it accepted. Only the resumed current entry navigates, once; disconnect predicates refuse writes for notes no longer listed.**
 
-- Enforced by: one ViewModel per screen that starts work, owning its loads, operations (admitted synchronously, one per exclusion group) and outcomes; `isChangingConfigurations` telling a return from a rotation; results claimed once by the resumed screen; `Sync.committed` for the screens' mutations, under the lock that retirement closes.
-- Checks: `AppNavigationTest` (recreation, covering, pop, double taps, restoration and a real read timeout through the real app); `CommittedMutationTest` (each mutation committed after its caller is cancelled, queued writes, retirement); `ReaderViewModelTest`; `PracticeSessionTest`, `ReviewLifecycleTest`, `ReaderLifecycleTest` and `AccountTest` in decorated entries. Execution evidence is recorded in ADR-28.
+- Enforced by: one ViewModel per screen that starts work, owning its loads, operations (admitted synchronously, one per exclusion group) and outcomes; `isChangingConfigurations` telling a return from a rotation; results claimed once by the resumed screen; `Sync.committed` for the screens' mutations, under the process's one Sync lock.
+- Checks: `AppNavigationTest` (recreation, covering, pop, double taps, restoration and a real read timeout through the real app); `CommittedMutationTest` (each mutation committed after its caller is cancelled, queued writes); `ReaderViewModelTest`; `PracticeSessionTest`, `ReviewLifecycleTest`, `ReaderLifecycleTest` and `AccountTest` in decorated entries. Execution evidence is recorded in ADR-28.
 - Why: [ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync).
 
 A submitted Practice grade survives its validation reads as well as Sync's write. Reader edit/delete dialogs close

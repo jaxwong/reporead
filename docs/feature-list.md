@@ -127,16 +127,15 @@ Noticed and deliberately not changed:
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
 - A reading position the server refuses (for example, with the phone's clock more than 5 minutes ahead) stays pending, counted as waiting, until a newer one replaces it: reading rows have no refusal mark, unlike highlights and grades. Fixing it is a Room migration.
 - A bank question is matched to its card by bank, prompt and answer line, so renaming its heading or editing its Canonical line makes it a new question; grading it then starts a second card on the same answer.
-- A sign-out cut short, or an account deletion cut short after the server confirmed it, is finished at the next start without saying which it was. A deletion cut short before its answer keeps the phone's copy, and the next start says nothing about it; deleting again shows whether the account still exists (a 401 if it is gone).
-- An operation on a retired local copy is cancelled, including after signing back into the same account; a change for a disconnected note in a still-active copy saves nothing. Neither resurrects removed phone data.
+- Unsent changes made before switching GitHub accounts can be sent under the new account. Accepted for one user with one account on this phone; revisit before a second account is used (ADR-22).
 - Saved pages predating the server's complete-page limit are not rewritten or deleted automatically. New content is limited to 1 MiB of UTF-8 across HTML, search text and metadata; complete 2 MiB string payloads were reproduced as unreadable in Room on the Pixel 8a, Android 14. Cache/page-format evolution is tracked in the [remediation plan](audit-remediation-plan.md#step-4--complete-saved-page-and-reading-state-transitions-a4-a6).
 
 The ADRs record further limits: anchors (ADR-05), the unbumped page format (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
 
 ## Save all background-work audit — 2026-10-18
 
-The current behavior and ownership are in ADR-19 and ADR-22: removal awaits WorkManager cancellation and pruning,
-the repository menu can stop waiting or running work, and persisted failure display text fits WorkManager's bound.
+Historical verification before audit PR2 (the removal lifecycle below is retired). Current behavior is in ADR-19 and ADR-22: account operations keep saved data and background work; repository Stop remains, and persisted failure text fits WorkManager's bound.
+
 No dependency, schema, alternate fetching path or resume checkpoint was added.
 
 Verified from the PR worktree:
@@ -180,7 +179,7 @@ The live Dev check used an existing scratch note and the real Mac backend/GitHub
 
 ## Navigation 3 (2026-10-19)
 
-Navigation 3 owns the back stack and each entry's saved state/ViewModel store; compatible-format Activity state survives ordinary build updates ([ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)). Every fresh local copy starts a fresh root, including ownerless sign-in cleanup. This is PR 3 of the Android foundations plan. The ADR records test scope and execution evidence.
+Navigation 3 owns the back stack and each entry's saved state/ViewModel store; compatible-format Activity state survives ordinary build updates ([ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)). Audit PR2 removes the local-copy reset; ending or replacing a session keeps the stack and entry state. This is PR 3 of the Android foundations plan. The ADR records test scope and execution evidence.
 
 ## Screen work in its entry (2026-10-19)
 
@@ -195,11 +194,15 @@ Question matching and transactional first grade remain PR4 of the audit plan. AD
 
 Implemented in `8685dec`: section summaries, full-screen figures and Notebook export retired; saved data and both Library change lists retained; verification is in [PR #75](https://github.com/jaxwong/reporead/pull/75).
 
+## Audit PR2 — Sessions keep the phone's notes (2026-10-19)
+
+Sign-out and confirmed account deletion end only the session; every outcome preserves pages, images and user-owned pending work. `Account` no longer knows about Sync or the local store; the application owns one Sync per process. Retired-copy/owner/removal/Retry paths and the `expectedUserId`/`ACCOUNT_MISMATCH` contract are removed. Sign-in and account operations retain navigation. The accepted account-switch limit is under Known gaps. Verified locally: backend format/tests (280 tests, 3 opt-in skips), Android format/Lint/JVM tests (78 tests, 1 opt-in skip), reader bundle, both assemblies and device-test compilation passed. The Pixel 8a full isolated suite passed twice, most recently `OK (153 tests)` in 228.362 s. Exact commands and terminal results are in the implementation PR. No release install, deployment or live GitHub smoke run is claimed.
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
 
-- The format reset in the live `MainActivity` across an app update (ADR-27): Android 14 discarded state before the earlier update could exercise it. Isolated tests use the debug Activity boundary; `MainActivity` wiring is reviewed only. Deep account gates and cleanup are tested with loopback data, never by deleting the live phone copy.
+- The format reset in the live `MainActivity` across an app update (ADR-27): Android 14 discarded state before the earlier update could exercise it. Isolated tests use the debug Activity boundary; `MainActivity` wiring is reviewed only. Account gates and local-data preservation are tested with loopback data, never by deleting the live phone copy.
 - Connecting a repository and landing on its folder above the Library against live GitHub (ADR-27, ADR-28): a device test drives Add repository against a loopback server only.
 - A second real GitHub user being refused this repository; truncated discovery against live GitHub.
 - Airplane mode itself: it ends wireless debugging, so offline checks removed `adb reverse` instead.
@@ -209,8 +212,8 @@ Covered by automated tests only, or not at all:
 - Practice and Review UI with real grades and the Practice tab's due badge. The scratch-only live contract check confirmed a card and submitted a real grade through Sync; that is not verification of the full sessions or their UI.
 - Re-measuring anchoring after the 2026-10-09 look-alike fix (ADR-06).
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
-- Account operations survive screen recreation in the application scope. `AccountTest` now exercises the real root removal gate and its text across Activity recreation; deletion interruption is tested through the isolated operation owner, not an actual OS process kill.
-- The pending removal and startup sweep: `AccountTest` drives Account/SessionStore/Api/Sync/Room through loopback, including duplicate taps, unreadable session, refused/401/unreachable/interrupted deletion, persisted removal at worker startup, SQLite write refusal and Retry, undeletable files, unsolicited callbacks, notice recreation/refresh, old work after same-account re-sign-in. The real root screen gates removal across Activity recreation. Together with Sync, migration and reader tests the full device suite passed `OK (109 tests)` on the Pixel 8a, Android 14 (2026-10-18). The SQLite failure is an actual `query_only` write refusal, not a full-disk measurement; OS process death remains simulated through fresh owners over persisted preferences.
+- Account operations survive screen recreation in the application scope. Their network/failure paths use isolated loopback fixtures, not live account deletion; an actual OS process kill during an account operation remains unverified.
+- Audit PR2 retires pending-removal, Retry, ownerless-sign-in and retired-copy tests with those paths. Normal startup/disconnect image sweep coverage remains in `LocalSyncTest`; account preservation and retained navigation are checked with isolated data. No live phone copy is deleted.
 - Reading the stored session (2026-10-18, ADR-22): unit tests cover the stored-text checks, which Keystore exceptions delete it, and an unreadable one failing the request unsent; reading Keystore's transient and system-error marks from the exception is untested, since JVM tests cannot build a `KeyStoreException`; the exceptions were read in Android's sources, not provoked: the device suite passes with this change (79 of 79 on the phone, 2026-10-18), but none of its tests makes the Keystore fail.
 - A deploy that fails on the VM: the deploy and backup scripts were installed there on 2026-10-17 and the deploy dump ran there, but a failing deploy was only checked in a container with stubbed services.
 - The reading-position restore check (`android/reader-web/check-restore.mjs`) since it became a round trip through the reader's own `restore` and `position` (2026-10-17): not yet run on the phone's WebView. On 2026-10-18 it ran in headless Chrome 155 at 412×915 on three server-rendered notes from zw_obsidian (127, 582 and 422 blocks, with tables, lists, code and an emoji): exit 0, no `wrong` or `approximate` block, `sameRow` only for table cells. With the page's `position()` deliberately broken on every tenth block it exited 1 and named exactly those blocks.
