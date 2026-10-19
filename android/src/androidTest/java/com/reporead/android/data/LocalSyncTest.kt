@@ -19,8 +19,8 @@ import com.reporead.android.core.network.testLibrary
 import com.reporead.android.core.network.testRepository
 import com.reporead.android.core.network.testReview
 import com.reporead.android.core.network.wire
+import com.reporead.android.core.network.wireJson
 import com.reporead.android.sync.RENDER_FORMAT
-import com.reporead.android.sync.RefusedChange
 import com.reporead.android.sync.SavingNotes
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.backgroundSync
@@ -31,6 +31,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
+import java.time.Instant
 import java.util.Collections
 import java.util.UUID
 import kotlin.concurrent.thread
@@ -131,40 +132,143 @@ class LocalSyncTest {
     private fun closedPort() = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
 
     @Test
-    fun aRefusedReadingPositionStaysOnThePhoneWithoutStoppingTheRestOfTheSync() = runBlocking {
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Long heading note", sha)))
-        dao.saveReading(reading(1))
+    fun aFormatThreeCurrentPageIsFetchedOnlyOnceOnline() = runBlocking {
+        assertEquals(4, RENDER_FORMAT)
+        savedRepository()
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
+        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, "saved", 3, sha))
+        LoopbackServer(mapOf("GET /api/documents/1/content" to content(1))).use { server ->
+            val sync = sync(server.url)
+            val first = sync.openNote(1)
+            assertEquals(4, first.note.renderFormat)
+            assertNull(first.staleReason)
+            assertEquals(first, sync.openNote(1))
+            assertEquals(listOf("GET /api/documents/1/content"), server.requests)
+        }
+    }
+
+    @Test
+    fun aCurrentPageInAnOlderFormatOpensOfflineWithoutAWarning() = runBlocking {
+        savedRepository()
+        val old = NoteRow(1, sha, "a.md", "a", "<main>kept</main>", 0, "kept", 3, sha)
+        dao.saveNote(old)
+        val opened = sync("http://127.0.0.1:${closedPort()}").openNote(1)
+        assertEquals(old, opened.note)
+        assertNull(opened.staleReason)
+        assertEquals(old, dao.note(1))
+    }
+
+    @Test
+    fun anOversizedNewVersionKeepsShowingTheSavedPageWithItsReason() = runBlocking {
+        savedRepository()
+        val old = NoteRow(1, "b".repeat(40), "a.md", "a", "<main>kept</main>", 0, "kept", 3, sha)
+        dao.saveNote(old)
+        LoopbackServer(mapOf("GET /api/documents/1/content" to failure(422, "UNSUPPORTED_CONTENT"))).use { server ->
+            val opened = sync(server.url).openNote(1)
+            assertEquals(old, opened.note)
+            assertEquals("UNSUPPORTED_CONTENT", opened.staleReason?.code)
+            assertEquals(old, dao.note(1))
+            assertEquals(listOf("GET /api/documents/1/content"), server.requests)
+        }
+    }
+
+    @Test
+    fun aMalformedReadingSaveFailsLoudlyWithoutSendingUnrelatedWork() = runBlocking {
+        val pending = reading(1)
+        dao.saveReading(pending)
         dao.saveBookmark(BookmarkRow(2, bookmarked = true, pending = true, changedAt = 5))
+        LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to failure(400, "INVALID_REQUEST"))).use { server ->
+            val error = runCatching { sync(server.url).syncWaitingChanges() }.exceptionOrNull()
+            assertTrue("Expected a loud 400, got $error", error is ApiException && error.status == 400)
+            assertEquals(pending, dao.reading(1))
+            assertEquals(1, dao.pendingBookmarks().size)
+            assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
+        }
+    }
+
+    @Test
+    fun aPositionOverTheOldLimitsIsSentOnceAndAcknowledgedWhileOtherWorkProceeds() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Long heading note", sha)))
+        val now = System.currentTimeMillis()
+        val anchor =
+            """{"headingPath":[${List(7) { "\"${"h".repeat(501)}\"" }.joinToString(",")}],"textPrefix":"${"p".repeat(201)}","blockIndex":4096}"""
+        dao.saveReading(reading(1).copy(lastReadAt = now + 600_000, anchorJson = anchor))
+        dao.saveBookmark(BookmarkRow(2, bookmarked = true, pending = true, changedAt = 5))
+        val accepted =
+            JSONObject(serverReading)
+                .put("lastReadAt", Instant.ofEpochMilli(now).toString())
+                .put("anchor", JSONObject(anchor))
+                .toString()
         LoopbackServer(
-                emptyLibrary +
-                    mapOf(
-                        "PUT /api/documents/1/reading-state" to failure(400, "INVALID_READING_STATE"),
-                        "PUT /api/documents/2/bookmark" to
-                            (200 to """{"documentId":2,"createdAt":"1970-01-01T00:00:00Z"}"""),
-                    )
+                mapOf(
+                    "PUT /api/documents/1/reading-state" to (200 to accepted),
+                    "PUT /api/documents/2/bookmark" to
+                        (200 to """{"documentId":2,"createdAt":"1970-01-01T00:00:00Z"}"""),
+                )
             )
             .use { server ->
-                val result = sync(server.url).syncLocalChanges()
-                assertEquals(1, result.refused.size)
-                val refused = result.refused.single()
-                assertEquals(1L, refused.documentId)
-                assertEquals("Long heading note", refused.title)
-                assertEquals(RefusedChange.Kind.READING, refused.kind)
-                assertEquals(400, refused.error.status)
-                assertEquals("INVALID_READING_STATE", refused.error.code)
+                val sync = sync(server.url)
+                val result = sync.syncWaitingChanges()!!
+                assertTrue(result.refused.isEmpty())
                 assertNull(result.notSent)
-                // The bookmark and the complete lists were still synced after the refusal.
+                assertFalse(dao.reading(1)!!.pending)
+                assertEquals(now, dao.reading(1)!!.lastReadAt)
+                assertEquals(
+                    wireJson.parseToJsonElement(anchor),
+                    wireJson.parseToJsonElement(dao.reading(1)!!.anchorJson),
+                )
+                assertNull(sync.syncWaitingChanges())
                 assertEquals(
                     listOf(
                         "PUT /api/documents/1/reading-state",
                         "PUT /api/documents/2/bookmark",
-                        "GET /api/library",
                     ),
                     server.requests,
                 )
-                // The refused position is kept, pending, rather than replaced by the server's list that lacks it.
-                assertTrue(dao.reading(1)!!.pending)
             }
+    }
+
+    @Test
+    fun aReadingPositionNoLongerOwnedIsAcknowledgedAndDoesNotStopBookmarks() = runBlocking {
+        dao.saveReading(reading(1))
+        dao.saveBookmark(BookmarkRow(2, bookmarked = true, pending = true, changedAt = 5))
+        LoopbackServer(
+                mapOf(
+                    "PUT /api/documents/1/reading-state" to failure(404, "NOT_FOUND"),
+                    "PUT /api/documents/2/bookmark" to
+                        (200 to """{"documentId":2,"createdAt":"1970-01-01T00:00:00Z"}"""),
+                )
+            )
+            .use { server ->
+                val sync = sync(server.url)
+                assertTrue(sync.syncWaitingChanges()!!.refused.isEmpty())
+                assertTrue(dao.pendingReading().isEmpty())
+                assertTrue(dao.pendingBookmarks().isEmpty())
+                assertNull(sync.syncWaitingChanges())
+                assertEquals(
+                    listOf("PUT /api/documents/1/reading-state", "PUT /api/documents/2/bookmark"),
+                    server.requests,
+                )
+            }
+    }
+
+    @Test
+    fun aRefusedBookmarkIsUndoneAndReportedWithItsDocumentAndReason() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "Bookmarked note", sha)))
+        dao.saveBookmark(BookmarkRow(1, bookmarked = true, pending = true, changedAt = 5))
+        LoopbackServer(mapOf("PUT /api/documents/1/bookmark" to failure(404, "NOT_FOUND"))).use { server ->
+            val sync = sync(server.url)
+            val result = sync.syncWaitingChanges()!!
+            val refused = result.refused.single()
+            assertEquals(1L, refused.documentId)
+            assertEquals("Bookmarked note", refused.title)
+            assertEquals(404, refused.error.status)
+            assertEquals("NOT_FOUND", refused.error.code)
+            assertNull(result.notSent)
+            assertNull(dao.bookmark(1).first())
+            assertNull(sync.syncWaitingChanges())
+            assertEquals(listOf("PUT /api/documents/1/bookmark"), server.requests)
+        }
     }
 
     @Test
@@ -509,6 +613,9 @@ class LocalSyncTest {
                     ),
                     server.requests,
                 )
+                assertEquals(Sync.SavedAll(0, 4, 0), sync(server.url).saveAllNotes(7) { _, _ -> })
+                assertEquals(2, server.requests.count { it == "GET /api/library" })
+                assertEquals(3, server.requests.count { it.endsWith("/content") })
             }
     }
 

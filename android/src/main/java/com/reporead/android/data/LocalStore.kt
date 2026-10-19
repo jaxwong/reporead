@@ -83,6 +83,15 @@ val ANNOTATION_STATE_10_11 =
 /** v15: change summaries were retired; no user-owned row is removed. */
 @DeleteTable(tableName = "change_baselines") class DropChangeBaselines : AutoMigrationSpec
 
+/** v16: retire pages proven too large for the Pixel's 2 MiB CursorWindow, without loading them into one. */
+class RetireUnreadablePages : AutoMigrationSpec {
+    override fun onPostMigrate(db: SupportSQLiteDatabase) {
+        db.execSQL("delete from notes where length(html) + coalesce(length(searchText), 0) >= 2097152")
+        // Room enables foreign keys after migration, so the page deletion cannot cascade here.
+        db.execSQL("delete from note_links where documentId not in (select documentId from notes)")
+    }
+}
+
 @Database(
     entities =
         [
@@ -96,7 +105,7 @@ val ANNOTATION_STATE_10_11 =
             ReviewRow::class,
             ReviewLimitRow::class,
         ],
-    version = 15,
+    version = 16,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -112,6 +121,7 @@ val ANNOTATION_STATE_10_11 =
             AutoMigration(from = 12, to = 13, spec = DocumentsOwnNoteFacts::class),
             AutoMigration(from = 13, to = 14),
             AutoMigration(from = 14, to = 15, spec = DropChangeBaselines::class),
+            AutoMigration(from = 15, to = 16, spec = RetireUnreadablePages::class),
         ],
 )
 abstract class LocalStore : RoomDatabase() {

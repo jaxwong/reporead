@@ -75,12 +75,7 @@ private fun seenChanged(note: ChangedNote) =
 /** Renders a refused-operation snapshot; no UI sentence is carried by the synchronization result. */
 internal fun RefusedChange.describe(): String {
     val note = title?.let { "“$it”" } ?: "a note no longer in your lists"
-    val subject =
-        when (kind) {
-            RefusedChange.Kind.READING -> "Your place in $note"
-            RefusedChange.Kind.BOOKMARK -> "The bookmark on $note"
-        }
-    return "$subject (${error.describe()})"
+    return "The bookmark on $note (${error.describe()})"
 }
 
 /** Owns the library's tab labels and icons, not synchronization state. */
