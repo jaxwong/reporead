@@ -137,12 +137,7 @@ public class RepositorySync {
             return applied;
         });
         for (var move : moves) {
-            LOG.info(
-                    "Document moved; connectionId={} documentId={} from={} to={}",
-                    connectionId,
-                    move.documentId(),
-                    move.fromPath(),
-                    move.toPath());
+            LOG.info("Document moved; connectionId={} documentId={}", connectionId, move.documentId());
         }
         LOG.info(
                 "Repository synced; userId={} connectionId={} commitSha={} documents={} moves={}",
@@ -200,9 +195,8 @@ public class RepositorySync {
         } catch (ApiFailure failure) {
             if (!NoteVersions.versionUnavailable(failure)) throw failure;
             LOG.info(
-                    "Content move candidate skipped; connectionId={} path={} blobSha={} code={}",
+                    "Content move candidate skipped; connectionId={} blobSha={} code={}",
                     connection.id(),
-                    path,
                     blobSha,
                     failure.code);
             return Optional.empty();
