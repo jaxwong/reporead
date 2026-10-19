@@ -74,7 +74,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Replaying a client mutation id never creates a second annotation or grade.**
 
-- Enforced by: `annotation_mutations` and `review_log` are keyed by user and client UUID; a replay returns the original, reuse with different content is 409 `MUTATION_ID_REUSED`, and a replay after deletion is 410.
+- Enforced by: `annotation_mutations` and `review_log` are keyed by user and client UUID; a replay returns the original, reuse with different content is 409 `MUTATION_ID_REUSED`, and an annotation replay after deletion is 410. Review timestamps are clamped to [1970, server now]; V15 retains the original client timestamp for replay comparison (pre-V15 rows use their unchanged stored time).
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling).
 
 ### No silent overwrite
@@ -88,9 +88,9 @@ These come from the original implementation spec's engineering invariants and th
 
 **A new Practice card and its first grade appear together or neither does; a restored or concurrent submission cannot create another pair for the same bank and Canonical line on this phone.**
 
-- Enforced by: grade-range, unchanged-bank and existing-card validation inside `Sync.gradeNewCard` under `committed` and its one lock; `LibraryDao.saveCardWithFirstReview` owns the Room transaction. An insert failure propagates with both rows rolled back; there is no card-only fallback and no external call.
-- Shared rule owners: `Rows.kt` owns schedule eligibility (`reviewable`), the scheduled document/Canonical-line keys (`scheduledLines`, used by Practice and Sync), and the stored-grade range beside `ReviewRow`. Every phone-side grade validation uses that range; no Sync, Room or wire-validation import points back into `library`.
-- Checks: `PracticeMutationTest` forces a real SQLite grade-insert failure, concurrent submissions, a restored prompt edit, invalid grades and changed/missing banks; `PracticeSessionTest` drives grades, double taps and leaving a queued grade through the real screen; `CommittedMutationTest` checks cancellation at Sync's boundary.
+- Enforced by: unchanged-bank and existing-card admission inside `LibraryDao.saveCardWithFirstReview`'s Room transaction, under `Sync.committed`. Review admission likewise belongs to `LibraryDao.recordReview`'s transaction. An insert failure propagates with both rows rolled back; there is no card-only fallback and no external call.
+- Shared rule owners: `Rows.kt` owns schedule eligibility (`reviewable`) and document/drawn-Canonical-line keys (`scheduledLines`, used by Practice and the DAO). `LibraryDao.saveReview` is the single phone-side grade-range boundary; invalid server snapshots roll back and become `INVALID_RESPONSE`. No Sync, Room or wire-validation import points back into `library`.
+- Checks: `PracticeMutationTest` forces a real SQLite grade-insert failure, concurrent submissions, a restored prompt edit and changed/missing banks; `LocalStoreTest` covers direct transactional admission, the full grade scale and invalid-grade rollback; `PracticeSessionTest` drives grades, double taps and leaving a queued grade through the real screen; `CommittedMutationTest` checks cancellation at Sync's boundary.
 - Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer). Cross-device duplicates are not deduplicated.
 
 ### An outdated answer is never drilled

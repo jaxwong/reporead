@@ -2,7 +2,6 @@ package com.reporead.android.library
 
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.NotebookItem
-import com.reporead.android.data.REVIEW_GRADE_RANGE
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.data.reviewable
 import java.time.Instant
@@ -33,7 +32,6 @@ internal const val GRADE_MEANING =
  */
 internal fun nextStep(step: Int?, grade: Int): Int =
     when {
-        grade !in REVIEW_GRADE_RANGE -> error("Grade $grade; expected $REVIEW_GRADE_RANGE")
         isMiss(grade) -> 0 // Again: back to the first step.
         grade == 3 -> step ?: 0 // Hard: stay.
         grade == 4 -> ((step ?: -1) + 1).coerceAtMost(STEPS.lastIndex) // Good: climb one.
@@ -52,9 +50,6 @@ internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: Zo
     log.filter { it.cardMutationId == card.mutationId && it.rejection == null }
         .sortedWith(compareBy({ it.reviewedAt }, { it.mutationId }))
         .fold(ReviewSchedule(card.createdAt, null)) { state, review ->
-            require(review.grade in REVIEW_GRADE_RANGE) {
-                "Review ${review.mutationId} has grade ${review.grade}; expected $REVIEW_GRADE_RANGE"
-            }
             val step = nextStep(state.step, review.grade)
             val day = Instant.ofEpochMilli(review.reviewedAt).atZone(zone).toLocalDate()
             ReviewSchedule(day.plusDays(STEPS[step]).atStartOfDay(zone).toInstant().toEpochMilli(), step)

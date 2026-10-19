@@ -35,6 +35,7 @@ import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.data.LibraryDao
+import com.reporead.android.data.NewCardGrade
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.PracticePage
@@ -45,7 +46,6 @@ import com.reporead.android.reader.StudyQuestion
 import com.reporead.android.reader.interviewBank
 import com.reporead.android.reader.interviewTopic
 import com.reporead.android.reader.isInterviewBank
-import com.reporead.android.sync.NewCardGrade
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
@@ -103,7 +103,7 @@ internal fun readBanks(pages: List<PracticePage>): Banks {
         if (bank.unrecognized.isNotEmpty())
             unrecognized += BankProblems(page.documentId, page.title, page.path, blobSha, bank.unrecognized)
     }
-    return Banks(banks, questions.distinctBy { it.documentId to it.question.answer.text }, unrecognized)
+    return Banks(banks, questions, unrecognized)
 }
 
 /**

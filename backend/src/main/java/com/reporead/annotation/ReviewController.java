@@ -2,7 +2,6 @@ package com.reporead.annotation;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
-import com.reporead.ClientClock;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
 import java.time.Instant;
@@ -39,11 +38,9 @@ public class ReviewController {
                 || body.grade() < 0
                 || body.grade() > 5
                 || body.reviewedAt() == null
-                || !ClientClock.accepts(body.reviewedAt())
                 || body.reviewedAt().getNano() % 1_000_000 != 0
                 || !Hashes.isGitSha(body.blobSha())) {
-            throw invalid("A review needs grade 0–5, a millisecond reviewedAt from 1970 through "
-                    + ClientClock.MAX_AHEAD.toMinutes() + " minutes ahead, and the verified answer's blob SHA.");
+            throw invalid("A review needs grade 0–5, a millisecond reviewedAt, and the verified answer's blob SHA.");
         }
         var result = reviews.grade(user.id(), id, mutation, body.grade(), body.reviewedAt(), body.blobSha());
         LOG.info(

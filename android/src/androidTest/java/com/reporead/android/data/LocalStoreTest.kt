@@ -519,31 +519,71 @@ class LocalStoreTest {
     }
 
     @Test
-    fun localReviewsAcceptBothGradeBoundsAndRejectValuesOutsideThemWithoutWriting() = runBlocking {
+    fun firstGradesRecheckTheBankAndExistingScheduleInsideTheirTransaction() = runBlocking {
         val sha = "a".repeat(40)
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "Test-only note", sha)))
-        dao.saveNote(NoteRow(1, sha, "a.md", "Test-only note", "<html/>", 0))
-        dao.saveAnnotation(
-            annotation("card", null, null, AnnotationState.UNSENT)
+        val card =
+            annotation("new-card", null, null, AnnotationState.UNSENT)
                 .copy(
                     type = AnnotationType.CARD,
                     question = "Test-only question?",
                     checkedBlobSha = sha,
                 )
+        val review = ReviewRow("first-grade", card.mutationId, 4, 0, sha, true)
+        dao.saveCardWithFirstReview(card, review)
+        assertTrue("A missing bank must not admit a first grade", dao.annotations(1).first().isEmpty())
+        dao.saveNote(NoteRow(1, sha, "a.md", "Test-only bank", "<html/>", 0))
+        dao.saveCardWithFirstReview(card, review)
+        assertTrue(dao.reviews().first().isEmpty())
+        val document = DocumentRow(1, 7, "a.md", "Test-only bank", sha)
+        for (changed in listOf(document.copy(deleted = true), document.copy(blobSha = "b".repeat(40)))) {
+            dao.insertDocuments(listOf(changed))
+            dao.saveCardWithFirstReview(card, review)
+            assertTrue(dao.annotations(1).first().isEmpty())
+            assertTrue(dao.reviews().first().isEmpty())
+        }
+        dao.insertDocuments(listOf(document))
+        dao.saveCardWithFirstReview(card, review)
+        dao.saveCardWithFirstReview(
+            card.copy(mutationId = "duplicate", question = "Edited prompt?"),
+            review.copy(mutationId = "duplicate-grade", cardMutationId = "duplicate"),
         )
-        for (grade in listOf(0, 5)) {
-            assertTrue(dao.recordReview(ReviewRow("grade-$grade", "card", grade, grade.toLong(), sha, true)))
+        assertEquals(listOf("new-card"), dao.annotations(1).first().map { it.mutationId })
+        assertEquals(listOf("first-grade"), dao.reviews().first().map { it.mutationId })
+    }
+
+    @Test
+    fun theReviewWriteBoundaryAcceptsTheStoredScaleAndRollsBackInvalidFirstGrades() = runBlocking {
+        val sha = "a".repeat(40)
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "Test-only note", sha)))
+        dao.saveNote(NoteRow(1, sha, "a.md", "Test-only note", "<html/>", 0))
+        val card =
+            annotation("card", null, null, AnnotationState.UNSENT)
+                .copy(type = AnnotationType.CARD, question = "Test-only question?", checkedBlobSha = sha)
+        for (grade in 0..5) {
+            val graded = card.copy(mutationId = "card-$grade", exactText = "text-$grade", endOffset = 6)
+            val review = ReviewRow("grade-$grade", graded.mutationId, grade, grade.toLong(), sha, true)
+            assertEquals(NewCardGrade.SAVED, dao.saveCardWithFirstReview(graded, review))
+            dao.saveReview(review.copy(pending = false))
         }
         for (grade in listOf(-1, 6)) {
-            val id = "invalid-grade-$grade"
+            val review = ReviewRow("invalid-grade-$grade", card.mutationId, grade, 0, sha, true)
             try {
-                dao.recordReview(ReviewRow(id, "card", grade, 0, sha, true))
-                throw AssertionError("Local review grade $grade must fail")
-            } catch (expected: IllegalArgumentException) {
-                assertTrue(expected.message.orEmpty().contains(id))
+                dao.saveReview(review)
+                throw AssertionError("Review grade $grade must fail")
+            } catch (expected: InvalidReviewGrade) {
+                assertTrue(expected.message.orEmpty().contains(review.mutationId))
             }
+            try {
+                dao.saveCardWithFirstReview(card, review)
+                throw AssertionError("First review grade $grade must fail")
+            } catch (expected: InvalidReviewGrade) {
+                assertTrue(expected.message.orEmpty().contains(review.mutationId))
+            }
+            assertNull("An invalid first grade must roll back its card", dao.annotation(card.mutationId))
         }
-        assertEquals(listOf(0, 5), dao.reviews().first().map { it.grade })
+        assertEquals((0..5).toList(), dao.reviews().first().map { it.grade })
+        assertTrue(dao.pendingReviews().isEmpty())
+        assertEquals(6, dao.annotations(1).first().size)
     }
 
     @Test

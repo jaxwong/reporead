@@ -156,6 +156,10 @@ class PracticeTest {
                 "<p data-block-id=b4 data-anchor-text='Canonical answer: X'>Canonical answer: X</p></main>"
         val banks = readBanks(listOf(PracticePage(1, "Bank", "core/interview/bank.md", html, sha)))
         assertEquals(listOf("First?"), banks.questions.map { it.question.prompt })
+        assertEquals(
+            listOf(BankProblem("b3", "Second? — repeats a Canonical line")),
+            banks.unrecognized.single().blocks,
+        )
     }
 
     @Test

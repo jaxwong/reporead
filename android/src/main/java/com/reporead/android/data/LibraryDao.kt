@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /** Ids bound in one statement, so it stays under SQLite's limit on bound variables. */
 private const val IDS_PER_STATEMENT = 500
@@ -354,19 +355,41 @@ interface LibraryDao {
     @Query("select * from review_log where pending and rejection is null order by reviewedAt, mutationId")
     suspend fun pendingReviews(): List<ReviewRow>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReview(row: ReviewRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertReview(row: ReviewRow)
 
-    /** Sync validates the new card and grade under its lock; either both inserts commit or neither does. */
+    /** The grade-range write boundary for local grades, acknowledgements and complete server snapshots. */
+    suspend fun saveReview(row: ReviewRow) {
+        if (row.grade !in 0..5) throw InvalidReviewGrade(row.mutationId, row.grade)
+        insertReview(row)
+    }
+
+    /** Admission and the card-plus-first-grade write share one SQLite transaction, independently of Sync's lock. */
     @Transaction
-    suspend fun saveCardWithFirstReview(card: AnnotationRow, review: ReviewRow) {
+    suspend fun saveCardWithFirstReview(card: AnnotationRow, review: ReviewRow): NewCardGrade {
+        require(
+            card.type == AnnotationType.CARD &&
+                review.cardMutationId == card.mutationId &&
+                review.blobSha == card.sourceBlobSha &&
+                review.pending &&
+                review.rejection == null
+        ) {
+            "Invalid first review ${review.mutationId} for card ${card.mutationId}"
+        }
+        if ((card.documentId to card.exactText) in scheduledLines(notebook().first()))
+            return NewCardGrade.ALREADY_SCHEDULED
+        val note = note(card.documentId) ?: return NewCardGrade.NOT_SAVED
+        val document = document(card.documentId) ?: return NewCardGrade.NOT_SAVED
+        if (note.blobSha != card.sourceBlobSha || document.blobSha != card.sourceBlobSha || document.deleted)
+            return NewCardGrade.BANK_CHANGED
         saveAnnotation(card)
         saveReview(review)
+        return NewCardGrade.SAVED
     }
 
     /** A concurrent sync may invalidate/delete a card after it was revealed; never persist that stale grade. */
     @Transaction
     suspend fun recordReview(row: ReviewRow): Boolean {
-        require(row.grade in REVIEW_GRADE_RANGE && row.pending && row.rejection == null) {
+        require(row.pending && row.rejection == null) {
             "Invalid local review ${row.mutationId}"
         }
         val card = annotation(row.cardMutationId) ?: return false

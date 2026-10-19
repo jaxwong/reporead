@@ -975,7 +975,7 @@ class LocalSyncTest {
     }
 
     @Test
-    fun aReviewAnswerForAnotherLocalCardDoesNotAcknowledgeTheGrade() = runBlocking {
+    fun aReviewAnswerMustMatchItsCardAndCanReplaceTheLocalTimestamp() = runBlocking {
         dao.saveAnnotation(
             AnnotationRow(
                 "test-only-card",
@@ -1003,6 +1003,17 @@ class LocalSyncTest {
             val error = runCatching { sync(server.url).syncWaitingChanges() }.exceptionOrNull() as ApiException
             assertEquals("INVALID_RESPONSE", error.code)
             assertEquals(listOf(pending), dao.pendingReviews())
+            assertEquals(listOf("POST /api/annotations/9/reviews"), server.requests)
+        }
+        val clamped =
+            body
+                .replace("test-only-other-card", "test-only-card")
+                .replace("1970-01-01T00:00:01Z", "1970-01-01T00:00:00Z")
+        LoopbackServer(mapOf("POST /api/annotations/9/reviews" to (200 to clamped))).use { server ->
+            sync(server.url).syncWaitingChanges()
+            sync(server.url).syncWaitingChanges()
+            assertTrue(dao.pendingReviews().isEmpty())
+            assertEquals(listOf(pending.copy(reviewedAt = 0, pending = false)), dao.reviews().first())
             assertEquals(listOf("POST /api/annotations/9/reviews"), server.requests)
         }
     }
@@ -1081,6 +1092,8 @@ class LocalSyncTest {
                     wire(
                         testLibrary(reviews = listOf(testReview().copy(cardMutationId = "test-only-missing-card")))
                     )) to "INVALID_RESPONSE",
+                (200 to wire(testLibrary(reviews = listOf(testReview().copy(grade = -1))))) to "INVALID_RESPONSE",
+                (200 to wire(testLibrary(reviews = listOf(testReview().copy(grade = 6))))) to "INVALID_RESPONSE",
                 library(repositories, sessionLimit = 0) to "INVALID_RESPONSE",
                 library(repository(7, document(2).replace("false", "\"false\""))) to "INVALID_RESPONSE",
                 library(repository(7, document(2)).replace("\"lastSyncedCommitSha\"", "\"unknownCheckpoint\"")) to

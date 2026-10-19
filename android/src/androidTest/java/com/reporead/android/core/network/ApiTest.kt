@@ -226,6 +226,18 @@ class ApiTest {
     }
 
     @Test
+    fun aReviewAcknowledgementMayCarryTheServersClampedTimestamp() = runBlocking {
+        val clamped = testReview().copy(reviewedAt = Instant.EPOCH)
+        LoopbackServer(mapOf("POST /api/annotations/10/reviews" to (200 to wire(clamped)))).use { server ->
+            val stored =
+                Api(server.url, { StoredSession.Absent }) {}
+                    .recordReview(10, grade.copy(reviewedAt = Instant.EPOCH.minusMillis(1)))
+            assertEquals(Instant.EPOCH, stored.reviewedAt)
+            assertEquals(1, server.requests.size)
+        }
+    }
+
+    @Test
     fun wellTypedAnswersStillHaveToBelongToTheirRequest() = runBlocking {
         val wrongAnnotation = wire(testHighlight().copy(id = 8))
         val cases: List<Triple<String, String, suspend (Api) -> Any>> =

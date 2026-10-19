@@ -94,14 +94,6 @@ class ContractTest {
     }
 
     @Test
-    fun reviewGradesAcceptTheFullStoredScaleAndRejectBothOutOfRangeEdges() {
-        for (grade in 0..5) {
-            assertEquals(grade, decodeResponse<ReviewsReview>(wire(testReview().copy(grade = grade)), 200).grade)
-        }
-        for (grade in listOf(-1, 6)) broken<ReviewsReview>(wire(testReview().copy(grade = grade)))
-    }
-
-    @Test
     fun inconsistentSnapshotIdentitiesAndReferencesCannotAuthorizeReplacement() {
         val original = testLibrary()
         val repository = original.repositories.single()
