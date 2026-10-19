@@ -83,11 +83,20 @@ These come from the original implementation spec's engineering invariants and th
 - Enforced by: optimistic `version` on annotations (409 `ANNOTATION_CONFLICT`); a re-anchoring computed before a user edit does not apply over it.
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
 
+### A Practice first grade is one local commit
+
+**A new Practice card and its first grade appear together or neither does; a restored or concurrent submission cannot create another pair for the same bank and Canonical line on this phone.**
+
+- Enforced by: grade-range, unchanged-bank and existing-card validation inside `Sync.gradeNewCard` under `committed` and its one lock; `LibraryDao.saveCardWithFirstReview` owns the Room transaction. An insert failure propagates with both rows rolled back; there is no card-only fallback and no external call.
+- Checks: `PracticeMutationTest` forces a real SQLite grade-insert failure, concurrent submissions, a restored prompt edit, invalid grades and changed/missing banks; `PracticeSessionTest` drives grades, double taps and leaving a queued grade through the real screen; `CommittedMutationTest` checks cancellation at Sync's boundary.
+- Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer). Cross-device duplicates are not deduplicated.
+
 ### An outdated answer is never drilled
 
 **A card whose note changed is not graded until its answer is resolved in the new version and confirmed.**
 
 - Enforced by: the server rejects a new grade of an outdated answer (409 `CARD_CHANGED`); the phone leaves such cards out of grading until checked.
+- A bank card confirms only its Canonical line, not its linked section. Practice and Review label that section as a supplementary saved copy; its version is not the bank card's confirmation.
 - Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling).
 
 ## Security and privacy
@@ -194,7 +203,7 @@ These come from the original implementation spec's engineering invariants and th
 - Checks: `AppNavigationTest` (recreation, covering, pop, double taps, restoration and a real read timeout through the real app); `CommittedMutationTest` (each mutation committed after its caller is cancelled, queued writes); `ReaderViewModelTest`; `PracticeSessionTest`, `ReviewLifecycleTest`, `ReaderLifecycleTest` and `AccountTest` in decorated entries. Execution evidence is recorded in ADR-28.
 - Why: [ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync).
 
-A submitted Practice grade survives its validation reads as well as Sync's write. Reader edit/delete dialogs close
+A submitted Practice grade enters Sync before validation; validation and its atomic write share `committed`. Reader edit/delete dialogs close
 only after admission; rejected input remains editable. Restored submitted edits reload their saved annotation and never
 replay a mutation.
 
