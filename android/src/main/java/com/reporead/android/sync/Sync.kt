@@ -248,19 +248,19 @@ class Sync(
     }
 
     /**
-     * [fetched] new or updated copies; [alreadySaved] were current; [cannotShow] notes the server refused to render
-     * (too large), each logged by id.
+     * [fetched] new or updated copies whose image pass completed; [alreadySaved] were current and completed it too;
+     * [cannotShow] pages skipped on a permanent content/image refusal, counted once and logged by id. Saved text stays.
      */
     data class SavedAll(val fetched: Int, val alreadySaved: Int, val cannotShow: Int)
 
     /**
      * Saves every note of [repositoryId] on the phone: reloads the library from the server ([refreshLibrary]), then
-     * fetches each note whose saved copy is not [upToDate], one at a time. A note the server refuses to render
-     * (UNSUPPORTED_CONTENT) is counted and skipped; any other failure ends the run, keeping the copies already saved.
-     * Each page, including an already-current copy, saves its missing images before reporting progress. Image failures
-     * keep the text, as in the reader. Cancelling keeps complete pages/images; another run checks the rest. At most one
-     * library call, one content call per outdated note and 64 image calls per saved page (the server's reference
-     * limit). Run only by Save all's background work (BackgroundSync.kt).
+     * fetches each note whose saved copy is not [upToDate], one at a time. A permanent content/image refusal skips the
+     * rest of that page and counts it once; any other API failure ends the run for the worker to retry or report. Each
+     * page, including an already-current copy, saves its missing images before reporting progress. Saved text and
+     * complete images survive failures and cancellation; another run checks the rest. At most one library call, one
+     * content call per outdated note and 64 image calls per saved page (the server's reference limit). Run only by Save
+     * all's background work (BackgroundSync.kt).
      */
     suspend fun saveAllNotes(repositoryId: Long, onProgress: suspend (done: Int, toFetch: Int) -> Unit): SavedAll {
         refreshLibrary()
@@ -275,22 +275,30 @@ class Sync(
             try {
                 locked {
                     val cached = dao.note(document.id)
-                    val note =
-                        if (cached != null && upToDate(cached.version, document, commitSha)) {
-                            alreadySaved++
-                            cached
-                        } else fetchNote(document.id).also { fetched++ }
-                    images.save(note)
+                    if (cached != null && upToDate(cached.version, document, commitSha)) {
+                        images.save(cached)
+                        alreadySaved++
+                    } else {
+                        images.save(fetchNote(document.id))
+                        fetched++
+                    }
                 }
             } catch (error: ApiException) {
-                if (error.code != "UNSUPPORTED_CONTENT") {
+                val skipped =
+                    when (error.code) {
+                        "UNSUPPORTED_CONTENT" -> error.status == 422
+                        "IMAGE_NOT_FOUND" -> error.status == 404
+                        "INVALID_IMAGE_PATH" -> error.status == 400
+                        else -> false
+                    }
+                if (!skipped) {
                     Log.w(
                         "RepoRead",
                         "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}",
                     )
                     throw error
                 }
-                Log.i("RepoRead", "Note cannot be shown; documentId=${document.id} code=${error.code}")
+                Log.i("RepoRead", "Page skipped; documentId=${document.id} code=${error.code}")
                 cannotShow++
             }
             onProgress(index + 1, documents.size)

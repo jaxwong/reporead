@@ -93,7 +93,7 @@ private fun describe(saving: SavingNotes): String =
                     "Saved ${counted(saving.fetched, "note")} on this phone; ${saving.alreadySaved} ${if (saving.alreadySaved == 1) "was" else "were"} already saved.",
                     saving.cannotShow
                         .takeIf { it > 0 }
-                        ?.let { "$it can't be shown (too large); opening one says why." },
+                        ?.let { "$it couldn't be fully saved (unsupported content or an unavailable image)." },
                 )
                 .joinToString(" ")
         is SavingNotes.Stopped ->
