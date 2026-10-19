@@ -240,7 +240,8 @@ fun LibraryScreen(
             if (signedIn && tab == LibraryTab.REPOSITORIES) {
                 ExtendedFloatingActionButton(
                     onClick = { push(Screen.Available) },
-                    icon = { AppIcon(R.drawable.ic_add, null) },
+                    // Material clears the text's semantics, so the icon names the button for accessibility.
+                    icon = { AppIcon(R.drawable.ic_add, "Add repository") },
                     text = { Text("Add repository") },
                 )
             }

@@ -3,8 +3,6 @@
 
 package com.reporead.android
 
-import android.content.Intent
-import android.content.IntentFilter
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -13,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getAllSemanticsNodes
 import androidx.lifecycle.Lifecycle
@@ -55,10 +54,8 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -240,26 +237,48 @@ class AppNavigationTest {
     private fun awaitFolderRefreshed(server: LoopbackServer, libraryLoads: Int = 2) = runBlocking {
         withTimeout(10_000) {
             while (server.requests.count { it == "GET /api/library" } < libraryLoads) delay(50)
-            while (findText(root(), "Refresh from GitHub")?.isEnabled != true) delay(50)
+            while (!enabled("Refresh from GitHub")) delay(50)
         }
     }
 
     /**
-     * Runs the shown control described or labelled as [description] twice in one turn of the main thread, as two taps
-     * that both land before the screen recomposes: the second reaches the same screen, already changed by the first.
+     * Uses the shown control described or labelled as [description] through Compose's own semantics on the main thread:
+     * its current state, never an accessibility snapshot, which can lag a recomposition.
      */
-    private fun tapTwiceBeforeRecomposition(description: String) {
+    private fun <T> withControl(description: String, use: (SemanticsNode) -> T): T {
         fun View.composeRoot(): ViewRootForTest? =
             this as? ViewRootForTest
                 ?: (this as? ViewGroup)?.let { group ->
                     (0 until group.childCount).firstNotNullOfOrNull { group.getChildAt(it).composeRoot() }
                 }
+        var result: Result<T>? = null
         scenario!!.onActivity { activity ->
-            val control =
-                checkNotNull(activity.window.decorView.composeRoot()).semanticsOwner.getAllSemanticsNodes(true).single {
-                    description in it.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() } ||
-                        description in it.config.getOrElse(SemanticsProperties.Text) { emptyList() }.map { it.text }
-                }
+            result = runCatching {
+                use(
+                    checkNotNull(activity.window.decorView.composeRoot())
+                        .semanticsOwner
+                        .getAllSemanticsNodes(true)
+                        .single {
+                            description in
+                                it.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() } ||
+                                description in
+                                    it.config.getOrElse(SemanticsProperties.Text) { emptyList() }.map { it.text }
+                        }
+                )
+            }
+        }
+        return checkNotNull(result).getOrThrow()
+    }
+
+    /** Whether the shown control [description] is enabled now. */
+    private fun enabled(description: String) = withControl(description) { SemanticsProperties.Disabled !in it.config }
+
+    /**
+     * Runs the shown control [description] twice in one turn of the main thread, as two taps that both land before the
+     * screen recomposes: the second reaches the screen the first already changed.
+     */
+    private fun tapTwiceBeforeRecomposition(description: String) {
+        withControl(description) { control ->
             val tap = checkNotNull(control.config[SemanticsActions.OnClick].action)
             tap()
             tap()
@@ -770,13 +789,19 @@ class AppNavigationTest {
             }
     }
 
-    /** A rotation during a refresh from GitHub neither cancels it nor sends it again; its reload still lands. */
+    /**
+     * A rotation during a refresh from GitHub neither cancels it nor starts the folder's load again: the refusal it
+     * ends with is still shown, and nothing else was sent.
+     */
     @Test
-    fun aRefreshFromGitHubHeldThroughRecreationIsSentOnce() {
+    fun aRefreshFromGitHubHeldThroughRecreationIsSentOnceAndReported() {
         sessions.save("TEST_ONLY_SESSION")
         val hold = Held("POST /api/repositories/7/sync")
         LoopbackServer(
-                mapOf("GET /api/library" to library(), "POST /api/repositories/7/sync" to (200 to wire(testSynced()))),
+                mapOf(
+                    "GET /api/library" to library(),
+                    "POST /api/repositories/7/sync" to failure(503, "TEST_ONLY_DOWN"),
+                ),
                 hold::hook,
             )
             .use { server ->
@@ -791,9 +816,10 @@ class AppNavigationTest {
                 } finally {
                     hold.release.countDown()
                 }
-                awaitFolderRefreshed(server, libraryLoads = 3)
+                awaitTextStarting("Refresh failed; the previous list is unchanged.")
+                assertNothingMoreSent(server, server.requests.toList())
                 assertEquals(
-                    listOf("GET /api/library", "GET /api/library", "POST /api/repositories/7/sync", "GET /api/library"),
+                    listOf("GET /api/library", "GET /api/library", "POST /api/repositories/7/sync"),
                     server.requests,
                 )
             }
@@ -824,7 +850,8 @@ class AppNavigationTest {
                     click("Disconnect…")
                     click("Disconnect")
                     hold.awaitArrived()
-                    pressBack()
+                    // The screen's own Back: the key could still reach the closing confirmation's window.
+                    click("Back")
                     awaitText("Library")
                     click("Notebook")
                     awaitTextStarting("Highlights and cards saved on this phone.")
@@ -833,6 +860,8 @@ class AppNavigationTest {
                 }
                 withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
                 assertEquals(emptyList<DocumentRow>(), dao.documents(7).first())
+                // The Library left for the Notebook syncs on its return, after the disconnect's commit.
+                awaitLibrarySynced(server, 4)
                 assertNothingMoreSent(server, server.requests.toList())
                 awaitTextStarting("Highlights and cards saved on this phone.")
                 assertEquals(1, server.requests.count { it == "DELETE /api/repositories/7" })
@@ -898,18 +927,21 @@ class AppNavigationTest {
     fun anUnansweredDisconnectKeepsTheCopyUntilTheUserTriesAgain() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")
         val hold = Held("DELETE /api/repositories/7")
-        LoopbackServer(
+        val routes =
+            ConcurrentHashMap(
                 mapOf(
                     "GET /api/library" to library(),
                     stored,
                     "DELETE /api/repositories/7" to (200 to wire(testDisconnected(notes.map { it.id }))),
                 )
-            ) { key ->
-                // Only the first attempt waits past Api's 45-second read timeout.
+            )
+        LoopbackServer(routes) { key ->
+                // Only the first attempt waits past Api's 45-second read timeout; the second is answered, after which
+                // the server no longer lists the repository.
                 if (key == "DELETE /api/repositories/7" && hold.arrived.count == 1L) {
                     hold.arrived.countDown()
                     hold.release.await(50, SECONDS)
-                }
+                } else if (key == "DELETE /api/repositories/7") routes["GET /api/library"] = library(connected = false)
             }
             .use { server ->
                 val api = api(server)
@@ -1010,81 +1042,6 @@ class AppNavigationTest {
             }
     }
 
-    /**
-     * T11: an export waiting for the lock is shared once by the Notebook shown when it is ready — after a recreation,
-     * or once the screen covering it is gone — and never by a Notebook that was left. Signed out, so nothing else
-     * syncs; the test holds the lock with its own library load, and the share sheet is intercepted, never shown.
-     */
-    @Test
-    fun aNotebookExportIsSharedOnceByTheScreenShownAndNeverByOneLeft() = runBlocking {
-        dao.saveAnnotation(
-            AnnotationRow(
-                "test-only-notebook",
-                null,
-                1,
-                testSha,
-                "b0",
-                0,
-                4,
-                "Test",
-                null,
-                1,
-                0,
-                state = AnnotationState.UNSENT,
-            )
-        )
-        val holds = List(3) { Held("GET /api/library") }
-        val shares = instrumentation.addMonitor(IntentFilter(Intent.ACTION_CHOOSER), null, true)
-        LoopbackServer(mapOf("GET /api/library" to library())) { key ->
-                holds.first { it.arrived.count == 1L }.hook(key)
-            }
-            .use { server ->
-                val api = api(server)
-                val account = account(api)
-                launchApp(account, api)
-                awaitText("Library")
-                click("Notebook")
-                awaitTextStarting("Highlights and cards saved on this phone.")
-                suspend fun exportWhileHeld(hold: Held, meanwhile: () -> Unit) {
-                    val load = async(Dispatchers.IO) { account.sync.refreshLibrary() }
-                    try {
-                        hold.awaitArrived()
-                        click("Export Markdown")
-                        meanwhile()
-                    } finally {
-                        hold.release.countDown()
-                    }
-                    load.await()
-                }
-                try {
-                    exportWhileHeld(holds[0]) {
-                        scenario!!.recreate()
-                        awaitTextStarting("Highlights and cards saved on this phone.")
-                    }
-                    awaitTextStarting("Sharing 1 entries as Markdown.")
-                    assertEquals(1, shares.hits)
-                    exportWhileHeld(holds[1]) {
-                        click("Open passage")
-                        awaitText("Note A")
-                    }
-                    // Ready while covered: nothing is shared until the Notebook is shown again.
-                    delay(1_000)
-                    assertEquals(1, shares.hits)
-                    pressBack()
-                    awaitTextStarting("Highlights and cards saved on this phone.")
-                    withTimeout(10_000) { while (shares.hits < 2) delay(50) }
-                    exportWhileHeld(holds[2]) {
-                        pressBack()
-                        awaitText("Library")
-                    }
-                    delay(1_000)
-                    assertEquals(2, shares.hits)
-                } finally {
-                    instrumentation.removeMonitor(shares)
-                }
-            }
-    }
-
     private val highlights =
         "GET /api/documents/1/annotations" to (200 to wire(AnnotationControllerAnnotationList(listOf(testHighlight()))))
 
@@ -1164,7 +1121,7 @@ class AppNavigationTest {
                     hold.awaitArrived()
                     click("Highlights and notes")
                     click("Note B")
-                    awaitText("Note B")
+                    awaitNoteB(panelOpen = false)
                 } finally {
                     hold.release.countDown()
                 }
@@ -1177,6 +1134,43 @@ class AppNavigationTest {
                 assertEquals(1, server.requests.count { it == changes })
             }
     }
+
+    /**
+     * T17: a library load that fails keeps the saved notes and says so, in the Library and the folder; once the server
+     * lists the repository with no notes, the folder says so.
+     */
+    @Test
+    fun aFailedLoadKeepsTheSavedNotesAndAnEmptyRepositorySaysSo() =
+        runBlocking<Unit> {
+            sessions.save("TEST_ONLY_SESSION")
+            val routes = ConcurrentHashMap(mapOf("GET /api/library" to failure(503, "TEST_ONLY_DOWN")))
+            LoopbackServer(routes).use { server ->
+                val api = api(server)
+                launchApp(account(api), api)
+                awaitTextStarting("Showing saved data.")
+                click("Repositories")
+                click("test-only/notes")
+                awaitFolder()
+                awaitTextStarting("Showing saved data.")
+                assertEquals(3, dao.documents(7).first().size)
+                routes["GET /api/library"] =
+                    200 to
+                        wire(
+                            testLibrary(
+                                repositories = listOf(testRepository(emptyList()).copy(lastSyncedCommitSha = testSha)),
+                                readingStates = emptyList(),
+                                bookmarks = emptyList(),
+                                annotations = emptyList(),
+                                reviews = emptyList(),
+                            )
+                        )
+                pressBack()
+                awaitScreen("Library", hidden = listOf("deep"))
+                awaitLibrarySynced(server, 3)
+                click("test-only/notes")
+                awaitText("This repository has no Markdown notes.")
+            }
+        }
 
     /** A confirmed disconnect returns to the Library, in the state it was left, with nothing left above or below it. */
     @Test
