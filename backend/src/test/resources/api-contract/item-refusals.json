@@ -9,10 +9,6 @@
   },
   {
     "status": 400,
-    "code": "INVALID_READING_STATE"
-  },
-  {
-    "status": 400,
     "code": "INVALID_REVIEW"
   },
   {

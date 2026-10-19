@@ -4,10 +4,8 @@ package com.reporead.reading;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
-import com.reporead.ClientClock;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
-import com.reporead.document.MarkdownRenderer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.List;
@@ -23,12 +21,6 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public class ReadingController {
-    private static final int MAX_HEADINGS = 6;
-    private static final int MAX_PREFIX_CHARS = 200;
-    /** Exactly what rendered pages carry: their heading paths and block indexes. */
-    private static final int MAX_HEADING_CHARS = MarkdownRenderer.MAX_HEADING_CHARS;
-
-    private static final int MAX_BLOCK_INDEX = MarkdownRenderer.MAX_BLOCKS - 1;
     private final ReadingStates states;
 
     public ReadingController(ReadingStates states) {
@@ -52,13 +44,17 @@ public class ReadingController {
             @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SaveRequest body) {
         validate(body);
         var anchor = body.anchor();
+        Instant now = Instant.now();
+        Instant lastReadAt = body.lastReadAt();
+        if (lastReadAt.isBefore(Instant.EPOCH)) lastReadAt = Instant.EPOCH;
+        else if (lastReadAt.isAfter(now)) lastReadAt = now;
         return states.save(
                 user.id(),
                 id,
                 body.lastReadBlobSha(),
                 body.progressPercent(),
                 new ReadingStates.Anchor(anchor.headingPath(), anchor.textPrefix(), anchor.blockIndex()),
-                body.lastReadAt());
+                lastReadAt);
     }
 
     private static void validate(SaveRequest body) {
@@ -70,25 +66,18 @@ public class ReadingController {
                 && body.lastReadAt() != null
                 && anchor != null
                 && anchor.headingPath() != null
-                && anchor.headingPath().size() <= MAX_HEADINGS
-                && anchor.headingPath().stream()
-                        .allMatch(heading -> heading != null && heading.length() <= MAX_HEADING_CHARS)
-                && (anchor.textPrefix() == null || anchor.textPrefix().length() <= MAX_PREFIX_CHARS)
-                && anchor.blockIndex() != null
-                && anchor.blockIndex() >= 0
-                && anchor.blockIndex() <= MAX_BLOCK_INDEX;
+                && anchor.headingPath().stream().allMatch(heading -> heading != null && validAnchorText(heading))
+                && (anchor.textPrefix() == null || validAnchorText(anchor.textPrefix()))
+                && anchor.blockIndex() != null;
         if (!valid) {
             throw new ApiFailure(
-                    Code.INVALID_READING_STATE,
-                    "Reading state requires a blob SHA, progress 0-100, lastReadAt, and an anchor with at most "
-                            + MAX_HEADINGS + " headings of " + MAX_HEADING_CHARS + " characters, a prefix of at most "
-                            + MAX_PREFIX_CHARS + " characters, and a block index 0-" + MAX_BLOCK_INDEX + ".");
+                    Code.INVALID_REQUEST,
+                    "Reading state requires a blob SHA, progress 0-100, lastReadAt, and an anchor with a string heading path and integer block index; anchor text cannot contain NUL or an unpaired surrogate.");
         }
-        if (!ClientClock.accepts(body.lastReadAt())) {
-            throw new ApiFailure(
-                    Code.INVALID_READING_STATE,
-                    "lastReadAt must be from 1970 through " + ClientClock.MAX_AHEAD.toMinutes()
-                            + " minutes ahead of the server; the client's clock may be ahead.");
-        }
+    }
+
+    /** JSONB cannot store NUL, and an unpaired surrogate would not round-trip exactly. */
+    private static boolean validAnchorText(String text) {
+        return text.codePoints().noneMatch(c -> c == 0 || Character.getType(c) == Character.SURROGATE);
     }
 }

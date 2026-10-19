@@ -77,9 +77,9 @@ public final class MarkdownRenderer {
     public static final String NOTE_LINK = "/note-link";
     /**
      * The page format the app relies on; bumped when rendered HTML gains something a saved copy would lack. 2: note
-     * links and Obsidian embeds. 3: footnotes.
+     * links and Obsidian embeds. 3: footnotes. 4: capped heading paths, BOM handling and URL-only footnotes.
      */
-    public static final int FORMAT = 3;
+    public static final int FORMAT = 4;
 
     private static final Pattern WIKILINK = Pattern.compile("(!?)\\[\\[([^\\[\\]\\n]+?)\\]\\]");
     /** A reference with a URL scheme ({@code https:}, {@code mailto:}, ...): not a path in the repository. */
