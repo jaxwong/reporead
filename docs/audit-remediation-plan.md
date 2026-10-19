@@ -1,6 +1,6 @@
 # Codebase audit and remediation plan
 
-Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five planned pull requests (PR1 and PR2 are merged; PR3 and its review fixes are verified on [#78](https://github.com/jaxwong/reporead/pull/78)), the decisions they rest on, the final check, and the complexity reductions that follow.
+Audited **2026-10-18**. Rebased **2026-10-19** after Android foundations PR4 (#73) merged and was deployed. Steps 1, 2, 3, 5, 8, 9 and 10 and the foundations work are closed; their evidence is in the merged pull requests (#62–#66, #69–#73) and in this file's history (`git show 35af494:docs/audit-remediation-plan.md` is the last full record). This document owns only what remains: the open findings, the five planned pull requests (PRs 1–3 are merged; PR3's evidence is on [#78](https://github.com/jaxwong/reporead/pull/78)), the decisions they rest on, the final check, and the complexity reductions that follow. The user reported deployment in Actions running when PR4 began; this change does not deploy or install the release app.
 
 [Invariants](invariants.md), [ADRs](adrs.md), [architecture](architecture.md) and [feature status](feature-list.md) keep their owners; this plan links to them and does not restate them. ADR-27 and ADR-28 own the Android foundations; the uncommitted `docs/android-foundations-plan.md` is superseded by them and is deleted, not committed.
 
@@ -94,6 +94,10 @@ Backend first, then app; the current app accepts a higher format and any 200, so
 
 ### PR 4 — One question identity and one card-plus-grade transaction (A7, A8, D5)
 
+Implemented and locally verified on `atomic-practice-cards`, based on `main` at `1deac6a` after PRs 1–3 merged. [Feature status](feature-list.md#audit-pr4--question-identity-and-atomic-first-grade-2026-10-19) records the backend/Android gates, red regressions, focused Pixel `OK (27 tests)` and full suite `OK (169 tests)` in 251.377 s after the user unlocked the phone. Room remains v16: matching uses existing rows and needs no migration. No backend/API change is needed. No push, release install, deployment or live GitHub smoke check is claimed.
+
+Production is net **+41 lines**, not a refactor-only reduction: new validation outcomes, Review's current-prompt lookup and explicit confirmation wording are required behavior. The old writer and caller-side validation/protection are replaced, not kept in parallel; no manager, dependency or configuration is added.
+
 **Owners:** `Sync.gradeNewCard` for validation, matching and the write; `LibraryDao` for the transaction; `ReviewSchedule` unchanged.
 
 - `scheduledQuestions` matches a question to a card by document and Canonical line text only; the prompt is dropped from the key. Two prompts over one Canonical line in one bank are one question; one prompt over two lines stays two.
@@ -116,7 +120,7 @@ Backend first, then app; the current app accepts a higher format and any 200, so
   2. One full device suite on the Pixel 8a Dev app: terminal `OK (n tests)`.
   3. Dev app against the Mac backend and real GitHub: open a note with an embedded image and a wide table, one Practice grade, one Review, an offline open, a reading position saved with the phone's clock set ahead, a sign-out and sign-in with every saved note still there.
   4. Release build installed over the phone's app, and the hosted backend's revision and health read as the backend README documents. Deploy and install need your go-ahead at the time.
-  Room migration coverage is the preserved v15 migration and PR3's v16 migration (upgrades from exported v14 and v15), plus PR4's. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` are not rerun: no PR changes `Anchoring`, `ContentMoves` or the canonical rules.
+  Room migration coverage is the preserved v15 migration and PR3's v16 migration (upgrades from exported v14 and v15); PR4 needs no schema change. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` are not rerun: no PR changes `Anchoring`, `ContentMoves` or the canonical rules.
 - **Then delete this file.** Decisions live in the ADRs, status in feature-list, the record in git. Feature-list's pasted build output (Save all audit, typed HTTP boundary, Navigation 3, screen work sections) is reduced to one status line each naming the PR.
 
 ## 4. Guardrails for PRs 2–5

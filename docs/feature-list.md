@@ -125,7 +125,7 @@ Noticed and deliberately not changed:
 - Notes over 4,096 blocks cannot be opened or saved (one in the real repository).
 - Save all does not fetch images; an embedded image shows as unavailable offline until its note is opened online once.
 - RepoRead Dev still receives its sign-in code through a custom scheme (`reporead-dev://auth`), which another app could also register: its backend on the Mac has no domain to verify. The release app uses a verified App Link ([backend README](../backend/README.md#sign-in-contract-android)).
-- A bank question is matched to its card by bank, prompt and answer line, so renaming its heading or editing its Canonical line makes it a new question; grading it then starts a second card on the same answer.
+- Bank-question identity is local to this phone's bank document and Canonical line. Independently created cross-device cards can remain duplicates; no cross-device deduplication is promised (ADR-20).
 - Unsent changes made before switching GitHub accounts can be sent under the new account. Accepted for one user with one account on this phone; revisit before a second account is used (ADR-22).
 
 The ADRs record further limits: anchors (ADR-05), presentation-only page upgrades (ADR-18), the unpaged notebook and uneditable questions (ADR-13).
@@ -186,7 +186,8 @@ Each screen that starts work keeps it in its back-stack entry's ViewModel: a rot
 PR4's audit follow-up protects Practice's pre-write validation and retains rejected/submitted reader drafts. Audit PR1
 retires summary loading/acknowledgement and advances the saved UI format to 3 for the removed figure destination;
 Room v15 drops only summary baselines, preserving saved pages and user-owned work. Reattachment restoration stays.
-Question matching and transactional first grade remain PR4 of the audit plan. ADR-28 records the foundations evidence.
+Audit PR4 replaces that temporary Practice protection with validation under Sync and an atomic first-grade write
+(ADR-13, ADR-20). ADR-28 records the foundations evidence.
 
 ## Audit PR1 — Feature retirements (2026-10-19)
 
@@ -221,6 +222,36 @@ Review-follow-up gates, executed after `10b5cd4` (all fixtures are isolated; no 
 Device gate **passed** after reconnecting the authorized Pixel 8a: the saved pre-fix APKs (`/tmp/reporead-pr3-review-red-{app,test}.apk`) reproduced the multi-byte-row failure, then the corrected APK passed the focused migration regression and full suite above. The earlier `OK (162 tests)` predates the review fixes and is historical only; the current suite has 161 tests after deleting the redundant migration/image-sweep composition. APK SHA-256 for the corrected full-suite app: `533bee4a36303f35c54fcb721756d9e35e9271dcd87245be514583a9811120f1`. Hosted CI on code head `33febe5` passed both test jobs and the backend build; release/deploy jobs were skipped as expected for the PR.
 
 Backend implementation `070d1a4`, initial Android implementation `15de0c0`, and review follow-up `1e780ac` are on `accept-reading-retire-legacy-pages`; current evidence supersedes the earlier gate table in this file's history. Deploy backend before app. The release APK was built, not installed; no hosted deployment, live GitHub smoke check or real phone-clock change is claimed. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` remain opt-in skips because canonical rules and anchoring did not change. Existing SDK XML-version and JVM class-sharing warnings were not changed.
+
+## Audit PR4 — Question identity and atomic first grade (2026-10-19)
+
+Implemented locally on `atomic-practice-cards`, from `main` at `1deac6a`. A question follows its bank document and Canonical line, so a prompt edit keeps its card and Review shows the current saved-bank prompt. Two prompts over one line use the first in bank order; changing the line creates a new question. D5's limit is explicit in ADR-20: uniqueness is local to this phone, not cross-device.
+
+`Sync.gradeNewCard` now validates inside `committed` and writes through one Room transaction. The old caller-side validation/`NonCancellable`, partial-card result and two-write path are removed. A failed grade insert rolls back its card, concurrent/restored submissions are no-ops once scheduled, and a committed pair notifies background sync once. Practice and Review name the Canonical line as the only confirmed answer; linked sections are supplementary saved copies with the older-copy/missing-section/failure messages retained. No backend/API, schema (still Room v16), scheduler, dependency, configuration or saved-state-format change.
+
+Red evidence against the pre-fix production code:
+
+- `ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --tests '*PracticeTest' :app:assembleDebug :app:assembleDebugAndroidTest --continue --no-daemon` exited **1**: `7 tests completed, 2 failed`; prompt-only identity and two-prompts/one-line assertions failed. Both APKs built.
+- `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w -e class com.reporead.android.library.PracticeMutationTest com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` exited **0** but ended `Tests run: 5, Failures: 3` (expected red). The forced SQLite grade-insert failure left a card, concurrent/restored submissions produced multiple cards, and the invalid-grade check failed. adb's exit alone is not a pass.
+
+Final local build and device checks (test-only Room stores and loopback HTTP; no real-account writes):
+
+| Exact command | Exit | Terminal result |
+| --- | --- | --- |
+| `./gradlew :backend:spotlessCheck :backend:test --no-daemon` | 0 | `BUILD SUCCESSFUL in 1m 38s`; XML: 289 tests, 0 failures/errors, 3 opt-in skips. Includes the consumed OpenAPI/refusal checks; API spec unchanged. |
+| `ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessApply :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :app:compileDebugAndroidTestKotlin --rerun-tasks --no-daemon` | 0 | `BUILD SUCCESSFUL in 1m 8s`; XML: 80 JVM tests, 0 failures/errors, 1 opt-in skip. Kotlin/Java compilation, Lint, reader syntax/bundle and both signed assemblies executed. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r android/build/outputs/apk/debug/app-debug.apk` | 0 | `Success`; Dev app data kept, release app untouched. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk` | 0 | `Success`. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w -e class com.reporead.android.library.PracticeMutationTest,com.reporead.android.sync.CommittedMutationTest com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` | 0 | `Time: 2.217`; `OK (14 tests)`. Includes rollback, second attempt, invalid/missing/changed-bank checks, concurrent/restored submissions, cancellation and validation after an earlier sync commits. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w -e class com.reporead.android.library.PracticeMutationTest,com.reporead.android.library.PracticeSessionTest,com.reporead.android.library.ReviewLifecycleTest,com.reporead.android.sync.CommittedMutationTest com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` | 0 | `Time: 23.612`; `OK (27 tests)`. Real Practice double-tap and queued-pop, current Review prompt and stale linked-section wording pass. |
+| `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner` | 0 | `Time: 251.377`; `OK (169 tests)`. Full isolated Pixel 8a suite, including migrations, sync, navigation, reader, Practice and Review. |
+| `git diff --check` | 0 | No output. |
+
+**Device UI/full-suite gate passed after the user unlocked the Pixel.** The earlier four-class focused command exited 0 but ended `Tests run: 25, Failures: 13`: twelve screen tests timed out while accessibility showed the lock screen; read-only diagnostics confirmed `mWakefulness=Dozing` and keyguard `showing=true`. The remaining failure was the cancellation fixture's reuse of an existing card's line; it now uses a genuinely new line, keeps its assertions and passes. The first resumed run (`Tests run: 27, Failures: 4`) found the notification shade covering four screen tests. `~/Library/Android/sdk/platform-tools/adb -s adb-3C221JEKB12747-x5KL7i._adb-tls-connect._tcp shell cmd statusbar collapse` exited 0 and dismissed only the shade; no phone setting was changed. With the test Activity visible, the unchanged focused suite and then the full suite passed as recorded above. These green runs supersede the earlier device limitation, not the recorded failed attempts.
+
+Tested APK SHA-256: Dev app `46db198fffcc7362f103e30b67ccc5746466acf8aa43562e2f448dca8d938e2a`; test APK `c8477c37400319f6210bfe881c98e6539c5e3b772102126818b90fc97912849b`. Android README behavior now agrees with ADR-13/ADR-20 on identity, atomic persistence, current Review prompts and the confirmation boundary.
+
+No push, hosted CI/deployment, release installation, phone-setting change, real GitHub smoke test or actual OS process-death test is claimed. `AnchorMeasurement`, `MoveMeasurement`, `RenderedCorpus` and `StudyCorpus` remain opt-in skips because canonical rules and anchoring did not change. Existing SDK XML-version and JVM class-sharing warnings were not changed.
 
 ## Not yet verified on the real system
 
