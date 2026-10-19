@@ -204,6 +204,8 @@ dependencies {
     // A screen's work belongs to its entry's ViewModel, created with viewModel { } and collected while it is started.
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:$lifecycleVersion")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:$lifecycleVersion")
+    // What a ViewModel must restore after process death, kept with its entry's saved state.
+    implementation("androidx.lifecycle:lifecycle-viewmodel-savedstate:$lifecycleVersion")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.webkit:webkit:1.16.0")

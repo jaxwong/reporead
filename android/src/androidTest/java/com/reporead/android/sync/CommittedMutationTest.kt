@@ -272,6 +272,37 @@ class CommittedMutationTest {
             }
     }
 
+    /** A new question's card and its first grade are one commit: leaving between them cannot keep only the card. */
+    @Test
+    fun aNewCardAndItsFirstGradeCommitTogetherAfterTheirScreenLeft() = runBlocking {
+        val arrived = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        LoopbackServer(mapOf(sameLibrary)) {
+                arrived.countDown()
+                check(release.await(10, SECONDS)) { "Test never released the library load" }
+            }
+            .use { server ->
+                val sync = sync(server)
+                val load = holdTheLock(sync)
+                val grading: Job
+                try {
+                    assertTrue(arrived.await(10, SECONDS))
+                    grading = screens.launch {
+                        sync.gradeNewCard(Passage(testSha, "b4", 0, 4, "text"), 1, "Test-only question?", 4)
+                    }
+                    delay(300)
+                    grading.cancel()
+                } finally {
+                    release.countDown()
+                }
+                load.await()
+                grading.join()
+                val card = dao.annotations(1).first().single { it.state == AnnotationState.UNSENT }
+                assertEquals("Test-only question?", card.question)
+                assertEquals(listOf(card.mutationId), dao.pendingReviews().map { it.cardMutationId })
+            }
+    }
+
     @Test
     fun aWriteWaitingForTheLockWhenTheCopyIsRemovedSavesNothing() = runBlocking {
         val arrived = CountDownLatch(1)

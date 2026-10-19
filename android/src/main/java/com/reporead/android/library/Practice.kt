@@ -1,5 +1,6 @@
 package com.reporead.android.library
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,17 +16,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
@@ -33,7 +38,6 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.PracticePage
-import com.reporead.android.data.ReviewRow
 import com.reporead.android.reader.BankAnswer
 import com.reporead.android.reader.BankProblem
 import com.reporead.android.reader.StudyQuestion
@@ -47,11 +51,13 @@ import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
 import com.reporead.android.ui.folderOf
-import java.util.UUID
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -152,9 +158,9 @@ private fun topicName(topic: String?) =
 
 /**
  * Saves a new question's first grade on this phone: its card, whose answer is the question's Canonical line in the
- * saved version it was asked from, then that grade. The background sync sends both. Returns why it saved nothing or
- * only the card, or null. A question that already has a card (graded just before the screen was recreated) is not saved
- * twice.
+ * saved version it was asked from, with that grade (Sync.gradeNewCard). The background sync sends both. Returns why it
+ * saved nothing or only the card, or null. A question that already has a card (graded just before the process was
+ * restored) is not saved twice.
  */
 internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: PracticeQuestion, grade: Int): String? {
     if (scheduledQuestions(listOf(question), dao.notebook().first()).isNotEmpty()) return null
@@ -166,27 +172,17 @@ internal suspend fun gradeNewQuestion(sync: Sync, dao: LibraryDao, question: Pra
     }
     val answer = question.question.answer
     val passage = Passage(question.blobSha, answer.blockId, 0, answer.text.length, answer.text)
-    val card =
-        sync.createAnnotation(passage, question.documentId, null, question.question.prompt)
-            ?: return "Not saved: this question's bank is no longer saved on this phone."
-    val graded =
-        sync.recordReview(
-            ReviewRow(
-                mutationId = UUID.randomUUID().toString(),
-                cardMutationId = card,
-                grade = grade,
-                reviewedAt = System.currentTimeMillis(),
-                blobSha = question.blobSha,
-                pending = true,
-            )
-        )
-    return if (graded) null else "The card was saved but not its grade, so it is due now in Review cards."
+    return when (sync.gradeNewCard(passage, question.documentId, question.question.prompt, grade)) {
+        null -> "Not saved: this question's bank is no longer saved on this phone."
+        false -> "The card was saved but not its grade, so it is due now in Review cards."
+        true -> null
+    }
 }
 
 /** Every listed interview bank and the saved ones' questions, read off the main thread; null until first read. */
 @Composable
 private fun rememberBanks(dao: LibraryDao): Banks? {
-    val pages by dao.bankPages().collectAsState(null)
+    val pages by dao.bankPages().collectAsStateWithLifecycle(null)
     val banks by
         produceState<Banks?>(null, pages) {
             val listed = pages ?: return@produceState
@@ -202,9 +198,9 @@ private fun rememberBanks(dao: LibraryDao): Banks? {
 @Composable
 internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
     val banks = rememberBanks(dao)
-    val cards by dao.notebook().collectAsState(null)
+    val cards by dao.notebook().collectAsStateWithLifecycle(null)
     val outlook = rememberReviewOutlook(dao)
-    val cap by dao.reviewLimit().collectAsState(null)
+    val cap by dao.reviewLimit().collectAsStateWithLifecycle(null)
     Column(Modifier.fillMaxSize()) {
         outlook?.let { EntryRow("Review", outlookLine(it, cap), R.drawable.ic_refresh) { push(Screen.Review) } }
         StatusLine("New questions: each is asked once; your grade puts it on your review schedule.")
@@ -289,20 +285,86 @@ private fun NotQuestions(problems: List<BankProblems>, push: (Screen) -> Unit) {
     }
 }
 
+/** Where a practice session's progress is kept for process restoration. */
+private const val SESSION = "session"
+
+/**
+ * One topic's practice session, kept by its back-stack entry ([entryId]) and restored with it ([saved]): the questions
+ * it asks, where it stands and the grade being saved. A rotation or a covering screen neither loses nor repeats a
+ * grade, and a grade being saved is committed even if the screen is left (Sync.gradeNewCard).
+ */
+internal class PracticeViewModel(
+    private val sync: Sync,
+    private val dao: LibraryDao,
+    private val saved: SavedStateHandle,
+    private val entryId: String,
+) : ViewModel() {
+    data class State(val session: StudySession? = null, val saving: Boolean = false, val notice: String? = null)
+
+    private val current = MutableStateFlow(State(session = saved[SESSION]))
+    val state: StateFlow<State> = current.asStateFlow()
+
+    private fun move(next: StudySession, notice: String? = current.value.notice) {
+        saved[SESSION] = next
+        current.update { it.copy(session = next, saving = false, notice = notice) }
+    }
+
+    /** Chooses the session once, from the topic's [questions] that have no card yet ([scheduled]). */
+    fun start(questions: List<PracticeQuestion>, scheduled: Set<String>) {
+        if (current.value.session != null) return
+        move(
+            StudySession(
+                interleaveByNote(questions.filter { it.key !in scheduled }, Random.nextInt()) { it.documentId }
+                    .map { it.key }
+            )
+        )
+    }
+
+    fun reveal() {
+        current.value.session?.let { move(it.reveal()) }
+    }
+
+    fun skip() {
+        val now = current.value
+        val session = now.session ?: return
+        if (now.saving) Log.i("RepoRead", "Practice skip not taken; entry=$entryId saving=true")
+        else move(session.skip())
+    }
+
+    /** [again]: graded earlier in this session, so this grade only decides whether it comes back; nothing is saved. */
+    fun grade(question: PracticeQuestion, again: Boolean, grade: Int) {
+        val now = current.value
+        val session = now.session ?: return
+        if (now.saving || session.current != question.key || !current.compareAndSet(now, now.copy(saving = true))) {
+            Log.i("RepoRead", "Practice grade not saved again; entry=$entryId saving=${now.saving} key=${question.key}")
+            return
+        }
+        Log.i("RepoRead", "Practice grade started; entry=$entryId key=${question.key} again=$again")
+        viewModelScope.launch {
+            val problem = if (again) null else gradeNewQuestion(sync, dao, question, grade)
+            move(if (problem == null) session.graded(grade) else session.skip(), problem)
+        }
+    }
+}
+
 /**
  * One topic's new questions, one at a time: the question alone, then — after an attempt — the bank's checklist and the
  * linked section, then a grade. The first grade makes the question a card (Review cards brings it back when due); one
  * graded Again comes back later in the session, unsaved, until it is answered right.
  */
 @Composable
-internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (Screen) -> Unit, onBack: () -> Unit) {
+internal fun PracticeScreen(
+    dao: LibraryDao,
+    sync: Sync,
+    topic: String?,
+    entryId: String,
+    push: (Screen) -> Unit,
+    onBack: () -> Unit,
+) {
+    val model = viewModel { PracticeViewModel(sync, dao, createSavedStateHandle(), entryId) }
+    val state by model.state.collectAsStateWithLifecycle()
     val banks = rememberBanks(dao)
-    val cards by dao.notebook().collectAsState(null)
-    // Chosen once from the topic's questions without a card, by key.
-    var session by rememberSaveable { mutableStateOf<StudySession?>(null) }
-    var saving by remember { mutableStateOf(false) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+    val cards by dao.notebook().collectAsStateWithLifecycle(null)
     val questions =
         remember(banks, topic) { banks?.questions?.filter { topic == null || interviewTopic(it.path) == topic } }
     val notebook = cards
@@ -311,12 +373,7 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             if (questions == null || notebook == null) null else scheduledQuestions(questions, notebook)
         }
     LaunchedEffect(questions, scheduled) {
-        if (session != null || questions == null || scheduled == null) return@LaunchedEffect
-        session =
-            StudySession(
-                interleaveByNote(questions.filter { it.key !in scheduled }, Random.nextInt()) { it.documentId }
-                    .map { it.key }
-            )
+        if (questions != null && scheduled != null) model.start(questions, scheduled)
     }
     Scaffold(topBar = { AppBar("Practice · ${topicName(topic)}", onBack = onBack) }) { padding ->
         // Not scrolled as a whole: the answer takes the space left, and the grades stay under it.
@@ -324,12 +381,12 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             Modifier.padding(padding).fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val asked = session
+            val asked = state.session
             if (asked == null || questions == null || scheduled == null) {
                 Text("Reading questions from saved notes…")
                 return@Column
             }
-            StatusLine(notice)
+            StatusLine(state.notice)
             // A session question that has a card here was graded in this session: the cards made, not a counter.
             val key = asked.current
             if (key == null) {
@@ -351,10 +408,9 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
                     )
                     .joinToString(" · "),
                 skip = if (question == null) "Next" else "Skip",
-                enabled = !saving,
-            ) {
-                session = asked.skip()
-            }
+                enabled = !state.saving,
+                onSkip = model::skip,
+            )
             if (question == null) {
                 Text(
                     "This question's bank changed since the session started, so it is skipped. Start a new session for the new version."
@@ -363,25 +419,14 @@ internal fun PracticeScreen(dao: LibraryDao, sync: Sync, topic: String?, push: (
             }
             Text(question.question.prompt, style = MaterialTheme.typography.titleLarge)
             if (!asked.revealed) {
-                AttemptFirst { session = asked.reveal() }
+                AttemptFirst(model::reveal)
                 return@Column
             }
             val again = key in scheduled
             if (again) AskedAgain()
             BankAnswer(question.question, question.documentId, question.path, sync, dao, Modifier.weight(1f), push)
-            GradeBar(enabled = !saving, gaps = if (again) null else gaps(null)) { grade ->
-                saving = true
-                scope.launch {
-                    try {
-                        val problem =
-                            if (again) null
-                            else withContext(NonCancellable) { gradeNewQuestion(sync, dao, question, grade) }
-                        notice = problem
-                        session = if (problem == null) asked.graded(grade) else asked.skip()
-                    } finally {
-                        saving = false
-                    }
-                }
+            GradeBar(enabled = !state.saving, gaps = if (again) null else gaps(null)) { grade ->
+                model.grade(question, again, grade)
             }
         }
     }
