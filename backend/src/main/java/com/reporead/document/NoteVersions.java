@@ -25,7 +25,7 @@ public class NoteVersions {
         this.credentials = credentials;
     }
 
-    public record Rendered(MarkdownRenderer.RenderedNote note, int bytes, String markdown) {}
+    public record Rendered(MarkdownRenderer.RenderedNote note, int bytes) {}
 
     /**
      * A version GitHub no longer has (rewritten history), or one that is not a note RepoRead can read: what callers
@@ -59,7 +59,7 @@ public class NoteVersions {
             throw new ApiFailure(Code.UNSUPPORTED_CONTENT, "This note is not valid UTF-8 text.");
         }
         try {
-            return new Rendered(MarkdownRenderer.render(markdown, blobSha, path), bytes.length, markdown);
+            return new Rendered(MarkdownRenderer.render(markdown, blobSha, path), bytes.length);
         } catch (MarkdownRenderer.ContentRejected rejected) {
             throw new ApiFailure(Code.UNSUPPORTED_CONTENT, rejected.getMessage());
         }

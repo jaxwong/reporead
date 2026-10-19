@@ -13,7 +13,6 @@ import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
 import com.reporead.android.core.network.wire.ConnectionDataCounts
-import com.reporead.android.core.network.wire.DocumentControllerChanges
 import com.reporead.android.core.network.wire.ReadingControllerAnchorRequest
 import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
 import com.reporead.android.core.network.wire.RepositoryConnectionsConnection
@@ -33,9 +32,6 @@ import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.data.SavedVersion
 import java.io.File
-import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -51,9 +47,6 @@ import kotlinx.coroutines.withContext
  * footnotes.
  */
 const val RENDER_FORMAT = 3
-
-/** Where notebook exports are written; res/xml/export_paths.xml shares exactly this directory and nothing else. */
-fun exportDirectory(filesDir: File) = File(filesDir, "exports")
 
 /**
  * The server answered and refused this one request for a reason resending it cannot change (invalid, gone, a
@@ -124,7 +117,7 @@ class Sync(
     @Volatile private var retired = false
     private val oneSyncAtATime = Mutex()
 
-    /** Local writes, network answers and export publication share the same order as removal. */
+    /** Local writes and network answers share the same order as removal. */
     private suspend fun <T> locked(work: suspend () -> T): T = oneSyncAtATime.withLock {
         withContext(Dispatchers.IO) {
             if (retired) throw CancellationException("This phone's local copy was removed")
@@ -154,7 +147,6 @@ class Sync(
 
     /** Saved notes' images; deleted here whenever their notes go. */
     val images = NoteImages(api, filesDir)
-    private val exportRoot = exportDirectory(filesDir)
 
     /** The [paths] a deletion [after] something left, logged; a later sweep or clear deletes them again. */
     private fun logged(after: String, paths: List<File>): List<File> {
@@ -170,12 +162,6 @@ class Sync(
      * start.
      */
     private suspend fun sweepImages(): List<File> = logged("sweeping images", images.sweep(dao.allSavedVersions()))
-
-    /**
-     * Exports are kept only until they are shared: deleted at start, at a disconnect and at a clear, so none outlives
-     * the notes it quotes. An app that reads a shared export only after one of those finds it gone.
-     */
-    private fun deleteExports(): List<File> = logged("deleting exports", deleteTree(exportRoot))
 
     /**
      * Loads the server's whole library in one request, no GitHub call (GET /api/library): the repositories with every
@@ -351,14 +337,6 @@ class Sync(
     }
 
     /**
-     * Which sections changed between [since], the version last read, and [to], the version on screen. Online only;
-     * nothing is cached.
-     */
-    suspend fun changes(documentId: Long, since: String, to: String): DocumentControllerChanges = locked {
-        api.changes(documentId, since, to)
-    }
-
-    /**
      * What disconnecting would delete: [stored] on the server, counted after sending what can be sent, and [unsent]
      * highlights, cards, and grades only on this phone (unsent or refused), deleted too; [notSent] says why some were
      * not sent.
@@ -379,7 +357,6 @@ class Sync(
                 if (error.status != 404 || error.code != "NOT_FOUND") throw error
                 Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
                 loadLibrary()
-                deleteExports()
                 return@locked null
             }
         DisconnectPreview(json, dao.unsentInRepository(repositoryId), synced.notSent)
@@ -389,8 +366,8 @@ class Sync(
      * Online only: the server deletes the connection and everything stored for it, then this phone deletes its copies,
      * including unsynced changes for those notes. A failed request changes nothing on the phone, but the server may
      * already have deleted (its answer lost or unreadable). When the server no longer has the repository, disconnecting
-     * again reloads the server's library instead. Either way exports and the forgotten notes' images are deleted; files
-     * that stay are logged and deleted again by the next sweep.
+     * again reloads the server's library instead. Either way the forgotten notes' images are deleted; files that stay
+     * are logged and deleted again by the next sweep.
      */
     suspend fun disconnect(repositoryId: Long): Unit = committed {
         val json =
@@ -409,7 +386,6 @@ class Sync(
             Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
             sweepImages()
         }
-        deleteExports()
     }
 
     /**
@@ -775,24 +751,6 @@ class Sync(
         )
     }
 
-    /** Owns export files, not their Markdown formatting or Android sharing. A retired copy cannot publish. */
-    suspend fun exportNotebook(markdown: () -> String): File = locked {
-        if (!exportRoot.isDirectory && !exportRoot.mkdirs())
-            throw IOException("Cannot create RepoRead export directory")
-        val file = File(exportRoot, "notebook-${UUID.randomUUID()}.md")
-        val partial = File(exportRoot, "${file.name}.part")
-        try {
-            // Files.writeString requires API 36.1; the app supports API 34.
-            partial.writeText(markdown(), Charsets.UTF_8)
-            Files.move(partial.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
-        } finally {
-            Files.deleteIfExists(partial.toPath())
-        }
-        file
-    }
-
-    suspend fun changesSeen(documentId: Long, since: String) = committed { dao.changesSeen(documentId, since) }
-
     suspend fun dismissRefusedReviews() = locked { dao.dismissRefusedReviews() }
 
     /**
@@ -807,7 +765,7 @@ class Sync(
                 val left =
                     try {
                         store.clearAllTables()
-                        deleteExports() + sweepImages()
+                        sweepImages()
                     } catch (error: SQLiteException) {
                         Log.w("RepoRead", "Could not clear the phone's database", error)
                         return@withContext LocalCleanup.DatabaseFailed(error)
@@ -818,12 +776,11 @@ class Sync(
     }
 
     /**
-     * Once per process, when the app opens: exports from before are deleted, and images Room holds no page of, such as
-     * those a deletion cut short by process death left.
+     * Once per process, when the app opens: deletes images Room holds no page of, such as those a deletion cut short by
+     * process death left.
      */
     suspend fun startUp() {
         locked {
-            deleteExports()
             sweepImages()
         }
     }

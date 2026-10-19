@@ -620,6 +620,10 @@ class AccountTest {
                     release.complete(Unit)
                     assertRetired { oldWrite.await() }
                     assertTrue(oldWrite.isCancelled)
+                    assertRetired { sync.openNote(1) }
+                    assertRetired { sync.refreshLibrary() }
+                    assertRetired { sync.dismissRefusedReviews() }
+                    assertNull(sync.images.image(1, sha, "a.png"))
                     assertEquals(10, dao.reading(1)?.progressPercent)
                 } finally {
                     release.complete(Unit)
@@ -640,51 +644,6 @@ class AccountTest {
                 0,
             )
             assertEquals("Pending removal was bypassed by background sync", emptyList<String>(), server.requests)
-            assertPhoneCleared()
-        }
-    }
-
-    @Test
-    fun anExportAlreadyWritingIsRemovedAndQueuedExportsCannotPublish(): Unit = runBlocking {
-        signedInWithSavedNotes()
-        val writing = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        LoopbackServer(mapOf("DELETE /api/app-auth/session" to (204 to ""))).use { server ->
-            val api = api(server.url)
-            val old = Sync(api, store, directory) {}
-            val account = Account(sessions, api, old, scope, ::forgetSaveAll)
-            account.startUp().join()
-            val exporting = scope.async {
-                old.exportNotebook {
-                    writing.countDown()
-                    check(release.await(10, SECONDS)) { "Test never released the admitted export" }
-                    "# Test-only private notebook"
-                }
-            }
-            assertTrue(writing.await(10, SECONDS))
-            val queued = scope.async {
-                old.exportNotebook { error("A queued retired export must not format or write") }
-            }
-            try {
-                account.signOut()
-                assertTrue(account.state.value is AccountState.Removing)
-                // Removal cannot finish while the admitted exporter owns the publication lock.
-                assertTrue(sessions.removalPending)
-                assertEquals(5L, sessions.dataOwner)
-            } finally {
-                release.countDown()
-            }
-            val file = exporting.await()
-            assertEquals(AccountState.Idle(null), account.settled())
-            assertFalse(file.exists())
-            assertRetired { queued.await() }
-            assertRetired { old.exportNotebook { error("A retired export must not write") } }
-            assertRetired { old.openNote(1) }
-            assertRetired { old.refreshLibrary() }
-            assertRetired { old.changesSeen(1, sha) }
-            assertRetired { old.dismissRefusedReviews() }
-            assertNull(old.images.image(1, sha, "a.png"))
-            assertEquals(listOf("DELETE /api/app-auth/session"), server.requests)
             assertPhoneCleared()
         }
     }

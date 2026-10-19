@@ -15,7 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** The page the figure, link preview and bank answer are shown in; a test-only note and zero network calls. */
+/** The page the link preview and bank answer are shown in; a test-only note and zero network calls. */
 @RunWith(AndroidJUnit4::class)
 class IsolatedPageTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -55,7 +55,6 @@ class IsolatedPageTest {
                         note,
                         "Test-only page",
                         null,
-                        onFullScreen = null,
                         { error("The page did not render") },
                     ) {
                         shown.countDown()
@@ -97,7 +96,6 @@ class IsolatedPageTest {
                         note,
                         "Test-only page",
                         null,
-                        onFullScreen = null,
                         { failed.countDown() },
                     ) {
                         shown.countDown()

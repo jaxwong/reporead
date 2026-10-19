@@ -79,6 +79,14 @@ val ANNOTATION_STATE_10_11 =
         }
     }
 
+/** v15: change summaries were retired; no user-owned row is removed. */
+val REMOVE_CHANGE_SUMMARIES_14_15 =
+    object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("drop table change_baselines")
+        }
+    }
+
 @Database(
     entities =
         [
@@ -91,9 +99,8 @@ val ANNOTATION_STATE_10_11 =
             AnnotationRow::class,
             ReviewRow::class,
             ReviewLimitRow::class,
-            ChangeBaselineRow::class,
         ],
-    version = 14,
+    version = 15,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -116,6 +123,8 @@ abstract class LocalStore : RoomDatabase() {
     companion object {
         /** The database file [name] with every migration: the automatic ones above and the hand-written ones here. */
         fun open(context: Context, name: String): LocalStore =
-            Room.databaseBuilder(context, LocalStore::class.java, name).addMigrations(ANNOTATION_STATE_10_11).build()
+            Room.databaseBuilder(context, LocalStore::class.java, name)
+                .addMigrations(ANNOTATION_STATE_10_11, REMOVE_CHANGE_SUMMARIES_14_15)
+                .build()
     }
 }

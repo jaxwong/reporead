@@ -273,14 +273,6 @@ enum class CardBlock(val reason: String) {
     UNCONFIRMED("Check this card: confirm its answer"),
 }
 
-/**
- * The version a note was last read in before a newer one was shown, kept until a change summary from it has been shown,
- * so opening the note offline or leaving before the summary loads does not use it up. Phone-only: what the user has not
- * seen yet is not the server's.
- */
-@Entity(tableName = "change_baselines")
-data class ChangeBaselineRow(@PrimaryKey val documentId: Long, val sinceBlobSha: String)
-
 /** Pending grades and the server log share the same immutable client mutation id. */
 @Entity(tableName = "review_log", indices = [Index("cardMutationId")])
 data class ReviewRow(

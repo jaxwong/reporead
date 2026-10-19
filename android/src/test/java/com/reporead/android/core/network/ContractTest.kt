@@ -6,12 +6,10 @@ import com.reporead.android.core.network.wire.AnnotationsAnnotation
 import com.reporead.android.core.network.wire.AppSessionsIssuedSession
 import com.reporead.android.core.network.wire.AppUser
 import com.reporead.android.core.network.wire.ConnectionDataDisconnected
-import com.reporead.android.core.network.wire.DocumentControllerChanges
 import com.reporead.android.core.network.wire.DocumentControllerContent
 import com.reporead.android.core.network.wire.DocumentsSummary
 import com.reporead.android.core.network.wire.LibraryRepository
 import com.reporead.android.core.network.wire.LibrarySnapshot
-import com.reporead.android.core.network.wire.NoteChangesSection
 import com.reporead.android.core.network.wire.ReadingStatesAnchor
 import com.reporead.android.core.network.wire.ReadingStatesState
 import com.reporead.android.core.network.wire.RepositoryConnectionsAvailable
@@ -55,8 +53,6 @@ class ContractTest {
         }
         requiredNullable<LibraryRepository>(json(testRepository()), "lastSyncedCommitSha")
         requiredNullable<DocumentsSummary>(json(testDocument()), "contentChangedAt")
-        requiredNullable<DocumentControllerChanges>(json(testChanges()), "reason")
-        requiredNullable<NoteChangesSection>(json(testChanges().sections.single()), "blockId")
         requiredNullable<RepositoryConnectionsAvailable>(json(testAvailable()), "connectionId")
         requiredNullable<ReadingStatesAnchor>(json(testReading().anchor), "textPrefix")
         broken<ReviewsReview>(json(testReview()).with("grade", null))

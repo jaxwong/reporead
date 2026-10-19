@@ -10,12 +10,10 @@ import com.reporead.android.core.network.wire.AppUser
 import com.reporead.android.core.network.wire.BookmarksBookmark
 import com.reporead.android.core.network.wire.ConnectionDataCounts
 import com.reporead.android.core.network.wire.ConnectionDataDisconnected
-import com.reporead.android.core.network.wire.DocumentControllerChanges
 import com.reporead.android.core.network.wire.DocumentControllerContent
 import com.reporead.android.core.network.wire.DocumentsSummary
 import com.reporead.android.core.network.wire.LibraryRepository
 import com.reporead.android.core.network.wire.LibrarySnapshot
-import com.reporead.android.core.network.wire.NoteChangesSection
 import com.reporead.android.core.network.wire.ReadingStatesAnchor
 import com.reporead.android.core.network.wire.ReadingStatesState
 import com.reporead.android.core.network.wire.RepositoryConnectionsAvailable
@@ -165,28 +163,6 @@ internal fun testContent() =
         sourceBlobSha = testSha,
         text = "text",
         title = "Test-only note",
-    )
-
-/** Note 1 from [testSha] to [testCommit]: one added section at the beginning. */
-internal fun testChanges() =
-    DocumentControllerChanges(
-        addedLines = 1,
-        documentId = 1,
-        reason = null,
-        removedLines = 0,
-        sections =
-            listOf(
-                NoteChangesSection(
-                    addedLines = 1,
-                    blockId = null,
-                    change = NoteChangesSection.Change.ADDED,
-                    headingPath = emptyList(),
-                    removedLines = 0,
-                )
-            ),
-        sinceBlobSha = testSha,
-        status = DocumentControllerChanges.Status.CHANGED,
-        toBlobSha = testCommit,
     )
 
 internal fun testAvailable() =

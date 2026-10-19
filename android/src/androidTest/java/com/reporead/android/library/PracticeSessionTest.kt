@@ -1,8 +1,5 @@
 package com.reporead.android.library
 
-import android.os.SystemClock
-import android.view.InputDevice
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -66,7 +63,7 @@ class PracticeSessionTest {
         """<p data-block-id="$id" data-anchor-text="Canonical answer: $text">""" +
             """<strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Ftopic%2Fcore.md&amp;heading=$heading">$text</a></p>"""
 
-    /** A table too wide for the screen, so the page gives it a Full screen link. */
+    /** A wide table in the saved answer section. */
     private val wideTable =
         "<table><tr>" + (1..20).joinToString("") { "<td>test-only-wide-column-$it</td>" } + "</tr></table>"
     /** What the session asked the app to open. */
@@ -330,53 +327,6 @@ class PracticeSessionTest {
             withTimeout(5_000) { while (dao.pendingReviews().isEmpty()) delay(20) }
             assertEquals(1, dao.waitingAnnotations().size)
             assertEquals(1, dao.pendingReviews().size)
-        }
-    }
-
-    @Test
-    fun fullScreenInAnAnswerOpensThatFigureOfTheLinkedNote() =
-        runBlocking<Unit> {
-            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
-                click("Show answer")
-                // The page numbers figures over the whole note, as the full-screen view does, though it shows one
-                // section.
-                val figure = if (shownAnswer(scenario) == "First answer") "table-0" else "table-1"
-                val link =
-                    evaluate(
-                        scenario,
-                        """
-                const row = document.querySelector('[data-figure="$figure"]').previousElementSibling;
-                const rect = row.querySelector('a').getBoundingClientRect();
-                return {hidden: row.hidden, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2};
-            """
-                            .trimIndent(),
-                    )
-                assertTrue("The table is wide enough for a Full screen link: $link", !link.getBoolean("hidden"))
-                tapPage(scenario, link.getDouble("x"), link.getDouble("y"))
-                withTimeout(5_000) { while (pushed.isEmpty()) delay(20) }
-                assertEquals(listOf(Screen.Figure(2, coreSha, figure, "Test-only core", "d".repeat(40))), pushed)
-            }
-        }
-
-    /** A real touch on the answer page at CSS pixel ([x], [y]); the app follows only links the user tapped. */
-    private fun tapPage(scenario: ActivityScenario<TestHostActivity>, x: Double, y: Double) {
-        var screenX = 0f
-        var screenY = 0f
-        scenario.onActivity { activity ->
-            val view = checkNotNull(findWebView(activity.window.decorView)) { "Answer page is missing" }
-            val origin = IntArray(2).also(view::getLocationOnScreen)
-            val density = activity.resources.displayMetrics.density
-            screenX = origin[0] + (x * density).toFloat()
-            screenY = origin[1] + (y * density).toFloat()
-        }
-        val down = SystemClock.uptimeMillis()
-        for ((action, at) in listOf(MotionEvent.ACTION_DOWN to down, MotionEvent.ACTION_UP to down + 50)) {
-            val event =
-                MotionEvent.obtain(down, at, action, screenX, screenY, 0).apply {
-                    source = InputDevice.SOURCE_TOUCHSCREEN
-                }
-            assertTrue("Could not inject a tap", instrumentation.uiAutomation.injectInputEvent(event, true))
-            event.recycle()
         }
     }
 

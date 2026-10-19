@@ -39,7 +39,6 @@ import com.reporead.android.library.LibraryScreen
 import com.reporead.android.library.NotebookScreen
 import com.reporead.android.library.PracticeScreen
 import com.reporead.android.library.ReviewScreen
-import com.reporead.android.reader.FigureScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
 import com.reporead.android.sync.LocalCleanup
@@ -59,16 +58,6 @@ sealed interface Screen {
 
     /** A note, opened once at [openAt] and otherwise where it was last read. */
     @Serializable data class Reader(val documentId: Long, val title: String, val openAt: OpenAt? = null) : Screen
-
-    /** One table or diagram ([figure], the page's id for it) of the saved version [blobSha] of a note, full screen. */
-    @Serializable
-    data class Figure(
-        val documentId: Long,
-        val blobSha: String,
-        val figure: String,
-        val title: String,
-        val snapshotCommitSha: String?,
-    ) : Screen
 
     @Serializable data object Notebook : Screen
 
@@ -206,8 +195,7 @@ fun RepoReadApp(
                 is Screen.Folder ->
                     FolderScreen(sync, dao, signedIn, entry.id, screen, push, onBack, onDisconnected = popToRoot)
                 is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, entry.id, screen, onBack, push)
-                is Screen.Figure -> FigureScreen(sync, dao, screen, onBack)
-                Screen.Notebook -> NotebookScreen(dao, sync, entry.id, push, onBack)
+                Screen.Notebook -> NotebookScreen(dao, push, onBack)
                 Screen.Review -> ReviewScreen(dao, sync, entry.id, push, onBack)
                 is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, entry.id, push, onBack)
                 Screen.Search -> SearchScreen(dao, push, onBack)

@@ -17,7 +17,6 @@ import com.reporead.android.core.network.wire.AppSessionsIssuedSession
 import com.reporead.android.core.network.wire.BookmarksBookmark
 import com.reporead.android.core.network.wire.ConnectionDataCounts
 import com.reporead.android.core.network.wire.ConnectionDataDisconnected
-import com.reporead.android.core.network.wire.DocumentControllerChanges
 import com.reporead.android.core.network.wire.DocumentControllerContent
 import com.reporead.android.core.network.wire.LibrarySnapshot
 import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
@@ -100,11 +99,6 @@ class Api(
 
     suspend fun noteContent(id: Long): DocumentControllerContent =
         json("GET", "/api/documents/$id/content") { it.documentId == id }
-
-    suspend fun changes(id: Long, since: String, to: String): DocumentControllerChanges =
-        json("GET", "/api/documents/$id/changes?since=${query(since)}&to=${query(to)}") {
-            it.documentId == id && it.sinceBlobSha == since && it.toBlobSha == to
-        }
 
     suspend fun saveReading(id: Long, request: ReadingControllerSaveRequest): ReadingStatesState =
         json("PUT", "/api/documents/$id/reading-state", wireJson.encodeToString(request)) { it.documentId == id }

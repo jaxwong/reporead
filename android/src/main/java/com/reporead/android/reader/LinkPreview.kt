@@ -123,7 +123,6 @@ private fun previewView(
             note,
             "Link preview",
             heading?.let { "window.reporead.showHeading(${JSONObject.quote(it)})" },
-            onFullScreen = null,
             onFailed = {
                 onNotice("This note could not be previewed.")
                 onFailed()

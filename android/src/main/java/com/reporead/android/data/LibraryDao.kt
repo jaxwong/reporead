@@ -94,9 +94,6 @@ interface LibraryDao {
     @Query("delete from annotations where documentId in (:documentIds)")
     suspend fun deleteAnnotations(documentIds: List<Long>)
 
-    @Query("delete from change_baselines where documentId in (:documentIds)")
-    suspend fun deleteBaselines(documentIds: List<Long>)
-
     /**
      * Removes everything this phone saved for a disconnected repository: the repository, its note list, and the saved
      * notes, reading states, bookmarks, and highlights (pending ones too) of [documentIds], the server's complete list.
@@ -109,7 +106,6 @@ interface LibraryDao {
             deleteBookmarks(chunk)
             deleteReviewsOnDocuments(chunk)
             deleteAnnotations(chunk)
-            deleteBaselines(chunk)
         }
         clearDocuments(repositoryId)
         deleteRepository(repositoryId)
@@ -253,57 +249,35 @@ interface LibraryDao {
     suspend fun reading(documentId: Long): ReadingRow?
 
     /**
-     * Read notes whose current version in the saved note lists is not the one last read, or whose changes since an
-     * older version have not been shown yet; most recently changed first. [ChangedNote.lastReadBlobSha] is that
-     * baseline.
+     * Read notes whose current version in the saved note lists is not the one last read; most recently changed first.
      */
     @Query(
-        """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, coalesce(b.sinceBlobSha, r.lastReadBlobSha) as lastReadBlobSha
-              from reading_states r join documents d on d.id = r.documentId left join change_baselines b on b.documentId = d.id
-              where not d.deleted and (d.blobSha != r.lastReadBlobSha or b.sinceBlobSha is not null)
+        """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
+              from reading_states r join documents d on d.id = r.documentId
+              where not d.deleted and d.blobSha != r.lastReadBlobSha
               order by d.changedAt is null, d.changedAt desc, r.lastReadAt desc"""
     )
     fun updatedSinceRead(): Flow<List<ChangedNote>>
 
     /**
-     * The most recently changed notes other than those updated since read: never read, or read (and seen) in their
-     * current version.
+     * The most recently changed notes other than those updated since read: never read, or read in their current
+     * version.
      */
     @Query(
         """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
               from documents d left join reading_states r on r.documentId = d.id
               where not d.deleted and d.changedAt is not null and (r.lastReadBlobSha is null or r.lastReadBlobSha = d.blobSha)
-              and d.id not in (select documentId from change_baselines)
               order by d.changedAt desc limit :limit"""
     )
     fun recentlyChanged(limit: Int): Flow<List<ChangedNote>>
 
-    @Query("select sinceBlobSha from change_baselines where documentId = :documentId")
-    suspend fun changeBaseline(documentId: Long): String?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBaseline(row: ChangeBaselineRow)
-
-    /** The summary of changes since [since] has been shown; a different baseline set meanwhile stays. */
-    @Query("delete from change_baselines where documentId = :documentId and sinceBlobSha = :since")
-    suspend fun changesSeen(documentId: Long, since: String)
-
     /**
-     * Saves the reader's position in the version it displayed. Moving to another version keeps the version left behind
-     * as the change baseline, unless an older one is still unseen, so the next summary covers every change not yet
-     * seen. Only for a note this phone lists ([document], removed ones too): a save that arrives after a clear or a
-     * disconnect has no note, writes nothing, and returns false.
+     * Saves the reader's position in the version it displayed. Only for a note this phone lists ([document], removed
+     * ones too): a save that arrives after a clear or a disconnect has no note, writes nothing, and returns false.
      */
     @Transaction
     suspend fun saveDisplayedReading(row: ReadingRow): Boolean {
         if (document(row.documentId) == null) return false
-        val previous = reading(row.documentId)
-        if (
-            previous != null &&
-                previous.lastReadBlobSha != row.lastReadBlobSha &&
-                changeBaseline(row.documentId) == null
-        ) {
-            saveBaseline(ChangeBaselineRow(row.documentId, previous.lastReadBlobSha))
-        }
         saveReading(row)
         return true
     }

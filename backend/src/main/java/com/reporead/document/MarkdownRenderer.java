@@ -149,14 +149,8 @@ public final class MarkdownRenderer {
     private MarkdownRenderer() {}
 
     public record Block(String id, String text, List<String> headingPath) {}
-    /**
-     * A heading block and the 0-based line of {@link #sourceLines} where it starts: its section runs to the next
-     * heading.
-     */
-    public record Heading(String blockId, int line, List<String> headingPath) {}
-
     /** One operation's page DOM and canonical facts; image paths bind before the page is serialized. */
-    public record RenderedNote(Document page, List<Block> blocks, int diagramCount, List<Heading> headings) {}
+    public record RenderedNote(Document page, List<Block> blocks, int diagramCount) {}
 
     public static final class ContentRejected extends IllegalArgumentException {
         public ContentRejected(String message) {
@@ -171,18 +165,16 @@ public final class MarkdownRenderer {
     public static RenderedNote render(String markdown, String sourceBlobSha, String documentPath) {
         checkInput(markdown, sourceBlobSha, documentPath);
         var parsed = parse(markdown);
-        var headingLines = headingLines(parsed);
         var clean = sanitize(parsed);
         int images = rewriteImages(clean, documentPath);
         linkNotes(clean, documentPath, images);
         markFootnotes(clean);
         tidyBlocks(clean);
-        var numbered = numberBlocks(clean, headingLines);
+        var numbered = numberBlocks(clean);
         return new RenderedNote(
                 page(clean, numbered.blocks().isEmpty(), sourceBlobSha, documentPath),
                 numbered.blocks(),
-                numbered.diagrams(),
-                numbered.headings());
+                numbered.diagrams());
     }
 
     private static void checkInput(String markdown, String sourceBlobSha, String documentPath) {
@@ -221,19 +213,6 @@ public final class MarkdownRenderer {
         var escaped = new StringBuilder(source);
         for (int at : definitions.reversed()) escaped.insert(at, '\\');
         return PARSER.parse(escaped.toString());
-    }
-
-    /** The 0-based source line of each heading, in document order, for sourceLines-based change summaries. */
-    private static List<Integer> headingLines(org.commonmark.node.Node parsed) {
-        var headingLines = new ArrayList<Integer>();
-        parsed.accept(new AbstractVisitor() {
-            @Override
-            public void visit(org.commonmark.node.Heading heading) {
-                headingLines.add(heading.getSourceSpans().getFirst().getLineIndex());
-                visitChildren(heading);
-            }
-        });
-        return headingLines;
     }
 
     /** CommonMark's HTML (raw HTML escaped, URLs sanitized) through the jsoup safelist. */
@@ -283,16 +262,15 @@ public final class MarkdownRenderer {
         for (var lineBreak : clean.select("br")) lineBreak.remove();
     }
 
-    private record Numbered(List<Block> blocks, List<Heading> headings, int diagrams) {}
+    private record Numbered(List<Block> blocks, int diagrams) {}
 
     /**
      * Gives each anchorable block (one with no nested candidate block) its id, canonical text and heading path, and
-     * marks Mermaid diagrams within their bounds. Heading blocks are paired, in order, with the parser's heading lines.
+     * marks Mermaid diagrams within their bounds.
      */
-    private static Numbered numberBlocks(Document clean, List<Integer> headingLines) {
+    private static Numbered numberBlocks(Document clean) {
         String[] headings = new String[6];
         var blocks = new ArrayList<Block>();
-        var headingBlocks = new ArrayList<Heading>();
         int diagrams = 0;
         for (var element : clean.body().getAllElements()) {
             String tag = element.tagName();
@@ -322,17 +300,8 @@ public final class MarkdownRenderer {
                 element.attr("data-mermaid", "");
             }
             blocks.add(new Block(id, text, List.copyOf(headingPath)));
-            if (tag.matches("h[1-6]")) {
-                if (headingBlocks.size() == headingLines.size())
-                    throw new IllegalStateException("Rendered more headings than the parser found");
-                headingBlocks.add(new Heading(id, headingLines.get(headingBlocks.size()), List.copyOf(headingPath)));
-            }
         }
-        if (headingBlocks.size() != headingLines.size()) {
-            throw new IllegalStateException("Rendered " + headingBlocks.size() + " heading blocks for "
-                    + headingLines.size() + " parsed headings");
-        }
-        return new Numbered(List.copyOf(blocks), List.copyOf(headingBlocks), diagrams);
+        return new Numbered(List.copyOf(blocks), diagrams);
     }
 
     /** The reader page around the note: CSP, the bundled script and style, and the limits the page enforces. */
@@ -397,24 +366,6 @@ public final class MarkdownRenderer {
                 throw new ContentRejected("Rendered HTML exceeds the " + MAX_PAGE_BYTES + "-byte saved-page limit");
             }
         }
-    }
-
-    /**
-     * The source split into lines as the parser numbers them: a line ends at \n, \r\n, or \r; a final line break adds
-     * no line.
-     */
-    public static List<String> sourceLines(String markdown) {
-        var lines = new ArrayList<String>();
-        int start = 0;
-        for (int i = 0; i < markdown.length(); i++) {
-            char c = markdown.charAt(i);
-            if (c != '\n' && c != '\r') continue;
-            lines.add(markdown.substring(start, i));
-            if (c == '\r' && i + 1 < markdown.length() && markdown.charAt(i + 1) == '\n') i++;
-            start = i + 1;
-        }
-        if (start < markdown.length()) lines.add(markdown.substring(start));
-        return List.copyOf(lines);
     }
 
     /**

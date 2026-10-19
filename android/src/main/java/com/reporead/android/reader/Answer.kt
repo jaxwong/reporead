@@ -55,7 +55,7 @@ private sealed interface LinkedNote {
  * A bank question's answer, shown after an attempt: what the bank says a complete answer covers, to grade against, then
  * the core section its Canonical line links (one at a time when it links several), alone and from the copy saved on
  * this phone, filling the height [modifier] gives it. Works offline; nothing is fetched. [push] opens the linked note
- * at that heading, or a table or diagram of the section full screen.
+ * at that heading.
  */
 @Composable
 internal fun BankAnswer(
@@ -170,17 +170,6 @@ private fun ColumnScope.AnswerSection(
                             link.heading,
                             onProblem = { notice = it },
                             onFailed = { failed = true },
-                            onFigure = { figure ->
-                                push(
-                                    Screen.Figure(
-                                        saved.documentId,
-                                        saved.blobSha,
-                                        figure,
-                                        saved.title,
-                                        saved.snapshotCommitSha,
-                                    )
-                                )
-                            },
                         )
                     },
                     onRelease = { it.destroy() },
@@ -193,9 +182,7 @@ private fun ColumnScope.AnswerSection(
 /**
  * The saved [note] as an isolated reader page showing only the section under [heading] (the whole note for null). It
  * stays hidden until the rest is gone, so the top of the note never flashes first, and hidden when the heading is not
- * in this version: the problem is reported instead of showing an unrelated part. The page never navigates; a tapped
- * Full screen link passes the page's id for that table or diagram to [onFigure], numbered over the whole note as the
- * full-screen view numbers it.
+ * in this version: the problem is reported instead of showing an unrelated part. The page never navigates.
  */
 private fun sectionView(
     context: Context,
@@ -204,7 +191,6 @@ private fun sectionView(
     heading: String?,
     onProblem: (String) -> Unit,
     onFailed: () -> Unit,
-    onFigure: (String) -> Unit,
 ): WebView =
     WebView(context).apply {
         showIsolatedPage(
@@ -212,7 +198,6 @@ private fun sectionView(
             note,
             "Answer section",
             "window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})",
-            onFullScreen = onFigure,
             onFailed = {
                 onProblem("${note.title} could not be shown.")
                 onFailed()
