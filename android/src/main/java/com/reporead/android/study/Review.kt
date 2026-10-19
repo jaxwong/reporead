@@ -1,4 +1,4 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
@@ -44,9 +44,6 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReviewRow
-import com.reporead.android.reader.BankAnswer
-import com.reporead.android.reader.StudyQuestion
-import com.reporead.android.reader.interviewBank
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.StatusLine

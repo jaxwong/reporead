@@ -2,6 +2,8 @@ package com.reporead.android.library
 
 import com.reporead.android.data.DocumentRow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FolderTest {
@@ -42,5 +44,26 @@ class FolderTest {
     fun emptyLibraryAndMissingFolderAreEmpty() {
         assertEquals(emptyList<String>() to emptyList<DocumentRow>(), children(emptyList(), ""))
         assertEquals(emptyList<String>() to emptyList<DocumentRow>(), children(documents, "missing"))
+    }
+
+    @Test
+    fun folderFilterUsesPathBoundariesAndIncludesDescendants() {
+        assertTrue(inPracticeFolder("core/db/a.md", " core/ "))
+        assertTrue(inPracticeFolder("core/db/a.md", "/core/db/"))
+        assertTrue(inPracticeFolder("root.md", ""))
+        assertFalse(inPracticeFolder("core-extra/a.md", "core"))
+        assertFalse(inPracticeFolder("books/a.md", "core"))
+    }
+
+    @Test
+    fun topicsUseOnlyActualFoldersAndIncludeEachAncestorOnce() {
+        assertEquals(
+            listOf("core", "core/db", "core/db/sql", "core-extra"),
+            practiceTopics(
+                listOf("root.md", "core/db/sql/a.md", "core/db/b.md", "core-extra/a.md", "core/db/sql/c.md")
+            ),
+        )
+        assertEquals(emptyList<String>(), practiceTopics(emptyList()))
+        assertEquals(emptyList<String>(), practiceTopics(listOf("root.md")))
     }
 }

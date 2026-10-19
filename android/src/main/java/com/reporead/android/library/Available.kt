@@ -24,8 +24,6 @@ import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.Load
-import com.reporead.android.core.network.LoadContent
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.wire.RepositoryConnectionsAvailable
 import com.reporead.android.core.network.wire.RepositoryConnectionsConnection
@@ -33,6 +31,8 @@ import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
+import com.reporead.android.ui.Load
+import com.reporead.android.ui.LoadContent
 import com.reporead.android.ui.StatusLine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

@@ -1,4 +1,4 @@
-package com.reporead.android.reader
+package com.reporead.android.study
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

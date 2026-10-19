@@ -82,6 +82,12 @@ class NavigationTest {
     }
 
     @Test
+    fun sessionsSavedBeforeTheStudyPackageMoveAreNotRestored() {
+        val saved = Bundle().apply { putInt(NAVIGATION_STATE_FORMAT_KEY, 3) }
+        assertNull(compatibleSavedState(saved))
+    }
+
+    @Test
     fun composeOwnedSessionsAreNotAcceptedAsViewModelSavedState() {
         // c1f4a90 saved sessions in Compose, not in each entry's SavedStateHandle.
         val saved = Bundle().apply { putInt(NAVIGATION_STATE_FORMAT_KEY, 1) }

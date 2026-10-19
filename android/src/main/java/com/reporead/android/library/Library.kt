@@ -48,6 +48,8 @@ import com.reporead.android.core.network.describe
 import com.reporead.android.data.ChangedNote
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.RepositoryRow
+import com.reporead.android.study.PracticeTab
+import com.reporead.android.study.rememberReviewOutlook
 import com.reporead.android.sync.RefusedChange
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar

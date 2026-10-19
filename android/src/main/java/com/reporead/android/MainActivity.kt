@@ -17,8 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 
 internal const val NAVIGATION_STATE_FORMAT_KEY = "navigationStateFormat"
-/** Format 2 may contain the removed figure destination, which this build cannot deserialize. */
-internal const val NAVIGATION_STATE_FORMAT = 3
+/** Older formats may contain the removed figure destination or StudySession's former serialized class name. */
+internal const val NAVIGATION_STATE_FORMAT = 4
 
 /**
  * Compose keys saved UI state by position, so the old string-list stack cannot be read as Navigation 3 state. Drop

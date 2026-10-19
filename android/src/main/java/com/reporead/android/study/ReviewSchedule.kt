@@ -1,4 +1,4 @@
-package com.reporead.android.library
+package com.reporead.android.study
 
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.NotebookItem

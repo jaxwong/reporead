@@ -37,10 +37,10 @@ import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
 import com.reporead.android.library.NotebookScreen
-import com.reporead.android.library.PracticeScreen
-import com.reporead.android.library.ReviewScreen
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
+import com.reporead.android.study.PracticeScreen
+import com.reporead.android.study.ReviewScreen
 import com.reporead.android.sync.Sync
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope

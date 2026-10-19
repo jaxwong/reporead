@@ -1,5 +1,6 @@
-package com.reporead.android.reader
+package com.reporead.android.study
 
+import com.reporead.android.reader.noteLinkParameters
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.Jsoup
