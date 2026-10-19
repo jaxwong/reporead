@@ -432,3 +432,87 @@ synthetic-registry restoration helper remains in parallel.
 **Consequences.** `RefreshOnEntry`, `rememberLoad`, Available's connect helper and the reader's app-scope writes are deleted. `appScope` reaches only `ReaderSession`, whose page work and position saves are unchanged; `rememberCoroutineScope` only scrolls the reader's WebView. Leaving a reader while a new highlight is sent cancels the foreground send; it is saved, and the background sync sends it (ADR-08). A folder preview or refresh now disables the folder's other actions. Device tests host screens in the production `rememberEntries`/`ShownEntry` (`TestEntries`); `lifecycle-viewmodel-compose`, `lifecycle-runtime-compose` and `lifecycle-viewmodel-savedstate` are declared at the Lifecycle 2.10.0 already resolved.
 
 **Evidence** (2026-10-19). Reproduced before the fix: the new `AppNavigationTest` cases, built against `main` (c1f4a90) with only the test files changed, failed 12 of 14: T1 (preview through recreation), T2 (connect through recreation), T3 (no sync on recreation), T4 (refresh while covered), rotation during a refresh, T5 (edit outcome after recreation), T9 for disconnect and connect, T10 (real 45 s timeout, then a retry), T11 (export), T14 (double-tapped refresh) and T16 (summary fetched while covered). A restored folder replaying nothing (T15) and a double-tapped Sync now pass on `main` too and stay as regression guards. On this change, the Pixel 8a device suite passed, `OK (173 tests)` (APK b32c8a2c27ea4721), with the README checks (`spotlessCheck`, `lintDebug`, `testDebugUnitTest`, both assemblies) exiting 0. Beyond those: `CommittedMutationTest` (each mutation committed once after its caller is cancelled, within its call count; queued local writes; retirement refusing a queued write; card and first grade together), `NotebookExportTest` (T11), T15 restoration of a practice session and of a folder, T17 (a failed load keeps saved notes; an empty repository says so) and `ReaderViewModelTest` (T14 at the action boundary). Not verified: the phone end-to-end table (rotation settings, `am kill`, `install -r`; each needs approval), live GitHub connect, refresh and disconnect, a missing share target, and process death during a committed mutation, whose outcome is the existing pending/unknown handling; exactly-once effects across process death are not promised.
+
+### PR4 audit follow-up verification (2026-10-19)
+
+Code commit `dbe7f63` fixes the cancelled Practice validation, busy reader dialog admission, incompatible saved-state
+format, submitted-edit recovery, and summary-fetch ownership described above. Eight device regressions were added.
+Before the fixes, seven initial selected tests against `e0d28a1` ended with `Tests run: 7, Failures: 5`: the queued
+acknowledgement, busy editor, interrupted submitted edit, queued Practice grade and old saved-state format failed.
+The existing admission guard and summary load/retry checks passed already. The acknowledgement check was subsequently
+strengthened to allow the resumed presentation callback to precede the sign-in effect; fetch cancellation/re-sign-in
+and saved conflict restoration were added afterwards.
+
+The first expanded full run exposed a bug in the new conflict path (`Tests run: 181, Failures: 1`): a nullable `let`
+returned null after publishing the conflict, so its Elvis branch also cleared the submitted input. An explicit
+missing/present-row branch fixed it. The conflict-restoration test and all four reader-owner tests then ended with
+`OK (5 tests)`, time **5.32 s**. No assertion was removed or timeout extended.
+
+From the repository root, the committed code passed the following command, exit **0**:
+
+```sh
+ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:spotlessCheck :app:lintDebug :app:testDebugUnitTest :app:mergeDebugAssets :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+```
+
+```text
+BUILD SUCCESSFUL in 27s
+91 actionable tasks: 30 executed, 61 up-to-date
+```
+
+The JVM XML results contain **78 passed, 1 skipped, 0 failures/errors**; the skipped check is the opt-in personal study
+corpus. Both Kotlin compilations and the reader assets/check are included above. The installed SDK's XML-version
+warning remains; no dependency or toolchain was upgraded. APK SHA-256 values:
+
+- App: `71a8904c36262b4af790fd59c08ae7bb607dc721990b3b63c7985bd15452dcc6`.
+- Device tests: `60d402fa487d481b4d2ae2424fb3f0800ef843c72c4ad3cd32170ed03cb00c22`.
+
+The user authorized the Pixel 8a connection and isolated tests. Both installs reported `Success` (exit **0**):
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r android/build/outputs/apk/debug/app-debug.apk
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> install -r -t android/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+That full run ended with a timeout in the existing `AppNavigationTest.signingInOverOwnerlessDataRetiresTheOldStack`,
+whose final Back-exit wait has a 10-second deadline. All new regressions passed. ADB returned **0**, but the terminal
+result was a failure:
+
+```text
+Time: 272.31
+FAILURES!!!
+Tests run: 181,  Failures: 1
+```
+
+The unchanged installed APKs then passed that test alone (exit **0**):
+
+```sh
+~/Library/Android/sdk/platform-tools/adb -s <Pixel-serial> shell am instrument -w -e class com.reporead.android.AppNavigationTest#signingInOverOwnerlessDataRetiresTheOldStack com.reporead.android.dev.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+```text
+Time: 3.348
+OK (1 test)
+```
+
+This does not establish the timeout's cause. No navigation code, Back assertion or deadline was changed to hide it.
+One further complete run, using the same installed APKs and the same full-suite command above, exited **0**:
+
+```text
+Time: 262.064
+OK (181 tests)
+```
+
+This reran the ownerless-sign-in case as part of the complete suite; the earlier timeout remains recorded rather than
+being attributed to device input or dismissed as a proven pre-existing defect. `git diff --check` exited **0** with no
+output.
+
+Restoration tests use a real saved Activity Bundle through a Parcel and a fresh host, not an actual OS process kill.
+The format-1 rejection uses a constructed marker, not an old APK's captured state. New persistence checks use real
+Room/Sync and loopback HTTP; the Practice cancellation check delays a test-only DAO delegate before forwarding its
+read. No production integration is stubbed. The pre-existing app-navigation note fixture has a DOM/canonical-text
+mismatch, so its metadata/editor tests are not page-rendering evidence; the separate reader lifecycle suite covers
+rendering. No live account mutation, backend suite, phone-setting change, release install or process-kill/update
+experiment was run. Pairing credentials are not recorded. The user's untracked foundations plan was not changed.
+Audit step 4's baseline-creation ordering and step 6's matching/atomic card-plus-first-grade persistence remain
+separate, as explicitly requested; cancellation protection does not claim either fix.
