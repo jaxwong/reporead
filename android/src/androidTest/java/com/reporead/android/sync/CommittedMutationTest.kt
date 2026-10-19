@@ -14,6 +14,7 @@ import com.reporead.android.core.network.TEST_HIGHLIGHT_MUTATION
 import com.reporead.android.core.network.testCard
 import com.reporead.android.core.network.testCommit
 import com.reporead.android.core.network.testDisconnected
+import com.reporead.android.core.network.testDocument
 import com.reporead.android.core.network.testHighlight
 import com.reporead.android.core.network.testLibrary
 import com.reporead.android.core.network.testPassage
@@ -296,7 +297,8 @@ class CommittedMutationTest {
                 try {
                     assertTrue(arrived.await(10, SECONDS))
                     grading = screens.launch {
-                        sync.gradeNewCard(Passage(testSha, "b4", 0, 4, "text"), 1, "Test-only question?", 4)
+                        val line = "Canonical answer: Test-only new"
+                        sync.gradeNewCard(Passage(testSha, "b4", 0, line.length, line), 1, "Test-only question?", 4)
                     }
                     delay(300)
                     grading.cancel()
@@ -308,6 +310,38 @@ class CommittedMutationTest {
                 val card = dao.annotations(1).first().single { it.state == AnnotationState.UNSENT }
                 assertEquals("Test-only question?", card.question)
                 assertEquals(listOf(card.mutationId), dao.pendingReviews().map { it.cardMutationId })
+            }
+    }
+
+    @Test
+    fun aQueuedFirstGradeChecksTheBankAfterTheEarlierSyncCommits() = runBlocking {
+        val arrived = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val changed = testDocument().copy(blobSha = "c".repeat(40))
+        val library = testLibrary(repositories = listOf(testRepository(listOf(changed))))
+        LoopbackServer(mapOf("GET /api/library" to (200 to wire(library)))) {
+                arrived.countDown()
+                check(release.await(10, SECONDS)) { "Test never released the library load" }
+            }
+            .use { server ->
+                val sync = sync(server)
+                val load = holdTheLock(sync)
+                val grading =
+                    try {
+                        assertTrue(arrived.await(10, SECONDS))
+                        async {
+                            val line = "Canonical answer: Test-only new"
+                            sync.gradeNewCard(Passage(testSha, "b4", 0, line.length, line), 1, "Test-only question?", 4)
+                        }
+                            .also { delay(100) }
+                    } finally {
+                        release.countDown()
+                    }
+                load.await()
+                assertEquals(NewCardGrade.BANK_CHANGED, grading.await())
+                assertTrue(dao.waitingAnnotations().isEmpty())
+                assertTrue(dao.pendingReviews().isEmpty())
+                assertEquals(listOf("GET /api/library"), server.requests)
             }
     }
 }

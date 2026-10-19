@@ -96,6 +96,15 @@ internal fun revealedAnswer(html: String, path: String, passage: Passage): Revea
         )
     }
 
+/** A bank card follows its Canonical line's current prompt; unmatched and hand-written cards keep their saved one. */
+internal fun reviewPrompt(item: NotebookItem, questions: List<PracticeQuestion>): String =
+    questions
+        .firstOrNull {
+            it.documentId == item.annotation.documentId && it.question.answer.text == item.annotation.drawn.exactText
+        }
+        ?.question
+        ?.prompt ?: checkNotNull(item.annotation.question)
+
 /** What review holds now, from this phone's cards and grades; null while they are read. */
 @Composable
 internal fun rememberReviewOutlook(dao: LibraryDao): ReviewOutlook? {
@@ -424,6 +433,7 @@ internal class ReviewViewModel(
 internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (Screen) -> Unit, onBack: () -> Unit) {
     val model = viewModel { ReviewViewModel(sync, createSavedStateHandle(), entryId) }
     val state by model.state.collectAsStateWithLifecycle()
+    val banks = rememberBanks(dao)
     val items by dao.notebook().collectAsStateWithLifecycle(null)
     val reviews by dao.reviews().collectAsStateWithLifecycle(null)
     val limit by dao.reviewLimit().collectAsStateWithLifecycle(null)
@@ -439,7 +449,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
             Modifier.padding(padding).fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (ready == null || log == null) {
+            if (ready == null || log == null || banks == null) {
                 Text("Loading saved cards…")
                 return@Column
             }
@@ -495,7 +505,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
                 return@Column
             }
             val row = item.annotation
-            Text(checkNotNull(row.question), style = MaterialTheme.typography.titleLarge)
+            Text(reviewPrompt(item, banks.questions), style = MaterialTheme.typography.titleLarge)
             val block = item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
             if (block != null) {
                 FixCard(
