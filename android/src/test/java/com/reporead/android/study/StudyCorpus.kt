@@ -7,10 +7,10 @@ import org.junit.Test
 
 /**
  * Reads every bank among the pages the backend's opt-in RenderedCorpus wrote (its `pages` directory, named by
- * REPOREAD_STUDY_PAGES) and fails naming each break of the bank format: an H3 that is no question (no Canonical line,
- * or a path with nothing to ask), an answer line that links nothing, or a link to a path with no page. Headings inside
- * linked notes are checked on the phone, where the reader finds them. Read-only and opt-in; the pages are private notes
- * and are never committed. Run it after adding or editing interview folders.
+ * REPOREAD_STUDY_PAGES) and fails naming each break of the bank format: an H3 that is no question (not exactly one
+ * Canonical line, or one repeating an earlier line), an answer line that links nothing, or a link to a path with no
+ * page. Headings inside linked notes are checked on the phone, where the reader finds them. Read-only and opt-in; the
+ * pages are private notes and are never committed. Run it after adding or editing interview folders.
  */
 class StudyCorpus {
     @Test
