@@ -1,5 +1,6 @@
 package com.reporead.android.study
 
+import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -176,13 +177,28 @@ class ReviewLifecycleTest {
                 assertNull(findText(root(), line))
                 assertNull(findText(root(), "Linked section · saved copy"))
                 assertNull(findText(root(), "The saved copy is an older version of this note."))
+                assertNull(findText(root(), "Good"))
+                assertNull(findText(root(), "Open in note"))
+                val bounds = Rect()
+                scenario.onActivity {
+                    val position = IntArray(2).also(prepared::getLocationOnScreen)
+                    bounds.set(position[0], position[1], position[0] + prepared.width, position[1] + prepared.height)
+                }
                 click("Show answer")
                 awaitText(line)
                 awaitText("Your grade confirms only this Canonical line. The linked section is supplementary.")
                 awaitText("Linked section · saved copy")
                 awaitText("The saved copy is an older version of this note.")
                 awaitText("Good")
-                scenario.onActivity { assertSame(prepared, findWebView(it.window.decorView)) }
+                scenario.onActivity {
+                    assertSame(prepared, findWebView(it.window.decorView))
+                    val position = IntArray(2).also(prepared::getLocationOnScreen)
+                    assertEquals(
+                        "Review reveals without resizing its prepared section",
+                        bounds,
+                        Rect(position[0], position[1], position[0] + prepared.width, position[1] + prepared.height),
+                    )
+                }
                 scenario.recreate()
                 awaitText("Current test-only bank prompt?")
                 awaitText("The saved copy is an older version of this note.")
@@ -204,6 +220,10 @@ class ReviewLifecycleTest {
             val dao = store.library()
             for (i in 1..10) card(i)
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+                awaitText("Show answer")
+                assertNull(findText(root()) { it.startsWith("Test-only answer") || it.startsWith("Context ·") })
+                assertNull(findText(root(), "Good"))
+                assertNull(findText(root(), "Open in note"))
                 click("Show answer")
                 awaitText("Good")
                 scenario.recreate()

@@ -1,9 +1,12 @@
 package com.reporead.android.study
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -11,8 +14,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import com.reporead.android.ui.counted
 import java.io.Serializable
@@ -72,11 +82,46 @@ internal fun SessionHeader(label: String, skip: String, enabled: Boolean, onSkip
     }
 }
 
-/** The question alone first: its answer shows only after an attempt. */
+/**
+ * Measures the complete answer at its final size during the attempt. The keyed question owns this slot: [revealed]
+ * requests exposure, while the content reports preparation complete (including a terminal error) via its callback.
+ * Neither a pending reveal nor revealing a prepared answer changes the layout underneath.
+ */
 @Composable
-internal fun AttemptFirst(onReveal: () -> Unit) {
-    Text("Answer it aloud or in writing first, then check it.")
-    Button(onClick = onReveal) { Text("Show answer") }
+internal fun ColumnScope.AnswerSlot(
+    revealed: Boolean,
+    onReveal: () -> Unit,
+    content: @Composable ColumnScope.(visible: Boolean, onPrepared: () -> Unit) -> Unit,
+) {
+    var prepared by remember { mutableStateOf(false) }
+    val visible = revealed && prepared
+    Box(Modifier.weight(1f)) {
+        Column(
+            Modifier.fillMaxSize()
+                .graphicsLayer { alpha = if (visible) 1f else 0f }
+                .then(if (visible) Modifier else Modifier.clearAndSetSemantics {}),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            content(visible) { prepared = true }
+        }
+        if (!visible) {
+            // Alpha and cleared semantics don't stop touches reaching the already measured answer.
+            Box(
+                Modifier.matchParentSize().pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) awaitPointerEvent().changes.forEach { it.consume() }
+                    }
+                }
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (revealed) Text("Preparing answer…")
+                else {
+                    Text("Answer it aloud or in writing first, then check it.")
+                    Button(onClick = onReveal) { Text("Show answer") }
+                }
+            }
+        }
+    }
 }
 
 /** Above the answer of an item graded earlier in this session, whose grade now is not saved. */

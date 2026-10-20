@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -58,57 +59,60 @@ private sealed interface LinkedNote {
 }
 
 /**
- * Prepares the linked section while the question is attempted, but exposes no answer until [revealed]. Then shows the
- * bank's grading checklist and its linked core section (one at a time), from the saved copy, filling [modifier]. [push]
- * opens the linked note at that heading.
+ * Prepares the complete bank answer inside AnswerSlot, including its grading checklist and linked core section (one at
+ * a time). [visible] gates input and the native page; AnswerSlot owns Compose exposure. [onPrepared] reports a visually
+ * ready section or its terminal problem. [push] opens the linked note at that heading.
  */
 @Composable
 internal fun BankAnswer(
     question: StudyQuestion,
-    revealed: Boolean,
+    visible: Boolean,
     bankDocumentId: Long,
     bankPath: String,
     sync: Sync,
     dao: LibraryDao,
     modifier: Modifier,
     push: (Screen) -> Unit,
+    onPrepared: () -> Unit,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (revealed) {
-            Text(question.answer.text, style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Your grade confirms only this Canonical line. The linked section is supplementary.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        if (revealed && question.guide.isNotEmpty()) {
+        Text(question.answer.text, style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Your grade confirms only this Canonical line. The linked section is supplementary.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (question.guide.isNotEmpty()) {
             val windowHeight = LocalWindowInfo.current.containerSize.height
             val most = with(LocalDensity.current) { (windowHeight * GUIDE_HEIGHT).toDp() }
-            Column(Modifier.heightIn(max = most).verticalScroll(rememberScrollState())) {
+            Column(Modifier.heightIn(max = most).verticalScroll(rememberScrollState(), enabled = visible)) {
                 for (line in question.guide) Text(line, style = MaterialTheme.typography.bodyMedium)
             }
         }
         val links = question.answer.links
         if (links.isEmpty()) {
-            if (revealed)
-                Text(
-                    "This answer line links no section: “${question.answer.text}”. Add a link to the section that answers it."
-                )
+            Text(
+                "This answer line links no section: “${question.answer.text}”. Add a link to the section that answers it."
+            )
+            LaunchedEffect(question) { onPrepared() }
             return@Column
         }
         var selected by rememberSaveable(question.blockId) { mutableIntStateOf(0) }
-        if (revealed && links.size > 1)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (links.size > 1)
+            Row(
+                Modifier.horizontalScroll(rememberScrollState(), enabled = visible),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 links.forEachIndexed { index, link ->
                     FilterChip(
                         selected = selected == index,
+                        enabled = visible,
                         onClick = { selected = index },
                         label = { Text("${index + 1}. ${link.text}") },
                     )
                 }
             }
         key(bankDocumentId, question.blockId, selected) {
-            AnswerSection(links[selected], revealed, bankDocumentId, bankPath, sync, dao, push)
+            AnswerSection(links[selected], visible, bankDocumentId, bankPath, sync, dao, push, onPrepared)
         }
     }
 }
@@ -116,12 +120,13 @@ internal fun BankAnswer(
 @Composable
 private fun ColumnScope.AnswerSection(
     link: AnswerLink,
-    revealed: Boolean,
+    visible: Boolean,
     bankDocumentId: Long,
     bankPath: String,
     sync: Sync,
     dao: LibraryDao,
     push: (Screen) -> Unit,
+    onPrepared: () -> Unit,
 ) {
     val linked by
         produceState<LinkedNote>(LinkedNote.Loading, link) {
@@ -149,40 +154,39 @@ private fun ColumnScope.AnswerSection(
         }
     when (val note = linked) {
         LinkedNote.Loading -> Spacer(Modifier.weight(1f))
-        is LinkedNote.Problem -> if (revealed) Text(note.text)
+        is LinkedNote.Problem -> {
+            Text(note.text)
+            LaunchedEffect(note) { onPrepared() }
+        }
         is LinkedNote.Found -> {
-            if (revealed)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        listOfNotNull(note.document.title, link.heading?.let { "# ${link.text}" }).joinToString(" "),
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        onClick = {
-                            push(
-                                Screen.Reader(note.document.id, note.document.title, link.heading?.let(OpenAt::Heading))
-                            )
-                        }
-                    ) {
-                        Text("Open note")
-                    }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    listOfNotNull(note.document.title, link.heading?.let { "# ${link.text}" }).joinToString(" "),
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    enabled = visible,
+                    onClick = {
+                        push(Screen.Reader(note.document.id, note.document.title, link.heading?.let(OpenAt::Heading)))
+                    },
+                ) {
+                    Text("Open note")
                 }
+            }
             val saved = note.saved
             if (saved == null) {
-                if (revealed)
-                    Text("Not saved on this phone yet, so this section can't be shown here. Open the note to fetch it.")
+                Text("Not saved on this phone yet, so this section can't be shown here. Open the note to fetch it.")
+                LaunchedEffect(note) { onPrepared() }
                 return
             }
             var ready by remember(saved.blobSha, link) { mutableStateOf(false) }
             var notice by remember(saved.blobSha, link) { mutableStateOf<String?>(null) }
             var failed by remember(saved.blobSha, link) { mutableStateOf(false) }
-            if (revealed) {
-                Text("Linked section · saved copy", style = MaterialTheme.typography.labelMedium)
-                if (saved.blobSha != note.document.blobSha)
-                    Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
-                notice?.let { Text(it) }
-            }
+            Text("Linked section · saved copy", style = MaterialTheme.typography.labelMedium)
+            if (saved.blobSha != note.document.blobSha)
+                Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
+            notice?.let { Text(it) }
             if (!failed)
                 AndroidView(
                     factory = { context ->
@@ -191,19 +195,25 @@ private fun ColumnScope.AnswerSection(
                             sync,
                             saved,
                             link.heading,
-                            onReady = { ready = true },
-                            onProblem = { notice = it },
+                            onReady = {
+                                ready = true
+                                onPrepared()
+                            },
+                            onProblem = {
+                                notice = it
+                                onPrepared()
+                            },
                             onFailed = { failed = true },
                         )
                     },
                     update = { view ->
-                        val visible = revealed && ready
-                        view.alpha = if (visible) 1f else 0f
+                        val pageVisible = visible && ready
+                        view.alpha = if (pageVisible) 1f else 0f
                         view.importantForAccessibility =
-                            if (visible) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                            if (pageVisible) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                             else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-                        view.isFocusableInTouchMode = visible
-                        view.isFocusable = visible
+                        view.isFocusableInTouchMode = pageVisible
+                        view.isFocusable = pageVisible
                     },
                     onRelease = { it.destroy() },
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -235,6 +245,10 @@ private fun sectionView(
                 if (alpha == 0f) null else super.getAccessibilityNodeProvider()
         }
         .apply {
+            // AndroidView doesn't clip native drawing; the first WebView draw must stay inside its section.
+            clipToOutline = true
+            // One attached, screen-bounded page; rasterize while hidden so its first visible frame is ready.
+            settings.offscreenPreRaster = true
             setOnTouchListener { view, _ -> view.alpha == 0f }
             showIsolatedPage(
                 sync.images,
@@ -246,7 +260,13 @@ private fun sectionView(
                     onFailed()
                 },
             ) { found ->
-                if (found) onReady()
+                if (found)
+                    postVisualStateCallback(
+                        0,
+                        object : WebView.VisualStateCallback() {
+                            override fun onComplete(requestId: Long) = onReady()
+                        },
+                    )
                 else {
                     Log.w(
                         "RepoRead",
