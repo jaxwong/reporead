@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -370,16 +371,25 @@ internal fun PracticeScreen(
                 return@Column
             }
             Text(question.question.prompt, style = MaterialTheme.typography.titleLarge)
-            if (!asked.revealed) {
-                AttemptFirst(model::reveal)
-                return@Column
-            }
+            if (!asked.revealed) AttemptFirst(model::reveal)
             val again = key in scheduled
-            if (again) AskedAgain()
-            BankAnswer(question.question, question.documentId, question.path, sync, dao, Modifier.weight(1f), push)
-            GradeBar(enabled = !state.saving, gaps = if (again) null else gaps(null)) { grade ->
-                model.grade(question, again, grade)
+            if (asked.revealed && again) AskedAgain()
+            key(question.key) {
+                BankAnswer(
+                    question.question,
+                    asked.revealed,
+                    question.documentId,
+                    question.path,
+                    sync,
+                    dao,
+                    Modifier.weight(1f),
+                    push,
+                )
             }
+            if (asked.revealed)
+                GradeBar(enabled = !state.saving, gaps = if (again) null else gaps(null)) { grade ->
+                    model.grade(question, again, grade)
+                }
         }
     }
 }

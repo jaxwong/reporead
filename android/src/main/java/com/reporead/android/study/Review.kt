@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -204,15 +206,16 @@ private fun rememberRevealed(item: NotebookItem, dao: LibraryDao): Revealed {
 private fun ColumnScope.CardAnswer(
     item: NotebookItem,
     answer: RevealedAnswer,
+    revealed: Boolean,
     sync: Sync,
     dao: LibraryDao,
     push: (Screen) -> Unit,
 ) {
     val question = answer.question
     if (question != null) {
-        Text("Interview bank · ${item.path}", style = MaterialTheme.typography.labelMedium)
-        BankAnswer(question, item.annotation.documentId, item.path, sync, dao, Modifier.weight(1f), push)
-    } else
+        if (revealed) Text("Interview bank · ${item.path}", style = MaterialTheme.typography.labelMedium)
+        BankAnswer(question, revealed, item.annotation.documentId, item.path, sync, dao, Modifier.weight(1f), push)
+    } else if (revealed)
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -291,7 +294,7 @@ private fun ColumnScope.FixCard(
                 Revealed.Reading -> {}
                 Revealed.Unverifiable ->
                     Text("The saved page cannot show this answer in context. Open the note to check it.")
-                is Revealed.Shown -> CardAnswer(item, answer.answer, sync, dao, push)
+                is Revealed.Shown -> CardAnswer(item, answer.answer, true, sync, dao, push)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = !confirming, onClick = onConfirm) { Text("Answer is still right") }
@@ -519,18 +522,19 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
             }
             // Read while the question is asked, so the answer is ready when it is revealed.
             val answer = rememberRevealed(item, dao)
-            if (!asked.revealed) {
-                AttemptFirst(model::reveal)
-                return@Column
-            }
+            if (!asked.revealed) AttemptFirst(model::reveal)
             val again = id in graded
-            if (again) AskedAgain()
-            when (answer) {
-                Revealed.Reading -> {}
-                Revealed.Unverifiable ->
-                    Text("The saved page cannot verify this answer in context. Open the note to check it.")
-                is Revealed.Shown -> CardAnswer(item, answer.answer, sync, dao, push)
+            if (asked.revealed && again) AskedAgain()
+            key(id, row.drawn) {
+                when (answer) {
+                    Revealed.Reading -> Spacer(Modifier.weight(1f))
+                    Revealed.Unverifiable ->
+                        if (asked.revealed)
+                            Text("The saved page cannot verify this answer in context. Open the note to check it.")
+                    is Revealed.Shown -> CardAnswer(item, answer.answer, asked.revealed, sync, dao, push)
+                }
             }
+            if (!asked.revealed) return@Column
             TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(id))) }) {
                 Text("Open in note")
             }
