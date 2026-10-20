@@ -1,6 +1,5 @@
 package com.reporead.android.study
 
-import android.view.View
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.room.Room
@@ -169,10 +168,8 @@ class ReviewLifecycleTest {
                     }
                 scenario.onActivity {
                     assertEquals(0f, prepared.alpha)
-                    assertEquals(
-                        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
-                        prepared.importantForAccessibility,
-                    )
+                    assertNull("No virtual answer nodes before reveal", prepared.accessibilityNodeProvider)
+                    assertTrue("No hidden native keyboard focus", !prepared.requestFocus())
                 }
                 assertNull(findText(root(), line))
                 assertNull(findText(root(), "Linked section · saved copy"))

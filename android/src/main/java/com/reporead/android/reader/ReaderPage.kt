@@ -153,8 +153,7 @@ internal fun awaitRendered(view: WebView, main: Handler, then: (state: String) -
 
 /**
  * One native barrier per opening, after its DOM changes. A non-drawable page (hidden window or zero-sized viewport) may
- * stay pending; there is no timed reveal of stale content. The owner handles release and renderer loss. A hidden answer
- * stays VISIBLE at alpha 0: INVISIBLE requires becoming visible in this callback, before the user asks to reveal.
+ * stay pending; there is no timed reveal of stale content. The owner handles release and renderer loss.
  */
 internal fun WebView.whenReadyToDraw(then: () -> Unit) =
     postVisualStateCallback(

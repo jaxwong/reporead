@@ -2,6 +2,8 @@ package com.reporead.android
 
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
@@ -115,4 +117,26 @@ internal fun pageBounds(scenario: ActivityScenario<TestHostActivity>): Rect {
         bounds.set(position[0], position[1], position[0] + page.width, position[1] + page.height)
     }
     return bounds
+}
+
+/** A real pointer tap, without an idle wait between events; callers may dispatch a same-frame double tap. */
+internal fun tap(decor: View, bounds: Rect) {
+    val location = IntArray(2).also(decor::getLocationOnScreen)
+    val now = SystemClock.uptimeMillis()
+    for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+        val event =
+            MotionEvent.obtain(
+                now,
+                now,
+                action,
+                bounds.exactCenterX() - location[0],
+                bounds.exactCenterY() - location[1],
+                0,
+            )
+        try {
+            assertTrue("The pointer event is dispatched", decor.dispatchTouchEvent(event))
+        } finally {
+            event.recycle()
+        }
+    }
 }
