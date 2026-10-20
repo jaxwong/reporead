@@ -125,8 +125,8 @@ public class GitHubTokenLifecycle {
                     principal.getName(),
                     client.getAccessToken().getExpiresAt());
         });
-        // Replaces Spring's default, which removes the stored token on some refusals: githubUserToken alone decides
-        // what a failed renewal means, and removes the token itself when GitHub refused it.
+        // Replaces Spring's default, which removes the stored token on some refusals: currentToken alone decides what
+        // a failed renewal means, and removes the token itself when GitHub refused it.
         manager.setAuthorizationFailureHandler((error, principal, attributes) -> {});
         this.manager = manager;
     }

@@ -1,4 +1,4 @@
-// Owns users, single-use PKCE handoff codes and bearer-session persistence; credentials own lifecycle ordering.
+// Owns users, single-use PKCE handoff codes and bearer sessions; GitHubTokenLifecycle owns lifecycle ordering.
 
 package com.reporead.auth;
 
@@ -173,7 +173,7 @@ public class AppSessions {
 
     /**
      * Deletes this session and counts remaining devices atomically. Last-device sign-out also cancels older pending
-     * handoffs: a code must never issue a session after the credential it needs has been revoked. The credential owner
+     * handoffs: a code must never issue a session after the credential it needs has been revoked. GitHubTokenLifecycle
      * holds its lifecycle gate before this transaction, serializing a concurrent code exchange or callback.
      */
     int revoke(String token, long userId) {
