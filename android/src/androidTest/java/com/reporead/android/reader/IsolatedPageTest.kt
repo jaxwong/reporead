@@ -67,6 +67,7 @@ class IsolatedPageTest {
         val answered = CountDownLatch(1)
         var result = ""
         instrumentation.runOnMainSync {
+            assertTrue("Isolated native pages must keep painting within their bounds", page.clipToOutline)
             page.evaluateJavascript(script) {
                 result = it
                 answered.countDown()
