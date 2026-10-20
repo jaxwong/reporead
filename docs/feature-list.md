@@ -173,6 +173,10 @@ Merged and verified in [PR #83](https://github.com/jaxwong/reporead/pull/83): ev
 
 Implemented and locally verified in open [PR #84](https://github.com/jaxwong/reporead/pull/84) (`cleanup-freeze`): batch image sweeping, cancellation-protected review dismissal, visible bookmark rejection, midnight-aware Review completion, one page-script decoding boundary, one complete-page limit, shared OAuth/text rules, GitHub HTTP path redaction, and server-owned annotation capacity. Backend/Android gates, the isolated Pixel suite and release assembly pass; all six docs are reconciled with the code. Exact commands/results stay in the commit and PR, not this feature list. Deployment, release installation and the Stage 6 gate are not claimed by this branch.
 
+## Follow-up groups as one question (2026-10-20)
+
+Implemented and locally verified on branch `path-group-question`, after the freeze by user decision: a `Canonical path` group is one question, its heading and numbered items (ADR-20 Recognition). On the real notes StudyCorpus went from 404 warnings to 147 (109 headings sharing another question's line, 38 without a line), with 1593 questions unchanged; the remaining warnings are the notes' to fix. Android JVM gates pass; device suite, release and phone install not run.
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
