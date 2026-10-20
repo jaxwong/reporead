@@ -1,4 +1,4 @@
-// Owns the browser OAuth security boundary, including callback admission through the credential lifecycle owner.
+// Owns the browser OAuth security boundary, including callback admission through GitHubTokenLifecycle.
 
 package com.reporead.auth;
 
@@ -104,7 +104,7 @@ public class GitHubBrowserSignIn {
         var resolver = startedByTheApp(pkce);
 
         // Admission must precede token exchange, not just token storage: deleting a grant invalidates newly issued
-        // tokens too. The browser's user is not known yet, so the existing credential owner uses one process gate.
+        // tokens too. The browser's user is not known yet, so GitHubTokenLifecycle's one process gate is used.
         var callbacks = pathPattern(OAuth2LoginAuthenticationFilter.DEFAULT_FILTER_PROCESSES_URI);
         http.addFilterBefore(
                 new OncePerRequestFilter() {

@@ -55,7 +55,7 @@ public class AccountDeletion {
         return credentials.deletingAccount(sessionToken, user, () -> deleteAdmitted(user));
     }
 
-    /** Runs inside lifecycle admission; returns after commit so the credential owner can safely revoke the grant. */
+    /** Runs inside lifecycle admission; returns after commit so GitHubTokenLifecycle can safely revoke the grant. */
     private Deleted deleteAdmitted(AppUser user) {
         var deleted = transaction.execute(status -> {
             // First, so a connection being added concurrently commits before the list below, or waits and then fails.
