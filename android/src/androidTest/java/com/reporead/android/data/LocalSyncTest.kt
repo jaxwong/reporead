@@ -147,7 +147,7 @@ class LocalSyncTest {
     fun aFormatThreeCurrentPageIsFetchedOnlyOnceOnline() = runBlocking {
         savedRepository()
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
-        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, "saved", 3, sha))
+        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, "saved", 3, "b".repeat(40)))
         LoopbackServer(mapOf("GET /api/documents/1/content" to content(1))).use { server ->
             val sync = sync(server.url)
             val first = sync.openNote(1)
@@ -641,7 +641,7 @@ class LocalSyncTest {
         val old = "b".repeat(40)
         dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, sha))
         dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
-        dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT - 1, sha))
+        dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT - 1, old))
         LoopbackServer(
                 mapOf(
                     "GET /api/library" to
@@ -1228,6 +1228,105 @@ class LocalSyncTest {
     }
 
     @Test
+    fun saveAllAndOpenKeepTextOnlyPagesAcrossSnapshotChanges() = runBlocking {
+        val newCommit = "d".repeat(40)
+        for (savedCommit in listOf(sha, null)) {
+            val saved =
+                NoteRow(
+                    1,
+                    sha,
+                    "n1.md",
+                    "n1",
+                    "<main>saved text</main>",
+                    0,
+                    "saved text",
+                    BuildConfig.RENDER_FORMAT,
+                    savedCommit,
+                )
+            dao.saveNote(saved)
+            LoopbackServer(mapOf("GET /api/library" to library(repository(7, document(1), newCommit)))).use { server ->
+                val sync = sync(server.url)
+                val progress = mutableListOf<Pair<Int, Int>>()
+                assertEquals(
+                    Sync.SavedAll(0, 1, 0),
+                    sync.saveAllNotes(7) { done, total -> progress += done to total },
+                )
+                assertEquals(listOf(0 to 1, 1 to 1), progress)
+                assertEquals(Sync.Opened(saved, null), sync.openNote(1))
+                assertEquals(Sync.SavedAll(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(saved, dao.note(1))
+                assertEquals(listOf("GET /api/library", "GET /api/library"), server.requests)
+            }
+        }
+    }
+
+    @Test
+    fun saveAllRebindsABlockedEmbedAfterASnapshotChange() = runBlocking {
+        val newCommit = "d".repeat(40)
+        val saved =
+            NoteRow(
+                1,
+                sha,
+                "n1.md",
+                "n1",
+                """<main><span class="image-blocked">Image unavailable</span></main>""",
+                0,
+                "saved text",
+                BuildConfig.RENDER_FORMAT,
+                sha,
+            )
+        dao.saveNote(saved)
+        val html = """<main><img src="/repo-image/added.png"></main>"""
+        val answer = JSONObject(content(1).second).put("snapshotCommitSha", newCommit).put("html", html).toString()
+        val imageRequest = "GET /api/documents/1/image?commitSha=$newCommit&path=added.png"
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(repository(7, document(1), newCommit)),
+                    "GET /api/documents/1/content" to (200 to answer),
+                    imageRequest to (200 to "TEST_ONLY_ADDED_IMAGE"),
+                )
+            )
+            .use { server ->
+                val sync = sync(server.url)
+                assertEquals(Sync.SavedAll(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(html, dao.note(1)!!.html)
+                assertEquals(newCommit, dao.note(1)!!.snapshotCommitSha)
+                assertEquals(Sync.SavedAll(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(
+                    listOf("GET /api/library", "GET /api/documents/1/content", imageRequest, "GET /api/library"),
+                    server.requests,
+                )
+            }
+    }
+
+    @Test
+    fun openRefreshesImageDependentPagesWithAnOldOrUnknownSnapshot() = runBlocking {
+        val newCommit = "d".repeat(40)
+        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, newCommit)))
+        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
+        for (html in
+            listOf(
+                """<main><img src="/repo-image/chart.png"></main>""",
+                """<main><span class="image-blocked">Image unavailable</span></main>""",
+            )) {
+            for (savedCommit in listOf(sha, null)) {
+                dao.saveNote(NoteRow(1, sha, "n1.md", "n1", html, 0, "", BuildConfig.RENDER_FORMAT, savedCommit))
+                val answer =
+                    JSONObject(content(1).second).put("snapshotCommitSha", newCommit).put("html", html).toString()
+                LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer))).use { server ->
+                    val sync = sync(server.url)
+                    val opened = sync.openNote(1)
+                    assertEquals(newCommit, opened.note.snapshotCommitSha)
+                    assertEquals(html, opened.note.html)
+                    assertNull(opened.staleReason)
+                    assertEquals(opened, sync.openNote(1))
+                    assertEquals(listOf("GET /api/documents/1/content"), server.requests)
+                }
+            }
+        }
+    }
+
+    @Test
     fun anImageOnlySnapshotChangeRefreshesThePageAndRetiresOldImagesWithoutChangingTheDisplayedCopy() = runBlocking {
         val oldCommit = "b".repeat(40)
         val newCommit = "d".repeat(40)
@@ -1239,7 +1338,7 @@ class LocalSyncTest {
                 sha,
                 "n1.md",
                 "n1",
-                "<main>saved text</main>",
+                "<main>saved text<img src=\"/repo-image/old/chart.png\"></main>",
                 0,
                 "saved text",
                 BuildConfig.RENDER_FORMAT,
@@ -1294,7 +1393,17 @@ class LocalSyncTest {
 
     @Test
     fun missingOrMalformedImageSnapshotMetadataCannotReplaceALegacySavedPage() = runBlocking {
-        val saved = NoteRow(1, sha, "n1.md", "n1", "<main>kept</main>", 0, "kept", BuildConfig.RENDER_FORMAT)
+        val saved =
+            NoteRow(
+                1,
+                sha,
+                "n1.md",
+                "n1",
+                "<main>kept<img src=\"/repo-image/chart.png\"></main>",
+                0,
+                "kept",
+                BuildConfig.RENDER_FORMAT,
+            )
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
         dao.saveNote(saved)

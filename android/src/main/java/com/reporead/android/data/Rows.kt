@@ -67,12 +67,9 @@ data class NoteRow(
     val searchText: String? = null,
     @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0,
     val snapshotCommitSha: String? = null,
-) {
-    val version: SavedVersion
-        get() = SavedVersion(documentId, blobSha, path, renderFormat, snapshotCommitSha)
-}
+)
 
-/** What a saved page is a copy of, read without its HTML: enough to tell whether the copy is current. */
+/** A saved page's identity without its HTML, used to retain only that snapshot's images. */
 data class SavedVersion(
     val documentId: Long,
     val blobSha: String,
