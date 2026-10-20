@@ -192,6 +192,18 @@ erDiagram
         bigint github_user_id UK
         text login
     }
+    app_sessions {
+        bytea token_hash PK "SHA-256 of the session token"
+        bigint user_id FK
+        timestamptz created_at
+        timestamptz expires_at "30 days"
+    }
+    app_sign_in_codes {
+        bytea code_hash PK "SHA-256 of the sign-in code"
+        bigint user_id FK
+        text code_challenge "S256 PKCE challenge"
+        timestamptz expires_at "60 seconds"
+    }
     github_tokens {
         bigint github_user_id PK
         bytea access_token "AES-256-GCM"
@@ -212,6 +224,10 @@ erDiagram
         text current_blob_sha
         timestamptz content_changed_at
         timestamptz deleted_at
+    }
+    repository_images {
+        bigint repository_connection_id PK, FK
+        text path PK
     }
     reading_states {
         bigint user_id PK
@@ -459,7 +475,7 @@ sequenceDiagram
     R->>WV: load HTML at https://appassets.androidplatform.net
     WV->>R: request /assets/… (bundled JS/CSS)
     WV->>R: request /repo-image/<resolved path>
-    R->>S: image bytes for displayed snapshot (cache, else backend path + commitSha;<br/>bearer token in native code, never latest-snapshot fallback)
+    R->>S: image bytes for displayed snapshot (cache, else backend path + commitSha,<br/>bearer token in native code, never latest-snapshot fallback)
     R->>WV: evaluateJavascript: restore position, draw highlights, read selection
     Note over WV: no JS bridge, no credentials,<br/>network/file/content access blocked,<br/>Mermaid in strict mode
 ```
