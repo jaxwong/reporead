@@ -459,7 +459,7 @@ internal class ReaderSession(
     fun reveal(key: String) {
         val webView = openedView() ?: return
         touched = false
-        webView.evaluate("window.reporead.reveal(${JSONObject.quote(key)})") {}
+        appScope.launch { webView.evaluate("window.reporead.reveal(${JSONObject.quote(key)})") }
     }
 
     fun setStudy(enabled: Boolean) {

@@ -127,13 +127,6 @@ private fun pageValue(expression: String, encoded: String): Any? {
     return result.opt("value")
 }
 
-/**
- * Passes the value of the page expression [expression] to [then] as JSONTokener decodes it: a String, Int, Boolean,
- * JSONObject, JSONArray, JSONObject.NULL, or null when undefined.
- */
-internal fun WebView.evaluate(expression: String, then: (Any?) -> Unit) =
-    evaluateJavascript(pageScript(expression)) { then(pageValue(expression, it)) }
-
 internal suspend fun WebView.evaluate(expression: String): Any? = suspendCancellableCoroutine { result ->
     evaluateJavascript(pageScript(expression)) { result.resumeWith(runCatching { pageValue(expression, it) }) }
 }

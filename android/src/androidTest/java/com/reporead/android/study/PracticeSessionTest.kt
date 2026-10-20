@@ -380,8 +380,16 @@ class PracticeSessionTest {
                         assertNull("Grades must arrive with the complete answer", findText(root(), "Good"))
                         awaitText("Preparing answer…")
                     } finally {
-                        withTimeout(5_000) { while (findWebView(scenario) == null) delay(20) }
-                        evaluate(scenario, "document.body.dataset.state = 'failed'; return {};")
+                        withTimeout(5_000) {
+                            while (
+                                !evaluate(
+                                        scenario,
+                                        "if (!document.body) return {}; " +
+                                            "document.body.dataset.state = 'failed'; return {failed: true};",
+                                    )
+                                    .optBoolean("failed")
+                            ) delay(20)
+                        }
                         awaitText("Test-only core could not be shown.")
                     }
                     awaitText("Good")
