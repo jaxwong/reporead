@@ -8,10 +8,10 @@ import org.jsoup.nodes.TextNode
 
 private val NUMBERED = Regex("""^\d+\.\s+""")
 /**
- * The line that makes a bank H3 a question: "Canonical answer(s):" for one numbered question, "Canonical path:" for a
- * follow-up group. Section names and numbers only label.
+ * The line that makes a bank H3 a question: "Canonical answer:" for one question, "Canonical path:" for a follow-up
+ * group. Section names and numbers only label.
  */
-private val ANSWER_LINE = Regex("""^Canonical (answers?|path):""")
+private val ANSWER_LINE = Regex("""^Canonical (answer|path):""")
 
 /**
  * A link on a bank's answer line: a repository [path] (Markdown link) or an Obsidian [target], its [heading], and its
@@ -49,8 +49,7 @@ internal data class StudyQuestion(
 
 /**
  * [unrecognized]: what looks like a question but is not, listed, never dropped silently: an H3 without exactly one
- * Canonical line (or a path without items), a Canonical line under no H3, or a later question repeating a Canonical
- * line.
+ * Canonical line, a Canonical line under no H3, or a later question repeating a Canonical line.
  */
 internal data class InterviewBank(val questions: List<StudyQuestion>, val unrecognized: List<BankProblem>)
 
@@ -122,7 +121,8 @@ private fun answerLine(block: Element): Pair<Element, String>? =
 
 /**
  * The question of one bank H3, from its [blocks] up to the next H1–H3; none unless exactly one is a Canonical line, as
- * with several (questions written as H4s) it is unknown which answers the heading, and none for a path without items.
+ * with several (questions written as H4s) it is unknown which answers the heading. A path without items asks the
+ * heading alone.
  */
 private fun bankQuestion(heading: Element, blocks: List<Element>, level: String?): StudyQuestion? {
     val (line, kind) = blocks.mapNotNull(::answerLine).singleOrNull() ?: return null
@@ -132,7 +132,6 @@ private fun bankQuestion(heading: Element, blocks: List<Element>, level: String?
     val title = shownText(heading).replaceFirst(NUMBERED, "")
     if (kind != "path") return StudyQuestion(id, title, answer, guide = items.map { it.text }, level = level)
     val (followUps, guide) = items.partition { it.listItem }
-    if (followUps.isEmpty()) return null
     return StudyQuestion(id, title, answer, followUps.map { it.text }, guide.map { it.text }, level)
 }
 

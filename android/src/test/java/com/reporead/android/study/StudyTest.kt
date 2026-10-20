@@ -46,7 +46,7 @@ class StudyTest {
                     heading(8, "2. Why isolation levels?", 3) +
                     block(9, "Interviewer is testing: the dial.", "p") +
                     heading(10, "Detail", 4) +
-                    answer(11, "Canonical answers", "path=core%2Fa.md&heading=a" to "A", "target=b" to "B") +
+                    answer(11, "Canonical answer", "path=core%2Fa.md&heading=a" to "A", "target=b" to "B") +
                     heading(12, "Diagnosis") +
                     heading(13, "1. Why 503?", 3) +
                     "<ul>" +
@@ -73,7 +73,7 @@ class StudyTest {
             listOf(AnswerLink(null, "core/a.md", "a", "A"), AnswerLink("b", null, null, "B")),
             questions[1].answer.links,
         )
-        assertEquals("Canonical answers: A and B", questions[1].answer.text)
+        assertEquals("Canonical answer: A and B", questions[1].answer.text)
         // The guide is what to check an answer against; the answer line itself is shown as its linked sections.
         assertEquals(
             listOf("Interviewer is testing: protection.", "A complete answer should: name each property."),
@@ -160,12 +160,15 @@ class StudyTest {
                     heading(3, "After you deploy", 3) +
                     answer(4, "Canonical path", "path=core%2Fd.md" to "Deploys") +
                     heading(5, "2. How?", 3) +
-                    answer(6, "Canonical answer", "path=core%2Fh.md" to "How")
+                    answer(6, "Canonical answer", "path=core%2Fh.md" to "How") +
+                    heading(7, "3. Which?", 3) +
+                    // One spelling only: the plural is no answer line.
+                    answer(8, "Canonical answers", "path=core%2Fw.md" to "Which")
             )
         val bank = interviewBank(html, bank)
-        assertEquals(listOf("How?"), bank.questions.map { it.text })
-        // A path with no items to ask is a format slip too.
-        assertEquals(listOf(BankProblem("b1", "1. Why?"), BankProblem("b3", "After you deploy")), bank.unrecognized)
+        // A path with no items asks its heading alone.
+        assertEquals(listOf("After you deploy", "How?"), bank.questions.map { it.prompt })
+        assertEquals(listOf(BankProblem("b1", "1. Why?"), BankProblem("b7", "3. Which?")), bank.unrecognized)
     }
 
     @Test
