@@ -106,7 +106,7 @@ class GitHubLoginTest extends SharedSpringTest {
         var release = new CountDownLatch(1);
         var tokens = RestClient.builder();
         var tokenEndpoint = MockRestServiceServer.bindTo(tokens).build();
-        githubCodeExchange.setRestClient(GitHubSecurity.tokenApi(tokens, meters));
+        githubCodeExchange.setRestClient(GitHubBrowserSignIn.tokenApi(tokens, meters));
         tokenEndpoint
                 .expect(requestTo("https://github.com/login/oauth/access_token"))
                 .andRespond(request -> {
@@ -291,7 +291,7 @@ class GitHubLoginTest extends SharedSpringTest {
         TestEnvironment.reset(db);
         var tokens = RestClient.builder();
         var tokenEndpoint = MockRestServiceServer.bindTo(tokens).build();
-        githubCodeExchange.setRestClient(GitHubSecurity.tokenApi(tokens, meters));
+        githubCodeExchange.setRestClient(GitHubBrowserSignIn.tokenApi(tokens, meters));
         // GitHub refuses a code with HTTP 200 and an error body.
         tokenEndpoint
                 .expect(requestTo("https://github.com/login/oauth/access_token"))
@@ -319,7 +319,7 @@ class GitHubLoginTest extends SharedSpringTest {
     private ResultActions signInAsGitHubUser(long githubUserId) throws Exception {
         var tokens = RestClient.builder();
         var tokenEndpoint = MockRestServiceServer.bindTo(tokens).build();
-        githubCodeExchange.setRestClient(GitHubSecurity.tokenApi(tokens, meters));
+        githubCodeExchange.setRestClient(GitHubBrowserSignIn.tokenApi(tokens, meters));
         tokenEndpoint
                 .expect(requestTo("https://github.com/login/oauth/access_token"))
                 .andExpect(method(HttpMethod.POST))

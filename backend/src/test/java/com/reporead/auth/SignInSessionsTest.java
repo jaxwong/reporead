@@ -41,7 +41,7 @@ class SignInSessionsTest {
 
     @Test
     void signInsBeyondTheCapAreRefusedInsteadOfHeldInMemory() throws Exception {
-        for (int i = 0; i < GitHubSecurity.MAX_SIGN_IN_SESSIONS; i++)
+        for (int i = 0; i < GitHubBrowserSignIn.MAX_SIGN_IN_SESSIONS; i++)
             assertEquals(302, startSignIn().statusCode(), "sign-in " + i);
         var refused = startSignIn();
         assertEquals(503, refused.statusCode());

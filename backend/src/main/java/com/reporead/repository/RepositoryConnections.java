@@ -5,7 +5,7 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.AppUser;
-import com.reporead.auth.GitHubCredentials;
+import com.reporead.auth.GitHubTokenLifecycle;
 import com.reporead.github.GitHubApi;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -29,14 +29,14 @@ public class RepositoryConnections {
     private final TransactionTemplate transaction;
     private final AppSessions sessions;
     private final GitHubApi github;
-    private final GitHubCredentials credentials;
+    private final GitHubTokenLifecycle credentials;
 
     public RepositoryConnections(
             JdbcClient db,
             TransactionTemplate transaction,
             AppSessions sessions,
             GitHubApi github,
-            GitHubCredentials credentials) {
+            GitHubTokenLifecycle credentials) {
         this.db = db;
         this.transaction = transaction;
         this.sessions = sessions;

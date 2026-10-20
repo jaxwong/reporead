@@ -3,7 +3,7 @@ package com.reporead.sync;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
-import com.reporead.auth.GitHubCredentials;
+import com.reporead.auth.GitHubTokenLifecycle;
 import com.reporead.document.Attachments;
 import com.reporead.document.Documents;
 import com.reporead.document.MarkdownRenderer;
@@ -42,7 +42,7 @@ public class RepositorySync {
     static final int MAX_CONTENT_MOVE_CANDIDATES = 8;
 
     private final GitHubApi github;
-    private final GitHubCredentials credentials;
+    private final GitHubTokenLifecycle credentials;
     private final RepositoryConnections connections;
     private final Documents documents;
     private final TransactionTemplate transaction;
@@ -52,7 +52,7 @@ public class RepositorySync {
 
     public RepositorySync(
             GitHubApi github,
-            GitHubCredentials credentials,
+            GitHubTokenLifecycle credentials,
             RepositoryConnections connections,
             Documents documents,
             TransactionTemplate transaction,

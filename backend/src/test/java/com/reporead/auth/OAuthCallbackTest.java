@@ -13,14 +13,14 @@ class OAuthCallbackTest {
     void loopbackDevelopmentAddressOnTheServerPort() {
         assertEquals(
                 "http://127.0.0.1:8081/login/oauth2/code/github",
-                GitHubSecurity.callbackUri("http://127.0.0.1:8081", 8081));
+                GitHubBrowserSignIn.callbackUri("http://127.0.0.1:8081", 8081));
     }
 
     @Test
     void hostedHttpsOrigin() {
         assertEquals(
                 "https://reporead.duckdns.org/login/oauth2/code/github",
-                GitHubSecurity.callbackUri("https://reporead.duckdns.org", 8081));
+                GitHubBrowserSignIn.callbackUri("https://reporead.duckdns.org", 8081));
     }
 
     @Test
@@ -43,7 +43,8 @@ class OAuthCallbackTest {
             "https://",
             "",
         }) {
-            var error = assertThrows(IllegalArgumentException.class, () -> GitHubSecurity.callbackUri(url, 8081), url);
+            var error =
+                    assertThrows(IllegalArgumentException.class, () -> GitHubBrowserSignIn.callbackUri(url, 8081), url);
             assertTrue(error.getMessage().contains("reporead.public-url"), error::getMessage);
         }
     }

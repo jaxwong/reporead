@@ -5,7 +5,7 @@ package com.reporead.deletion;
 import com.reporead.annotation.Annotations;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.AppUser;
-import com.reporead.auth.GitHubCredentials;
+import com.reporead.auth.GitHubTokenLifecycle;
 import com.reporead.repository.RepositoryConnections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,7 +25,7 @@ public class AccountDeletion {
     private final ConnectionDeletion data;
     private final Annotations annotations;
     private final AppSessions sessions;
-    private final GitHubCredentials credentials;
+    private final GitHubTokenLifecycle credentials;
     private final TransactionTemplate transaction;
 
     public AccountDeletion(
@@ -33,7 +33,7 @@ public class AccountDeletion {
             ConnectionDeletion data,
             Annotations annotations,
             AppSessions sessions,
-            GitHubCredentials credentials,
+            GitHubTokenLifecycle credentials,
             TransactionTemplate transaction) {
         this.connections = connections;
         this.data = data;

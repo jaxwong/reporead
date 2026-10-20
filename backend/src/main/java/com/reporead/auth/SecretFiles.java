@@ -9,7 +9,9 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.Set;
 
-/** The server's secrets on disk: the GitHub client secret (GitHubSecurity) and the GitHub token key (GitHubTokens). */
+/**
+ * The server's secrets on disk: the GitHub client secret (GitHubBrowserSignIn) and the GitHub token key (GitHubTokens).
+ */
 final class SecretFiles {
     private SecretFiles() {}
 

@@ -7,11 +7,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 
 /** The server binds to 127.0.0.1 or does not start; the whole trust model assumes only loopback clients. */
-class AppSecurityTest {
+class ApiSecurityTest {
     private static void bind(String address) throws Exception {
         var factory = new TomcatServletWebServerFactory();
         if (address != null) factory.setAddress(InetAddress.getByName(address));
-        new AppSecurity().loopbackOnly().customize(factory);
+        new ApiSecurity().loopbackOnly().customize(factory);
     }
 
     @Test

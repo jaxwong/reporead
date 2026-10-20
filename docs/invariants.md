@@ -10,7 +10,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **RepoRead never modifies source Markdown or anything else in GitHub.**
 
-- Enforced by: the GitHub App has read-only permissions, and `GitHubApi` reads with GET only. The other GitHub calls are OAuth token exchange and renewal, and `GitHubCredentials` revoking RepoRead's own authorization for a user (`DELETE /applications/{client_id}/grant`), none of which touches repository content. Highlights, cards, reading state and practice live in RepoRead's own tables.
+- Enforced by: the GitHub App has read-only permissions, and `GitHubApi` reads with GET only. The other GitHub calls are OAuth token exchange and renewal, and `GitHubTokenLifecycle` revoking RepoRead's own authorization for a user (`DELETE /applications/{client_id}/grant`), none of which touches repository content. Highlights, cards, reading state and practice live in RepoRead's own tables.
 - Checked by: no route writes to GitHub; verification edits to the notes repository are made by hand, only under `scratch/`.
 - Why: [ADR-02](adrs.md#adr-02--github-is-canonical-and-read-only-note-bodies-are-not-stored-on-the-server), [ADR-16](adrs.md#adr-16--a-read-only-github-app-the-users-own-token-decides-what-can-be-connected).
 

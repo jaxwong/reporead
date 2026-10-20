@@ -13,8 +13,8 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
 /**
  * Completes the browser half of app sign-in: saves the user, issues a single-use code bound to the app's PKCE
  * challenge, ends the browser session, and redirects to this server's app (PendingAppSignIn.appRedirect). A login can
- * only start from /app/sign-in (GitHubSecurity.startedByTheApp), so the pending sign-in is always in the session that
- * reaches this callback (PendingAppSignIn).
+ * only start from /app/sign-in (GitHubBrowserSignIn.startedByTheApp), so the pending sign-in is always in the session
+ * that reaches this callback (PendingAppSignIn).
  */
 final class AppSignInSuccess implements AuthenticationSuccessHandler {
     private static final Logger LOG = LoggerFactory.getLogger(AppSignInSuccess.class);

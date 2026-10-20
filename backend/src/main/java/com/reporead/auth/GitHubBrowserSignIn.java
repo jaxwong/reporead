@@ -55,15 +55,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * GitHub sign-in in the browser, for the app's Custom Tab: the App's OAuth registration, the browser filter chain, and
- * the token endpoint's clients. The app's own API and the management port are AppSecurity.
+ * the token endpoint's clients. The app's own API and the management port are ApiSecurity.
  */
 @Configuration
-public class GitHubSecurity {
+public class GitHubBrowserSignIn {
     static final String REGISTRATION = "github";
     /** Browser sessions that can exist at once (see boundedSignInSessions). */
     static final int MAX_SIGN_IN_SESSIONS = 100;
 
-    private static final Logger LOG = LoggerFactory.getLogger(GitHubSecurity.class);
+    private static final Logger LOG = LoggerFactory.getLogger(GitHubBrowserSignIn.class);
 
     @Bean
     ClientRegistrationRepository registrations(RepoReadProperties properties, ServerProperties server)
@@ -95,7 +95,7 @@ public class GitHubSecurity {
             RestClientAuthorizationCodeTokenResponseClient githubCodeExchange,
             DefaultOAuth2UserService githubUserInfo,
             AppSessions sessions,
-            GitHubCredentials credentials,
+            GitHubTokenLifecycle credentials,
             AllowedUsers allowed,
             RepoReadProperties properties)
             throws Exception {

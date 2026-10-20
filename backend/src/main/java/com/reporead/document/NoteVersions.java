@@ -4,7 +4,7 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
-import com.reporead.auth.GitHubCredentials;
+import com.reporead.auth.GitHubTokenLifecycle;
 import com.reporead.github.GitHubApi;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -18,9 +18,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class NoteVersions {
     private final GitHubApi github;
-    private final GitHubCredentials credentials;
+    private final GitHubTokenLifecycle credentials;
 
-    public NoteVersions(GitHubApi github, GitHubCredentials credentials) {
+    public NoteVersions(GitHubApi github, GitHubTokenLifecycle credentials) {
         this.github = github;
         this.credentials = credentials;
     }

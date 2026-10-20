@@ -39,8 +39,8 @@ import tools.jackson.databind.json.JsonMapper;
  * GitHubTokens stores it encrypted; GitHubApi only uses it.
  */
 @Component
-public class GitHubCredentials {
-    private static final Logger LOG = LoggerFactory.getLogger(GitHubCredentials.class);
+public class GitHubTokenLifecycle {
+    private static final Logger LOG = LoggerFactory.getLogger(GitHubTokenLifecycle.class);
     private static final MediaType GITHUB_JSON = MediaType.parseMediaType("application/vnd.github+json");
     /** GitHub's answer, and OAuth's, when the refresh token itself is no longer valid. */
     private static final Set<String> REFUSED_REFRESH_TOKEN = Set.of("bad_refresh_token", "invalid_grant");
@@ -102,7 +102,7 @@ public class GitHubCredentials {
         forget(githubUserId);
     }
 
-    public GitHubCredentials(
+    public GitHubTokenLifecycle(
             OAuth2AuthorizedClientService githubTokens,
             ClientRegistrationRepository registrations,
             RestClientRefreshTokenTokenResponseClient githubRefreshTokens,
@@ -145,11 +145,11 @@ public class GitHubCredentials {
         String principal = Long.toString(githubUserId);
         OAuth2AuthorizedClient client;
         try {
-            client = manager.authorize(OAuth2AuthorizeRequest.withClientRegistrationId(GitHubSecurity.REGISTRATION)
+            client = manager.authorize(OAuth2AuthorizeRequest.withClientRegistrationId(GitHubBrowserSignIn.REGISTRATION)
                     .principal(principal)
                     .build());
         } catch (OAuth2AuthorizationException error) {
-            String refusal = GitHubSecurity.githubError(error);
+            String refusal = GitHubBrowserSignIn.githubError(error);
             // Only GitHub refusing the refresh token itself makes it useless. Anything else (no answer, 429 or 5xx,
             // or a refusal of this server's own credentials) leaves it good for a later request.
             if (!REFUSED_REFRESH_TOKEN.contains(refusal)) {
@@ -216,7 +216,7 @@ public class GitHubCredentials {
      * token either way; GitHub then expires the tokens on its own schedule.
      */
     private void revoke(long githubUserId, String token) {
-        var app = registrations.findByRegistrationId(GitHubSecurity.REGISTRATION);
+        var app = registrations.findByRegistrationId(GitHubBrowserSignIn.REGISTRATION);
         var uri = UriComponentsBuilder.fromUriString("https://api.github.com/applications/{clientId}/grant")
                 .encode()
                 .buildAndExpand(app.getClientId())
@@ -246,6 +246,6 @@ public class GitHubCredentials {
 
     /** Deletes the stored token; the user's next GitHub-backed request asks for sign-in. */
     private void forget(long githubUserId) {
-        githubTokens.removeAuthorizedClient(GitHubSecurity.REGISTRATION, Long.toString(githubUserId));
+        githubTokens.removeAuthorizedClient(GitHubBrowserSignIn.REGISTRATION, Long.toString(githubUserId));
     }
 }

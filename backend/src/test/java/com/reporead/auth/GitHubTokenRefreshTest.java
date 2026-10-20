@@ -104,7 +104,7 @@ class GitHubTokenRefreshTest extends SharedSpringTest {
                 .build();
         var tokenClient = RestClient.builder();
         tokenEndpoint = MockRestServiceServer.bindTo(tokenClient).build();
-        githubRefreshTokens.setRestClient(GitHubSecurity.tokenApi(tokenClient, meters));
+        githubRefreshTokens.setRestClient(GitHubBrowserSignIn.tokenApi(tokenClient, meters));
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_UNUSED_TOKEN");
         TestSessions.saveGitHubToken(
                 clients,
@@ -120,7 +120,7 @@ class GitHubTokenRefreshTest extends SharedSpringTest {
         api.verify();
         tokenEndpoint.verify();
         githubRefreshTokens.setRestClient(
-                GitHubSecurity.tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
+                GitHubBrowserSignIn.tokenApi(RestClient.builder().requestFactory(githubRequestFactory), meters));
         clients.removeAuthorizedClient("github", "42");
     }
 

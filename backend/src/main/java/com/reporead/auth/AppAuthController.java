@@ -1,4 +1,4 @@
-// Owns app-auth HTTP routes; AppSessions owns session facts and GitHubCredentials owns lifecycle serialization.
+// Owns app-auth HTTP routes; AppSessions owns session facts and GitHubTokenLifecycle owns lifecycle serialization.
 
 package com.reporead.auth;
 
@@ -28,7 +28,7 @@ import org.springframework.web.servlet.view.RedirectView;
 /**
  * Android sign-in: the app opens /app/sign-in in a Custom Tab with a PKCE S256 challenge, GitHub OAuth runs in that
  * browser session, and the callback redirects to this server's app (PendingAppSignIn.appRedirect) with a single-use
- * code that only the app's verifier can exchange for a bearer session. See GitHubSecurity for the callback side.
+ * code that only the app's verifier can exchange for a bearer session. See GitHubBrowserSignIn for the callback side.
  */
 @RestController
 public class AppAuthController {
@@ -37,11 +37,11 @@ public class AppAuthController {
     private static final String RELEASE_APP = "com.reporead.android";
 
     private final AppSessions sessions;
-    private final GitHubCredentials credentials;
+    private final GitHubTokenLifecycle credentials;
     /** This server's host, from configuration rather than the request's Host header, as for the OAuth callback. */
     private final String host;
 
-    public AppAuthController(AppSessions sessions, GitHubCredentials credentials, RepoReadProperties properties) {
+    public AppAuthController(AppSessions sessions, GitHubTokenLifecycle credentials, RepoReadProperties properties) {
         this.sessions = sessions;
         this.credentials = credentials;
         this.host = URI.create(properties.publicUrl()).getHost();

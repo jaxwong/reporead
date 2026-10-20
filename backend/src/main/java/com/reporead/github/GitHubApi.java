@@ -29,7 +29,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Every GitHub REST read RepoRead makes, each with a signed-in user's GitHub App user token from GitHubCredentials.
+ * Every GitHub REST read RepoRead makes, each with a signed-in user's GitHub App user token from GitHubTokenLifecycle.
  * Each method makes exactly one GET request: no retries, pagination, redirects, or installation-token fallback. GitHub
  * owns authorization: user-token endpoints only return repositories the user and installation can both access.
  */
