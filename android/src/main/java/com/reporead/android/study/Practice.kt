@@ -208,7 +208,9 @@ private fun NotQuestions(problems: List<BankProblems>, push: (Screen) -> Unit) {
                 color = MaterialTheme.colorScheme.error,
             )
         },
-        supportingContent = { Text("Each needs one Canonical answer or path line under its own ### heading.") },
+        supportingContent = {
+            Text("Each ### heading needs exactly one Canonical answer or path line, shared with no other question.")
+        },
         trailingContent = { Text(if (open) "Hide" else "Show", style = MaterialTheme.typography.labelLarge) },
     )
     if (!open) return

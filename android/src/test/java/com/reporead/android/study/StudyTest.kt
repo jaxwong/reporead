@@ -57,7 +57,7 @@ class StudyTest {
         val questions = interviewBank(html, bank).questions
         assertEquals(listOf("What is ACID?", "Why isolation levels?", "Why 503?"), questions.map { it.text })
         assertEquals(listOf("b4", "b8", "b13"), questions.map { it.blockId })
-        assertEquals(listOf(null, null, null), questions.map { it.instruction })
+        assertEquals(listOf(emptyList<String>(), emptyList(), emptyList()), questions.map { it.followUps })
         assertEquals(listOf("Foundations", "Foundations", "Diagnosis"), questions.map { it.level })
         assertEquals(
             StudyAnswer(
@@ -118,7 +118,7 @@ class StudyTest {
     }
 
     @Test
-    fun aFollowUpKeepsItsGroupInstructionAndRepeatsAreWarnings() {
+    fun aFollowUpGroupIsOneQuestionAskingEveryItem() {
         val html =
             page(
                 heading(0, "3. Design follow-ups") +
@@ -140,13 +140,14 @@ class StudyTest {
             )
         val parsed = interviewBank(html, bank)
         val questions = parsed.questions
-        assertEquals(listOf("Which key?", "How many threads?"), questions.map { it.text })
-        assertEquals(listOf("b3", "b6"), questions.map { it.blockId })
-        assertEquals("After you add a cache\n\nWhich key?", questions[0].prompt)
+        assertEquals(listOf("After you add a cache", "How many threads?"), questions.map { it.text })
+        assertEquals(listOf("b2", "b6"), questions.map { it.blockId })
+        assertEquals(listOf("Which key?", "What expires?"), questions[0].followUps)
+        assertEquals("After you add a cache\n\n1. Which key?\n2. What expires?", questions[0].prompt)
         assertEquals(listOf("Caching", "Expiry"), questions[0].answer.links.map { it.text })
         assertEquals(emptyList<String>(), questions[0].guide)
         assertEquals("How many threads?", questions[1].prompt)
-        assertEquals(listOf(BankProblem("b4", "What expires? — repeats a Canonical line")), parsed.unrecognized)
+        assertEquals(emptyList<BankProblem>(), parsed.unrecognized)
     }
 
     @Test

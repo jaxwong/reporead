@@ -26,20 +26,25 @@ internal data class AnswerLink(val target: String?, val path: String?, val headi
 internal data class StudyAnswer(val blockId: String, val text: String, val links: List<AnswerLink>)
 
 /**
- * One bank question. [instruction] is a follow-up group's heading; [level] is the bank section it sits in (Foundations,
- * Applied questions, …), shown only; [guide] is what the bank says besides the question and its answer line: what the
+ * One bank question. [followUps] are a follow-up group's list items, asked together under its heading because they
+ * share its one Canonical line, which is the card; [level] is the bank section it sits in (Foundations, Applied
+ * questions, …), shown only; [guide] is what the bank says besides the question and its answer line: what the
  * interviewer is testing and what a complete answer covers.
  */
 internal data class StudyQuestion(
     val blockId: String,
     val text: String,
     val answer: StudyAnswer,
-    val instruction: String? = null,
+    val followUps: List<String> = emptyList(),
     val guide: List<String> = emptyList(),
     val level: String? = null,
 ) {
+    /** The heading, then the follow-ups numbered in bank order. */
     val prompt: String
-        get() = listOfNotNull(instruction, text).joinToString("\n\n")
+        get() =
+            listOf(text, followUps.mapIndexed { index, item -> "${index + 1}. $item" }.joinToString("\n"))
+                .filter { it.isNotEmpty() }
+                .joinToString("\n\n")
 }
 
 /**
@@ -67,8 +72,8 @@ internal fun isInterviewBank(path: String): Boolean = interviewTopic(path) != nu
 
 /**
  * Reads only the renderer's canonical blocks. Each H3 of a bank whose section (up to the next H1–H3) has exactly one
- * Canonical line is a question: "Canonical answer:" makes the heading the question, without a leading "N. "; "Canonical
- * path:" makes top-level list items candidates, with the heading as instruction; repeated Canonical lines are warnings.
+ * Canonical line is a question, its heading without a leading "N. ": "Canonical answer:" asks the heading; "Canonical
+ * path:" asks the heading with its top-level list items as follow-ups; repeated Canonical lines are warnings.
  */
 internal fun interviewBank(html: String, path: String): InterviewBank {
     if (!isInterviewBank(path)) return InterviewBank(emptyList(), emptyList())
@@ -80,13 +85,12 @@ internal fun interviewBank(html: String, path: String): InterviewBank {
     val section = mutableListOf<Element>()
     fun finishGroup() {
         group?.let { heading ->
-            val found = bankQuestions(heading, section, level)
-            if (found.isEmpty()) unrecognized += BankProblem(heading.attr("data-block-id"), shownText(heading))
-            else
-                for (question in found) {
-                    if (canonicalLines.add(question.answer.text)) questions += question
-                    else unrecognized += BankProblem(question.blockId, "${question.text} — repeats a Canonical line")
-                }
+            val question = bankQuestion(heading, section, level)
+            when {
+                question == null -> unrecognized += BankProblem(heading.attr("data-block-id"), shownText(heading))
+                canonicalLines.add(question.answer.text) -> questions += question
+                else -> unrecognized += BankProblem(question.blockId, "${question.text} — repeats a Canonical line")
+            }
         }
         group = null
         section.clear()
@@ -117,21 +121,19 @@ private fun answerLine(block: Element): Pair<Element, String>? =
         ?.let { block to it.groupValues[1] }
 
 /**
- * The questions under one bank H3, from its [blocks] up to the next H1–H3; none unless exactly one is a Canonical line,
- * as with several (questions written as H4s) it is unknown which answers the heading.
+ * The question of one bank H3, from its [blocks] up to the next H1–H3; none unless exactly one is a Canonical line, as
+ * with several (questions written as H4s) it is unknown which answers the heading, and none for a path without items.
  */
-private fun bankQuestions(heading: Element, blocks: List<Element>, level: String?): List<StudyQuestion> {
-    val (line, kind) = blocks.mapNotNull(::answerLine).singleOrNull() ?: return emptyList()
+private fun bankQuestion(heading: Element, blocks: List<Element>, level: String?): StudyQuestion? {
+    val (line, kind) = blocks.mapNotNull(::answerLine).singleOrNull() ?: return null
     val answer = StudyAnswer(line.attr("data-block-id"), line.attr("data-anchor-text"), answerLinks(line))
     val items = candidates(blocks).filter { it.block !== line }
+    val id = heading.attr("data-block-id")
     val title = shownText(heading).replaceFirst(NUMBERED, "")
-    if (kind != "path") {
-        return listOf(StudyQuestion(heading.attr("data-block-id"), title, answer, null, items.map { it.text }, level))
-    }
-    val guide = items.filterNot { it.listItem }.map { it.text }
-    return items
-        .filter { it.listItem }
-        .map { StudyQuestion(it.block.attr("data-block-id"), it.text, answer, title, guide, level) }
+    if (kind != "path") return StudyQuestion(id, title, answer, guide = items.map { it.text }, level = level)
+    val (followUps, guide) = items.partition { it.listItem }
+    if (followUps.isEmpty()) return null
+    return StudyQuestion(id, title, answer, followUps.map { it.text }, guide.map { it.text }, level)
 }
 
 /** The note links on an answer line, in order, as the server wrote them (MarkdownRenderer.noteLink). */
