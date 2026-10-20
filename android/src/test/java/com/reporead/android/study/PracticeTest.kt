@@ -120,7 +120,7 @@ class PracticeTest {
             ),
         )
         assertEquals(emptySet<String>(), scheduledQuestions(questions, emptyList()))
-        // The prompt includes a follow-up's instruction.
+        // A follow-up group's card saved under the earlier one-item prompt still matches: matching is by line.
         val followUp =
             PracticeQuestion(
                 3,
@@ -129,9 +129,9 @@ class PracticeTest {
                 sha,
                 StudyQuestion(
                     "b1",
-                    "Which key?",
-                    StudyAnswer("b9", "Canonical path: Caching", emptyList()),
                     "After you add a cache",
+                    StudyAnswer("b9", "Canonical path: Caching", emptyList()),
+                    listOf("Which key?", "What expires?"),
                 ),
             )
         assertEquals(
