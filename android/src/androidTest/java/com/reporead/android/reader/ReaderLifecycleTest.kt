@@ -1,9 +1,5 @@
 package com.reporead.android.reader
 
-import android.graphics.Outline
-import android.graphics.Rect
-import android.view.View
-import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.room.Room
@@ -26,6 +22,7 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.findText
+import com.reporead.android.findWebView
 import com.reporead.android.root
 import com.reporead.android.sync.Sync
 import com.reporead.android.type
@@ -167,21 +164,6 @@ class ReaderLifecycleTest {
             while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(20)
         }
         readerReady = false
-    }
-
-    @Test
-    fun aReaderClipsNativePaintingToItsViewport() {
-        scenario.onActivity {
-            val view = checkNotNull(findWebView(it.window.decorView))
-            val outline = Outline().also { view.outlineProvider.getOutline(view, it) }
-            val clip = Rect()
-            assertTrue("Native reader painting must not cover its toolbar", view.clipToOutline)
-            assertTrue(
-                "The native reader clipping outline must be rectangular",
-                outline.canClip() && outline.getRect(clip),
-            )
-            assertEquals("The clipping boundary is the reader viewport", Rect(0, 0, view.width, view.height), clip)
-        }
     }
 
     @Test
@@ -653,16 +635,5 @@ class ReaderLifecycleTest {
         val result = JSONObject(JSONTokener(encoded).nextValue() as String)
         check(!result.has("error")) { "Reader JavaScript failed: $result" }
         return result
-    }
-
-    private fun findWebView(view: View): WebView? {
-        if (view is WebView) return view
-        if (view is ViewGroup)
-            for (index in 0 until view.childCount) {
-                findWebView(view.getChildAt(index))?.let {
-                    return it
-                }
-            }
-        return null
     }
 }

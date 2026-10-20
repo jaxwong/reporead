@@ -1,7 +1,12 @@
 package com.reporead.android
 
+import android.graphics.Rect
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
+import android.webkit.WebView
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -85,4 +90,29 @@ internal fun type(text: String) {
         target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments),
     )
     InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+}
+
+internal fun findWebView(view: View): WebView? {
+    if (view is WebView) return view
+    if (view is ViewGroup)
+        for (index in 0 until view.childCount) findWebView(view.getChildAt(index))?.let {
+            return it
+        }
+    return null
+}
+
+internal fun findWebView(scenario: ActivityScenario<TestHostActivity>): WebView? {
+    var page: WebView? = null
+    scenario.onActivity { page = findWebView(it.window.decorView) }
+    return page
+}
+
+internal fun pageBounds(scenario: ActivityScenario<TestHostActivity>): Rect {
+    val bounds = Rect()
+    scenario.onActivity {
+        val page = checkNotNull(findWebView(it.window.decorView))
+        val position = IntArray(2).also(page::getLocationOnScreen)
+        bounds.set(position[0], position[1], position[0] + page.width, position[1] + page.height)
+    }
+    return bounds
 }

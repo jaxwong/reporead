@@ -152,10 +152,22 @@ internal fun awaitRendered(view: WebView, main: Handler, then: (state: String) -
 }
 
 /**
- * Shows the saved [note] in this WebView as a page beside the reader: a link preview or a bank answer. It stays hidden
- * while it renders; then [script] (null: none) keeps the part to show, and [reveal] receives whether that part is in
- * this version and returns whether to show the page. [onFailed] runs when the page does not render or its renderer
- * stops, and the host then removes it; [name] says which page in the log. Nothing navigates.
+ * One native barrier per opening, after its DOM changes. A non-drawable page (hidden window or zero-sized viewport) may
+ * stay pending; there is no timed reveal of stale content. The owner handles release and renderer loss. A hidden answer
+ * stays VISIBLE at alpha 0: INVISIBLE requires becoming visible in this callback, before the user asks to reveal.
+ */
+internal fun WebView.whenReadyToDraw(then: () -> Unit) =
+    postVisualStateCallback(
+        0,
+        object : WebView.VisualStateCallback() {
+            override fun onComplete(requestId: Long) = then()
+        },
+    )
+
+/**
+ * Loads the saved [note] as a page beside the reader. After rendering, [script] (null: none) keeps the requested part
+ * and [onReady] reports whether it was found. The caller owns visibility. [onFailed] reports a render failure or lost
+ * renderer so the caller can remove the page; [name] identifies it in the log. Nothing navigates.
  */
 internal fun WebView.showIsolatedPage(
     images: NoteImages,
@@ -163,12 +175,11 @@ internal fun WebView.showIsolatedPage(
     name: String,
     script: String?,
     onFailed: () -> Unit,
-    reveal: (found: Boolean) -> Boolean,
+    onReady: (found: Boolean) -> Unit,
 ) {
     val assets = readerAssets(context)
     val main = Handler(Looper.getMainLooper())
     isolateReaderPage()
-    alpha = 0f
     webViewClient =
         object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
@@ -183,8 +194,8 @@ internal fun WebView.showIsolatedPage(
                             Log.w("RepoRead", "$name did not render; documentId=${note.documentId} state=$state")
                             onFailed()
                         }
-                        script == null -> if (reveal(true)) view.alpha = 1f
-                        else -> view.evaluate(script) { found -> if (reveal(found == true)) view.alpha = 1f }
+                        script == null -> onReady(true)
+                        else -> view.evaluate(script) { found -> onReady(found == true) }
                     }
                 }
 

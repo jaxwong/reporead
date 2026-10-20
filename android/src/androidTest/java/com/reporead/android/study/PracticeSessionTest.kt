@@ -1,11 +1,9 @@
 package com.reporead.android.study
 
-import android.graphics.Outline
 import android.graphics.Rect
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,6 +26,8 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
 import com.reporead.android.findText
+import com.reporead.android.findWebView
+import com.reporead.android.pageBounds
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.saveActivityState
@@ -502,11 +502,6 @@ class PracticeSessionTest {
             assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, view.importantForAccessibility)
             assertNull("No virtual accessibility tree before reveal", view.accessibilityNodeProvider)
             assertTrue("The hidden page cannot take keyboard focus", !view.isFocusable)
-            val outline = Outline().also { view.outlineProvider.getOutline(view, it) }
-            val clip = Rect()
-            assertTrue("Native painting must be clipped before the first visible draw", view.clipToOutline)
-            assertTrue("The native clipping outline must be rectangular", outline.canClip() && outline.getRect(clip))
-            assertEquals("The clipping boundary is the prepared viewport", Rect(0, 0, view.width, view.height), clip)
         }
         for (text in
             listOf(
@@ -520,16 +515,6 @@ class PracticeSessionTest {
                 "Test-only second answer text.",
             )) assertNull("No answer in accessibility before reveal: $text", findText(root(), text))
         return view
-    }
-
-    private fun pageBounds(scenario: ActivityScenario<TestHostActivity>): Rect {
-        val bounds = Rect()
-        scenario.onActivity { activity ->
-            val view = checkNotNull(findWebView(activity.window.decorView))
-            val position = IntArray(2).also(view::getLocationOnScreen)
-            bounds.set(position[0], position[1], position[0] + view.width, position[1] + view.height)
-        }
-        return bounds
     }
 
     /** Which linked section the revealed answer shows; it must be that section alone, from the saved copy. */
@@ -594,20 +579,5 @@ class PracticeSessionTest {
         val result = JSONObject(JSONTokener(encoded).nextValue() as String)
         check(!result.has("error")) { "Answer page JavaScript failed: $result" }
         return result
-    }
-
-    private fun findWebView(scenario: ActivityScenario<TestHostActivity>): WebView? {
-        var found: WebView? = null
-        scenario.onActivity { found = findWebView(it.window.decorView) }
-        return found
-    }
-
-    private fun findWebView(view: View): WebView? {
-        if (view is WebView) return view
-        if (view is ViewGroup)
-            for (index in 0 until view.childCount) findWebView(view.getChildAt(index))?.let {
-                return it
-            }
-        return null
     }
 }

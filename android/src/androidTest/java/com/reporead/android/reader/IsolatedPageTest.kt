@@ -1,5 +1,7 @@
 package com.reporead.android.reader
 
+import android.graphics.Outline
+import android.graphics.Rect
 import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -51,6 +53,8 @@ class IsolatedPageTest {
         instrumentation.runOnMainSync {
             page =
                 WebView(context).apply {
+                    alpha = 0.4f
+                    layout(0, 0, 400, 800)
                     showIsolatedPage(
                         images,
                         note,
@@ -59,23 +63,30 @@ class IsolatedPageTest {
                         { error("The page did not render") },
                     ) {
                         shown.countDown()
-                        true
                     }
                 }
         }
-        assertTrue("The page did not render", shown.await(20, TimeUnit.SECONDS))
-        val answered = CountDownLatch(1)
-        var result = ""
-        instrumentation.runOnMainSync {
-            assertTrue("Isolated native pages must keep painting within their bounds", page.clipToOutline)
-            page.evaluateJavascript(script) {
-                result = it
-                answered.countDown()
+        try {
+            assertTrue("The page did not render", shown.await(20, TimeUnit.SECONDS))
+            val answered = CountDownLatch(1)
+            var result = ""
+            instrumentation.runOnMainSync {
+                assertEquals("Only the page's host owns visibility", 0.4f, page.alpha)
+                assertTrue("Isolated native pages must keep painting within their bounds", page.clipToOutline)
+                val outline = Outline().also { page.outlineProvider.getOutline(page, it) }
+                val clip = Rect()
+                assertTrue("Native clipping is rectangular", outline.canClip() && outline.getRect(clip))
+                assertEquals("Clipping follows the viewport", Rect(0, 0, page.width, page.height), clip)
+                page.evaluateJavascript(script) {
+                    result = it
+                    answered.countDown()
+                }
             }
+            assertTrue(answered.await(5, TimeUnit.SECONDS))
+            return result
+        } finally {
+            instrumentation.runOnMainSync { page.destroy() }
         }
-        assertTrue(answered.await(5, TimeUnit.SECONDS))
-        instrumentation.runOnMainSync { page.destroy() }
-        return result
     }
 
     /** A renderer can crash or be reclaimed by the system; the host is told, instead of the app ending with it. */
@@ -102,7 +113,6 @@ class IsolatedPageTest {
                         { failed.countDown() },
                     ) {
                         shown.countDown()
-                        true
                     }
                 }
         }
