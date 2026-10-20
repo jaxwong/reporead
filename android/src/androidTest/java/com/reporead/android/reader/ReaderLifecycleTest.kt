@@ -1,5 +1,7 @@
 package com.reporead.android.reader
 
+import android.graphics.Outline
+import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -165,6 +167,21 @@ class ReaderLifecycleTest {
             while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(20)
         }
         readerReady = false
+    }
+
+    @Test
+    fun aReaderClipsNativePaintingToItsViewport() {
+        scenario.onActivity {
+            val view = checkNotNull(findWebView(it.window.decorView))
+            val outline = Outline().also { view.outlineProvider.getOutline(view, it) }
+            val clip = Rect()
+            assertTrue("Native reader painting must not cover its toolbar", view.clipToOutline)
+            assertTrue(
+                "The native reader clipping outline must be rectangular",
+                outline.canClip() && outline.getRect(clip),
+            )
+            assertEquals("The clipping boundary is the reader viewport", Rect(0, 0, view.width, view.height), clip)
+        }
     }
 
     @Test

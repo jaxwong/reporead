@@ -245,8 +245,6 @@ private fun sectionView(
                 if (alpha == 0f) null else super.getAccessibilityNodeProvider()
         }
         .apply {
-            // AndroidView doesn't clip native drawing; the first WebView draw must stay inside its section.
-            clipToOutline = true
             // One attached, screen-bounded page; rasterize while hidden so its first visible frame is ready.
             settings.offscreenPreRaster = true
             setOnTouchListener { view, _ -> view.alpha == 0f }
