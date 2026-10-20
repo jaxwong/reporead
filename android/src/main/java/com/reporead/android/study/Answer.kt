@@ -1,9 +1,7 @@
 package com.reporead.android.study
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
-import android.view.View
 import android.view.accessibility.AccessibilityNodeProvider
 import android.webkit.WebView
 import androidx.compose.foundation.horizontalScroll
@@ -61,8 +59,9 @@ private sealed interface LinkedNote {
 
 /**
  * Prepares the complete bank answer inside AnswerSlot, including its grading checklist and linked core section (one at
- * a time). [visible] gates input and the native page; AnswerSlot owns Compose exposure. [onPrepared] reports a visually
- * ready section or its terminal problem. [push] opens the linked note at that heading.
+ * a time). [visible] gates keyboard focus and the native page; AnswerSlot owns Compose exposure and pointer input. A
+ * parent focusProperties rule cannot exclude buttons inside nested scrollers. [onPrepared] reports a visually ready
+ * section or its terminal problem. [push] opens the linked note at that heading.
  */
 @Composable
 internal fun BankAnswer(
@@ -209,10 +208,9 @@ private fun ColumnScope.AnswerSection(
                     },
                     update = { view ->
                         val pageVisible = visible && ready
+                        // INVISIBLE requires becoming VISIBLE in the native readiness callback, before user reveal.
                         view.alpha = if (pageVisible) 1f else 0f
-                        view.importantForAccessibility =
-                            if (pageVisible) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
-                            else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                        // Disabling focus clears touch-mode support; restore it too when showing the page.
                         view.isFocusableInTouchMode = pageVisible
                         view.isFocusable = pageVisible
                     },
@@ -229,8 +227,6 @@ private fun ColumnScope.AnswerSection(
  * in this version: the problem is reported instead of showing an unrelated part. Composition owns visibility once
  * [onReady] runs, so preparation cannot reveal an answer. The page never navigates.
  */
-// Consumes hidden-page touches only; visible WebView gestures are unchanged.
-@SuppressLint("ClickableViewAccessibility")
 private fun sectionView(
     context: Context,
     sync: Sync,
@@ -241,14 +237,13 @@ private fun sectionView(
     onFailed: () -> Unit,
 ): WebView =
     object : WebView(context) {
-            // WebView's virtual nodes bypass NO_HIDE_DESCENDANTS for services that include unimportant views.
+            // Cleared Compose semantics don't exclude WebView's virtual accessibility nodes.
             override fun getAccessibilityNodeProvider(): AccessibilityNodeProvider? =
                 if (alpha == 0f) null else super.getAccessibilityNodeProvider()
         }
         .apply {
             // One attached, screen-bounded page; rasterize while hidden so its first visible frame is ready.
             settings.offscreenPreRaster = true
-            setOnTouchListener { view, _ -> view.alpha == 0f }
             showIsolatedPage(
                 sync.images,
                 note,

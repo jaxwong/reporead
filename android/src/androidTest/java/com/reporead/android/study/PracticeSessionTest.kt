@@ -1,9 +1,6 @@
 package com.reporead.android.study
 
 import android.graphics.Rect
-import android.os.SystemClock
-import android.view.MotionEvent
-import android.view.View
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,6 +29,7 @@ import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.saveActivityState
 import com.reporead.android.sync.Sync
+import com.reporead.android.tap
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -305,34 +303,44 @@ class PracticeSessionTest {
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 click("Show answer")
                 val bounds = Rect().also { control("Good").getBoundsInScreen(it) }
-                // Both taps reach the same frame, before saving can disable or replace the button.
+                // Accessibility clicks wait for idle and can target a replaced node, missing this same-frame race.
                 scenario.onActivity { activity ->
-                    val decor = activity.window.decorView
-                    val location = IntArray(2).also(decor::getLocationOnScreen)
-                    repeat(2) {
-                        val now = SystemClock.uptimeMillis()
-                        for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
-                            val event =
-                                MotionEvent.obtain(
-                                    now,
-                                    now,
-                                    action,
-                                    bounds.exactCenterX() - location[0],
-                                    bounds.exactCenterY() - location[1],
-                                    0,
-                                )
-                            try {
-                                assertTrue("The grade tap is dispatched", decor.dispatchTouchEvent(event))
-                            } finally {
-                                event.recycle()
-                            }
-                        }
-                    }
+                    repeat(2) { tap(activity.window.decorView, bounds) }
                 }
                 awaitText("1 question left · Foundations · Test-only bank")
                 val card = dao.waitingAnnotations().single()
                 assertEquals(listOf(card.mutationId), dao.pendingReviews().map { it.cardMutationId })
                 assertEquals(listOf(4), dao.pendingReviews().map { it.grade })
+            }
+        }
+
+    @Test
+    fun thePreparedNativePageRejectsHiddenInputAndAcceptsInputAfterReveal() =
+        runBlocking<Unit> {
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+                awaitText("Show answer")
+                val page = preparedAnswer(scenario)
+                evaluate(
+                    scenario,
+                    "window.testTouches = 0; document.addEventListener('touchstart', () => window.testTouches++); return {};",
+                )
+                val bounds = pageBounds(scenario)
+                scenario.onActivity {
+                    assertTrue("The hidden native page rejects focus", !page.requestFocus())
+                    tap(it.window.decorView, bounds)
+                }
+                instrumentation.waitForIdleSync()
+                assertEquals(0, evaluate(scenario, "return {touches: window.testTouches};").getInt("touches"))
+                click("Show answer")
+                shownAnswer(scenario)
+                scenario.onActivity {
+                    assertTrue("The visible native page accepts focus", page.requestFocus())
+                    tap(it.window.decorView, bounds)
+                }
+                withTimeout(5_000) {
+                    while (evaluate(scenario, "return {touches: window.testTouches};").getInt("touches") == 0) delay(20)
+                }
+                assertEquals(1, evaluate(scenario, "return {touches: window.testTouches};").getInt("touches"))
             }
         }
 
@@ -499,9 +507,8 @@ class PracticeSessionTest {
         scenario.onActivity {
             assertEquals(0f, view.alpha)
             assertTrue("The hidden answer has a laid-out slot", view.height > 0)
-            assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, view.importantForAccessibility)
             assertNull("No virtual accessibility tree before reveal", view.accessibilityNodeProvider)
-            assertTrue("The hidden page cannot take keyboard focus", !view.isFocusable)
+            assertTrue("The hidden page cannot take keyboard focus", !view.requestFocus())
         }
         for (text in
             listOf(
