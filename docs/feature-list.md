@@ -175,7 +175,7 @@ Implemented and locally verified in open [PR #84](https://github.com/jaxwong/rep
 
 ## Follow-up groups as one question (2026-10-20)
 
-Implemented and locally verified on branch `path-group-question`, after the freeze by user decision: a `Canonical path` group is one question, its heading and numbered items (ADR-20 Recognition). On the real notes StudyCorpus went from 404 warnings to 147 (109 headings sharing another question's line, 38 without a line), with 1593 questions unchanged; the remaining warnings are the notes' to fix. Android JVM gates pass; device suite, release and phone install not run.
+Implemented and locally verified on branch `path-group-question`, after the freeze by user decision: a `Canonical path` group is one question, its heading and numbered items, and a path without items asks its heading; `Canonical answers:` is no longer accepted (ADR-20 Recognition). On the real notes StudyCorpus went from 404 warnings to 150 (109 headings sharing another question's line, 38 practice-bank prompts without a line, and 3 plural lines until renamed); the remaining warnings are the notes' to fix. Android JVM gates pass; device suite, release and phone install not run.
 
 ## Not yet verified on the real system
 
