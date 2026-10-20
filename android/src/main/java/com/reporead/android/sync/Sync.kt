@@ -32,7 +32,6 @@ import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
-import com.reporead.android.data.SavedVersion
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -185,38 +184,38 @@ class Sync(
     data class Opened(val note: NoteRow, val staleReason: ApiException?)
 
     /**
-     * The saved copy is the current version of [document], a listed note: same blob, path and repository snapshot. The
-     * snapshot matters even when Markdown is unchanged: images and embed resolution may have changed.
+     * The saved copy matches a listed note's blob and path. Only repository images and blocked embeds also need the
+     * same known snapshot: their contents or resolution may change without a Markdown edit.
      */
-    private fun sameVersion(cached: SavedVersion, document: DocumentRow?, commitSha: String?) =
-        document != null &&
+    private fun sameVersion(cached: NoteRow, document: DocumentRow?, commitSha: String?): Boolean {
+        val needsSnapshot = cached.html.contains(IMAGE_PREFIX) || cached.html.contains("image-blocked")
+        return document != null &&
             !document.deleted &&
             cached.blobSha == document.blobSha &&
             cached.path == document.path &&
-            cached.snapshotCommitSha != null &&
-            cached.snapshotCommitSha == commitSha
+            (!needsSnapshot || (cached.snapshotCommitSha != null && cached.snapshotCommitSha == commitSha))
+    }
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
-    private fun upToDate(cached: SavedVersion, document: DocumentRow?, commitSha: String?) =
+    private fun upToDate(cached: NoteRow, document: DocumentRow?, commitSha: String?) =
         sameVersion(cached, document, commitSha) && cached.renderFormat >= BuildConfig.RENDER_FORMAT
 
     /**
-     * A cached copy of the document's current version, path and repository snapshot opens without a network call.
-     * Otherwise the current version is fetched; if that fails, an older cached copy is shown with the reason, and a
-     * missing cache is the failure itself. A current copy saved in an older page format (without search text, note
-     * links, embeds, or later presentation fixes) is fetched once more; if that fails it is still the current version,
-     * so it opens without a warning.
+     * An [upToDate] cached copy opens without a network call. Otherwise the current version is fetched; if that fails,
+     * an older cached copy is shown with the reason, and a missing cache is the failure itself. A current copy saved in
+     * an older page format (without search text, note links, embeds, or later presentation fixes) is fetched once more;
+     * if that fails it is still the current version, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened = locked {
         val cached = dao.note(documentId)
         val current = dao.document(documentId)
         val commitSha = current?.let { dao.repositoryCommitSha(it.repositoryId) }
-        if (cached != null && upToDate(cached.version, current, commitSha)) return@locked Opened(cached, null)
+        if (cached != null && upToDate(cached, current, commitSha)) return@locked Opened(cached, null)
         try {
             Opened(fetchNote(documentId).also { sweepImages() }, null)
         } catch (error: ApiException) {
             if (cached == null) throw error
-            val cachedIsCurrent = sameVersion(cached.version, current, commitSha)
+            val cachedIsCurrent = sameVersion(cached, current, commitSha)
             Log.i("RepoRead", "Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
             Opened(cached, if (cachedIsCurrent) null else error)
         }
@@ -272,7 +271,7 @@ class Sync(
             try {
                 locked {
                     val cached = dao.note(document.id)
-                    if (cached != null && upToDate(cached.version, document, commitSha)) {
+                    if (cached != null && upToDate(cached, document, commitSha)) {
                         images.save(cached)
                         alreadySaved++
                     } else {

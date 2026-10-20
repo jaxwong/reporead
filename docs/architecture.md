@@ -444,7 +444,7 @@ sequenceDiagram
 
     R->>S: openNote(documentId)
     S->>Room: saved copy for this document?
-    alt saved copy matches current blob SHA, path, repository snapshot and page format
+    alt saved copy matches blob SHA, path and page format (snapshot too for repository images or blocked embeds)
         Room-->>S: saved note (no network)
     else
         S->>API: GET /api/documents/{id}/content
