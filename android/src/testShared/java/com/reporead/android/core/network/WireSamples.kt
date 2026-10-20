@@ -9,8 +9,8 @@ import com.reporead.android.core.network.wire.AnnotationsPassage
 import com.reporead.android.core.network.wire.AppSessionsIssuedSession
 import com.reporead.android.core.network.wire.AppUser
 import com.reporead.android.core.network.wire.BookmarksBookmark
-import com.reporead.android.core.network.wire.ConnectionDataCounts
-import com.reporead.android.core.network.wire.ConnectionDataDisconnected
+import com.reporead.android.core.network.wire.ConnectionDeletionCounts
+import com.reporead.android.core.network.wire.ConnectionDeletionDisconnected
 import com.reporead.android.core.network.wire.DocumentControllerContent
 import com.reporead.android.core.network.wire.DocumentsSummary
 import com.reporead.android.core.network.wire.LibraryRepository
@@ -180,10 +180,16 @@ internal fun testSynced() =
     RepositorySyncResult(commitSha = testCommit, documentCount = 1, repositoryId = 7, syncedAt = testAt)
 
 internal fun testCounts() =
-    ConnectionDataCounts(bookmarks = 1, cards = 1, documents = 1, highlights = 1, readingStates = 1)
+    ConnectionDeletionCounts(bookmarks = 1, cards = 1, documents = 1, highlights = 1, readingStates = 1)
 
 internal fun testDisconnected(documentIds: List<Long> = listOf(1)) =
-    ConnectionDataDisconnected(bookmarks = 1, cards = 1, documentIds = documentIds, highlights = 1, readingStates = 1)
+    ConnectionDeletionDisconnected(
+        bookmarks = 1,
+        cards = 1,
+        documentIds = documentIds,
+        highlights = 1,
+        readingStates = 1,
+    )
 
 internal fun testAccountDeleted() =
     AccountDeletionDeleted(bookmarks = 1, cards = 1, highlights = 1, readingStates = 1, repositories = 1)

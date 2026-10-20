@@ -5,7 +5,7 @@ package com.reporead.android.core.network
 import com.reporead.android.core.network.wire.AnnotationsAnnotation
 import com.reporead.android.core.network.wire.AppSessionsIssuedSession
 import com.reporead.android.core.network.wire.AppUser
-import com.reporead.android.core.network.wire.ConnectionDataDisconnected
+import com.reporead.android.core.network.wire.ConnectionDeletionDisconnected
 import com.reporead.android.core.network.wire.DocumentControllerContent
 import com.reporead.android.core.network.wire.DocumentsSummary
 import com.reporead.android.core.network.wire.LibraryRepository
@@ -67,7 +67,7 @@ class ContractTest {
             broken<ReadingStatesState>(json(testReading()).with("progressPercent", bad))
         }
         for (bad in listOf("\"1\"", "1.7", "9223372036854775808", "null", "true")) {
-            broken<ConnectionDataDisconnected>(json(testDisconnected()).with("documentIds", "[$bad]"))
+            broken<ConnectionDeletionDisconnected>(json(testDisconnected()).with("documentIds", "[$bad]"))
         }
         broken<DocumentsSummary>(json(testDocument()).with("deleted", "\"false\""))
         broken<RepositoryConnectionsAvailable>(json(testAvailable()).with("connectionId", "\"7\""))

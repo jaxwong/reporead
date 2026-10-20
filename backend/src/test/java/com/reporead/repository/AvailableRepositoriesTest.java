@@ -428,7 +428,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         var deleted = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // What account deletion does to the user row (DataControlController.delete), held open while the connect
+            // What account deletion does to the user row (DeletionController.delete), held open while the connect
             // arrives.
             var deleting = executor.submit(() -> transaction.execute(status -> {
                 db.sql("select id from users where id = 1 for update")

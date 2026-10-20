@@ -15,8 +15,8 @@ import com.reporead.android.core.network.wire.AnnotationsAnnotation
 import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
 import com.reporead.android.core.network.wire.AppSessionsIssuedSession
 import com.reporead.android.core.network.wire.BookmarksBookmark
-import com.reporead.android.core.network.wire.ConnectionDataCounts
-import com.reporead.android.core.network.wire.ConnectionDataDisconnected
+import com.reporead.android.core.network.wire.ConnectionDeletionCounts
+import com.reporead.android.core.network.wire.ConnectionDeletionDisconnected
 import com.reporead.android.core.network.wire.DocumentControllerContent
 import com.reporead.android.core.network.wire.LibrarySnapshot
 import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
@@ -93,9 +93,9 @@ class Api(
     suspend fun syncRepository(id: Long): RepositorySyncResult =
         json("POST", "/api/repositories/$id/sync") { it.repositoryId == id }
 
-    suspend fun storedData(id: Long): ConnectionDataCounts = json("GET", "/api/repositories/$id/stored-data")
+    suspend fun storedData(id: Long): ConnectionDeletionCounts = json("GET", "/api/repositories/$id/stored-data")
 
-    suspend fun disconnectRepository(id: Long): ConnectionDataDisconnected = json("DELETE", "/api/repositories/$id")
+    suspend fun disconnectRepository(id: Long): ConnectionDeletionDisconnected = json("DELETE", "/api/repositories/$id")
 
     suspend fun noteContent(id: Long): DocumentControllerContent =
         json("GET", "/api/documents/$id/content") { it.documentId == id }

@@ -90,7 +90,7 @@ One Spring Boot 4 / Java 25 service, a modular monolith with one package per con
 
 ### Packages and their dependencies
 
-Arrows point from a package to the packages it calls (from the imports in each file). The packages form a stack with no cycles: each calls only packages below it, and `datacontrol`, which deletes across every owner, and `library`, which reads the phone's lists across their owners in one snapshot, are on top. Every package with routes also reads the signed-in user (`auth.AppUser`); those arrows are left out. The stack is of imports: SQL reads do cross owners (`Documents` checks reading and annotation rows, `RepositoryConnections` counts documents), which ADR-01 allows, since each table's writes stay with its one owner. Controllers call owners only; no controller calls GitHub.
+Arrows point from a package to the packages it calls (from the imports in each file). The packages form a stack with no cycles: each calls only packages below it, and `deletion`, which deletes across every owner, and `library`, which reads the phone's lists across their owners in one snapshot, are on top. Every package with routes also reads the signed-in user (`auth.AppUser`); those arrows are left out. The stack is of imports: SQL reads do cross owners (`Documents` checks reading and annotation rows, `RepositoryConnections` counts documents), which ADR-01 allows, since each table's writes stay with its one owner. Controllers call owners only; no controller calls GitHub.
 
 ```mermaid
 flowchart TB
@@ -102,11 +102,11 @@ flowchart TB
         DocC["DocumentController"]
         ReadC["ReadingController"]
         AnnC["AnnotationController<br/>BookmarkController<br/>ReviewController"]
-        DataC["DataControlController"]
+        DelC["DeletionController"]
         LibC["LibraryController"]
     end
 
-    datacontrol["datacontrol<br/>disconnect, stored data,<br/>account deletion"]
+    deletion["deletion<br/>disconnect, stored data,<br/>account deletion"]
     library["library<br/>Library: every list the phone saves,<br/>one read-only snapshot"]
     sync["sync<br/>RepositorySync: snapshot publish<br/>ContentMoves: moved-and-edited"]
     annotation["annotation<br/>Annotations, Anchoring,<br/>Bookmarks, Reviews"]
@@ -122,14 +122,14 @@ flowchart TB
     DocC --> document
     ReadC --> reading
     AnnC --> annotation
-    DataC --> datacontrol
+    DelC --> deletion
     LibC --> library
 
-    datacontrol --> annotation
-    datacontrol --> reading
-    datacontrol --> document
-    datacontrol --> repository
-    datacontrol --> auth
+    deletion --> annotation
+    deletion --> reading
+    deletion --> document
+    deletion --> repository
+    deletion --> auth
     library --> annotation
     library --> reading
     library --> document
@@ -161,7 +161,7 @@ flowchart TB
 | `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `Attachments` |
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
-| `datacontrol` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionData`, `AccountDeletion`, `DataControlController` |
+| `deletion` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionDeletion`, `AccountDeletion`, `DeletionController` |
 | `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook, each from its owner, in one read-only `REPEATABLE READ` transaction of a fixed 6 queries, refused over 8 MiB ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `Library`, `LibraryController` |
 | root | Error responses (`{code, message}`), shared PostgreSQL text-storability and hash rules | `ApiErrors`, `ApiFailure`, `StoredText`, `Hashes` |
 

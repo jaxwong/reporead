@@ -1,4 +1,4 @@
-package com.reporead.datacontrol;
+package com.reporead.deletion;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -40,7 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 /** Disconnecting a repository and deleting an account. Test-only users, repositories, and notes; no GitHub calls. */
-class DataControlTest extends SharedSpringTest {
+class DeletionTest extends SharedSpringTest {
     private static final String SHA = "a".repeat(40);
 
     @Autowired
@@ -69,7 +69,7 @@ class DataControlTest extends SharedSpringTest {
     RepositoryConnections connections;
 
     @Autowired
-    ConnectionData data;
+    ConnectionDeletion data;
 
     @Autowired
     Annotations annotations;
@@ -293,9 +293,9 @@ class DataControlTest extends SharedSpringTest {
     }
 
     /**
-     * Runs {@code write} while a disconnect of {@code notes} holds its lock, as DataControlController.disconnect does,
-     * and returns the write's HTTP status. A write that did not wait would commit rows the disconnect's deletes no
-     * longer see.
+     * Runs {@code write} while a disconnect of {@code notes} holds its lock, as DeletionController.disconnect does, and
+     * returns the write's HTTP status. A write that did not wait would commit rows the disconnect's deletes no longer
+     * see.
      */
     private int writeDuringDisconnect(Callable<ResultActions> write) throws Exception {
         var locked = new CountDownLatch(1);
