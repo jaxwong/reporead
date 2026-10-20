@@ -2,6 +2,7 @@ package com.reporead.android.reader
 
 import android.graphics.Outline
 import android.graphics.Rect
+import android.webkit.ValueCallback
 import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -21,6 +22,71 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class IsolatedPageTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+
+    @Test
+    fun aReleasedPageCannotReportALateScriptResult() {
+        val context = instrumentation.targetContext
+        val sha = "a".repeat(40)
+        val note =
+            NoteRow(
+                1,
+                sha,
+                "test-only/page.md",
+                "Test-only page",
+                testPage(sha, "<p>Test-only late-result page</p>"),
+                0,
+                renderFormat = BuildConfig.RENDER_FORMAT,
+            )
+        val images =
+            NoteImages(
+                Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {},
+                File(context.cacheDir, "isolated-page-test"),
+            )
+        val waiting = CountDownLatch(1)
+        lateinit var lateResult: () -> Unit
+        lateinit var page: WebView
+        var reported = 0
+        var released = false
+        instrumentation.runOnMainSync {
+            // Test-only delivery gate: the real WebView evaluates the script before its result is held.
+            page =
+                object : IsolatedPage(context) {
+                        override fun evaluateJavascript(script: String, resultCallback: ValueCallback<String>?) {
+                            super.evaluateJavascript(script) { result ->
+                                if (script.contains("testLateResult")) {
+                                    lateResult = { checkNotNull(resultCallback).onReceiveValue(result) }
+                                    waiting.countDown()
+                                } else checkNotNull(resultCallback).onReceiveValue(result)
+                            }
+                        }
+                    }
+                    .apply {
+                        show(
+                            images,
+                            note,
+                            "Test-only late result",
+                            "window.testLateResult = true",
+                            {
+                                error("The page did not render")
+                            },
+                        ) {
+                            reported++
+                        }
+                    }
+        }
+        try {
+            assertTrue("The real script result was not delivered", waiting.await(15, TimeUnit.SECONDS))
+            instrumentation.runOnMainSync {
+                page.destroy()
+                released = true
+                lateResult()
+            }
+            instrumentation.waitForIdleSync()
+            assertEquals("A released page must not report readiness", 0, reported)
+        } finally {
+            if (!released) instrumentation.runOnMainSync { page.destroy() }
+        }
+    }
 
     /** Mermaid, most of the page's script, is loaded only for a page with a diagram, which it then draws. */
     @Test
@@ -52,10 +118,10 @@ class IsolatedPageTest {
         lateinit var page: WebView
         instrumentation.runOnMainSync {
             page =
-                WebView(context).apply {
+                IsolatedPage(context).apply {
                     alpha = 0.4f
                     layout(0, 0, 400, 800)
-                    showIsolatedPage(
+                    show(
                         images,
                         note,
                         "Test-only page",
@@ -104,8 +170,8 @@ class IsolatedPageTest {
         lateinit var page: WebView
         instrumentation.runOnMainSync {
             page =
-                WebView(context).apply {
-                    showIsolatedPage(
+                IsolatedPage(context).apply {
+                    show(
                         images,
                         note,
                         "Test-only page",

@@ -39,9 +39,9 @@ import com.reporead.android.Screen
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
+import com.reporead.android.reader.IsolatedPage
+import com.reporead.android.reader.awaitVisualState
 import com.reporead.android.reader.resolveNoteLink
-import com.reporead.android.reader.showIsolatedPage
-import com.reporead.android.reader.whenReadyToDraw
 import com.reporead.android.sync.Sync
 import org.json.JSONObject
 
@@ -236,7 +236,7 @@ private fun sectionView(
     onProblem: (String) -> Unit,
     onFailed: () -> Unit,
 ): WebView =
-    object : WebView(context) {
+    object : IsolatedPage(context) {
             // Cleared Compose semantics don't exclude WebView's virtual accessibility nodes.
             override fun getAccessibilityNodeProvider(): AccessibilityNodeProvider? =
                 if (alpha == 0f) null else super.getAccessibilityNodeProvider()
@@ -244,7 +244,7 @@ private fun sectionView(
         .apply {
             // One attached, screen-bounded page; rasterize while hidden so its first visible frame is ready.
             settings.offscreenPreRaster = true
-            showIsolatedPage(
+            show(
                 sync.images,
                 note,
                 "Answer section",
@@ -254,8 +254,10 @@ private fun sectionView(
                     onFailed()
                 },
             ) { found ->
-                if (found) whenReadyToDraw(onReady)
-                else {
+                if (found) {
+                    awaitVisualState()
+                    onReady()
+                } else {
                     Log.w(
                         "RepoRead",
                         "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha}",

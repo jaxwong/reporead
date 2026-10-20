@@ -117,9 +117,9 @@ private fun previewView(
     onNotice: (String) -> Unit,
     onFailed: () -> Unit,
 ): WebView =
-    WebView(context).apply {
+    IsolatedPage(context).apply {
         alpha = 0f
-        showIsolatedPage(
+        show(
             sync.images,
             note,
             "Link preview",
