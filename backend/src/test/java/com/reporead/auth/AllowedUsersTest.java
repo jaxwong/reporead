@@ -34,9 +34,9 @@ class AllowedUsersTest {
     void signInOfAGitHubUserNotOnTheListFailsBeforeAnythingIsStored() {
         var allowed = allowedUsers("42");
         var listed = user(42);
-        assertSame(listed, GitHubSecurity.allowedOnly(listed, allowed));
-        var error =
-                assertThrows(OAuth2AuthenticationException.class, () -> GitHubSecurity.allowedOnly(user(84), allowed));
+        assertSame(listed, GitHubBrowserSignIn.allowedOnly(listed, allowed));
+        var error = assertThrows(
+                OAuth2AuthenticationException.class, () -> GitHubBrowserSignIn.allowedOnly(user(84), allowed));
         assertEquals("access_denied", error.getError().getErrorCode());
     }
 

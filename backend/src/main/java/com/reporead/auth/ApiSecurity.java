@@ -17,10 +17,10 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 
 /**
  * Who can reach the server and how the app authenticates: loopback connections only, a management port that exposes
- * only counts and the build's commit, and a bearer-only /api. GitHub sign-in in the browser is GitHubSecurity.
+ * only counts and the build's commit, and a bearer-only /api. GitHub sign-in in the browser is GitHubBrowserSignIn.
  */
 @Configuration
-public class AppSecurity {
+public class ApiSecurity {
     /**
      * Only loopback clients reach the server: the phone through `adb reverse` on the Mac, or the hosted HTTPS proxy.
      * Tomcat honours forwarded headers only from such addresses, and the management chain trusts its port, so binding

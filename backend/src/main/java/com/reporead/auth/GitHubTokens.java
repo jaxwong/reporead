@@ -97,7 +97,7 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
             return null;
         }
         return (T) new OAuth2AuthorizedClient(
-                registrations.findByRegistrationId(GitHubSecurity.REGISTRATION), principalName, access, refresh);
+                registrations.findByRegistrationId(GitHubBrowserSignIn.REGISTRATION), principalName, access, refresh);
     }
 
     @Override
@@ -142,7 +142,7 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
      * "id").
      */
     private static long githubUserId(String clientRegistrationId, String principalName) {
-        if (!GitHubSecurity.REGISTRATION.equals(clientRegistrationId)) {
+        if (!GitHubBrowserSignIn.REGISTRATION.equals(clientRegistrationId)) {
             throw new IllegalArgumentException(
                     "Only the github registration has stored tokens; got " + clientRegistrationId);
         }

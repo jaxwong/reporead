@@ -20,8 +20,8 @@ import org.springframework.web.client.RestTemplate;
 
 /**
  * How RepoRead talks HTTP to GitHub: 15-second timeouts, no redirects, and a size ceiling on every response, which is
- * also where every GitHub request is counted. GitHubApi uses the three clients and GitHubCredentials the user API
- * client; sign-in (GitHubSecurity) uses the same request factory and ceiling.
+ * also where every GitHub request is counted. GitHubApi uses the three clients and GitHubTokenLifecycle the user API
+ * client; sign-in (GitHubBrowserSignIn) uses the same request factory and ceiling.
  */
 @Configuration
 public class GitHubHttp {

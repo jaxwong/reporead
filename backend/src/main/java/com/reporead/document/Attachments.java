@@ -1,7 +1,7 @@
 package com.reporead.document;
 
 import com.reporead.auth.AppUser;
-import com.reporead.auth.GitHubCredentials;
+import com.reporead.auth.GitHubTokenLifecycle;
 import com.reporead.github.GitHubApi;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -22,9 +22,9 @@ import org.springframework.web.util.UriUtils;
 public class Attachments {
     private final JdbcClient db;
     private final GitHubApi github;
-    private final GitHubCredentials credentials;
+    private final GitHubTokenLifecycle credentials;
 
-    public Attachments(JdbcClient db, GitHubApi github, GitHubCredentials credentials) {
+    public Attachments(JdbcClient db, GitHubApi github, GitHubTokenLifecycle credentials) {
         this.db = db;
         this.github = github;
         this.credentials = credentials;

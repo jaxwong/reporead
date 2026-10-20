@@ -53,7 +53,7 @@ class AppSignInTest extends SharedSpringTest {
     AppSessions sessions;
 
     @Autowired
-    GitHubCredentials credentials;
+    GitHubTokenLifecycle credentials;
 
     @Autowired
     JdbcClient db;

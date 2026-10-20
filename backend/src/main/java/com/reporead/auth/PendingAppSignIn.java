@@ -4,8 +4,8 @@ import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * The app's sign-in while GitHub is asked: the PKCE challenge that /app/sign-in keeps in the browser session it opens,
- * until the OAuth callback issues the app's code and ends that session. AppAuthController starts it, GitHubSecurity
- * lets only such a session start a GitHub login, and AppSignInSuccess finishes it.
+ * until the OAuth callback issues the app's code and ends that session. AppAuthController starts it,
+ * GitHubBrowserSignIn lets only such a session start a GitHub login, and AppSignInSuccess finishes it.
  */
 final class PendingAppSignIn {
     static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
@@ -18,16 +18,16 @@ final class PendingAppSignIn {
     /**
      * Where the one app that uses this server receives its code. On an HTTPS origin, the release app's verified App
      * Link: Android hands it only to the app signed with the key static/.well-known/assetlinks.json names, so no other
-     * app can claim it. On the Mac's loopback address (GitHubSecurity.callbackUri allows only those two), the debug
-     * app's own scheme, as a loopback address has no domain to verify.
+     * app can claim it. On the Mac's loopback address (GitHubBrowserSignIn.callbackUri allows only those two), the
+     * debug app's own scheme, as a loopback address has no domain to verify.
      */
     static String appRedirect(String publicUrl) {
         return publicUrl.startsWith("https://") ? publicUrl + SIGNED_IN : "reporead-dev://auth";
     }
 
     /**
-     * Opens the browser session that holds it. Tomcat refuses a session beyond GitHubSecurity.MAX_SIGN_IN_SESSIONS with
-     * TooManyActiveSessionsException.
+     * Opens the browser session that holds it. Tomcat refuses a session beyond GitHubBrowserSignIn.MAX_SIGN_IN_SESSIONS
+     * with TooManyActiveSessionsException.
      */
     static void start(HttpServletRequest request, String codeChallenge) {
         request.getSession(true).setAttribute(CHALLENGE_ATTRIBUTE, codeChallenge);

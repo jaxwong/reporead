@@ -21,7 +21,8 @@ import tools.jackson.databind.json.JsonMapper;
 /** The loopback management port (ADR-21), through a real socket: MockMvc does not serve a separate management port. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ManagementEndpointsTest {
-    // Chosen once: a property supplier runs on every read, and GitHubSecurity's management filter chain matches the
+    // Chosen once: a property supplier runs on every read, and GitHubBrowserSignIn's management filter chain matches
+    // the
     // configured port number, so 0 (a random port) would never match.
     private static final int MANAGEMENT_PORT = freePort();
 

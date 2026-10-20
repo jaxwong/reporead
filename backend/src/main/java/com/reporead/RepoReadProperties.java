@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * The reporead.* settings in application.properties, bound once at startup. Every one is required and has no default;
- * the classes that use a value check its meaning (AllowedUsers, GitHubSecurity, GitHubTokens).
+ * the classes that use a value check its meaning (AllowedUsers, GitHubBrowserSignIn, GitHubTokens).
  */
 @ConfigurationProperties("reporead")
 public record RepoReadProperties(String publicUrl, String allowedGithubUserIds, GitHub github) {
