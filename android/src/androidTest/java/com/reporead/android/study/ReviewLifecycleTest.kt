@@ -1,8 +1,6 @@
 package com.reporead.android.study
 
-import android.graphics.Rect
 import android.view.View
-import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.room.Room
@@ -26,6 +24,8 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReviewLimitRow
 import com.reporead.android.findText
+import com.reporead.android.findWebView
+import com.reporead.android.pageBounds
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.sync.Sync
@@ -179,11 +179,7 @@ class ReviewLifecycleTest {
                 assertNull(findText(root(), "The saved copy is an older version of this note."))
                 assertNull(findText(root(), "Good"))
                 assertNull(findText(root(), "Open in note"))
-                val bounds = Rect()
-                scenario.onActivity {
-                    val position = IntArray(2).also(prepared::getLocationOnScreen)
-                    bounds.set(position[0], position[1], position[0] + prepared.width, position[1] + prepared.height)
-                }
+                val bounds = pageBounds(scenario)
                 click("Show answer")
                 awaitText(line)
                 awaitText("Your grade confirms only this Canonical line. The linked section is supplementary.")
@@ -192,27 +188,13 @@ class ReviewLifecycleTest {
                 awaitText("Good")
                 scenario.onActivity {
                     assertSame(prepared, findWebView(it.window.decorView))
-                    val position = IntArray(2).also(prepared::getLocationOnScreen)
-                    assertEquals(
-                        "Review reveals without resizing its prepared section",
-                        bounds,
-                        Rect(position[0], position[1], position[0] + prepared.width, position[1] + prepared.height),
-                    )
                 }
+                assertEquals("Review keeps its prepared viewport", bounds, pageBounds(scenario))
                 scenario.recreate()
                 awaitText("Current test-only bank prompt?")
                 awaitText("The saved copy is an older version of this note.")
             }
         }
-
-    private fun findWebView(view: View): WebView? {
-        if (view is WebView) return view
-        if (view is ViewGroup)
-            for (index in 0 until view.childCount) findWebView(view.getChildAt(index))?.let {
-                return it
-            }
-        return null
-    }
 
     @Test
     fun tenOfflineGradesPersistOnceAndRecreationPreservesRevealAndSessionCompletion() =

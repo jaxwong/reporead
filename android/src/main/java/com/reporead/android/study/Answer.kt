@@ -43,6 +43,7 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
 import com.reporead.android.reader.resolveNoteLink
 import com.reporead.android.reader.showIsolatedPage
+import com.reporead.android.reader.whenReadyToDraw
 import com.reporead.android.sync.Sync
 import org.json.JSONObject
 
@@ -258,13 +259,7 @@ private fun sectionView(
                     onFailed()
                 },
             ) { found ->
-                if (found)
-                    postVisualStateCallback(
-                        0,
-                        object : WebView.VisualStateCallback() {
-                            override fun onComplete(requestId: Long) = onReady()
-                        },
-                    )
+                if (found) whenReadyToDraw(onReady)
                 else {
                     Log.w(
                         "RepoRead",
@@ -274,6 +269,5 @@ private fun sectionView(
                         "No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date."
                     )
                 }
-                false
             }
         }

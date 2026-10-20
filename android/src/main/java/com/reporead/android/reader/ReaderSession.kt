@@ -331,12 +331,7 @@ internal class ReaderSession(
             }
         // A completed positioning script can still leave an older native frame queued.
         suspendCancellableCoroutine { ready ->
-            view.postVisualStateCallback(
-                0,
-                object : WebView.VisualStateCallback() {
-                    override fun onComplete(requestId: Long) = ready.resume(Unit)
-                },
-            )
+            view.whenReadyToDraw { ready.resume(Unit) }
         }
         view.alpha = 1f
         if (openAt != null) onOpenedAtTarget()

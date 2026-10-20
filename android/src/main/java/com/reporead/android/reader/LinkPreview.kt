@@ -118,6 +118,7 @@ private fun previewView(
     onFailed: () -> Unit,
 ): WebView =
     WebView(context).apply {
+        alpha = 0f
         showIsolatedPage(
             sync.images,
             note,
@@ -129,6 +130,6 @@ private fun previewView(
             },
         ) { found ->
             if (!found) onNotice("No heading “$heading” in the saved copy; showing the start.")
-            true
+            alpha = 1f
         }
     }
