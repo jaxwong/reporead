@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed RepoRead Dev icon: the book plus an outlined D badge, tinted by the launcher. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M53,39 C47,35 39,34 30,35.5 L30,72 C39,70.5 47,71.5 53,75.5 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M55,39 C61,35 69,34 78,35.5 L78,72 C69,70.5 61,71.5 55,75.5 Z" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3" android:pathData="M76,62 a10,10 0 1,0 0,20 a10,10 0 1,0 0,-20" />
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2.8" android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M72.5,66.5 L72.5,77.5 M72.5,66.5 L76,66.5 C82,66.5 82,77.5 76,77.5 L72.5,77.5" />
+</vector>
