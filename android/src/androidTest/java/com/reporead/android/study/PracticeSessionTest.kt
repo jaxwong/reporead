@@ -373,6 +373,7 @@ class PracticeSessionTest {
                 awaitText(guide)
                 assertEquals("First answer", shownAnswer(scenario))
                 click("2. Second answer")
+                awaitText("Test-only core # Second answer")
                 assertEquals("Second answer", shownAnswer(scenario))
             }
         }
