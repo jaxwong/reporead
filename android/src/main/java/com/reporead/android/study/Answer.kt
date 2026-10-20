@@ -242,8 +242,6 @@ private fun sectionView(
                 if (alpha == 0f) null else super.getAccessibilityNodeProvider()
         }
         .apply {
-            // One attached, screen-bounded page; rasterize while hidden so its first visible frame is ready.
-            settings.offscreenPreRaster = true
             show(
                 sync.images,
                 note,
