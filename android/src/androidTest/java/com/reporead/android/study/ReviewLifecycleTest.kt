@@ -1,5 +1,8 @@
 package com.reporead.android.study
 
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
@@ -154,17 +157,46 @@ class ReviewLifecycleTest {
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("Current test-only bank prompt?")
                 assertNull(findText(root(), "Old test-only bank prompt?"))
+                val prepared =
+                    withTimeout(10_000) {
+                        var page: WebView? = null
+                        while (page == null) {
+                            scenario.onActivity { page = findWebView(it.window.decorView) }
+                            if (page == null) delay(50)
+                        }
+                        checkNotNull(page)
+                    }
+                scenario.onActivity {
+                    assertEquals(0f, prepared.alpha)
+                    assertEquals(
+                        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+                        prepared.importantForAccessibility,
+                    )
+                }
+                assertNull(findText(root(), line))
+                assertNull(findText(root(), "Linked section · saved copy"))
+                assertNull(findText(root(), "The saved copy is an older version of this note."))
                 click("Show answer")
                 awaitText(line)
                 awaitText("Your grade confirms only this Canonical line. The linked section is supplementary.")
                 awaitText("Linked section · saved copy")
                 awaitText("The saved copy is an older version of this note.")
                 awaitText("Good")
+                scenario.onActivity { assertSame(prepared, findWebView(it.window.decorView)) }
                 scenario.recreate()
                 awaitText("Current test-only bank prompt?")
                 awaitText("The saved copy is an older version of this note.")
             }
         }
+
+    private fun findWebView(view: View): WebView? {
+        if (view is WebView) return view
+        if (view is ViewGroup)
+            for (index in 0 until view.childCount) findWebView(view.getChildAt(index))?.let {
+                return it
+            }
+        return null
+    }
 
     @Test
     fun tenOfflineGradesPersistOnceAndRecreationPreservesRevealAndSessionCompletion() =

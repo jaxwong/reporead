@@ -1,13 +1,17 @@
 package com.reporead.android.study
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
+import android.view.View
+import android.view.accessibility.AccessibilityNodeProvider
 import android.webkit.WebView
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
@@ -54,14 +58,14 @@ private sealed interface LinkedNote {
 }
 
 /**
- * A bank question's answer, shown after an attempt: what the bank says a complete answer covers, to grade against, then
- * the core section its Canonical line links (one at a time when it links several), alone and from the copy saved on
- * this phone, filling the height [modifier] gives it. Works offline; nothing is fetched. [push] opens the linked note
- * at that heading.
+ * Prepares the linked section while the question is attempted, but exposes no answer until [revealed]. Then shows the
+ * bank's grading checklist and its linked core section (one at a time), from the saved copy, filling [modifier]. [push]
+ * opens the linked note at that heading.
  */
 @Composable
 internal fun BankAnswer(
     question: StudyQuestion,
+    revealed: Boolean,
     bankDocumentId: Long,
     bankPath: String,
     sync: Sync,
@@ -70,12 +74,14 @@ internal fun BankAnswer(
     push: (Screen) -> Unit,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(question.answer.text, style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Your grade confirms only this Canonical line. The linked section is supplementary.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        if (question.guide.isNotEmpty()) {
+        if (revealed) {
+            Text(question.answer.text, style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Your grade confirms only this Canonical line. The linked section is supplementary.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (revealed && question.guide.isNotEmpty()) {
             val windowHeight = LocalWindowInfo.current.containerSize.height
             val most = with(LocalDensity.current) { (windowHeight * GUIDE_HEIGHT).toDp() }
             Column(Modifier.heightIn(max = most).verticalScroll(rememberScrollState())) {
@@ -84,13 +90,14 @@ internal fun BankAnswer(
         }
         val links = question.answer.links
         if (links.isEmpty()) {
-            Text(
-                "This answer line links no section: “${question.answer.text}”. Add a link to the section that answers it."
-            )
+            if (revealed)
+                Text(
+                    "This answer line links no section: “${question.answer.text}”. Add a link to the section that answers it."
+                )
             return@Column
         }
         var selected by rememberSaveable(question.blockId) { mutableIntStateOf(0) }
-        if (links.size > 1)
+        if (revealed && links.size > 1)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 links.forEachIndexed { index, link ->
                     FilterChip(
@@ -101,7 +108,7 @@ internal fun BankAnswer(
                 }
             }
         key(bankDocumentId, question.blockId, selected) {
-            AnswerSection(links[selected], bankDocumentId, bankPath, sync, dao, push)
+            AnswerSection(links[selected], revealed, bankDocumentId, bankPath, sync, dao, push)
         }
     }
 }
@@ -109,6 +116,7 @@ internal fun BankAnswer(
 @Composable
 private fun ColumnScope.AnswerSection(
     link: AnswerLink,
+    revealed: Boolean,
     bankDocumentId: Long,
     bankPath: String,
     sync: Sync,
@@ -140,34 +148,41 @@ private fun ColumnScope.AnswerSection(
                 }
         }
     when (val note = linked) {
-        LinkedNote.Loading -> Unit
-        is LinkedNote.Problem -> Text(note.text)
+        LinkedNote.Loading -> Spacer(Modifier.weight(1f))
+        is LinkedNote.Problem -> if (revealed) Text(note.text)
         is LinkedNote.Found -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    listOfNotNull(note.document.title, link.heading?.let { "# ${link.text}" }).joinToString(" "),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(
-                    onClick = {
-                        push(Screen.Reader(note.document.id, note.document.title, link.heading?.let(OpenAt::Heading)))
+            if (revealed)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        listOfNotNull(note.document.title, link.heading?.let { "# ${link.text}" }).joinToString(" "),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = {
+                            push(
+                                Screen.Reader(note.document.id, note.document.title, link.heading?.let(OpenAt::Heading))
+                            )
+                        }
+                    ) {
+                        Text("Open note")
                     }
-                ) {
-                    Text("Open note")
                 }
-            }
             val saved = note.saved
             if (saved == null) {
-                Text("Not saved on this phone yet, so this section can't be shown here. Open the note to fetch it.")
+                if (revealed)
+                    Text("Not saved on this phone yet, so this section can't be shown here. Open the note to fetch it.")
                 return
             }
-            Text("Linked section · saved copy", style = MaterialTheme.typography.labelMedium)
+            var ready by remember(saved.blobSha, link) { mutableStateOf(false) }
             var notice by remember(saved.blobSha, link) { mutableStateOf<String?>(null) }
             var failed by remember(saved.blobSha, link) { mutableStateOf(false) }
-            if (saved.blobSha != note.document.blobSha)
-                Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
-            notice?.let { Text(it) }
+            if (revealed) {
+                Text("Linked section · saved copy", style = MaterialTheme.typography.labelMedium)
+                if (saved.blobSha != note.document.blobSha)
+                    Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
+                notice?.let { Text(it) }
+            }
             if (!failed)
                 AndroidView(
                     factory = { context ->
@@ -176,9 +191,19 @@ private fun ColumnScope.AnswerSection(
                             sync,
                             saved,
                             link.heading,
+                            onReady = { ready = true },
                             onProblem = { notice = it },
                             onFailed = { failed = true },
                         )
+                    },
+                    update = { view ->
+                        val visible = revealed && ready
+                        view.alpha = if (visible) 1f else 0f
+                        view.importantForAccessibility =
+                            if (visible) View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                            else View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                        view.isFocusableInTouchMode = visible
+                        view.isFocusable = visible
                     },
                     onRelease = { it.destroy() },
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -190,36 +215,47 @@ private fun ColumnScope.AnswerSection(
 /**
  * The saved [note] as an isolated reader page showing only the section under [heading] (the whole note for null). It
  * stays hidden until the rest is gone, so the top of the note never flashes first, and hidden when the heading is not
- * in this version: the problem is reported instead of showing an unrelated part. The page never navigates.
+ * in this version: the problem is reported instead of showing an unrelated part. Composition owns visibility once
+ * [onReady] runs, so preparation cannot reveal an answer. The page never navigates.
  */
+// Consumes hidden-page touches only; visible WebView gestures are unchanged.
+@SuppressLint("ClickableViewAccessibility")
 private fun sectionView(
     context: Context,
     sync: Sync,
     note: NoteRow,
     heading: String?,
+    onReady: () -> Unit,
     onProblem: (String) -> Unit,
     onFailed: () -> Unit,
 ): WebView =
-    WebView(context).apply {
-        showIsolatedPage(
-            sync.images,
-            note,
-            "Answer section",
-            "window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})",
-            onFailed = {
-                onProblem("${note.title} could not be shown.")
-                onFailed()
-            },
-        ) { found ->
-            if (!found) {
-                Log.w(
-                    "RepoRead",
-                    "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha}",
-                )
-                onProblem(
-                    "No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date."
-                )
-            }
-            found
+    object : WebView(context) {
+            // WebView's virtual nodes bypass NO_HIDE_DESCENDANTS for services that include unimportant views.
+            override fun getAccessibilityNodeProvider(): AccessibilityNodeProvider? =
+                if (alpha == 0f) null else super.getAccessibilityNodeProvider()
         }
-    }
+        .apply {
+            setOnTouchListener { view, _ -> view.alpha == 0f }
+            showIsolatedPage(
+                sync.images,
+                note,
+                "Answer section",
+                "window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})",
+                onFailed = {
+                    onProblem("${note.title} could not be shown.")
+                    onFailed()
+                },
+            ) { found ->
+                if (found) onReady()
+                else {
+                    Log.w(
+                        "RepoRead",
+                        "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha}",
+                    )
+                    onProblem(
+                        "No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date."
+                    )
+                }
+                false
+            }
+        }

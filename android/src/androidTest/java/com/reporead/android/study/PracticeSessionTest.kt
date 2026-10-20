@@ -1,8 +1,10 @@
 package com.reporead.android.study
 
+import android.graphics.Rect
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,6 +46,7 @@ import org.json.JSONTokener
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -210,9 +213,10 @@ class PracticeSessionTest {
             val dao = store.library()
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("2 questions left · Foundations · Test-only bank")
-                assertNull("Nothing of the answer shows before the attempt", findWebView(scenario))
+                val prepared = preparedAnswer(scenario)
                 click("Show answer")
                 val first = shownAnswer(scenario)
+                assertSame("Reveal uses the section prepared during the attempt", prepared, findWebView(scenario))
                 click("Again")
                 val missed =
                     withTimeout(5_000) {
@@ -232,6 +236,7 @@ class PracticeSessionTest {
                 awaitText("Show answer")
                 scenario.recreate()
                 awaitText("2 questions left · Foundations · Test-only bank")
+                preparedAnswer(scenario)
                 click("Show answer")
                 val second = shownAnswer(scenario)
                 assertTrue("The other question comes next", second != first)
@@ -240,6 +245,7 @@ class PracticeSessionTest {
 
                 // The miss comes back; grading it again decides only whether it returns.
                 awaitText("1 question left · Foundations · Test-only bank")
+                preparedAnswer(scenario)
                 click("Show answer")
                 assertEquals(first, shownAnswer(scenario))
                 awaitText(
@@ -291,15 +297,100 @@ class PracticeSessionTest {
     fun doubleTappingTheGradeWritesOneCardAndOneGrade() =
         runBlocking<Unit> {
             val dao = store.library()
-            ActivityScenario.launch(TestHostActivity::class.java).use {
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 click("Show answer")
-                val good = control("Good")
-                assertTrue(good.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-                assertTrue(good.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                val bounds = Rect().also { control("Good").getBoundsInScreen(it) }
+                // Both taps reach the same frame, before saving can disable or replace the button.
+                scenario.onActivity { activity ->
+                    val decor = activity.window.decorView
+                    val location = IntArray(2).also(decor::getLocationOnScreen)
+                    repeat(2) {
+                        val now = SystemClock.uptimeMillis()
+                        for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                            val event =
+                                MotionEvent.obtain(
+                                    now,
+                                    now,
+                                    action,
+                                    bounds.exactCenterX() - location[0],
+                                    bounds.exactCenterY() - location[1],
+                                    0,
+                                )
+                            try {
+                                assertTrue("The grade tap is dispatched", decor.dispatchTouchEvent(event))
+                            } finally {
+                                event.recycle()
+                            }
+                        }
+                    }
+                }
                 awaitText("1 question left · Foundations · Test-only bank")
                 val card = dao.waitingAnnotations().single()
                 assertEquals(listOf(card.mutationId), dao.pendingReviews().map { it.cardMutationId })
                 assertEquals(listOf(4), dao.pendingReviews().map { it.grade })
+            }
+        }
+
+    @Test
+    fun aFailedPrefetchedPageReportsItsFailureOnlyAfterReveal() =
+        runBlocking<Unit> {
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+                awaitText("Show answer")
+                val prepared = preparedAnswer(scenario)
+                scenario.onActivity { prepared.loadUrl("chrome://crash") }
+                withTimeout(10_000) { while (findWebView(scenario) != null) delay(50) }
+                val problem = "Test-only core could not be shown."
+                assertNull("A failed prefetch must not reveal the note's title", findText(root(), problem))
+                click("Show answer")
+                awaitText(problem)
+                awaitText("Good")
+                assertNull(findWebView(scenario))
+            }
+        }
+
+    @Test
+    fun theGuideAndLinkChoicesStayHiddenAndAnotherSectionCanStillBeSelected() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val note = checkNotNull(dao.note(1))
+            val guide = "Test-only grading checklist"
+            val html =
+                testPage(
+                    bankSha,
+                    block("b0", "h3", "Test-only multi-link question?") +
+                        block("b1", "p", guide) +
+                        """<p data-block-id="b2" data-anchor-text="Canonical answer: First answer and Second answer"><strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Ftopic%2Fcore.md&amp;heading=first-answer">First answer</a> and <a href="/note-link?path=test-only%2Ftopic%2Fcore.md&amp;heading=second-answer">Second answer</a></p>""",
+                )
+            dao.saveNote(note.copy(html = html))
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+                awaitText("Show answer")
+                preparedAnswer(scenario)
+                for (text in listOf(guide, "1. First answer", "2. Second answer")) assertNull(
+                    "No guide or link choices before reveal",
+                    findText(root(), text),
+                )
+                click("Show answer")
+                awaitText(guide)
+                assertEquals("First answer", shownAnswer(scenario))
+                click("2. Second answer")
+                assertEquals("Second answer", shownAnswer(scenario))
+            }
+        }
+
+    @Test
+    fun aMissingLinkedPageIsReportedOnlyAfterReveal() =
+        runBlocking<Unit> {
+            store.library().deleteNotes(listOf(2))
+            ActivityScenario.launch(TestHostActivity::class.java).use {
+                awaitText("Show answer")
+                val problem =
+                    "Not saved on this phone yet, so this section can't be shown here. Open the note to fetch it."
+                assertNull(findText(root(), problem))
+                assertNull(findText(root(), "Open note"))
+                click("Show answer")
+                awaitText(problem)
+                awaitText("Open note")
+                awaitText("Good")
             }
         }
 
@@ -344,6 +435,44 @@ class PracticeSessionTest {
         }
     }
 
+    /** Preparation must finish without exposing any answer text or focus target. */
+    private suspend fun preparedAnswer(scenario: ActivityScenario<TestHostActivity>): WebView {
+        val view =
+            withTimeout(10_000) {
+                while (true) {
+                    val page = findWebView(scenario)
+                    if (
+                        page != null &&
+                            evaluate(
+                                    scenario,
+                                    "return {ready: document.body?.dataset.state === 'ready' && document.querySelector('[data-block-id=\"c1\"]').getBoundingClientRect().height === 0};",
+                                )
+                                .optBoolean("ready")
+                    )
+                        return@withTimeout page
+                    delay(50)
+                }
+                error("Unreachable")
+            }
+        scenario.onActivity {
+            assertEquals(0f, view.alpha)
+            assertTrue("The hidden answer has a laid-out slot", view.height > 0)
+            assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, view.importantForAccessibility)
+            assertNull("No virtual accessibility tree before reveal", view.accessibilityNodeProvider)
+            assertTrue("The hidden page cannot take keyboard focus", !view.isFocusable)
+        }
+        for (text in
+            listOf(
+                "Canonical answer: First answer",
+                "Canonical answer: Second answer",
+                "Linked section · saved copy",
+                "Open note",
+                "Test-only first answer text.",
+                "Test-only second answer text.",
+            )) assertNull("No answer in accessibility before reveal: $text", findText(root(), text))
+        return view
+    }
+
     /** Which linked section the revealed answer shows; it must be that section alone, from the saved copy. */
     private fun shownAnswer(scenario: ActivityScenario<TestHostActivity>): String = runBlocking {
         awaitText("Your grade confirms only this Canonical line. The linked section is supplementary.")
@@ -380,6 +509,7 @@ class PracticeSessionTest {
                     "Only the linked section shows: $last",
                     !last.getBoolean("other") && !last.getBoolean("intro"),
                 )
+                awaitText("Test-only ${if (label == "First answer") "first" else "second"} answer text.")
                 return@runBlocking label
             }
             delay(100)
