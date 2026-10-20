@@ -371,25 +371,26 @@ internal fun PracticeScreen(
                 return@Column
             }
             Text(question.question.prompt, style = MaterialTheme.typography.titleLarge)
-            if (!asked.revealed) AttemptFirst(model::reveal)
             val again = key in scheduled
-            if (asked.revealed && again) AskedAgain()
             key(question.key) {
-                BankAnswer(
-                    question.question,
-                    asked.revealed,
-                    question.documentId,
-                    question.path,
-                    sync,
-                    dao,
-                    Modifier.weight(1f),
-                    push,
-                )
-            }
-            if (asked.revealed)
-                GradeBar(enabled = !state.saving, gaps = if (again) null else gaps(null)) { grade ->
-                    model.grade(question, again, grade)
+                AnswerSlot(asked.revealed, model::reveal) { visible, onPrepared ->
+                    if (again) AskedAgain()
+                    BankAnswer(
+                        question.question,
+                        visible,
+                        question.documentId,
+                        question.path,
+                        sync,
+                        dao,
+                        Modifier.weight(1f),
+                        push,
+                        onPrepared,
+                    )
+                    GradeBar(enabled = visible && !state.saving, gaps = if (again) null else gaps(null)) { grade ->
+                        model.grade(question, again, grade)
+                    }
                 }
+            }
         }
     }
 }

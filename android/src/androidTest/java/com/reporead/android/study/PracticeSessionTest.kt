@@ -1,5 +1,6 @@
 package com.reporead.android.study
 
+import android.graphics.Outline
 import android.graphics.Rect
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -214,9 +215,11 @@ class PracticeSessionTest {
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("2 questions left · Foundations · Test-only bank")
                 val prepared = preparedAnswer(scenario)
+                val firstBounds = pageBounds(scenario)
                 click("Show answer")
                 val first = shownAnswer(scenario)
                 assertSame("Reveal uses the section prepared during the attempt", prepared, findWebView(scenario))
+                assertEquals("Reveal keeps the prepared viewport", firstBounds, pageBounds(scenario))
                 click("Again")
                 val missed =
                     withTimeout(5_000) {
@@ -237,8 +240,10 @@ class PracticeSessionTest {
                 scenario.recreate()
                 awaitText("2 questions left · Foundations · Test-only bank")
                 preparedAnswer(scenario)
+                val secondBounds = pageBounds(scenario)
                 click("Show answer")
                 val second = shownAnswer(scenario)
+                assertEquals("The next answer also keeps its prepared viewport", secondBounds, pageBounds(scenario))
                 assertTrue("The other question comes next", second != first)
                 click("Good")
                 withTimeout(5_000) { while (dao.pendingReviews().size != 2) delay(20) }
@@ -349,6 +354,36 @@ class PracticeSessionTest {
         }
 
     @Test
+    fun anEarlyRevealNeverShowsAnAnswerBeforeItsSectionFinishesPreparing() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val core = checkNotNull(dao.note(2))
+            // Test-only page with no renderer: preparation stays pending until the explicit failure below.
+            dao.saveNote(core.copy(html = core.html.replace("<script defer src=\"/assets/reader.js\"></script>", "")))
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+                repeat(2) {
+                    awaitText("Show answer")
+                    click("Show answer")
+                    try {
+                        assertNull(
+                            "A reveal must not expose only the Canonical line over an unprepared section",
+                            findText(root()) { it.startsWith("Canonical answer:") },
+                        )
+                        assertNull("Grades must arrive with the complete answer", findText(root(), "Good"))
+                        awaitText("Preparing answer…")
+                    } finally {
+                        withTimeout(5_000) { while (findWebView(scenario) == null) delay(20) }
+                        evaluate(scenario, "document.body.dataset.state = 'failed'; return {};")
+                        awaitText("Test-only core could not be shown.")
+                    }
+                    awaitText("Good")
+                    click("Good")
+                }
+                awaitText("Session complete: 2 questions graded. They come back under Review when due.")
+            }
+        }
+
+    @Test
     fun theGuideAndLinkChoicesStayHiddenAndAnotherSectionCanStillBeSelected() =
         runBlocking<Unit> {
             val dao = store.library()
@@ -369,9 +404,15 @@ class PracticeSessionTest {
                     "No guide or link choices before reveal",
                     findText(root(), text),
                 )
+                val bounds = pageBounds(scenario)
                 click("Show answer")
                 awaitText(guide)
                 assertEquals("First answer", shownAnswer(scenario))
+                assertEquals(
+                    "The guide and link choices already occupy their final space",
+                    bounds,
+                    pageBounds(scenario),
+                )
                 click("2. Second answer")
                 awaitText("Test-only core # Second answer")
                 assertEquals("Second answer", shownAnswer(scenario))
@@ -461,6 +502,11 @@ class PracticeSessionTest {
             assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, view.importantForAccessibility)
             assertNull("No virtual accessibility tree before reveal", view.accessibilityNodeProvider)
             assertTrue("The hidden page cannot take keyboard focus", !view.isFocusable)
+            val outline = Outline().also { view.outlineProvider.getOutline(view, it) }
+            val clip = Rect()
+            assertTrue("Native painting must be clipped before the first visible draw", view.clipToOutline)
+            assertTrue("The native clipping outline must be rectangular", outline.canClip() && outline.getRect(clip))
+            assertEquals("The clipping boundary is the prepared viewport", Rect(0, 0, view.width, view.height), clip)
         }
         for (text in
             listOf(
@@ -468,10 +514,22 @@ class PracticeSessionTest {
                 "Canonical answer: Second answer",
                 "Linked section · saved copy",
                 "Open note",
+                "Good",
+                "Again",
                 "Test-only first answer text.",
                 "Test-only second answer text.",
             )) assertNull("No answer in accessibility before reveal: $text", findText(root(), text))
         return view
+    }
+
+    private fun pageBounds(scenario: ActivityScenario<TestHostActivity>): Rect {
+        val bounds = Rect()
+        scenario.onActivity { activity ->
+            val view = checkNotNull(findWebView(activity.window.decorView))
+            val position = IntArray(2).also(view::getLocationOnScreen)
+            bounds.set(position[0], position[1], position[0] + view.width, position[1] + view.height)
+        }
+        return bounds
     }
 
     /** Which linked section the revealed answer shows; it must be that section alone, from the saved copy. */

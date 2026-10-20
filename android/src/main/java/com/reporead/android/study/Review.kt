@@ -206,24 +206,37 @@ private fun rememberRevealed(item: NotebookItem, dao: LibraryDao): Revealed {
 private fun ColumnScope.CardAnswer(
     item: NotebookItem,
     answer: RevealedAnswer,
-    revealed: Boolean,
+    visible: Boolean,
     sync: Sync,
     dao: LibraryDao,
     push: (Screen) -> Unit,
+    onPrepared: () -> Unit,
 ) {
     val question = answer.question
     if (question != null) {
-        if (revealed) Text("Interview bank · ${item.path}", style = MaterialTheme.typography.labelMedium)
-        BankAnswer(question, revealed, item.annotation.documentId, item.path, sync, dao, Modifier.weight(1f), push)
-    } else if (revealed)
+        Text("Interview bank · ${item.path}", style = MaterialTheme.typography.labelMedium)
+        BankAnswer(
+            question,
+            visible,
+            item.annotation.documentId,
+            item.path,
+            sync,
+            dao,
+            Modifier.weight(1f),
+            push,
+            onPrepared,
+        )
+    } else {
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            Modifier.weight(1f).verticalScroll(rememberScrollState(), enabled = visible),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(item.annotation.drawn.exactText, style = MaterialTheme.typography.titleLarge)
             Text("Context · ${item.path}", style = MaterialTheme.typography.labelMedium)
             Text(answer.context)
         }
+        LaunchedEffect(answer) { onPrepared() }
+    }
 }
 
 /**
@@ -294,7 +307,7 @@ private fun ColumnScope.FixCard(
                 Revealed.Reading -> {}
                 Revealed.Unverifiable ->
                     Text("The saved page cannot show this answer in context. Open the note to check it.")
-                is Revealed.Shown -> CardAnswer(item, answer.answer, true, sync, dao, push)
+                is Revealed.Shown -> CardAnswer(item, answer.answer, true, sync, dao, push, onPrepared = {})
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = !confirming, onClick = onConfirm) { Text("Answer is still right") }
@@ -522,27 +535,31 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
             }
             // Read while the question is asked, so the answer is ready when it is revealed.
             val answer = rememberRevealed(item, dao)
-            if (!asked.revealed) AttemptFirst(model::reveal)
             val again = id in graded
-            if (asked.revealed && again) AskedAgain()
             key(id, row.drawn) {
-                when (answer) {
-                    Revealed.Reading -> Spacer(Modifier.weight(1f))
-                    Revealed.Unverifiable ->
-                        if (asked.revealed)
+                AnswerSlot(asked.revealed, model::reveal) { visible, onPrepared ->
+                    if (again) AskedAgain()
+                    when (answer) {
+                        Revealed.Reading -> Spacer(Modifier.weight(1f))
+                        Revealed.Unverifiable -> {
                             Text("The saved page cannot verify this answer in context. Open the note to check it.")
-                    is Revealed.Shown -> CardAnswer(item, answer.answer, asked.revealed, sync, dao, push)
+                            LaunchedEffect(answer) { onPrepared() }
+                        }
+                        is Revealed.Shown -> CardAnswer(item, answer.answer, visible, sync, dao, push, onPrepared)
+                    }
+                    TextButton(
+                        enabled = visible,
+                        onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(id))) },
+                    ) {
+                        Text("Open in note")
+                    }
+                    val step = scheduleReviews(row, log, ZoneId.systemDefault()).step
+                    if (answer is Revealed.Shown)
+                        GradeBar(enabled = visible && !state.saving, gaps = if (again) null else gaps(step)) { grade ->
+                            model.grade(row, again, grade)
+                        }
                 }
             }
-            if (!asked.revealed) return@Column
-            TextButton(onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(id))) }) {
-                Text("Open in note")
-            }
-            val step = scheduleReviews(row, log, ZoneId.systemDefault()).step
-            if (answer is Revealed.Shown)
-                GradeBar(enabled = !state.saving, gaps = if (again) null else gaps(step)) { grade ->
-                    model.grade(row, again, grade)
-                }
         }
     }
 }
