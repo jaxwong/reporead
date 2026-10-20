@@ -167,7 +167,7 @@ flowchart TB
 
 ### Data model (PostgreSQL)
 
-Bookmarks, highlights and cards share the `annotations` table, told apart by `type`. A highlight or card has an original anchor that never changes and a current location that re-anchoring moves.
+Bookmarks, highlights and cards share the `annotations` table, told apart by `type`. A highlight or card has an original anchor that never changes and a current location that re-anchoring moves. Every column of every table is listed, in the database's order, as the Flyway migrations leave it.
 
 ```mermaid
 erDiagram
@@ -183,14 +183,16 @@ erDiagram
     annotations ||--o| annotation_anchors : "original selection"
     annotations ||--o| annotation_locations : "current location"
     users ||--o{ annotation_mutations : "idempotency records"
-    annotations |o--o| annotation_mutations : "created by (outlives a deletion)"
+    annotations |o--o| annotation_mutations : "created by (user_id + mutation_id, no FK; the record outlives a deletion)"
     annotations ||--o{ review_log : "graded in"
+    users ||--o{ review_log : grades
     users ||--o| github_tokens : "signs in to GitHub with (by github_user_id, no FK)"
 
     users {
         bigint id PK
         bigint github_user_id UK
         text login
+        timestamptz created_at
     }
     app_sessions {
         bytea token_hash PK "SHA-256 of the session token"
@@ -207,72 +209,97 @@ erDiagram
     github_tokens {
         bigint github_user_id PK
         bytea access_token "AES-256-GCM"
-        bytea refresh_token "AES-256-GCM"
-        timestamptz access_token_expires_at
+        timestamptz access_token_issued_at "nullable"
+        timestamptz access_token_expires_at "nullable"
+        bytea refresh_token "AES-256-GCM, nullable"
+        timestamptz refresh_token_issued_at "nullable"
+        timestamptz updated_at
     }
     repository_connections {
         bigint id PK
-        bigint user_id FK
+        bigint user_id FK "unique with github_repository_id"
         bigint github_repository_id
+        text owner
+        text name
         text default_branch
-        text last_synced_commit_sha
+        text last_synced_commit_sha "nullable until the first sync"
+        timestamptz created_at
     }
     documents {
         bigint id PK
-        bigint repository_connection_id FK
+        bigint repository_connection_id FK "unique with path"
         text path
+        text title
         text current_blob_sha
-        timestamptz content_changed_at
-        timestamptz deleted_at
+        timestamptz deleted_at "nullable; soft delete"
+        timestamptz content_changed_at "nullable"
     }
     repository_images {
         bigint repository_connection_id PK, FK
         text path PK
     }
     reading_states {
-        bigint user_id PK
-        bigint document_id PK
+        bigint user_id PK, FK
+        bigint document_id PK, FK
         text last_read_blob_sha
+        smallint progress_percent "0..100"
         jsonb anchor_json
         timestamptz last_read_at
     }
     annotations {
         bigint id PK
+        bigint user_id FK
+        bigint document_id FK
         text type "BOOKMARK | HIGHLIGHT | CARD"
-        uuid mutation_id "highlights and cards"
+        timestamptz created_at
+        text note "nullable"
         text status "ANCHORED | REANCHORED | ORPHANED"
-        text resolved_blob_sha
+        int version "optimistic"
+        timestamptz updated_at
+        text resolved_blob_sha "highlights and cards"
         text question "cards only"
         text checked_blob_sha "cards only"
-        int version "optimistic"
+        uuid mutation_id "highlights and cards; unique per user"
     }
     annotation_anchors {
-        bigint annotation_id PK
+        bigint annotation_id PK, FK
         text source_blob_sha
         text block_id
+        text exact_text
+        text prefix_text
+        text suffix_text
         int start_offset
         int end_offset
-        text exact_text
+        jsonb heading_path
     }
     annotation_locations {
-        bigint annotation_id PK
+        bigint annotation_id PK, FK
         text source_blob_sha
         text block_id
+        text exact_text
+        text prefix_text
+        text suffix_text
         int start_offset
         int end_offset
+        jsonb heading_path
+        text block_sha "nullable: the block's text is not unique in that version"
+        int quote_occurrences
+        float8 rival_context
+        float8 rival_quote
     }
     annotation_mutations {
-        bigint user_id PK
+        bigint user_id PK, FK
         uuid mutation_id PK
         bytea request_hash
+        timestamptz created_at
     }
     review_log {
-        bigint user_id PK
+        bigint user_id PK, FK
         uuid mutation_id PK
         bigint annotation_id FK
         int grade "0..5"
-        text blob_sha
         timestamptz reviewed_at "clamped scheduling time"
+        text blob_sha
         text client_reviewed_at "nullable original request; V15"
     }
 ```
