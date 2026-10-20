@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -17,6 +15,11 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.IMAGE_PREFIX
 import com.reporead.android.sync.NoteImages
 import java.io.ByteArrayInputStream
+import kotlin.coroutines.resume
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -135,76 +138,77 @@ internal suspend fun WebView.evaluate(expression: String): Any? = suspendCancell
     evaluateJavascript(pageScript(expression)) { result.resumeWith(runCatching { pageValue(expression, it) }) }
 }
 
-/** Waits for the page's rendering (diagrams change the layout) and passes "ready", "failed", or "timeout" to [then]. */
-internal fun awaitRendered(view: WebView, main: Handler, then: (state: String) -> Unit) {
-    fun poll(attempt: Int) {
-        view.evaluate("document.body.dataset.state || ''") { state ->
-            when (state) {
-                "ready",
-                "failed" -> then(state as String)
-                else ->
-                    if (attempt < READY_POLL_LIMIT) main.postDelayed({ poll(attempt + 1) }, READY_POLL_MS)
-                    else then("timeout")
-            }
-        }
+/** Waits for rendering (diagrams change layout), within the caller's lifetime: "ready", "failed", or "timeout". */
+internal suspend fun awaitRendered(view: WebView): String {
+    for (attempt in 0..READY_POLL_LIMIT) {
+        val state = view.evaluate("document.body.dataset.state || ''")
+        if (state == "ready" || state == "failed") return state as String
+        if (attempt < READY_POLL_LIMIT) delay(READY_POLL_MS)
     }
-    poll(0)
+    return "timeout"
 }
 
 /**
  * One native barrier per opening, after its DOM changes. A non-drawable page (hidden window or zero-sized viewport) may
  * stay pending; there is no timed reveal of stale content. The owner handles release and renderer loss.
  */
-internal fun WebView.whenReadyToDraw(then: () -> Unit) =
+internal suspend fun WebView.awaitVisualState() = suspendCancellableCoroutine { drawn ->
     postVisualStateCallback(
         0,
         object : WebView.VisualStateCallback() {
-            override fun onComplete(requestId: Long) = then()
+            override fun onComplete(requestId: Long) = drawn.resume(Unit)
         },
     )
+}
 
 /**
- * Loads the saved [note] as a page beside the reader. After rendering, [script] (null: none) keeps the requested part
- * and [onReady] reports whether it was found. The caller owns visibility. [onFailed] reports a render failure or lost
- * renderer so the caller can remove the page; [name] identifies it in the log. Nothing navigates.
+ * A native preview/answer page owns its rendering lifetime. Destroying it or losing its renderer cancels polling,
+ * script results and native draw waits before any later result can touch the released page. The host owns visibility.
  */
-internal fun WebView.showIsolatedPage(
-    images: NoteImages,
-    note: NoteRow,
-    name: String,
-    script: String?,
-    onFailed: () -> Unit,
-    onReady: (found: Boolean) -> Unit,
-) {
-    val assets = readerAssets(context)
-    val main = Handler(Looper.getMainLooper())
-    isolateReaderPage()
-    webViewClient =
-        object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
+internal open class IsolatedPage(context: Context) : WebView(context) {
+    private val rendering = MainScope()
 
-            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                readerResource(assets, images, note, request.url)
+    /** Loads one saved page; nothing navigates. A missing [script] target is reported, never replaced by another. */
+    fun show(
+        images: NoteImages,
+        note: NoteRow,
+        name: String,
+        script: String?,
+        onFailed: () -> Unit,
+        onReady: suspend (found: Boolean) -> Unit,
+    ) {
+        val assets = readerAssets(context)
+        isolateReaderPage()
+        webViewClient =
+            object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
 
-            override fun onPageFinished(view: WebView, url: String) =
-                awaitRendered(view, main) { state ->
-                    when {
-                        state != "ready" -> {
+                override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
+                    readerResource(assets, images, note, request.url)
+
+                override fun onPageFinished(view: WebView, url: String) {
+                    rendering.launch {
+                        val state = awaitRendered(view)
+                        if (state != "ready") {
                             Log.w("RepoRead", "$name did not render; documentId=${note.documentId} state=$state")
                             onFailed()
-                        }
-                        script == null -> onReady(true)
-                        else -> view.evaluate(script) { found -> onReady(found == true) }
+                        } else onReady(script == null || view.evaluate(script) == true)
                     }
                 }
 
-            // Returning false would end the app with the page's renderer (a crash, or the system reclaiming it).
-            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                Log.w("RepoRead", "$name stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
-                main.removeCallbacksAndMessages(null)
-                onFailed()
-                return true
+                // Returning false would end the app with the page's renderer (a crash, or system reclamation).
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    Log.w("RepoRead", "$name stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
+                    rendering.cancel()
+                    onFailed()
+                    return true
+                }
             }
-        }
-    loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
+        loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
+    }
+
+    override fun destroy() {
+        rendering.cancel()
+        super.destroy()
+    }
 }

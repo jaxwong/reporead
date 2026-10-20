@@ -27,14 +27,12 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.sync.Sync
-import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -272,9 +270,7 @@ internal class ReaderSession(
      * keeps the drawn highlights current until the view is released.
      */
     private suspend fun open(view: WebView) {
-        val state = suspendCancellableCoroutine { rendered ->
-            awaitRendered(view, main) { state -> rendered.resume(state) }
-        }
+        val state = awaitRendered(view)
         if (state != "ready") {
             // A page that failed to render shows why itself.
             view.alpha = 1f
@@ -330,9 +326,7 @@ internal class ReaderSession(
                 }
             }
         // A completed positioning script can still leave an older native frame queued.
-        suspendCancellableCoroutine { ready ->
-            view.whenReadyToDraw { ready.resume(Unit) }
-        }
+        view.awaitVisualState()
         view.alpha = 1f
         if (openAt != null) onOpenedAtTarget()
         outline = headings

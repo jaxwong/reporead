@@ -1,7 +1,5 @@
 package com.reporead.android.reader
 
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -12,6 +10,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import java.io.ByteArrayInputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.json.JSONTokener
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -24,9 +25,11 @@ import org.junit.runner.RunWith
 class StudyReaderTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private lateinit var view: WebView
+    private val rendering = MainScope()
 
     @After
     fun close() {
+        rendering.cancel()
         if (::view.isInitialized) instrumentation.runOnMainSync { view.destroy() }
     }
 
@@ -63,11 +66,12 @@ class StudyReaderTest {
                                         ByteArrayInputStream("Unavailable in study fixture".toByteArray()),
                                     )
 
-                            override fun onPageFinished(view: WebView, url: String) =
-                                awaitRendered(view, Handler(Looper.getMainLooper())) { result ->
-                                    state = result
+                            override fun onPageFinished(view: WebView, url: String) {
+                                rendering.launch {
+                                    state = awaitRendered(view)
                                     ready.countDown()
                                 }
+                            }
                         }
                     loadDataWithBaseURL("$ASSET_ORIGIN/", html, "text/html", "UTF-8", null)
                 }
