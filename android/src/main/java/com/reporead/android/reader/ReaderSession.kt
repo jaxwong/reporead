@@ -112,8 +112,8 @@ internal class ReaderSession(
 
     /**
      * The page has rendered and opened, so its scripts can be used and scrolling saves the position. The screen offers
-     * the controls that use the page only then; saving waits for it so that the top of the page, shown while loading,
-     * never overwrites the saved position.
+     * the controls that use the page only then; saving waits for it so that loading never overwrites the saved
+     * position.
      */
     val opened: Boolean
         get() = outline != null
@@ -140,6 +140,7 @@ internal class ReaderSession(
     fun createView(context: Context): WebView =
         ReaderWebView(context, reattaching, ::onSelectionAction).apply {
             isolateReaderPage()
+            alpha = 0f
             webViewClient = PageClient(readerAssets(context))
             trackScrolling(this)
             view = this
@@ -276,6 +277,7 @@ internal class ReaderSession(
         }
         if (state != "ready") {
             // A page that failed to render shows why itself.
+            view.alpha = 1f
             Log.w("RepoRead", "Reader did not render; position not saved; documentId=${note.documentId} state=$state")
             if (state == "timeout")
                 onMessage(
@@ -327,6 +329,7 @@ internal class ReaderSession(
                         missing("That passage isn't marked in this version of the note; Highlights and notes says why.")
                 }
             }
+        view.alpha = 1f
         if (openAt != null) onOpenedAtTarget()
         outline = headings
         save(view)

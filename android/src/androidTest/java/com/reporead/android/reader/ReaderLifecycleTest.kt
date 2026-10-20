@@ -45,6 +45,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -427,9 +428,9 @@ class ReaderLifecycleTest {
         awaitReader(12)
     }
 
-    /** Until the page is ready, the controls that use it are not offered. */
+    /** Loading pages stay hidden; failed/timed-out pages show their own content but never save a position. */
     @Test
-    fun aPageThatIsNotReadyOffersNoShow() {
+    fun anUnreadyPageIsHiddenUntilFailureOrTimeoutAndOffersNoShow() {
         runBlocking {
             val dao = store.library()
             val path = "test-only/unready.md"
@@ -475,14 +476,46 @@ class ReaderLifecycleTest {
         // Away from the top, so finding the place again shows the fixture's page has opened.
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
-        scenario.onActivity { open(Screen.Reader(2, "Test-only unready")) }
-        // The old reader has the same button label; wait for the destination before finding its control.
-        awaitText("Test-only unready")
-        click("Highlights and notes")
-        assertFalse("Show is offered before the page is ready", control("Show").isEnabled)
-        // Back to the fixture's note, whose final save the teardown waits for; back at its place, it has opened.
-        scenario.onActivity { open(Screen.Reader(1, title)) }
-        awaitReader(12)
+        try {
+            for (failed in listOf(true, false)) {
+                var previous: WebView? = null
+                scenario.onActivity {
+                    previous = findWebView(it.window.decorView)
+                    open(Screen.Reader(2, "Test-only unready"))
+                }
+                val page = runBlocking {
+                    withTimeout(10_000) {
+                        while (true) {
+                            var current: WebView? = null
+                            scenario.onActivity { current = findWebView(it.window.decorView) }
+                            if (current != null && current !== previous) return@withTimeout checkNotNull(current)
+                            delay(20)
+                        }
+                        error("Unreachable")
+                    }
+                }
+                scenario.onActivity { assertEquals("Loading page must not flash its top", 0f, page.alpha) }
+                awaitText("Test-only unready")
+                click("Highlights and notes")
+                assertFalse("Show is offered before the page is ready", control("Show").isEnabled)
+                if (failed) evaluate("document.body.dataset.state = 'failed'; return {};")
+                runBlocking {
+                    withTimeout(20_000) {
+                        while (withContext(Dispatchers.Main) { page.alpha != 1f }) delay(50)
+                    }
+                    assertNull("An unrendered page saves no position", store.library().reading(2))
+                }
+                if (!failed)
+                    awaitText(
+                        "This note did not finish rendering, so highlights and your reading position are off here. Reopen it to try again."
+                    )
+                assertFalse("Show is offered after a rendering failure", control("Show").isEnabled)
+            }
+        } finally {
+            // Back to the fixture's note, whose final save the teardown waits for.
+            scenario.onActivity { open(Screen.Reader(1, title)) }
+            awaitReader(12)
+        }
     }
 
     @Test
@@ -527,6 +560,7 @@ class ReaderLifecycleTest {
 
     private fun awaitReader(block: Int) = runBlocking {
         var last = JSONObject()
+        var visible = false
         repeat(100) {
             last =
                 evaluate(
@@ -538,13 +572,21 @@ class ReaderLifecycleTest {
                         .trimIndent(),
                     allowLoading = true,
                 )
-            if (last.optInt("block", -1) == block) {
+            scenario.onActivity { visible = findWebView(it.window.decorView)?.alpha == 1f }
+            if (last.optInt("block", -1) == block && visible) {
                 assertTrue("Canonical text changed: $last", last.getBoolean("canonical"))
+                scenario.onActivity {
+                    assertEquals(
+                        "Positioned reader must be visible",
+                        1f,
+                        checkNotNull(findWebView(it.window.decorView)).alpha,
+                    )
+                }
                 return@runBlocking
             }
             delay(100)
         }
-        throw AssertionError("Reader did not restore block=$block; last=$last")
+        throw AssertionError("Reader did not restore block=$block visibly; visible=$visible last=$last")
     }
 
     /** The block at the top once the highlight [key] is drawn and within the screen. */
