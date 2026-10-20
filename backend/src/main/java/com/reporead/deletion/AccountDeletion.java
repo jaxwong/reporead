@@ -1,6 +1,6 @@
 // Owns coordinated account-data deletion; credential lifecycle admission comes before its database transaction.
 
-package com.reporead.datacontrol;
+package com.reporead.deletion;
 
 import com.reporead.annotation.Annotations;
 import com.reporead.auth.AppSessions;
@@ -22,7 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class AccountDeletion {
     private static final Logger LOG = LoggerFactory.getLogger(AccountDeletion.class);
     private final RepositoryConnections connections;
-    private final ConnectionData data;
+    private final ConnectionDeletion data;
     private final Annotations annotations;
     private final AppSessions sessions;
     private final GitHubCredentials credentials;
@@ -30,7 +30,7 @@ public class AccountDeletion {
 
     public AccountDeletion(
             RepositoryConnections connections,
-            ConnectionData data,
+            ConnectionDeletion data,
             Annotations annotations,
             AppSessions sessions,
             GitHubCredentials credentials,

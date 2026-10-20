@@ -15,7 +15,7 @@ import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
-import com.reporead.datacontrol.ConnectionData;
+import com.reporead.deletion.ConnectionDeletion;
 import com.reporead.repository.RepositoryConnections;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -95,7 +95,7 @@ class AnnotationTest extends SharedSpringTest {
     RepositoryConnections connections;
 
     @Autowired
-    ConnectionData data;
+    ConnectionDeletion data;
 
     @Autowired
     Annotations annotations;
@@ -811,9 +811,8 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     /**
-     * Sends {@code write} while a disconnect of the note's repository holds its lock, as
-     * DataControlController.disconnect does, and returns the write's status after the disconnect commits. Fails unless
-     * the write waited for it.
+     * Sends {@code write} while a disconnect of the note's repository holds its lock, as DeletionController.disconnect
+     * does, and returns the write's status after the disconnect commits. Fails unless the write waited for it.
      */
     private int statusDuringDisconnect(Callable<ResultActions> write) throws Exception {
         var locked = new CountDownLatch(1);

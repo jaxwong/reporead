@@ -1,6 +1,6 @@
-// Owns data-control HTTP routes; ConnectionData and AccountDeletion own the actual deletion decisions.
+// Owns deletion HTTP routes; ConnectionDeletion and AccountDeletion own the actual deletion decisions.
 
-package com.reporead.datacontrol;
+package com.reporead.deletion;
 
 import com.reporead.auth.AppUser;
 import org.springframework.security.core.Authentication;
@@ -16,23 +16,23 @@ import org.springframework.web.bind.annotation.RestController;
  * authorization). GitHub is not modified, and the GitHub App stays installed until the user removes it on GitHub.
  */
 @RestController
-public class DataControlController {
-    private final ConnectionData data;
+public class DeletionController {
+    private final ConnectionDeletion data;
     private final AccountDeletion accounts;
 
-    public DataControlController(ConnectionData data, AccountDeletion accounts) {
+    public DeletionController(ConnectionDeletion data, AccountDeletion accounts) {
         this.data = data;
         this.accounts = accounts;
     }
 
     /** What disconnecting this repository would delete, for the confirmation. */
     @GetMapping("/api/repositories/{id}/stored-data")
-    ConnectionData.Counts storedData(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
+    ConnectionDeletion.Counts storedData(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
         return data.count(user.id(), id);
     }
 
     @DeleteMapping("/api/repositories/{id}")
-    ConnectionData.Disconnected disconnect(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
+    ConnectionDeletion.Disconnected disconnect(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
         return data.disconnect(user.id(), id);
     }
 

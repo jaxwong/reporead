@@ -1,4 +1,4 @@
-package com.reporead.datacontrol;
+package com.reporead.deletion;
 
 import com.reporead.ApiFailure;
 import com.reporead.annotation.Annotations;
@@ -19,8 +19,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * on the server.
  */
 @Component
-public class ConnectionData {
-    private static final Logger LOG = LoggerFactory.getLogger(ConnectionData.class);
+public class ConnectionDeletion {
+    private static final Logger LOG = LoggerFactory.getLogger(ConnectionDeletion.class);
     private final JdbcClient db;
     private final TransactionTemplate transaction;
     private final RepositoryConnections connections;
@@ -28,7 +28,7 @@ public class ConnectionData {
     private final ReadingStates readingStates;
     private final Annotations annotations;
 
-    public ConnectionData(
+    public ConnectionDeletion(
             JdbcClient db,
             TransactionTemplate transaction,
             RepositoryConnections connections,

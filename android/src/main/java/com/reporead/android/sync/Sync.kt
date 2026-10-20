@@ -12,7 +12,7 @@ import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
 import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
-import com.reporead.android.core.network.wire.ConnectionDataCounts
+import com.reporead.android.core.network.wire.ConnectionDeletionCounts
 import com.reporead.android.core.network.wire.ReadingControllerAnchorRequest
 import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
 import com.reporead.android.core.network.wire.RepositoryConnectionsConnection
@@ -313,7 +313,7 @@ class Sync(
      * highlights, cards, and grades only on this phone (unsent or refused), deleted too; [notSent] says why some were
      * not sent.
      */
-    data class DisconnectPreview(val stored: ConnectionDataCounts, val unsent: Int, val notSent: ApiException?)
+    data class DisconnectPreview(val stored: ConnectionDeletionCounts, val unsent: Int, val notSent: ApiException?)
 
     /**
      * Sends pending work, then counts what disconnecting [repositoryId] would delete, for the confirmation. Null when

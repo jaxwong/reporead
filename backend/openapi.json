@@ -20,7 +20,7 @@
             "description" : "OK"
           }
         },
-        "tags" : [ "data-control-controller" ]
+        "tags" : [ "deletion-controller" ]
       }
     },
     "/api/annotations/{id}" : {
@@ -567,14 +567,14 @@
             "content" : {
               "application/json" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ConnectionDataDisconnected"
+                  "$ref" : "#/components/schemas/ConnectionDeletionDisconnected"
                 }
               }
             },
             "description" : "OK"
           }
         },
-        "tags" : [ "data-control-controller" ]
+        "tags" : [ "deletion-controller" ]
       }
     },
     "/api/repositories/{id}/stored-data" : {
@@ -594,14 +594,14 @@
             "content" : {
               "application/json" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ConnectionDataCounts"
+                  "$ref" : "#/components/schemas/ConnectionDeletionCounts"
                 }
               }
             },
             "description" : "OK"
           }
         },
-        "tags" : [ "data-control-controller" ]
+        "tags" : [ "deletion-controller" ]
       }
     },
     "/api/repositories/{id}/sync" : {
@@ -911,7 +911,7 @@
           }
         }
       },
-      "ConnectionDataCounts" : {
+      "ConnectionDeletionCounts" : {
         "required" : [ "bookmarks", "cards", "documents", "highlights", "readingStates" ],
         "type" : "object",
         "properties" : {
@@ -937,7 +937,7 @@
           }
         }
       },
-      "ConnectionDataDisconnected" : {
+      "ConnectionDeletionDisconnected" : {
         "required" : [ "bookmarks", "cards", "documentIds", "highlights", "readingStates" ],
         "type" : "object",
         "properties" : {
