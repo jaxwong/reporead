@@ -66,7 +66,6 @@ class PracticeTest {
                 null,
                 type = type,
                 question = question,
-                checkedBlobSha = blobSha,
             ),
             "note",
             "core/interview/note.md",

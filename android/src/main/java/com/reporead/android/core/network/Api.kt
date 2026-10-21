@@ -7,7 +7,6 @@ import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.wire.AccountDeletionDeleted
 import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
-import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
 import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
@@ -153,11 +152,6 @@ class Api(
     ): AnnotationsAnnotation =
         executeJsonRequest("POST", "/api/annotations/$annotationId/reattach", wireJson.encodeToString(request)) {
             it.id == annotationId
-        }
-
-    suspend fun checkCard(cardId: Long, request: AnnotationControllerCheckRequest): AnnotationsAnnotation =
-        executeJsonRequest("POST", "/api/annotations/$cardId/check", wireJson.encodeToString(request)) {
-            it.id == cardId
         }
 
     suspend fun uploadAppLog(request: AppLogControllerUploadRequest) =

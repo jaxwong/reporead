@@ -194,9 +194,7 @@ class DeletionTest extends SharedSpringTest {
                 .param("mutation", mutationId)
                 .query(Long.class)
                 .single();
-        db.sql(
-                        "update annotations set type = 'CARD', question = 'Test-only question?', checked_blob_sha = :sha where id = :id")
-                .param("sha", SHA)
+        db.sql("update annotations set type = 'CARD', question = 'Test-only question?' where id = :id")
                 .param("id", id)
                 .update();
         db.sql(

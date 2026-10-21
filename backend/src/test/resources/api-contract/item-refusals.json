@@ -28,10 +28,6 @@
     "code": "MUTATION_ID_REUSED"
   },
   {
-    "status": 409,
-    "code": "CARD_CHANGED"
-  },
-  {
     "status": 410,
     "code": "ANNOTATION_DELETED"
   },

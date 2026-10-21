@@ -8,7 +8,6 @@ import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.core.network.invalidResponse
-import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
 import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
@@ -57,8 +56,7 @@ internal fun ApiException.refusesItem(): Boolean =
         "NOT_FOUND",
         "SOURCE_NOT_FOUND" -> status == 404
         "ANNOTATION_CONFLICT",
-        "MUTATION_ID_REUSED",
-        "CARD_CHANGED" -> status == 409
+        "MUTATION_ID_REUSED" -> status == 409
         "ANNOTATION_DELETED",
         "DOCUMENT_DELETED" -> status == 410
         "INVALID_ANCHOR",
@@ -476,19 +474,18 @@ class Sync(
     }
 
     /**
-     * Saves a new highlight (or, with [question], a card) locally as a pending creation; it is sent with the returned
-     * mutation id until acknowledged. Null for a page disconnected meanwhile.
+     * Saves a new highlight locally as a pending creation; it is sent with the returned mutation id until acknowledged.
+     * Null for a page disconnected meanwhile. Cards are made only by Practice ([gradeNewCard]).
      */
-    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? =
-        committed {
-            val annotation = newAnnotation(passage, documentId, note, question)
-            if (!dao.saveLocalAnnotation(annotation)) {
-                AppLog.info("Highlight not saved; page gone; documentId=$documentId")
-                return@committed null
-            }
-            onPendingChange()
-            annotation.mutationId
+    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?): String? = committed {
+        val annotation = newAnnotation(passage, documentId, note, null)
+        if (!dao.saveLocalAnnotation(annotation)) {
+            AppLog.info("Highlight not saved; page gone; documentId=$documentId")
+            return@committed null
         }
+        onPendingChange()
+        annotation.mutationId
+    }
 
     /**
      * Saves a Practice question's card and first grade through the DAO transaction, with no network calls. Identity is
@@ -535,7 +532,6 @@ class Sync(
             state = AnnotationState.UNSENT,
             type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
             question = question,
-            checkedBlobSha = if (question == null) null else passage.blobSha,
         )
 
     /**
@@ -732,20 +728,6 @@ class Sync(
             if (acceptedReview.cardMutationId != review.cardMutationId) throw invalidResponse(200)
             dao.saveReview(acceptedReview.toRow())
         }
-    }
-
-    suspend fun checkCard(annotation: AnnotationRow, blobSha: String) = committed {
-        val cardId =
-            checkNotNull(annotation.serverId) {
-                "Only acknowledged cards can be confirmed; ${annotation.mutationId} is pending"
-            }
-        dao.saveAnnotation(
-            api.checkCard(
-                    cardId,
-                    AnnotationControllerCheckRequest(expectedVersion = annotation.version, blobSha = blobSha),
-                )
-                .toRow()
-        )
     }
 
     suspend fun dismissRefusedReviews() = committed { dao.dismissRefusedReviews() }

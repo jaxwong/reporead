@@ -130,8 +130,7 @@ public class Annotations {
             Passage anchor,
             Location location,
             String resolvedBlobSha,
-            @Nullable String question,
-            @Nullable String checkedBlobSha) {}
+            @Nullable String question) {}
 
     /** The result of a creation request, and whether it was the replay of an earlier identical request. */
     record Created(Annotation annotation, boolean replayed) {}
@@ -144,7 +143,7 @@ public class Annotations {
                l.source_blob_sha as location_source_blob_sha, l.block_id as location_block_id, l.exact_text as location_exact_text,
                l.prefix_text as location_prefix_text, l.suffix_text as location_suffix_text, l.start_offset as location_start_offset,
                l.end_offset as location_end_offset, l.heading_path::text as location_heading_path,
-               l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote, a.question, a.checked_blob_sha
+               l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote, a.question
         from annotations a join annotation_anchors n on n.annotation_id = a.id
         join annotation_locations l on l.annotation_id = a.id
         where a.type in ('HIGHLIGHT', 'CARD') and a.user_id = :userId""";
@@ -251,9 +250,8 @@ public class Annotations {
             }
             long id = db.sql("""
                     insert into annotations (user_id, document_id, type, note, created_at, updated_at, resolved_blob_sha, question,
-                                             checked_blob_sha, mutation_id)
-                    values (:userId, :documentId, :type, :note, :now, :now, :sha, :question, case when :type = 'CARD' then :sha end,
-                            :mutationId) returning id""")
+                                             mutation_id)
+                    values (:userId, :documentId, :type, :note, :now, :now, :sha, :question, :mutationId) returning id""")
                     .param("userId", userId)
                     .param("documentId", documentId)
                     .param("sha", anchor.sourceBlobSha())
@@ -313,9 +311,9 @@ public class Annotations {
 
     /**
      * Records resolving a highlight in version {@code blobSha}, only while it is still resolved against the version and
-     * at the user-edit version {@code annotation} was read with, so a concurrent resolution, a reattachment, or a
-     * confirmation wins. Empty {@code found} orphans it and keeps its last location. The user-edit version is
-     * unchanged: re-anchoring is not an edit. Returns whether this call applied.
+     * at the user-edit version {@code annotation} was read with, so a concurrent resolution or a reattachment wins.
+     * Empty {@code found} orphans it and keeps its last location. The user-edit version is unchanged: re-anchoring is
+     * not an edit. Returns whether this call applied.
      */
     boolean resolved(Annotation annotation, String blobSha, Optional<Location> found) {
         Status status = found.map(location ->
@@ -323,7 +321,7 @@ public class Annotations {
                 .orElse(Status.ORPHANED);
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             int updated = db.sql("""
-                    update annotations set status = :status, resolved_blob_sha = :sha, checked_blob_sha = null
+                    update annotations set status = :status, resolved_blob_sha = :sha
                     where id = :id and type in ('HIGHLIGHT', 'CARD') and resolved_blob_sha = :expected and version = :version""")
                     .param("status", status.name())
                     .param("sha", blobSha)
@@ -342,7 +340,7 @@ public class Annotations {
         return transaction.execute(tx -> {
             lockForWrite(userId, id);
             int updated = db.sql("""
-                    update annotations set status = 'REANCHORED', resolved_blob_sha = :sha, checked_blob_sha = null, version = version + 1, updated_at = :now
+                    update annotations set status = 'REANCHORED', resolved_blob_sha = :sha, version = version + 1, updated_at = :now
                     where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
                     .param("sha", location.passage().sourceBlobSha())
                     .param("now", Timestamp.from(Instant.now()))
@@ -357,67 +355,17 @@ public class Annotations {
     }
 
     /**
-     * Where a card stands for confirming and grading: the one owner of both rules (ADR-13). Its answer is placed in
-     * version {@code resolvedBlobSha} with {@code status}, and confirmed in {@code checkedBlobSha}; its note is at
-     * {@code currentBlobSha} unless {@code deleted}.
+     * Locks the user's card {@code id} for a grade: its note's connection lock, as every write takes, then its row.
+     * Runs inside that write's transaction; 404 if it is not this user's card.
      */
-    record Card(
-            int version,
-            Status status,
-            String resolvedBlobSha,
-            String checkedBlobSha,
-            String currentBlobSha,
-            boolean deleted) {
-        /** Its answer is found in its note's current version {@code blobSha}, so it can be confirmed there. */
-        boolean confirmableAt(String blobSha) {
-            return !deleted
-                    && status != Status.ORPHANED
-                    && blobSha.equals(resolvedBlobSha)
-                    && blobSha.equals(currentBlobSha);
-        }
-
-        /** Confirmed in its note's current version {@code blobSha}, so a grade of that answer counts. */
-        boolean gradeableAt(String blobSha) {
-            return confirmableAt(blobSha) && blobSha.equals(checkedBlobSha);
-        }
-    }
-
-    /**
-     * Locks the user's card {@code id} for a write that depends on where it stands: its note's connection lock, as
-     * every write takes, then its row. Runs inside that write's transaction; 404 if it is not this user's card.
-     */
-    Card lockCard(long userId, long id) {
+    void lockCard(long userId, long id) {
         lockForWrite(userId, id);
-        return db.sql("""
-                select a.version, a.status, a.resolved_blob_sha, a.checked_blob_sha, d.current_blob_sha,
-                       d.deleted_at is not null as deleted
-                from annotations a join documents d on d.id = a.document_id
-                where a.id = :id and a.user_id = :userId and a.type = 'CARD' for update of a""")
+        db.sql("select id from annotations where id = :id and user_id = :userId and type = 'CARD' for update")
                 .param("id", id)
                 .param("userId", userId)
-                .query(Card.class)
+                .query(Long.class)
                 .optional()
                 .orElseThrow(ApiFailure::notFound);
-    }
-
-    Annotation checkCard(long userId, long id, int expectedVersion, String blobSha) {
-        return transaction.execute(tx -> {
-            var card = lockCard(userId, id);
-            // A stale version is another edit landing first, as for edit, delete, and reattach.
-            if (card.version() != expectedVersion) throw missingOrConflict(userId, id);
-            if (!card.confirmableAt(blobSha)) {
-                throw new ApiFailure(
-                        Code.CARD_CHANGED,
-                        "Check this card in its current version; reattach an orphan before confirming.");
-            }
-            db.sql(
-                            "update annotations set checked_blob_sha = :sha, version = version + 1, updated_at = :now where id = :id")
-                    .param("sha", blobSha)
-                    .param("now", Timestamp.from(Instant.now()))
-                    .param("id", id)
-                    .update();
-            return find(userId, id).orElseThrow();
-        });
     }
 
     /**
@@ -497,8 +445,7 @@ public class Annotations {
                         row.getDouble("rival_context"),
                         row.getDouble("rival_quote")),
                 row.getString("resolved_blob_sha"),
-                row.getString("question"),
-                row.getString("checked_blob_sha"));
+                row.getString("question"));
     }
 
     /** The eight passage columns of an anchor or a location, named with {@code prefix}. */

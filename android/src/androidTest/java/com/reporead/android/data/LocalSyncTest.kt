@@ -304,7 +304,6 @@ class LocalSyncTest {
                 state = AnnotationState.UNSENT,
                 type = AnnotationType.CARD,
                 question = "Test-only question?",
-                checkedBlobSha = sha,
             )
         )
         dao.saveReview(ReviewRow("grade-of-unsent-card", "unsent-card", 4, 2, sha, pending = true))
@@ -468,7 +467,10 @@ class LocalSyncTest {
         assertEquals(3, requested)
         sync.deleteAnnotation(dao.annotation(highlight)!!)
         assertEquals(4, requested)
-        val card = sync.createAnnotation(passage, 1, null, "Test-only question?")!!
+        // Practice makes a card and its first grade together.
+        assertEquals(NewCardGrade.SAVED, sync.gradeNewCard(passage, 1, "Test-only question?", 4))
+        assertEquals(5, requested)
+        val card = dao.annotations(1).first().single { it.type == AnnotationType.CARD }.mutationId
         assertTrue(sync.recordReview(ReviewRow("grade", card, 4, 1, sha, pending = true)))
         assertEquals(6, requested)
         sync.deleteAnnotation(dao.annotation(card)!!)
@@ -1535,7 +1537,6 @@ class LocalSyncTest {
                 AnnotationState.ACKNOWLEDGED,
                 type = AnnotationType.CARD,
                 question = "Test-only question?",
-                checkedBlobSha = sha,
             )
         )
         val pending = ReviewRow("test-only-grade", "test-only-card", 4, 1_000, sha, true)

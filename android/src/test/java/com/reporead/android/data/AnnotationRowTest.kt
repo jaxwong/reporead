@@ -88,8 +88,9 @@ class AnnotationRowTest {
     }
 
     @Test
-    fun aCardCanBeGradedOnlyWhenItsConfirmedAnswerIsTheCurrentSavedVersion() {
+    fun aCardCanBeGradedInItsNotesCurrentSavedVersionWithoutBeingConfirmedOrPlacedThere() {
         val current = "c".repeat(40)
+        val older = "a".repeat(40)
         val card =
             unsent.copy(
                 serverId = 3,
@@ -97,30 +98,25 @@ class AnnotationRowTest {
                 type = AnnotationType.CARD,
                 question = "Test-only question?",
                 status = AnchorStatus.ANCHORED,
-                resolvedBlobSha = current,
-                location = Passage(current, "b2", 12, 30, "declarative transactions"),
-                checkedBlobSha = current,
+                resolvedBlobSha = older,
+                location = Passage(older, "b2", 12, 30, "declarative transactions"),
             )
-        val older = "a".repeat(40)
+        // Placed by the server only in an older version, orphaned there, or not sent yet: whether the current version
+        // still asks its Canonical line is Review's match against the saved bank, not the server's placement.
         assertNull(card.cardBlock(false, current, current))
+        assertNull(card.copy(status = AnchorStatus.ORPHANED).cardBlock(false, current, current))
+        assertNull(
+            unsent.copy(type = AnnotationType.CARD, question = "Test-only question?").cardBlock(false, current, current)
+        )
+        assertEquals(
+            CardBlock.REFUSED,
+            card
+                .copy(state = AnnotationState.REFUSED, rejection = "Test-only refusal")
+                .cardBlock(false, current, current),
+        )
         assertEquals(CardBlock.REMOVED, card.cardBlock(true, current, current))
-        for ((block, changed) in
-            listOf(
-                CardBlock.REFUSED to card.copy(state = AnnotationState.REFUSED, rejection = "Test-only refusal"),
-                CardBlock.ORPHANED to card.copy(status = AnchorStatus.ORPHANED),
-                CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = null),
-                CardBlock.UNCONFIRMED to card.copy(checkedBlobSha = older),
-                CardBlock.UNPLACED to card.copy(location = Passage(older, "b2", 12, 30, "declarative transactions")),
-                // Made in the older version and not sent yet, it is drawn where it was made.
-                CardBlock.UNSENT to
-                    unsent.copy(type = AnnotationType.CARD, question = "Test-only question?", checkedBlobSha = older),
-            )) assertEquals(changed.toString(), block, changed.cardBlock(false, current, current))
         assertEquals(CardBlock.NOT_SAVED, card.cardBlock(false, current, older))
         assertEquals(CardBlock.NOT_SAVED, card.cardBlock(false, current, null))
-        // Saved first: confirming needs the saved page of the current version to show the answer.
-        assertEquals(CardBlock.NOT_SAVED, card.copy(checkedBlobSha = null).cardBlock(false, current, older))
-        // An unsent card made in the current version can be graded offline; its grade waits for it.
-        assertNull(unsent.copy(type = AnnotationType.CARD, checkedBlobSha = older).cardBlock(false, older, older))
     }
 
     @Test

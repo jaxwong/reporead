@@ -59,7 +59,6 @@ internal fun AnnotationsAnnotation.toRow() =
                 AnnotationsAnnotation.Type.BOOKMARK -> error("checkRules admits no BOOKMARK annotation; id=$id")
             },
         question = question,
-        checkedBlobSha = checkedBlobSha,
     )
 
 internal fun ReviewsReview.toRow() =

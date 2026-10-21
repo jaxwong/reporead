@@ -42,6 +42,7 @@ import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
 import com.reporead.android.study.PracticeScreen
 import com.reporead.android.study.ReviewScreen
+import com.reporead.android.study.ReviewTopicsScreen
 import com.reporead.android.sync.Sync
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -61,7 +62,11 @@ sealed interface Screen {
 
     @Serializable data object Notebook : Screen
 
-    @Serializable data object Review : Screen
+    /** The cards due now, by topic, to choose which to review. */
+    @Serializable data object ReviewTopics : Screen
+
+    /** A review session over the due cards of one topic's interview folder; null mixes every topic. */
+    @Serializable data class Review(val topic: String?) : Screen
 
     /** A practice session over the questions of one topic's interview folder; null mixes every topic. */
     @Serializable data class Practice(val topic: String?) : Screen
@@ -173,7 +178,8 @@ fun RepoReadApp(
                     FolderScreen(sync, dao, signedIn, entry.id, screen, push, onBack, onDisconnected = popToRoot)
                 is Screen.Reader -> ReaderScreen(sync, dao, appScope, signedIn, entry.id, screen, onBack, push)
                 Screen.Notebook -> NotebookScreen(dao, push, onBack)
-                Screen.Review -> ReviewScreen(dao, sync, entry.id, push, onBack)
+                Screen.ReviewTopics -> ReviewTopicsScreen(dao, push, onBack)
+                is Screen.Review -> ReviewScreen(dao, sync, screen.topic, entry.id, push, onBack)
                 is Screen.Practice -> PracticeScreen(dao, sync, screen.topic, entry.id, push, onBack)
                 Screen.Search -> SearchScreen(dao, push, onBack)
             }

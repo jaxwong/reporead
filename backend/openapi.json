@@ -86,43 +86,6 @@
         "tags" : [ "annotation-controller" ]
       }
     },
-    "/api/annotations/{id}/check" : {
-      "post" : {
-        "operationId" : "checkCard",
-        "parameters" : [ {
-          "in" : "path",
-          "name" : "id",
-          "required" : true,
-          "schema" : {
-            "type" : "integer",
-            "format" : "int64"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/AnnotationControllerCheckRequest"
-              }
-            }
-          },
-          "required" : true
-        },
-        "responses" : {
-          "200" : {
-            "content" : {
-              "application/json" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/AnnotationsAnnotation"
-                }
-              }
-            },
-            "description" : "OK"
-          }
-        },
-        "tags" : [ "annotation-controller" ]
-      }
-    },
     "/api/annotations/{id}/reattach" : {
       "post" : {
         "operationId" : "reattach",
@@ -693,19 +656,6 @@
           }
         }
       },
-      "AnnotationControllerCheckRequest" : {
-        "required" : [ "blobSha", "expectedVersion" ],
-        "type" : "object",
-        "properties" : {
-          "blobSha" : {
-            "type" : "string"
-          },
-          "expectedVersion" : {
-            "type" : "integer",
-            "format" : "int32"
-          }
-        }
-      },
       "AnnotationControllerCreateRequest" : {
         "required" : [ "anchor", "mutationId" ],
         "type" : "object",
@@ -781,15 +731,11 @@
         }
       },
       "AnnotationsAnnotation" : {
-        "required" : [ "anchor", "checkedBlobSha", "createdAt", "documentId", "id", "location", "mutationId", "note", "question", "resolvedBlobSha", "status", "type", "updatedAt", "version" ],
+        "required" : [ "anchor", "createdAt", "documentId", "id", "location", "mutationId", "note", "question", "resolvedBlobSha", "status", "type", "updatedAt", "version" ],
         "type" : "object",
         "properties" : {
           "anchor" : {
             "$ref" : "#/components/schemas/AnnotationsPassage"
-          },
-          "checkedBlobSha" : {
-            "type" : "string",
-            "nullable" : true
           },
           "createdAt" : {
             "type" : "string",

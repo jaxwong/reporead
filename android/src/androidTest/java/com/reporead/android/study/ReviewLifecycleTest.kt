@@ -42,34 +42,48 @@ import org.junit.runner.RunWith
 class ReviewLifecycleTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val sha = "a".repeat(40)
-    private val html =
-        "<main id=note>" +
-            (1..10).joinToString("") {
-                """<p data-block-id="b$it" data-anchor-text="Test-only answer $it in context.">Test-only answer $it in context.</p>"""
-            } +
-            "</main>"
+    private val bankPath = "test-only/interview/review.md"
     private lateinit var store: LocalStore
+    private lateinit var sync: Sync
+
+    private fun canonicalLine(i: Int) = "Canonical answer: Test-only core $i"
+
+    private fun labelled(blockId: String, label: String, text: String = "") =
+        """<p data-block-id="$blockId" data-anchor-text="$label $text"><strong>$label</strong> $text</p>"""
+
+    /** Bank question [i] in the closed shape, its Canonical line in block `a$i`. */
+    private fun bankQuestion(i: Int) =
+        """<h3 data-block-id="q$i" data-anchor-text="Test-only question $i?">Test-only question $i?</h3>""" +
+            labelled("t$i", "Interviewer is testing:", "Test-only recall $i.") +
+            labelled("c$i", "A complete answer should:") +
+            """<ul><li data-block-id="p$i" data-anchor-text="Test-only point $i">Test-only point $i</li></ul>""" +
+            labelled("s$i", "Short answer:", "Test-only short answer $i.") +
+            """<p data-block-id="a$i" data-anchor-text="${canonicalLine(i)}"><strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Fcore.md&amp;heading=answer">Test-only core $i</a></p>"""
+
+    private fun bank(blobSha: String, questions: IntRange = 1..10) =
+        testPage(blobSha, questions.joinToString("") { bankQuestion(it) })
 
     @Before
     fun open() = runBlocking {
         store = Room.inMemoryDatabaseBuilder(instrumentation.targetContext, LocalStore::class.java).build()
         val dao = store.library()
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/review.md", "Test-only review", sha)))
-        dao.saveNoteWithoutSearch(NoteRow(1, sha, "test-only/review.md", "Test-only review", html, 0))
+        dao.replaceDocuments(
+            7,
+            listOf(
+                DocumentRow(1, 7, bankPath, "Test-only review", sha),
+                DocumentRow(2, 7, "test-only/core.md", "Test-only core", "c".repeat(40)),
+            ),
+        )
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, bankPath, "Test-only review", bank(sha), 0))
         dao.saveReviewLimit(ReviewLimitRow(sessionLimit = 40))
         // No token and a closed local port: a server call fails as unreachable instead of leaving the phone.
-        val sync =
+        sync =
             Sync(
                 Api("http://127.0.0.1:1", { StoredSession.Absent }) {},
                 store,
                 File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
             ) {}
-        TestHostActivity.content =
-            TestEntries(Screen.Review).content { entry ->
-                MaterialTheme {
-                    ReviewScreen(dao, sync, entry.id, push = { error("Review fixture must not navigate") }, onBack = {})
-                }
-            }
+        showReview(push = { error("Review fixture must not navigate") })
     }
 
     @After
@@ -79,27 +93,40 @@ class ReviewLifecycleTest {
         if (::store.isInitialized) store.close()
     }
 
-    private suspend fun card(i: Int, checkedBlobSha: String = sha) {
-        val exact = "Test-only answer $i"
+    private fun showReview(topic: String? = null, push: (Screen) -> Unit) {
+        val dao = store.library()
+        TestHostActivity.content =
+            TestEntries(Screen.Review(topic)).content { entry ->
+                MaterialTheme { ReviewScreen(dao, sync, topic, entry.id, push = push, onBack = {}) }
+            }
+    }
+
+    /** A card made from bank question [i] in version [madeIn], with the prompt it was asked with then. */
+    private suspend fun card(
+        i: Int,
+        documentId: Long = 1,
+        madeIn: String = sha,
+        state: AnnotationState = AnnotationState.ACKNOWLEDGED,
+    ) {
+        val line = canonicalLine(i)
         store
             .library()
             .saveAnnotation(
                 AnnotationRow(
                     "card$i",
-                    i.toLong(),
-                    1,
-                    sha,
-                    "b$i",
+                    if (state == AnnotationState.UNSENT) null else i.toLong(),
+                    documentId,
+                    madeIn,
+                    "a$i",
                     0,
-                    exact.length,
-                    exact,
+                    line.length,
+                    line,
                     null,
                     1,
                     0,
-                    state = AnnotationState.ACKNOWLEDGED,
+                    state = state,
                     type = AnnotationType.CARD,
-                    question = "Test-only question $i?",
-                    checkedBlobSha = checkedBlobSha,
+                    question = "Saved test-only prompt $i?",
                 )
             )
     }
@@ -108,12 +135,9 @@ class ReviewLifecycleTest {
     fun aBankCardAsksItsCurrentQuestionAndOpensItsLinkedSectionInTheNote() =
         runBlocking<Unit> {
             val dao = store.library()
-            val bankPath = "test-only/interview/bank.md"
             val line = "Canonical answer: Test-only core"
             val short = "Test-only review short answer."
-            fun labelled(id: String, label: String, text: String = "") =
-                """<p data-block-id="$id" data-anchor-text="$label $text"><strong>$label</strong> $text</p>"""
-            val bank =
+            val edited =
                 testPage(
                     sha,
                     """<h3 data-block-id="b1" data-anchor-text="Current test-only bank prompt?">Current test-only bank prompt?</h3>""" +
@@ -124,14 +148,7 @@ class ReviewLifecycleTest {
                         labelled("s1", "Short answer:", short) +
                         """<p data-block-id="b2" data-anchor-text="$line"><strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Fcore.md&amp;heading=answer">Test-only core</a></p>""",
                 )
-            dao.replaceDocuments(
-                7,
-                listOf(
-                    DocumentRow(1, 7, bankPath, "Test-only bank", sha),
-                    DocumentRow(2, 7, "test-only/core.md", "Test-only core", "c".repeat(40)),
-                ),
-            )
-            dao.saveNoteWithoutSearch(NoteRow(1, sha, bankPath, "Test-only bank", bank, 0))
+            dao.saveNoteWithoutSearch(NoteRow(1, sha, bankPath, "Test-only review", edited, 0))
             dao.saveAnnotation(
                 AnnotationRow(
                     "bank-card",
@@ -148,20 +165,10 @@ class ReviewLifecycleTest {
                     state = AnnotationState.ACKNOWLEDGED,
                     type = AnnotationType.CARD,
                     question = "Old test-only bank prompt?",
-                    checkedBlobSha = sha,
                 )
             )
-            val sync =
-                Sync(
-                    Api("http://127.0.0.1:1", { StoredSession.Absent }) {},
-                    store,
-                    File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
-                ) {}
             val pushed = mutableListOf<Screen>()
-            TestHostActivity.content =
-                TestEntries(Screen.Review).content { entry ->
-                    MaterialTheme { ReviewScreen(dao, sync, entry.id, push = { pushed += it }, onBack = {}) }
-                }
+            showReview(push = { pushed += it })
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("Current test-only bank prompt?")
                 awaitText("Test-only review evidence.")
@@ -189,7 +196,7 @@ class ReviewLifecycleTest {
             for (i in 1..10) card(i)
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("Show answer")
-                assertNull(findText(root()) { it.startsWith("Test-only answer") || it.startsWith("Context ·") })
+                assertNull(findText(root()) { it.startsWith("Test-only short answer") })
                 assertNull(findText(root(), "Good"))
                 assertNull(findText(root(), "Open in note"))
                 click("Show answer")
@@ -211,52 +218,57 @@ class ReviewLifecycleTest {
         }
 
     /**
-     * The note was edited and its new version saved, but the server places a card in a new version only when the note's
-     * highlights are listed, which opening the note does and a sync does not: the card offers the note.
+     * The bank was edited elsewhere and its new version saved; the server has not placed the card there, because nobody
+     * opened the bank. Its Canonical line is unchanged, so it is graded in the new version with nothing to confirm.
      */
     @Test
-    fun aCardOfAnEditedNoteOffersTheNoteWhereItsAnswerIsFound() =
+    fun aCardOfAnEditedBankIsGradedInTheNewVersionWithoutBeingConfirmed() =
         runBlocking<Unit> {
             val current = "b".repeat(40)
             val dao = store.library()
-            dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/review.md", "Test-only review", current)))
-            dao.saveNoteWithoutSearch(NoteRow(1, current, "test-only/review.md", "Test-only review", html, 0))
-            card(1)
-            val sync =
-                Sync(
-                    Api("http://127.0.0.1:1", { StoredSession.Absent }) {},
-                    store,
-                    File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
-                ) {}
-            val pushed = mutableListOf<Screen>()
-            TestHostActivity.content =
-                TestEntries(Screen.Review).content { entry ->
-                    MaterialTheme { ReviewScreen(dao, sync, entry.id, push = { pushed += it }, onBack = {}) }
-                }
-            ActivityScenario.launch(TestHostActivity::class.java).use { click("Open note") }
-            assertEquals(listOf(Screen.Reader(1, "Test-only review", OpenAt.Highlight("card1"))), pushed)
-        }
-
-    /** Reading the saved page takes a moment; until it is read the answer is unknown, not unverifiable. */
-    @Test
-    fun revealingAnAnswerNeverFirstSaysItCannotBeVerified() =
-        runBlocking<Unit> {
-            val dao = store.library()
-            val filler =
-                (11..4_000).joinToString("") {
-                    """<p data-block-id="b$it" data-anchor-text="Filler $it.">Filler $it.</p>"""
-                }
-            dao.saveNoteWithoutSearch(
-                NoteRow(1, sha, "test-only/review.md", "Test-only review", html.replace("</main>", "$filler</main>"), 0)
+            dao.replaceDocuments(
+                7,
+                listOf(
+                    DocumentRow(1, 7, bankPath, "Test-only review", current),
+                    DocumentRow(2, 7, "test-only/core.md", "Test-only core", "c".repeat(40)),
+                ),
             )
+            dao.saveNoteWithoutSearch(NoteRow(1, current, bankPath, "Test-only review", bank(current), 0))
             card(1)
             ActivityScenario.launch(TestHostActivity::class.java).use {
+                awaitText("Test-only question 1?")
                 click("Show answer")
-                val unverifiable = "The saved page cannot verify this answer in context. Open the note to check it."
-                withTimeout(10_000) {
-                    while (findText(root(), "Good") == null) assertNull(unverifiable, findText(root(), unverifiable))
-                }
+                awaitText("Test-only short answer 1.")
+                click("Good")
+                awaitText("Session complete: 1 card reviewed.")
+                assertEquals(listOf(current), dao.pendingReviews().map { it.blobSha })
             }
+        }
+
+    @Test
+    fun aCardWhoseCanonicalLineLeftTheBankOffersTheBankInsteadOfAGrade() =
+        runBlocking<Unit> {
+            val current = "b".repeat(40)
+            val dao = store.library()
+            dao.replaceDocuments(
+                7,
+                listOf(
+                    DocumentRow(1, 7, bankPath, "Test-only review", current),
+                    DocumentRow(2, 7, "test-only/core.md", "Test-only core", "c".repeat(40)),
+                ),
+            )
+            dao.saveNoteWithoutSearch(NoteRow(1, current, bankPath, "Test-only review", bank(current, 2..10), 0))
+            card(1)
+            val pushed = mutableListOf<Screen>()
+            showReview(push = { pushed += it })
+            ActivityScenario.launch(TestHostActivity::class.java).use {
+                awaitText("Saved test-only prompt 1?")
+                awaitTextStarting("Its bank no longer has this question's Canonical line.")
+                assertNull(findText(root(), "Show answer"))
+                click("Open note")
+            }
+            assertEquals(listOf(Screen.Reader(1, "Test-only review", OpenAt.Highlight("card1"))), pushed)
+            assertTrue(dao.reviews().first().isEmpty())
         }
 
     @Test
@@ -280,53 +292,54 @@ class ReviewLifecycleTest {
             }
         }
 
-    @Test
-    fun aCardToCheckShowsItsAnswerInPlaceAndConfirmingNeedsTheServer() =
-        runBlocking<Unit> {
-            val dao = store.library()
-            // Checked in an older version of the note: it is due, but must be confirmed before it can be graded.
-            card(1, checkedBlobSha = "b".repeat(40))
-            ActivityScenario.launch(TestHostActivity::class.java).use {
-                awaitText("The note changed since this card was checked. Is this still its answer?")
-                awaitText("Test-only answer 1 in context.")
-                assertNull("No grade before it is confirmed", findText(root(), "Good"))
-                click("Answer is still right")
-                awaitTextStarting("Not confirmed: Can't reach RepoRead's server.")
-                assertEquals("b".repeat(40), dao.annotation("card1")?.checkedBlobSha)
-                assertTrue(dao.reviews().first().isEmpty())
-            }
-        }
-
     /** A card the server refuses during a session is never sent again, so syncing cannot fix it. */
     @Test
-    fun aCardRefusedDuringTheSessionSaysSoInsteadOfOfferingASync() =
+    fun aCardRefusedDuringTheSessionSaysSo() =
         runBlocking<Unit> {
             val dao = store.library()
-            val exact = "Test-only answer 1"
-            dao.saveAnnotation(
-                AnnotationRow(
-                    "card1",
-                    null,
-                    1,
-                    sha,
-                    "b1",
-                    0,
-                    exact.length,
-                    exact,
-                    null,
-                    1,
-                    0,
-                    state = AnnotationState.UNSENT,
-                    type = AnnotationType.CARD,
-                    question = "Test-only question 1?",
-                    checkedBlobSha = sha,
-                )
-            )
+            card(1, state = AnnotationState.UNSENT)
             ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText("Show answer")
                 dao.rejectAnnotation("card1", "Test-only refusal.")
                 awaitTextStarting("The server refused this card")
-                assertNull(findText(root()) { it.startsWith("This card hasn't reached the server yet") })
+            }
+        }
+
+    @Test
+    fun reviewOffersEachTopicWithCardsDueAndASessionAsksOnlyThatTopicsCards() =
+        runBlocking<Unit> {
+            val dao = store.library()
+            val otherPath = "other/interview/bank.md"
+            dao.replaceDocuments(
+                7,
+                listOf(
+                    DocumentRow(1, 7, bankPath, "Test-only review", sha),
+                    DocumentRow(2, 7, "test-only/core.md", "Test-only core", "c".repeat(40)),
+                    DocumentRow(3, 7, otherPath, "Test-only other bank", sha),
+                ),
+            )
+            dao.saveNoteWithoutSearch(NoteRow(3, sha, otherPath, "Test-only other bank", bank(sha, 3..3), 0))
+            card(1)
+            card(2)
+            card(3, documentId = 3)
+            val pushed = mutableListOf<Screen>()
+            TestHostActivity.content =
+                TestEntries(Screen.ReviewTopics).content {
+                    MaterialTheme { ReviewTopicsScreen(dao, push = { pushed += it }, onBack = {}) }
+                }
+            ActivityScenario.launch(TestHostActivity::class.java).use {
+                awaitText("All topics")
+                awaitText("3 due")
+                awaitText("test-only")
+                awaitText("2 due")
+                awaitText("1 due")
+                click("other")
+            }
+            assertEquals(listOf(Screen.Review("other")), pushed)
+            showReview("test-only") { error("Review fixture must not navigate") }
+            ActivityScenario.launch(TestHostActivity::class.java).use {
+                awaitText("2 cards left · Test-only review")
+                assertNull(findText(root(), "Test-only question 3?"))
             }
         }
 }

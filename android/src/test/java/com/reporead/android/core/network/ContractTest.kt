@@ -48,7 +48,7 @@ class ContractTest {
 
     @Test
     fun aNullableKeyMustStillBePresent() {
-        for (key in listOf("note", "question", "checkedBlobSha")) {
+        for (key in listOf("note", "question")) {
             requiredNullable<AnnotationsAnnotation>(json(testHighlight()), key)
         }
         requiredNullable<LibraryRepository>(json(testRepository()), "lastSyncedCommitSha")

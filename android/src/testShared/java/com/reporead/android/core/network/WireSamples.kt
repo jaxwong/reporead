@@ -57,7 +57,6 @@ internal fun testPassage() =
 internal fun testHighlight() =
     AnnotationsAnnotation(
         anchor = testPassage(),
-        checkedBlobSha = null,
         createdAt = testAt,
         documentId = 1,
         id = 9,
@@ -79,7 +78,6 @@ internal fun testCard() =
             mutationId = TEST_CARD_MUTATION,
             type = AnnotationsAnnotation.Type.CARD,
             question = "Test-only question?",
-            checkedBlobSha = testSha,
         )
 
 internal fun testReview() =

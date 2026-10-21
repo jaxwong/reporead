@@ -41,7 +41,6 @@ import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
@@ -713,51 +712,25 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
-    void changedCardsCannotBeGradedUntilExplicitlyCheckedAndOrphansCanBeReattached() throws Exception {
+    void aCardIsGradedInEveryVersionOfItsNoteWithoutBeingConfirmedOrPlaced() throws Exception {
         moveNoteTo(OLD_SHA);
         expectSource(ExpectedCount.once());
         long id = createdId(cardBody());
         next();
         moveNoteTo(CURRENT_SHA);
-        grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(cardChanged());
-        // Not placed in the current version until its note's highlights are listed: nothing to confirm there yet.
-        check(alice, id, 1, CURRENT_SHA).andExpect(cardChanged());
+        // Not placed in the current version: its note's highlights were never listed there.
+        grade(alice, id, UUID.randomUUID().toString(), 4, CURRENT_SHA).andExpect(status().isOk());
         expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
         list(alice)
                 .andExpect(jsonPath("$.annotations[0].status").value("REANCHORED"))
-                .andExpect(jsonPath("$.annotations[0].checkedBlobSha").isEmpty());
-        grade(alice, id, UUID.randomUUID().toString(), 4, CURRENT_SHA).andExpect(cardChanged());
-        check(alice, id, 1, CURRENT_SHA)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.checkedBlobSha").value(CURRENT_SHA));
-        grade(alice, id, UUID.randomUUID().toString(), 4, CURRENT_SHA).andExpect(status().isOk());
+                .andExpect(jsonPath("$.annotations[0].checkedBlobSha").doesNotExist());
         next();
         moveNoteTo(REWRITTEN_SHA);
         expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
         list(alice).andExpect(jsonPath("$.annotations[0].status").value("ORPHANED"));
-        check(alice, id, 2, REWRITTEN_SHA).andExpect(cardChanged());
-        next();
-        expectVersion(ExpectedCount.once(), REWRITTEN_SHA, REWRITTEN);
-        reattach(alice, id, 2, REWRITTEN_SHA, "b2", 8, "weaves advice").andExpect(status().isOk());
-        grade(alice, id, UUID.randomUUID().toString(), 4, REWRITTEN_SHA).andExpect(cardChanged());
-        db.sql("update documents set deleted_at = now() where id = :id")
-                .param("id", note)
-                .update();
-        check(alice, id, 3, REWRITTEN_SHA).andExpect(cardChanged());
-    }
-
-    private ResultActions check(String bearer, long id, int expectedVersion, String sha) throws Exception {
-        return mvc.perform(post("/api/annotations/" + id + "/check")
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearer)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"expectedVersion\":" + expectedVersion + ",\"blobSha\":\"" + sha + "\"}"));
-    }
-
-    private static ResultMatcher cardChanged() {
-        return result -> {
-            status().isConflict().match(result);
-            jsonPath("$.code").value("CARD_CHANGED").match(result);
-        };
+        // Whether the version still asks its Canonical line is the phone's decision, from the bank it read.
+        grade(alice, id, UUID.randomUUID().toString(), 4, REWRITTEN_SHA).andExpect(status().isOk());
+        assertEquals(2, count("review_log"));
     }
 
     @Test
@@ -806,7 +779,6 @@ class AnnotationTest extends SharedSpringTest {
         assertEquals(1, count("review_log"));
         moveNoteTo(CURRENT_SHA);
         grade(alice, id, mutation, 4, OLD_SHA).andExpect(status().isOk());
-        grade(alice, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isConflict());
         assertEquals(1, count("review_log"));
     }
 
@@ -868,14 +840,6 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
-    void aCardConfirmationRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
-        moveNoteTo(OLD_SHA);
-        expectSource(ExpectedCount.once());
-        long card = createdId(cardBody());
-        assertEquals(404, statusDuringDisconnect(() -> check(alice, card, 1, OLD_SHA)));
-    }
-
-    @Test
     void aReattachmentRacingADisconnectWaitsAndIsNotFoundInsteadOfBreakingIt() throws Exception {
         expectSource(ExpectedCount.times(2));
         long highlight = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
@@ -930,17 +894,6 @@ class AnnotationTest extends SharedSpringTest {
         var kept = annotations.find(1, id).orElseThrow();
         assertEquals(Annotations.Status.REANCHORED, kept.status());
         assertEquals("By default", kept.location().passage().exactText());
-    }
-
-    @Test
-    void confirmingACardWithAStaleVersionIsAnEditConflictNotAChangedCard() throws Exception {
-        moveNoteTo(OLD_SHA);
-        expectSource(ExpectedCount.once());
-        long id = createdId(cardBody());
-        edit(alice, id, "an edit from another phone", 1).andExpect(status().isOk());
-        check(alice, id, 1, OLD_SHA)
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("ANNOTATION_CONFLICT"));
     }
 
     @Test

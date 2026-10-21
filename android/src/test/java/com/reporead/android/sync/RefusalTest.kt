@@ -49,7 +49,6 @@ class RefusalTest {
                 200 to "INVALID_RESPONSE",
                 409 to "INVALID_RESPONSE",
                 409 to "UNKNOWN_TEST_ONLY_CODE",
-                400 to "CARD_CHANGED",
                 409 to "NOT_FOUND",
                 500 to "ANNOTATION_DELETED",
             )) {
