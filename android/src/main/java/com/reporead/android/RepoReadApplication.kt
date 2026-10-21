@@ -9,6 +9,7 @@ import com.reporead.android.network.Api
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.requestDeviceLogUpload
 import com.reporead.android.sync.requestSync
+import java.time.Duration
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -29,7 +30,7 @@ class RepoReadApplication : Application() {
      */
     override fun onCreate() {
         super.onCreate()
-        DeviceLog.start(deviceLogDirectory(this))
+        DeviceLog.start(deviceLogDirectory(this)) { requestDeviceLogUpload(this, Duration.ofSeconds(2)) }
         val ending = checkNotNull(Thread.getDefaultUncaughtExceptionHandler()) { "Android sets the crash handler" }
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             DeviceLog.crash(thread, error)
@@ -37,9 +38,9 @@ class RepoReadApplication : Application() {
                 // Bounded: a crash on WorkManager's own thread would otherwise wait for itself.
                 requestDeviceLogUpload(this).result.get(CRASH_UPLOAD_WAIT_SECONDS, TimeUnit.SECONDS)
             } catch (notRecorded: TimeoutException) {
-                DeviceLog.warn("Crash upload not recorded; the next start sends it", notRecorded)
+                DeviceLog.crashUploadNotRecorded(notRecorded)
             } catch (notRecorded: ExecutionException) {
-                DeviceLog.warn("Crash upload not recorded; the next start sends it", notRecorded)
+                DeviceLog.crashUploadNotRecorded(notRecorded)
             } finally {
                 ending.uncaughtException(thread, error)
             }

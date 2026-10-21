@@ -34,12 +34,12 @@ class DeviceLogUploadTest {
     @Before
     fun start() {
         store.deleteRecursively()
-        DeviceLog.start(store)
+        DeviceLog.start(store) {}
     }
 
     @After
     fun restore() {
-        DeviceLog.start(deviceLogDirectory(context))
+        DeviceLog.start(deviceLogDirectory(context)) {}
         store.deleteRecursively()
     }
 

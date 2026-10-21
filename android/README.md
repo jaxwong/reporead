@@ -68,7 +68,7 @@ ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --no-d
 
 `logging/DeviceLog.kt` owns logcat and the bounded durable device-log store. Its `pending.jsonl` and `sending.jsonl`
 filenames and each line's `{at, appVersion, level, message}` JSON remain readable across app updates;
-`sync/DeviceLogUploadWorker.kt` makes at most two `POST /api/app-logs` calls per run: the batch a failed run left, then the lines stored since. A failed call is not retried; the next request (start, leaving the screen, a warning, a crash) sends its lines. It finishes a claim only after 204 or
+`sync/DeviceLogUploadWorker.kt` makes at most two `POST /api/app-logs` calls per run: the batch a failed run left, then the lines stored since. A failed call is not retried; the next request (start, leaving the screen, a warning while no batch is claimed, or a crash) sends its lines. It finishes a claim only after 204 or
 the route's permanent
 `INVALID_REQUEST` refusal; an unanswered call leaves that claim replayable, and signed-out work leaves it untouched.
 

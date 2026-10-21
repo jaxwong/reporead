@@ -15,7 +15,6 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import com.reporead.android.logging.DeviceLog
-import com.reporead.android.sync.WARNING_UPLOAD_DELAY
 import com.reporead.android.sync.requestDeviceLogUpload
 
 internal const val NAVIGATION_STATE_FORMAT_KEY = "navigationStateFormat"
@@ -44,7 +43,6 @@ class MainActivity : ComponentActivity() {
         // Debug builds only: lets Chrome DevTools inspect the reader over adb. Release builds never expose it.
         WebView.setWebContentsDebuggingEnabled(applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
         if (savedInstanceState == null) receive(intent)
-        DeviceLog.requestUploadOnWarning { requestDeviceLogUpload(app, WARNING_UPLOAD_DELAY) }
         requestDeviceLogUpload(this)
         setContent {
             // Follows the phone's light/dark setting with its wallpaper colors. The DayNight window theme in the
