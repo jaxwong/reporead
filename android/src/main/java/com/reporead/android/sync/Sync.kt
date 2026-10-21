@@ -17,7 +17,7 @@ import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.database.RepositoryEntity
 import com.reporead.android.database.ReviewEntity
 import com.reporead.android.database.SavedPageEntity
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
@@ -106,7 +106,7 @@ class Sync(
 
     /** The [paths] a deletion [after] something left, logged; a later sweep deletes them again. */
     private fun logged(after: String, paths: List<File>): List<File> {
-        if (paths.isNotEmpty()) AppLog.warn("Files left on the phone; after=$after count=${paths.size} paths=$paths")
+        if (paths.isNotEmpty()) DeviceLog.warn("Files left on the phone; after=$after count=${paths.size} paths=$paths")
         return paths
     }
 
@@ -229,7 +229,9 @@ class Sync(
         } catch (failure: ApiException) {
             if (savedPage == null) throw failure
             val savedPageIsCurrent = sameVersion(savedPage, listedDocument, repositoryCommitSha)
-            AppLog.info("Showing cached note; documentId=$documentId code=${failure.code} current=$savedPageIsCurrent")
+            DeviceLog.info(
+                "Showing cached note; documentId=$documentId code=${failure.code} current=$savedPageIsCurrent"
+            )
             Opened(savedPage, if (savedPageIsCurrent) null else failure)
         }
     }
@@ -281,7 +283,7 @@ class Sync(
         refreshLibrary()
         val listedDocuments = dao.listedDocuments(repositoryId)
         val repositoryCommitSha = dao.repositoryCommitSha(repositoryId)
-        AppLog.info("Saving all notes; repositoryId=$repositoryId documents=${listedDocuments.size}")
+        DeviceLog.info("Saving all notes; repositoryId=$repositoryId documents=${listedDocuments.size}")
         var fetched = 0
         var alreadySaved = 0
         var cannotShow = 0
@@ -308,18 +310,18 @@ class Sync(
                         else -> false
                     }
                 if (!canSkipPage) {
-                    AppLog.warn(
+                    DeviceLog.warn(
                         "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${failure.code}"
                     )
                     throw failure
                 }
-                AppLog.info("Page skipped; documentId=${document.id} code=${failure.code}")
+                DeviceLog.info("Page skipped; documentId=${document.id} code=${failure.code}")
                 cannotShow++
             }
             onProgress(index + 1, listedDocuments.size)
         }
         locked { sweepImages() }
-        AppLog.info(
+        DeviceLog.info(
             "Saved all notes; repositoryId=$repositoryId fetched=$fetched alreadySaved=$alreadySaved cannotShow=$cannotShow"
         )
         return SaveAllResult(fetched, alreadySaved, cannotShow)
@@ -344,7 +346,7 @@ class Sync(
                 api.repositoryDeletionCounts(repositoryId)
             } catch (failure: ApiException) {
                 if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
-                AppLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
+                DeviceLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
                 loadLibrary()
                 return@locked null
             }
@@ -367,12 +369,12 @@ class Sync(
                 null
             }
         if (disconnectResponse == null) {
-            AppLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
+            DeviceLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
             loadLibrary()
         } else {
             val documentIds = disconnectResponse.documentIds
             dao.forgetRepository(repositoryId, documentIds)
-            AppLog.info("Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
+            DeviceLog.info("Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
             sweepImages()
         }
     }
@@ -381,7 +383,7 @@ class Sync(
     suspend fun saveReading(readingState: ReadingStateEntity): Boolean = committed {
         dao.saveDisplayedReading(readingState.copy(pending = true)).also { wasSaved ->
             if (wasSaved) onPendingChange()
-            else AppLog.info("Reading position not saved; note gone; documentId=${readingState.documentId}")
+            else DeviceLog.info("Reading position not saved; note gone; documentId=${readingState.documentId}")
         }
     }
 
@@ -390,7 +392,7 @@ class Sync(
         dao.saveLocalBookmark(BookmarkEntity(documentId, bookmarked, pending = true, System.currentTimeMillis()))
             .also { wasSaved ->
                 if (wasSaved) onPendingChange()
-                else AppLog.info("Bookmark not saved; note gone; documentId=$documentId")
+                else DeviceLog.info("Bookmark not saved; note gone; documentId=$documentId")
             }
     }
 
@@ -445,7 +447,7 @@ class Sync(
                     api.saveReading(readingState.documentId, request).toEntity()
                 } catch (failure: ApiException) {
                     if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
-                    AppLog.info("Reading state no longer owned; documentId=${readingState.documentId}")
+                    DeviceLog.info("Reading state no longer owned; documentId=${readingState.documentId}")
                     // Not this user's note on the server any more: the position goes with it when the lists are
                     // next replaced. Malformed saves are programmer errors, not item refusals.
                     dao.acknowledgeReading(readingState.documentId, readingState.lastReadAt)
@@ -465,7 +467,7 @@ class Sync(
                 }
             } catch (failure: ApiException) {
                 if (!failure.refusesItem()) throw failure
-                AppLog.warn("Bookmark refused; documentId=${bookmark.documentId} code=${failure.code}")
+                DeviceLog.warn("Bookmark refused; documentId=${bookmark.documentId} code=${failure.code}")
                 dao.dropBookmark(bookmark.documentId, bookmark.changedAt)
                 refusedBookmarks +=
                     RefusedChange(
@@ -485,7 +487,7 @@ class Sync(
     suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?): String? = committed {
         val annotation = newAnnotation(passage, documentId, note, null)
         if (!dao.saveLocalAnnotation(annotation)) {
-            AppLog.info("Highlight not saved; page gone; documentId=$documentId")
+            DeviceLog.info("Highlight not saved; page gone; documentId=$documentId")
             return@committed null
         }
         onPendingChange()
@@ -512,7 +514,7 @@ class Sync(
                 )
             val saveResult = dao.saveCardWithFirstReview(card, review)
             if (saveResult == NewCardGrade.SAVED) onPendingChange()
-            AppLog.info("Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$saveResult")
+            DeviceLog.info("Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$saveResult")
             saveResult
         }
 
@@ -588,13 +590,13 @@ class Sync(
                         (isDeleting && failure.refusesItem()) -> dao.removeAnnotation(annotation.mutationId)
                     failure.refusesItem() -> dao.rejectAnnotation(annotation.mutationId, failure.describe())
                     else -> {
-                        AppLog.warn(
+                        DeviceLog.warn(
                             "Highlight creations stopped; documentId=${annotation.documentId} code=${failure.code}"
                         )
                         throw failure
                     }
                 }
-                AppLog.warn(
+                DeviceLog.warn(
                     "Highlight creation refused; documentId=${annotation.documentId} code=${failure.code} " +
                         "deleting=$isDeleting"
                 )
@@ -613,18 +615,18 @@ class Sync(
             api.deleteAnnotation(annotationId, annotation.version)
         } catch (failure: ApiException) {
             if (!failure.refusesItem()) {
-                AppLog.warn("Highlight deletions stopped; annotationId=$annotationId code=${failure.code}")
+                DeviceLog.warn("Highlight deletions stopped; annotationId=$annotationId code=${failure.code}")
                 throw failure
             }
             if (failure.code != "NOT_FOUND") {
                 // Changed elsewhere first (409): shown again rather than deleted unseen.
-                AppLog.warn("Highlight deletion refused; annotationId=$annotationId code=${failure.code}")
+                DeviceLog.warn("Highlight deletion refused; annotationId=$annotationId code=${failure.code}")
                 dao.saveAnnotation(annotation.copy(state = AnnotationState.ACKNOWLEDGED))
                 return
             }
         }
         dao.removeAnnotation(annotation.mutationId)
-        AppLog.info("Highlight deleted after its creation was acknowledged; annotationId=$annotationId")
+        DeviceLog.info("Highlight deleted after its creation was acknowledged; annotationId=$annotationId")
     }
 
     /** Pending creations are sent first, so the server's list already contains them where possible. */
@@ -727,7 +729,9 @@ class Sync(
                 } catch (failure: ApiException) {
                     if (!failure.refusesItem()) throw failure
                     dao.rejectReview(review.mutationId, failure.describe())
-                    AppLog.warn("Review refused; cardId=$cardId mutationId=${review.mutationId} code=${failure.code}")
+                    DeviceLog.warn(
+                        "Review refused; cardId=$cardId mutationId=${review.mutationId} code=${failure.code}"
+                    )
                     continue
                 }
             if (acceptedReview.cardMutationId != review.cardMutationId) throw invalidResponse(200)

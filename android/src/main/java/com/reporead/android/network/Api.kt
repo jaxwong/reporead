@@ -4,7 +4,7 @@ package com.reporead.android.network
 
 import com.reporead.android.BuildConfig
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.wire.AccountDeletionDeleted
 import com.reporead.android.network.wire.AnnotationControllerAnnotationList
 import com.reporead.android.network.wire.AnnotationControllerCreateRequest
@@ -12,11 +12,11 @@ import com.reporead.android.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.network.wire.AnnotationControllerReattachRequest
 import com.reporead.android.network.wire.AnnotationsAnnotation
 import com.reporead.android.network.wire.AppAuthControllerTokenRequest
-import com.reporead.android.network.wire.AppLogControllerUploadRequest
 import com.reporead.android.network.wire.AppSessionsIssuedSession
 import com.reporead.android.network.wire.BookmarksBookmark
 import com.reporead.android.network.wire.ConnectionDeletionCounts
 import com.reporead.android.network.wire.ConnectionDeletionDisconnected
+import com.reporead.android.network.wire.DeviceLogIngestControllerUploadRequest
 import com.reporead.android.network.wire.DocumentControllerContent
 import com.reporead.android.network.wire.LibrarySnapshot
 import com.reporead.android.network.wire.ReadingControllerSaveRequest
@@ -154,7 +154,7 @@ class Api(
             it.id == annotationId
         }
 
-    suspend fun uploadAppLog(request: AppLogControllerUploadRequest) =
+    suspend fun uploadDeviceLogBatch(request: DeviceLogIngestControllerUploadRequest) =
         noContent("POST", "/api/app-logs", wireJson.encodeToString(request))
 
     suspend fun recordReview(cardId: Long, request: ReviewControllerGradeRequest): ReviewsReview =
@@ -241,7 +241,7 @@ class Api(
                         try {
                             wireJson.decodeFromString<ErrorResponse>(bytes.toString(Charsets.UTF_8))
                         } catch (_: IllegalArgumentException) {
-                            AppLog.warn(
+                            DeviceLog.warn(
                                 "Error response is not RepoRead's JSON; method=$method path=$route status=$status " +
                                     "requestId=$requestId"
                             )
@@ -255,12 +255,12 @@ class Api(
                     errorResponse?.message ?: "RepoRead's server returned HTTP $status.",
                     requestId = requestId,
                 )
-            AppLog.warn(
+            DeviceLog.warn(
                 "Backend refused; method=$method path=$route status=$status code=${failure.code} requestId=$requestId"
             )
             throw failure
         } catch (ioFailure: IOException) {
-            AppLog.warn(
+            DeviceLog.warn(
                 "Backend I/O failed; method=$method path=$route status=$status requestId=$requestId " +
                     "error=${ioFailure.javaClass.simpleName}"
             )

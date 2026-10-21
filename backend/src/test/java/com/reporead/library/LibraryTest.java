@@ -163,10 +163,10 @@ class LibraryTest extends SharedSpringTest {
     void aLibraryOverTheServersCapIsRefusedWholeAndOneAtTheCapIsServed() throws Exception {
         long padded = document(1, "padded.md", false);
         int base = library(alice).andReturn().getResponse().getContentAsByteArray().length;
-        int atCap = Library.MAX_RESPONSE_BYTES - base + "padded.md".length();
+        int atCap = LibrarySnapshotReader.MAX_RESPONSE_BYTES - base + "padded.md".length();
         retitle(padded, "t".repeat(atCap));
         var served = library(alice).andExpect(status().isOk()).andReturn().getResponse();
-        assertEquals(Library.MAX_RESPONSE_BYTES, served.getContentAsByteArray().length);
+        assertEquals(LibrarySnapshotReader.MAX_RESPONSE_BYTES, served.getContentAsByteArray().length);
         retitle(padded, "t".repeat(atCap + 1));
         var refused = library(alice)
                 .andExpect(status().is(422))

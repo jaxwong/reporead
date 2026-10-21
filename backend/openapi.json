@@ -206,7 +206,7 @@
           "content" : {
             "application/json" : {
               "schema" : {
-                "$ref" : "#/components/schemas/AppLogControllerUploadRequest"
+                "$ref" : "#/components/schemas/DeviceLogIngestControllerUploadRequest"
               }
             }
           },
@@ -217,7 +217,7 @@
             "description" : "No Content"
           }
         },
-        "tags" : [ "app-log-controller" ]
+        "tags" : [ "device-log-ingest-controller" ]
       }
     },
     "/api/auth/me" : {
@@ -831,38 +831,6 @@
           }
         }
       },
-      "AppLogControllerLine" : {
-        "required" : [ "appVersion", "at", "level", "message" ],
-        "type" : "object",
-        "properties" : {
-          "appVersion" : {
-            "type" : "string"
-          },
-          "at" : {
-            "type" : "string",
-            "format" : "date-time"
-          },
-          "level" : {
-            "type" : "string",
-            "enum" : [ "INFO", "WARN", "ERROR" ]
-          },
-          "message" : {
-            "type" : "string"
-          }
-        }
-      },
-      "AppLogControllerUploadRequest" : {
-        "required" : [ "lines" ],
-        "type" : "object",
-        "properties" : {
-          "lines" : {
-            "type" : "array",
-            "items" : {
-              "$ref" : "#/components/schemas/AppLogControllerLine"
-            }
-          }
-        }
-      },
       "AppSessionsIssuedSession" : {
         "required" : [ "accessToken", "expiresAt", "user" ],
         "type" : "object",
@@ -962,6 +930,38 @@
           "readingStates" : {
             "type" : "integer",
             "format" : "int32"
+          }
+        }
+      },
+      "DeviceLogIngestControllerUploadRequest" : {
+        "required" : [ "lines" ],
+        "type" : "object",
+        "properties" : {
+          "lines" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/DeviceLogLine"
+            }
+          }
+        }
+      },
+      "DeviceLogLine" : {
+        "required" : [ "appVersion", "at", "level", "message" ],
+        "type" : "object",
+        "properties" : {
+          "appVersion" : {
+            "type" : "string"
+          },
+          "at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "level" : {
+            "type" : "string",
+            "enum" : [ "INFO", "WARN", "ERROR" ]
+          },
+          "message" : {
+            "type" : "string"
           }
         }
       },

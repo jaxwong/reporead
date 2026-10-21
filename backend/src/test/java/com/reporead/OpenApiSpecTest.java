@@ -51,8 +51,7 @@ import tools.jackson.databind.json.JsonMapper;
  * what the Java types do not say:
  *
  * <ul>
- *   <li>a nested type's schema is named with its enclosing types ({@code Library.Snapshot} is {@code LibrarySnapshot}),
- *       and no two types can publish one name;
+ *   <li>a nested type's schema is named with its enclosing types, and no two types can publish one name;
  *   <li>properties are required unless the declaring accessor explicitly allows omission for an input;
  *   <li>a property is nullable exactly when its record component's type is JSpecify {@code @Nullable}.
  * </ul>

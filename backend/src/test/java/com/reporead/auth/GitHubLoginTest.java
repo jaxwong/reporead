@@ -86,8 +86,8 @@ class GitHubLoginTest extends SharedSpringTest {
     ClientRegistrationRepository registrations;
 
     @Autowired
-    @Qualifier("githubUserApi")
-    RestTemplate githubUserApi;
+    @Qualifier("githubUserHttpClient")
+    RestTemplate githubUserHttpClient;
 
     /** Revocation must not pass a callback between GitHub issuing its token and the server publishing that sign-in. */
     @ParameterizedTest
@@ -129,7 +129,7 @@ class GitHubLoginTest extends SharedSpringTest {
         userEndpoint
                 .expect(requestTo("https://api.github.com/user"))
                 .andRespond(withSuccess("{\"id\":42,\"login\":\"test-only-user\"}", MediaType.APPLICATION_JSON));
-        var revoke = MockRestServiceServer.bindTo(githubUserApi).build();
+        var revoke = MockRestServiceServer.bindTo(githubUserHttpClient).build();
         revoke.expect(requestTo("https://api.github.com/applications/test-only-not-a-github-app/grant"))
                 .andExpect(method(HttpMethod.DELETE))
                 .andRespond(withNoContent());

@@ -1,4 +1,4 @@
-package com.reporead;
+package com.reporead.observability;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.pattern.ClassicConverter;
@@ -11,7 +11,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
  * JOURNAL_STREAM, so a terminal or test output shows no prefix. A stack trace's later lines carry none and stay "info".
  * Used by logback-spring.xml.
  */
-public class JournalPriority extends ClassicConverter {
+public class JournaldPriorityConverter extends ClassicConverter {
     private static final boolean TO_JOURNAL = System.getenv("JOURNAL_STREAM") != null;
 
     @Override

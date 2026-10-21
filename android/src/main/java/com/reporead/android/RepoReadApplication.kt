@@ -3,8 +3,8 @@ package com.reporead.android
 import android.app.Application
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.database.RepoReadDatabase
-import com.reporead.android.logging.AppLog
-import com.reporead.android.logging.appLogDirectory
+import com.reporead.android.logging.DeviceLog
+import com.reporead.android.logging.deviceLogDirectory
 import com.reporead.android.network.Api
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.requestSync
@@ -19,10 +19,10 @@ class RepoReadApplication : Application() {
     /** Before any screen, worker or test in this process logs; a crash's line is stored before Android ends it. */
     override fun onCreate() {
         super.onCreate()
-        AppLog.start(appLogDirectory(this))
+        DeviceLog.start(deviceLogDirectory(this))
         val ending = checkNotNull(Thread.getDefaultUncaughtExceptionHandler()) { "Android sets the crash handler" }
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            AppLog.crash(thread, error)
+            DeviceLog.crash(thread, error)
             ending.uncaughtException(thread, error)
         }
     }

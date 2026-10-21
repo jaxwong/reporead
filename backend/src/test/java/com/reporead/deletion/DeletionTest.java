@@ -47,8 +47,8 @@ class DeletionTest extends SharedSpringTest {
     MockMvc mvc;
 
     @Autowired
-    @Qualifier("githubUserApi")
-    RestTemplate githubUserApi;
+    @Qualifier("githubUserHttpClient")
+    RestTemplate githubUserHttpClient;
 
     @Autowired
     OAuth2AuthorizedClientService clients;
@@ -88,7 +88,7 @@ class DeletionTest extends SharedSpringTest {
     @BeforeEach
     void setup() {
         TestEnvironment.reset(db);
-        github = MockRestServiceServer.bindTo(githubUserApi).build();
+        github = MockRestServiceServer.bindTo(githubUserHttpClient).build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_USER_TOKEN");
         bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
         notes = connection(1, 11, "notes");

@@ -3,8 +3,8 @@
 # The app's wire models are generated from backend/openapi.json, which the backend's OpenApiSpecTest derives from its
 # controllers and records, so a backend change runs this workflow and a stale spec fails it. Backend deployment retains
 # its own workflow triggers.
-# Besides android/, the build reads Library.java (the library size cap) and the release check reads assetlinks.json, so a
-# change to either runs this workflow too.
+# Besides android/, the build reads LibrarySnapshotReader.java (the library size cap) and the release check reads
+# assetlinks.json, so a change to either runs this workflow too.
 # Pushes to main: the test job, then a signed release APK published as GitHub Release v0.1.<commit count>, which
 # Obtainium on the phone installs over the current app. This repository is public, so the APKs and logs are too;
 # nothing prints secrets.

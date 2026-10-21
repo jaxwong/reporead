@@ -1,9 +1,11 @@
-package com.reporead;
+package com.reporead.observability;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+import com.reporead.SharedSpringTest;
+import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,7 +24,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 /** The app's log lines reach the server's log, apart from its own lines and unable to pose as them. */
 @ExtendWith(OutputCaptureExtension.class)
-class AppLogTest extends SharedSpringTest {
+class DeviceLogIngestControllerTest extends SharedSpringTest {
     @Autowired
     MockMvc mvc;
 
@@ -72,18 +74,19 @@ class AppLogTest extends SharedSpringTest {
                 .andExpect(status().isNoContent());
 
         String lines = log.getAll();
-        assertTrue(appLine(lines, " INFO ", "Reader ready; documentId=7"), lines);
+        assertTrue(deviceLogLine(lines, " INFO ", "Reader ready; documentId=7"), lines);
         assertTrue(
-                appLine(lines, " WARN ", "Backend refused; status=404 code=NOT_FOUND requestId=test-only-id"), lines);
+                deviceLogLine(lines, " WARN ", "Backend refused; status=404 code=NOT_FOUND requestId=test-only-id"),
+                lines);
     }
 
-    /** Whether [log] has the app's line [message] at [level], under the app's logger, with its version and time. */
-    private static boolean appLine(String log, String level, String message) {
+    /** Whether [log] has the device's line [message] at [level], under the ingest logger, with its version and time. */
+    private static boolean deviceLogLine(String log, String level, String message) {
         return log.lines()
                 .anyMatch(line -> line.contains(level)
-                        && line.contains(" com.reporead.AppLogController ")
+                        && line.contains("DeviceLogIngestController ")
                         && line.endsWith(
-                                ": App line; userId=1 version=0.1.433 at=2026-10-21T06:02:11.123Z " + message));
+                                ": Device log line; userId=1 version=0.1.433 at=2026-10-21T06:02:11.123Z " + message));
     }
 
     /** Lines an older run left are sent by the updated app, and still name the version that logged them. */
@@ -96,9 +99,11 @@ class AppLogTest extends SharedSpringTest {
         String lines = log.getAll();
         assertTrue(
                 lines.contains(
-                        "App line; userId=1 version=0.1.432 at=2026-10-21T06:02:11.123Z Reader ready; documentId=7"),
+                        "Device log line; userId=1 version=0.1.432 at=2026-10-21T06:02:11.123Z Reader ready; documentId=7"),
                 lines);
-        assertTrue(lines.contains("App line; userId=1 version=0.1.433 at=2026-10-21T06:02:11.123Z Signed in"), lines);
+        assertTrue(
+                lines.contains("Device log line; userId=1 version=0.1.433 at=2026-10-21T06:02:11.123Z Signed in"),
+                lines);
     }
 
     @Test
@@ -131,7 +136,7 @@ class AppLogTest extends SharedSpringTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         }
-        assertFalse(log.getAll().contains("App line;"), log.getAll());
+        assertFalse(log.getAll().contains("Device log line;"), log.getAll());
     }
 
     @Test

@@ -104,17 +104,19 @@ flowchart TB
         AnnC["AnnotationController<br/>BookmarkController<br/>ReviewController"]
         DelC["DeletionController"]
         LibC["LibraryController"]
+        LogC["DeviceLogIngestController"]
     end
 
     deletion["deletion<br/>disconnect, stored data,<br/>account deletion"]
-    library["library<br/>Library: every list the phone saves,<br/>one read-only snapshot"]
+    observability["observability<br/>request and device-log boundaries"]
+    library["library<br/>LibrarySnapshotReader: every list the phone saves,<br/>one read-only snapshot"]
     sync["sync<br/>RepositorySync: snapshot publish<br/>ContentMoves: moved-and-edited"]
     annotation["annotation<br/>Annotations, Anchoring,<br/>Bookmarks, Reviews"]
     reading["reading<br/>ReadingStates"]
     document["document<br/>MarkdownRenderer, NoteVersions,<br/>Attachments"]
     repository["repository<br/>connections, per-connection lock"]
     auth["auth<br/>sign-in, app sessions,<br/>bearer auth, GitHub token renewal"]
-    github["github<br/>GitHubApi: every GitHub read<br/>GitHubHttp: timeouts, size limits"]
+    github["github<br/>GitHubApi: every GitHub read<br/>GitHubHttpConfiguration: timeouts, size limits"]
 
     AuthC --> auth
     RepoC --> repository
@@ -124,6 +126,7 @@ flowchart TB
     AnnC --> annotation
     DelC --> deletion
     LibC --> library
+    LogC --> observability
 
     deletion --> annotation
     deletion --> reading
@@ -155,14 +158,15 @@ flowchart TB
 | Package | Owns | Key classes |
 | --- | --- | --- |
 | `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token (`GitHubTokens`) and its renewal and revocation (`GitHubTokenLifecycle`) | `ApiSecurity` (loopback only, the API and management chains), `GitHubBrowserSignIn` (browser sign-in), `GitHubTokens`, `GitHubTokenLifecycle`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication` |
-| `github` | Every GitHub REST read, with the user's token; the HTTP clients every GitHub call goes through: 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttp` |
+| `github` | Every GitHub REST read, with the user's token; the HTTP clients every GitHub call goes through: 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttpConfiguration` |
 | `repository` | Which repositories a user may connect (GitHub decides, through the user's token) and has connected; the connection row lock every write shares | `RepositoryConnections` |
 | `sync` | Publishing a complete tree snapshot of the default branch; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySync`, `ContentMoves` |
 | `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `Attachments` |
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
 | `deletion` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionDeletion`, `AccountDeletion`, `DeletionController` |
-| `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook, each from its owner, in one read-only `REPEATABLE READ` transaction of a fixed 6 queries, refused over 8 MiB ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `Library`, `LibraryController` |
+| `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook, each from its owner, in one read-only `REPEATABLE READ` transaction of a fixed 6 queries, refused over 8 MiB ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `LibrarySnapshotReader`, `LibrarySnapshot`, `LibraryController` |
+| `observability` | The request id and outcome boundary; journald priority conversion; authenticated ingestion of typed device-log batches into the server journal, with no stored copy | `RequestLoggingFilter`, `JournaldPriorityConverter`, `DeviceLogIngestController`, `DeviceLogLine` |
 | root | Error responses (`{code, message}`), shared PostgreSQL text-storability and hash rules | `ApiErrors`, `ApiFailure`, `StoredText`, `Hashes` |
 
 ### Data model (PostgreSQL)
@@ -380,6 +384,7 @@ flowchart TB
 | (root) | `RepoReadApplication`: long-lived objects, including one `Sync` per process and its startup image sweep; `Account`: sign-in, sign-out and account deletion, one at a time in the app's scope, and their outcomes (ADR-22); `RepoReadApp`: Navigation 3 back stack/entry owners (ADR-27), retained across account operations; `MainActivity`: sign-in redirect and compatible saved-state restoration |
 | `auth` | PKCE sign-in through a Custom Tab and validated code exchange; `SessionStore`: encrypted bearer session and pending verifier, no local-data owner or removal state |
 | `network` | `Api`: the only executor of backend paths, with one named function per app-used route, exact success statuses, bounded responses and request/response correspondence; `wire/`: the wire models, generated at build time from `backend/openapi.json` (never committed or edited); `WireRules.kt`: the value rules a generated shape cannot state; `WireJson.kt`: one decoding policy, strict scalar/time serializers and `INVALID_RESPONSE` with its cause. Unknown fields are compatible, missing required-nullable keys are not. `ApiException(status, code)` carries a strictly decoded server error or a local HTTP/I/O failure; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
+| `logging` | `DeviceLog`: logcat plus the bounded durable device-log store, whose `pending.jsonl` and `sending.jsonl` filenames and JSON fields remain stable across app updates; it returns typed `StoredDeviceLogLine` claims. `DeviceLogUploadWorker` owns mapping those records to generated wire models and at most one upload request per run |
 | `database` | `RepoReadDatabase`: the Room database and its migrations; `Entities.kt`: its tables; `QueryResults.kt`: its query projections and database-local results; `RepoReadDao.kt`: its queries and cross-entity transactions (schema history in `android/schemas/`) |
 | `sync` | `Sync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `NoteImages` retains its file lock and deletion generation, preventing a late image fetch from republishing files after a sweep. An open sweeps after its fetched page; Save all sweeps once after a successful loop under cancellable `locked`, rather than after every fetched page. Failure/cancellation defer cleanup to the next library refresh, Library open or startup. Library replacement, disconnect and startup retain their sweeps. Save all checks one page at a time, including already-current copies, and prefetches its distinct images under the existing per-page Sync lock before progress; WebView image reads remain outside that lock (ADR-19). Only the reader's `NoteImages.image()` catches API failures as unavailable; Save all uses the throwing fetch, `Sync` owns permanent page skips, and the existing worker owns retry/stop for all other API failures. `WireMappings.kt` maps validated wire records; `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `PendingSyncWorker.kt`, `DeviceLogUploadWorker.kt` and `SaveAllNotesWorker.kt` own their independently scheduled WorkManager jobs; `WorkerRetry.kt` owns their shared fixed retry ceiling and backoff. Pending sync and Save all enter `Sync` directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through Sync |
 | `library` | Library tabs, Notebook (`Notebook.kt`), the folder screen and folder filters (`Folder.kt`), and Add repository (`Available.kt`); each work-owning screen's ViewModel is in its file (ADR-28) |

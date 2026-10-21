@@ -1,6 +1,5 @@
 package com.reporead.library;
 
-import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.annotation.Bookmarks;
@@ -21,14 +20,14 @@ import tools.jackson.databind.json.JsonMapper;
  * list comes from its owner; this class decides only that they are read together.
  */
 @Component
-public class Library {
+public class LibrarySnapshotReader {
     /**
      * The largest library answer the server sends; android/build.gradle.kts reads this line, so the app reads exactly
      * as much and no second number exists.
      */
     public static final int MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
-    private static final Logger LOG = LoggerFactory.getLogger(Library.class);
+    private static final Logger LOG = LoggerFactory.getLogger(LibrarySnapshotReader.class);
     private final RepositoryConnections connections;
     private final Documents documents;
     private final ReadingStates readingStates;
@@ -43,7 +42,7 @@ public class Library {
      */
     private final TransactionTemplate snapshot;
 
-    public Library(
+    public LibrarySnapshotReader(
             RepositoryConnections connections,
             Documents documents,
             ReadingStates readingStates,
@@ -61,16 +60,6 @@ public class Library {
         snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         snapshot.setReadOnly(true);
     }
-
-    /** A connected repository, as its connection reads, with every document of it, deleted ones too. */
-    public record Repository(
-            @JsonUnwrapped RepositoryConnections.Connection connection, List<Documents.Summary> documents) {}
-
-    public record Snapshot(
-            List<Repository> repositories,
-            List<ReadingStates.State> readingStates,
-            List<Bookmarks.Bookmark> bookmarks,
-            Reviews.Notebook notebook) {}
 
     /**
      * The user's library as the JSON answer, serialized once with the application's mapper and measured; one over
@@ -100,13 +89,13 @@ public class Library {
      * Database only, and a fixed 6 queries however many repositories and notes: connections, documents, reading states,
      * bookmarks, and the notebook's annotations and review log, all in {@link #snapshot}.
      */
-    private Snapshot read(long userId) {
+    private LibrarySnapshot read(long userId) {
         return snapshot.execute(status -> {
             var repositories = connections.list(userId);
             var documentsByConnection = documents.listForUser(userId);
-            return new Snapshot(
+            return new LibrarySnapshot(
                     repositories.stream()
-                            .map(connection -> new Repository(
+                            .map(connection -> new LibraryRepository(
                                     connection, documentsByConnection.getOrDefault(connection.id(), List.of())))
                             .toList(),
                     readingStates.list(userId),

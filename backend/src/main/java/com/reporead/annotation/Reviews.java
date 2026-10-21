@@ -36,8 +36,8 @@ public class Reviews {
     public record Notebook(List<Annotations.Annotation> annotations, List<Review> reviews, int sessionLimit) {}
 
     /**
-     * The user's anchored annotations and review log. Library.read calls it inside the library's one repeatable
-     * snapshot, so a concurrent delete cannot split cards from their logs.
+     * The user's anchored annotations and review log. LibrarySnapshotReader calls it inside the library's one
+     * repeatable snapshot, so a concurrent delete cannot split cards from their logs.
      */
     public Notebook notebook(long userId) {
         return new Notebook(

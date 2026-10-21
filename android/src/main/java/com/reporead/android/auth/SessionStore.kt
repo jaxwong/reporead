@@ -7,7 +7,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import androidx.core.content.edit
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.UnrecoverableKeyException
@@ -110,7 +110,7 @@ class SessionStore(context: Context, name: String = PREFS) {
     fun read(): StoredSession {
         val stored = prefs.getString("token", null) ?: return StoredSession.Absent
         val envelope = parseEnvelope(stored)
-        if (envelope == null) AppLog.warn("Stored session is not text save() writes; signing out.")
+        if (envelope == null) DeviceLog.warn("Stored session is not text save() writes; signing out.")
         val session = envelope?.let(::decrypt) ?: StoredSession.PermanentlyInvalid
         if (session == StoredSession.PermanentlyInvalid) clear()
         return session
@@ -123,7 +123,7 @@ class SessionStore(context: Context, name: String = PREFS) {
             StoredSession.Readable(cipher.doFinal(envelope.ciphertext).toString(Charsets.UTF_8))
         } catch (failure: GeneralSecurityException) {
             keystoreFailure(failure).also {
-                AppLog.warn(
+                DeviceLog.warn(
                     "Stored session could not be decrypted; result=${it.javaClass.simpleName} failure=${failure.javaClass.simpleName}"
                 )
             }

@@ -1,4 +1,4 @@
-// Owns: The app's log lines: logcat and the bounded store on the phone that the upload worker sends from.
+// Owns: Device log lines: logcat and the bounded store on the phone that the upload worker sends from.
 
 package com.reporead.android.logging
 
@@ -8,8 +8,16 @@ import com.reporead.android.BuildConfig
 import java.io.File
 import java.io.IOException
 import java.time.Instant
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import java.time.format.DateTimeParseException
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
 
 private const val TAG = "RepoRead"
 private const val PENDING = "pending.jsonl"
@@ -27,25 +35,62 @@ private const val MAX_FRAMES = 40
 private const val MAX_CAUSES = 4
 
 /** Where RepoReadApplication keeps the store. */
-internal fun appLogDirectory(context: Context) = File(context.filesDir, "app-log")
+internal fun deviceLogDirectory(context: Context) = File(context.filesDir, "app-log")
+
+@Serializable
+internal enum class DeviceLogLevel {
+    INFO,
+    WARN,
+    ERROR,
+}
+
+/** The persisted representation, which intentionally matches device-log JSON written before the role rename. */
+@Serializable
+internal data class StoredDeviceLogLine(
+    @Serializable(with = StoredInstantSerializer::class) val at: Instant,
+    val appVersion: String,
+    val level: DeviceLogLevel,
+    val message: String,
+)
+
+private val storedLogJson = Json { ignoreUnknownKeys = true }
+
+private object StoredInstantSerializer : KSerializer<Instant> {
+    override val descriptor = PrimitiveSerialDescriptor("StoredDeviceLogInstant", PrimitiveKind.STRING)
+
+    override fun deserialize(decoder: Decoder): Instant {
+        val value = decoder.decodeString()
+        return try {
+            Instant.parse(value).also { it.toEpochMilli() }
+        } catch (error: DateTimeParseException) {
+            throw SerializationException("Expected a stored device-log ISO instant", error)
+        } catch (error: ArithmeticException) {
+            throw SerializationException(
+                "Expected a stored device-log instant representable as epoch milliseconds",
+                error,
+            )
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: Instant) = encoder.encodeString(value.toString())
+}
 
 /**
- * The app's one logger. Every line goes to logcat (tag RepoRead) and, unless it is [debug], to a store on the phone
+ * The device-log owner. Every line goes to logcat (tag RepoRead) and, unless it is [debug], to a store on the phone
  * that the upload worker (sync/DeviceLogUploadWorker.kt) sends to the server's log, so the phone's lines are read on
- * the server without adb. The app's own lines name ids, codes and counts; a throwable's messages and the reader page's
+ * the server without adb. Device log lines name ids, codes and counts; a throwable's messages and the reader page's
  * console output can quote a note, and are kept as they are (ADR-21, 2026-10-21: the one user's own server log may hold
  * note text). When the store outgrows its cap, its oldest lines go.
  *
- * Each stored line is one AppLogControllerLine as JSON; the worker decodes them with the generated model, so a field
- * written wrong here fails there.
+ * [StoredDeviceLogLine] owns the durable representation. The uploader maps it explicitly to the generated wire model.
  */
-object AppLog {
+object DeviceLog {
     private val lock = Any()
     @Volatile private var directory: File? = null
 
-    /** RepoReadApplication calls this before anything logs, with [appLogDirectory]. */
+    /** RepoReadApplication calls this before anything logs, with [deviceLogDirectory]. */
     fun start(directory: File) {
-        check(directory.isDirectory || directory.mkdirs()) { "Cannot create the app log folder $directory" }
+        check(directory.isDirectory || directory.mkdirs()) { "Cannot create the device log folder $directory" }
         this.directory = directory
     }
 
@@ -56,44 +101,45 @@ object AppLog {
 
     fun info(message: String) {
         Log.i(TAG, message)
-        store("INFO", message)
+        store(DeviceLogLevel.INFO, message)
     }
 
     fun warn(message: String, error: Throwable? = null) {
         if (error == null) Log.w(TAG, message) else Log.w(TAG, message, error)
-        store("WARN", if (error == null) message else "$message\n${trace(error)}")
+        store(DeviceLogLevel.WARN, if (error == null) message else "$message\n${trace(error)}")
     }
 
     /**
      * The uncaught-exception handler's line, stored before the process ends; Android logs the trace to logcat itself.
      */
     fun crash(thread: Thread, error: Throwable) {
-        store("ERROR", "Crash; thread=${thread.name}\n${trace(error)}")
+        store(DeviceLogLevel.ERROR, "Crash; thread=${thread.name}\n${trace(error)}")
     }
 
     /**
      * The stored lines to send, oldest first: the batch a failed send left, or else everything stored so far, which
-     * then stops growing (later lines start a new store). Null when nothing is stored. The batch stays until [sent].
+     * then stops growing (later lines start a new store). Null when nothing is stored. The claimed batch stays until
+     * [finishClaimedBatch].
      */
-    fun batch(): List<String>? =
+    internal fun claimPendingBatch(): List<StoredDeviceLogLine>? =
         synchronized(lock) {
             val sending = File(started(), SENDING)
             val pending = File(started(), PENDING)
             if (!sending.exists() && pending.exists())
                 check(pending.renameTo(sending)) { "Cannot move $pending to $sending" }
-            if (sending.exists()) complete(sending.readText()) else null
+            if (sending.exists()) complete(sending.readText()).map(storedLogJson::decodeFromString) else null
         }
 
-    /** The last [batch] reached the server, or was refused for good: it goes. */
-    fun sent() =
+    /** The last claimed batch reached the server, or was refused for good: it goes. */
+    internal fun finishClaimedBatch() =
         synchronized(lock) {
             val sending = File(started(), SENDING)
-            check(sending.delete()) { "Cannot delete the sent app log $sending" }
+            check(sending.delete()) { "Cannot delete the finished device log $sending" }
         }
 
-    private fun started() = checkNotNull(directory) { "AppLog.start was not called" }
+    private fun started() = checkNotNull(directory) { "DeviceLog.start was not called" }
 
-    private fun store(level: String, message: String) {
+    private fun store(level: DeviceLogLevel, message: String) {
         val bounded =
             if (message.length <= MAX_LINE_CHARS) message
             else message.take(MAX_LINE_CHARS) + "… (${message.length - MAX_LINE_CHARS} characters cut)"
@@ -104,7 +150,7 @@ object AppLog {
                 if (pending.length() > STORE_MAX_BYTES) keepNewest(pending)
             } catch (error: IOException) {
                 // Logcat already has the line; this one is lost to the server.
-                Log.w(TAG, "App log line not stored; error=${error.javaClass.simpleName}")
+                Log.w(TAG, "Device log line not stored; error=${error.javaClass.simpleName}")
             }
         }
     }
@@ -120,7 +166,7 @@ object AppLog {
             kept.addFirst(line)
             bytes += size
         }
-        val dropped = line("WARN", "App log store full; dropped=${lines.size - kept.size} oldest lines")
+        val dropped = line(DeviceLogLevel.WARN, "Device log store full; dropped=${lines.size - kept.size} oldest lines")
         val trimmed = File(pending.parentFile, "$PENDING.trimmed")
         trimmed.writeText(dropped + kept.joinToString("") { "$it\n" })
         check(trimmed.renameTo(pending)) { "Cannot replace $pending with $trimmed" }
@@ -128,14 +174,8 @@ object AppLog {
 }
 
 /** One stored line, with this build's version: an updated app sends the lines the previous version left. */
-private fun line(level: String, message: String) =
-    buildJsonObject {
-        put("at", Instant.now().toString())
-        put("appVersion", BuildConfig.VERSION_NAME)
-        put("level", level)
-        put("message", message)
-    }
-        .toString() + "\n"
+private fun line(level: DeviceLogLevel, message: String) =
+    storedLogJson.encodeToString(StoredDeviceLogLine(Instant.now(), BuildConfig.VERSION_NAME, level, message)) + "\n"
 
 /** The stored lines, without a last one the process ended while writing (it has no newline). */
 private fun complete(text: String): List<String> = text.split('\n').dropLast(1).filter { it.isNotEmpty() }

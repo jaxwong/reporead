@@ -1,4 +1,4 @@
-package com.reporead;
+package com.reporead.observability;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -24,10 +24,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
-class RequestLog extends OncePerRequestFilter {
+class RequestLoggingFilter extends OncePerRequestFilter {
     static final String HEADER = "X-Request-Id";
     static final String MDC_KEY = "requestId";
-    private static final Logger LOG = LoggerFactory.getLogger(RequestLog.class);
+    private static final Logger LOG = LoggerFactory.getLogger(RequestLoggingFilter.class);
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

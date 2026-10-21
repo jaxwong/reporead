@@ -45,7 +45,7 @@ import com.reporead.android.Screen
 import com.reporead.android.database.ChangedNote
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.RepositoryEntity
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
 import com.reporead.android.study.PracticeTab
@@ -131,10 +131,10 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
     fun syncNow(reason: String = "asked") {
         val now = current.value
         if (now.syncing || !current.compareAndSet(now, now.copy(syncing = true))) {
-            AppLog.info("Library sync not started; entry=$entryId reason=$reason running=true")
+            DeviceLog.info("Library sync not started; entry=$entryId reason=$reason running=true")
             return
         }
-        AppLog.info("Library sync started; entry=$entryId reason=$reason")
+        DeviceLog.info("Library sync started; entry=$entryId reason=$reason")
         viewModelScope.launch {
             val status =
                 try {

@@ -69,16 +69,14 @@ public class RepositorySync {
         this.attachments = attachments;
     }
 
-    public record Result(long repositoryId, String commitSha, int documentCount, Instant syncedAt) {}
-
     /**
      * Counts every sync in reporead.github.syncs by outcome and failure code, and the documents of each successful one
      * in reporead.documents.synced.
      */
-    public Result sync(AppUser user, long connectionId) {
-        Result syncResult;
+    public RepositorySyncResult sync(AppUser user, long connectionId) {
+        RepositorySyncResult syncResult;
         try {
-            syncResult = publish(user, connectionId);
+            syncResult = fetchAndPublishSnapshot(user, connectionId);
         } catch (RuntimeException failure) {
             meters.counter(
                             SYNCS,
@@ -94,7 +92,7 @@ public class RepositorySync {
         return syncResult;
     }
 
-    private Result publish(AppUser user, long connectionId) {
+    private RepositorySyncResult fetchAndPublishSnapshot(AppUser user, long connectionId) {
         var connection = connections.find(user.id(), connectionId).orElseThrow(ApiFailure::notFound);
         String githubToken = credentials.githubUserToken(user.githubUserId());
         var branchSnapshot =
@@ -149,7 +147,7 @@ public class RepositorySync {
                 branchSnapshot.commitSha(),
                 markdownFiles.size(),
                 publishedMoves.size());
-        return new Result(connectionId, branchSnapshot.commitSha(), markdownFiles.size(), syncedAt);
+        return new RepositorySyncResult(connectionId, branchSnapshot.commitSha(), markdownFiles.size(), syncedAt);
     }
 
     /**

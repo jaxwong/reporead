@@ -28,7 +28,7 @@ import com.reporead.android.database.AnnotationType
 import com.reporead.android.database.CardBlock
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.RepoReadDao
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.folderOf
 import kotlinx.coroutines.Dispatchers
@@ -84,7 +84,7 @@ internal fun NotesPanel(
                     queries.mapNotNull(::noteLinkTarget)
                 }
             val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, links) }
-            AppLog.info(
+            DeviceLog.info(
                 "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}"
             )
             value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)

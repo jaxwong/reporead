@@ -16,7 +16,7 @@ public class SyncController {
     }
 
     @PostMapping("/api/repositories/{id}/sync")
-    RepositorySync.Result sync(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
+    RepositorySyncResult sync(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
         return sync.sync(user, id);
     }
 }
