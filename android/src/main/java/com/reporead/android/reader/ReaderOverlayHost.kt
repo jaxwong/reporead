@@ -49,16 +49,13 @@ internal data class ReaderConflict(
 @Composable
 internal fun ReaderOverlayHost(
     overlay: ReaderOverlay?,
-    conflict: ReaderConflict?,
-    message: String?,
+    state: ReaderViewModel.State,
     session: ReaderSession?,
-    section: OutlineEntry?,
     sync: Sync,
     dao: RepoReadDao,
     model: ReaderViewModel,
     scope: CoroutineScope,
     push: (Screen) -> Unit,
-    onDismiss: () -> Unit,
     isOpen: (ReaderOverlay) -> Boolean,
     close: (ReaderOverlay) -> Boolean,
 ) {
@@ -70,14 +67,14 @@ internal fun ReaderOverlayHost(
             if (session != null && !headings.isNullOrEmpty())
                 OutlineSheet(
                     headings,
-                    section,
-                    onDismiss = onDismiss,
+                    session.outline?.sectionAt(session.topBlock),
+                    onDismiss = { close(shown) },
                     onJump = { entry ->
-                        onDismiss()
-                        scope.launch {
-                            if (!session.showBlock(entry.blockId))
-                                model.showMessage("Couldn't scroll to “${entry.text}”; reopen the note.")
-                        }
+                        if (close(shown))
+                            scope.launch {
+                                if (!session.showBlock(entry.blockId))
+                                    model.showMessage("Couldn't scroll to “${entry.text}”; reopen the note.")
+                            }
                     },
                 )
         }
@@ -87,7 +84,7 @@ internal fun ReaderOverlayHost(
                 shown.heading,
                 sync,
                 dao,
-                onDismiss = onDismiss,
+                onDismiss = { close(shown) },
                 onOpen = {
                     if (close(shown))
                         push(Screen.Reader(shown.target.id, shown.target.title, shown.heading?.let(OpenAt::Heading)))
@@ -96,7 +93,7 @@ internal fun ReaderOverlayHost(
         is ReaderOverlay.LinkChoices ->
             LinkChoicesDialog(
                 shown.choices,
-                onDismiss = onDismiss,
+                onDismiss = { close(shown) },
                 onChoose = { choice ->
                     if (close(shown)) push(Screen.Reader(choice.id, choice.title, shown.heading?.let(OpenAt::Heading)))
                 },
@@ -106,7 +103,7 @@ internal fun ReaderOverlayHost(
                 title = "Add a note",
                 quote = shown.passage.exactText,
                 initial = "",
-                onDismiss = onDismiss,
+                onDismiss = { close(shown) },
                 onSave = { note -> if (close(shown)) model.save(shown.passage, note.ifBlank { null }) },
             )
         is ReaderOverlay.EditNote ->
@@ -114,8 +111,8 @@ internal fun ReaderOverlayHost(
                 title = "Edit note",
                 quote = shown.annotation.exactText,
                 initial = shown.initial,
-                status = message,
-                onDismiss = onDismiss,
+                status = state.message,
+                onDismiss = { close(shown) },
                 onSave = { text ->
                     if (
                         isOpen(shown) &&
@@ -131,12 +128,12 @@ internal fun ReaderOverlayHost(
         is ReaderOverlay.Delete ->
             DeleteDialog(
                 shown.annotation,
-                onDismiss = onDismiss,
+                onDismiss = { close(shown) },
                 onConfirm = { if (isOpen(shown) && model.delete(shown.annotation)) close(shown) },
             )
     }
     if (overlay == null)
-        conflict?.let { pendingConflict ->
+        state.conflict?.let { pendingConflict ->
             ConflictDialog(
                 pendingConflict.latestAnnotation,
                 pendingConflict.submittedNote,

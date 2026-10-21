@@ -29,7 +29,7 @@ rendered page. UI text may still say “note” when that is the user's concept.
   where the type and role are immediately visible.
 - Before validation or mapping, HTTP values are `request`, `response`, `requestBody` or `errorResponse`. Afterward, use
   the domain role they represent. Do not call a decoded object `json`.
-- Booleans begin with `is`, `has`, `can` or `should`, except domain words whose boolean meaning is already explicit,
+- Booleans begin with `is`, `has`, `can`, `should`, `was` or `will`, except domain words whose boolean meaning is already explicit,
   such as `deleted`, `pending` and `bookmarked`.
 - Use `_state` for a private mutable state holder exposed as `state`. Name a captured value `stateSnapshot`, not
   `current` or `now`.

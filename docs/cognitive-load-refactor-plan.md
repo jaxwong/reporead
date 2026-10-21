@@ -219,9 +219,7 @@ the one renderer function that combines unrelated transformations.
    - `AppLogUploadWorker` to `DeviceLogUploadWorker`;
    - backend/wire `Line` and `LineLevel` to `DeviceLogLine` and `DeviceLogLevel`;
    - backend `readable()` to `formatForJournal()`.
-   Keep `/api/app-logs`, payload field names, stored filenames and stored JSON compatible. Make the logging store own its
-   persisted representation and return typed durable records; the sync uploader owns the explicit mapping to generated
-   wire records.
+   Keep `/api/app-logs`, payload field names, stored filenames and stored JSON compatible.
 3. Make backend framework roles visible:
    - `GitHubHttp` to `GitHubHttpConfiguration`, with bean names that say HTTP client rather than API;
    - `Library` to `LibrarySnapshotReader`; move its response data to a plainly named `LibrarySnapshot` record so the

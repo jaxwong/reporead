@@ -8,16 +8,8 @@ import com.reporead.android.BuildConfig
 import java.io.File
 import java.io.IOException
 import java.time.Instant
-import java.time.format.DateTimeParseException
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.descriptors.PrimitiveKind
-import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 private const val TAG = "RepoRead"
 private const val PENDING = "pending.jsonl"
@@ -37,44 +29,6 @@ private const val MAX_CAUSES = 4
 /** Where RepoReadApplication keeps the store. */
 internal fun deviceLogDirectory(context: Context) = File(context.filesDir, "app-log")
 
-@Serializable
-internal enum class DeviceLogLevel {
-    INFO,
-    WARN,
-    ERROR,
-}
-
-/** The persisted representation, which intentionally matches device-log JSON written before the role rename. */
-@Serializable
-internal data class StoredDeviceLogLine(
-    @Serializable(with = StoredInstantSerializer::class) val at: Instant,
-    val appVersion: String,
-    val level: DeviceLogLevel,
-    val message: String,
-)
-
-private val storedLogJson = Json { ignoreUnknownKeys = true }
-
-private object StoredInstantSerializer : KSerializer<Instant> {
-    override val descriptor = PrimitiveSerialDescriptor("StoredDeviceLogInstant", PrimitiveKind.STRING)
-
-    override fun deserialize(decoder: Decoder): Instant {
-        val value = decoder.decodeString()
-        return try {
-            Instant.parse(value).also { it.toEpochMilli() }
-        } catch (error: DateTimeParseException) {
-            throw SerializationException("Expected a stored device-log ISO instant", error)
-        } catch (error: ArithmeticException) {
-            throw SerializationException(
-                "Expected a stored device-log instant representable as epoch milliseconds",
-                error,
-            )
-        }
-    }
-
-    override fun serialize(encoder: Encoder, value: Instant) = encoder.encodeString(value.toString())
-}
-
 /**
  * The device-log owner. Every line goes to logcat (tag RepoRead) and, unless it is [debug], to a store on the phone
  * that the upload worker (sync/DeviceLogUploadWorker.kt) sends to the server's log, so the phone's lines are read on
@@ -82,7 +36,8 @@ private object StoredInstantSerializer : KSerializer<Instant> {
  * console output can quote a note, and are kept as they are (ADR-21, 2026-10-21: the one user's own server log may hold
  * note text). When the store outgrows its cap, its oldest lines go.
  *
- * [StoredDeviceLogLine] owns the durable representation. The uploader maps it explicitly to the generated wire model.
+ * Each stored line is one DeviceLogLine as JSON; the worker decodes them with the generated model, so a field written
+ * wrong here fails there.
  */
 object DeviceLog {
     private val lock = Any()
@@ -101,19 +56,19 @@ object DeviceLog {
 
     fun info(message: String) {
         Log.i(TAG, message)
-        store(DeviceLogLevel.INFO, message)
+        store("INFO", message)
     }
 
     fun warn(message: String, error: Throwable? = null) {
         if (error == null) Log.w(TAG, message) else Log.w(TAG, message, error)
-        store(DeviceLogLevel.WARN, if (error == null) message else "$message\n${trace(error)}")
+        store("WARN", if (error == null) message else "$message\n${trace(error)}")
     }
 
     /**
      * The uncaught-exception handler's line, stored before the process ends; Android logs the trace to logcat itself.
      */
     fun crash(thread: Thread, error: Throwable) {
-        store(DeviceLogLevel.ERROR, "Crash; thread=${thread.name}\n${trace(error)}")
+        store("ERROR", "Crash; thread=${thread.name}\n${trace(error)}")
     }
 
     /**
@@ -121,13 +76,13 @@ object DeviceLog {
      * then stops growing (later lines start a new store). Null when nothing is stored. The claimed batch stays until
      * [finishClaimedBatch].
      */
-    internal fun claimPendingBatch(): List<StoredDeviceLogLine>? =
+    internal fun claimPendingBatch(): List<String>? =
         synchronized(lock) {
             val sending = File(started(), SENDING)
             val pending = File(started(), PENDING)
             if (!sending.exists() && pending.exists())
                 check(pending.renameTo(sending)) { "Cannot move $pending to $sending" }
-            if (sending.exists()) complete(sending.readText()).map(storedLogJson::decodeFromString) else null
+            if (sending.exists()) complete(sending.readText()) else null
         }
 
     /** The last claimed batch reached the server, or was refused for good: it goes. */
@@ -139,7 +94,7 @@ object DeviceLog {
 
     private fun started() = checkNotNull(directory) { "DeviceLog.start was not called" }
 
-    private fun store(level: DeviceLogLevel, message: String) {
+    private fun store(level: String, message: String) {
         val bounded =
             if (message.length <= MAX_LINE_CHARS) message
             else message.take(MAX_LINE_CHARS) + "… (${message.length - MAX_LINE_CHARS} characters cut)"
@@ -166,7 +121,7 @@ object DeviceLog {
             kept.addFirst(line)
             bytes += size
         }
-        val dropped = line(DeviceLogLevel.WARN, "Device log store full; dropped=${lines.size - kept.size} oldest lines")
+        val dropped = line("WARN", "Device log store full; dropped=${lines.size - kept.size} oldest lines")
         val trimmed = File(pending.parentFile, "$PENDING.trimmed")
         trimmed.writeText(dropped + kept.joinToString("") { "$it\n" })
         check(trimmed.renameTo(pending)) { "Cannot replace $pending with $trimmed" }
@@ -174,8 +129,14 @@ object DeviceLog {
 }
 
 /** One stored line, with this build's version: an updated app sends the lines the previous version left. */
-private fun line(level: DeviceLogLevel, message: String) =
-    storedLogJson.encodeToString(StoredDeviceLogLine(Instant.now(), BuildConfig.VERSION_NAME, level, message)) + "\n"
+private fun line(level: String, message: String) =
+    buildJsonObject {
+        put("at", Instant.now().toString())
+        put("appVersion", BuildConfig.VERSION_NAME)
+        put("level", level)
+        put("message", message)
+    }
+        .toString() + "\n"
 
 /** The stored lines, without a last one the process ended while writing (it has no newline). */
 private fun complete(text: String): List<String> = text.split('\n').dropLast(1).filter { it.isNotEmpty() }

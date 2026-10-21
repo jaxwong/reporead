@@ -432,7 +432,6 @@ fun ReaderScreen(
 
     val barsShown = session?.barsShown ?: true
     ReadingBars(barsShown || findOpen)
-    val section = session?.let { it.outline?.sectionAt(it.topBlock) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     if (session != null) {
         DisposableEffect(lifecycle, session) {
@@ -448,24 +447,20 @@ fun ReaderScreen(
     Column(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedVisibility(barsShown || findOpen) {
             Column {
-                val bookmarked = bookmark?.bookmarked == true
                 ReaderToolbar(
                     title = screen.title,
-                    sectionTitle = section?.text?.ifBlank { null },
-                    outlineAvailable = !session?.outline.isNullOrEmpty(),
-                    controlsVisible = page?.opened != null,
-                    pageActionsEnabled = session?.opened == true,
-                    studyAvailable = page?.study?.recognized == true,
+                    page = page,
+                    session = session,
+                    annotations = annotations,
+                    bookmark = bookmark,
                     studying = studying,
                     notesOpen = notesOpen,
-                    annotationCount = annotations.size,
-                    bookmarked = bookmarked,
                     onBack = if (findOpen) ::closeFind else onBack,
                     onOutline = { overlay = ReaderOverlay.Outline },
                     onFind = { findOpen = true },
                     onToggleStudy = ::toggleStudy,
                     onToggleNotes = { notesOpen = !notesOpen },
-                    onToggleBookmark = { model.setBookmark(!bookmarked) },
+                    onSetBookmark = model::setBookmark,
                 )
                 if (findOpen) {
                     val result = session?.findResult?.takeIf { it.query == findQuery }
@@ -507,16 +502,13 @@ fun ReaderScreen(
     }
     ReaderOverlayHost(
         overlay = overlay,
-        conflict = state.conflict,
-        message = state.message,
+        state = state,
         session = session,
-        section = section,
         sync = sync,
         dao = dao,
         model = model,
         scope = scope,
         push = push,
-        onDismiss = { overlay = null },
         isOpen = { overlay == it },
         close = ::close,
     )

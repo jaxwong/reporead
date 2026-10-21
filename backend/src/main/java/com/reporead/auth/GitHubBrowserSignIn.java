@@ -134,7 +134,7 @@ public class GitHubBrowserSignIn {
 
         http.authorizeHttpRequests(auth -> auth.requestMatchers(
                                 "/app/sign-in",
-                                PendingAppSignIn.SIGNED_IN,
+                                AppAuthController.SIGNED_IN_PATH,
                                 "/.well-known/assetlinks.json",
                                 "/auth/failed",
                                 "/error")
@@ -305,6 +305,6 @@ public class GitHubBrowserSignIn {
             throw new IllegalArgumentException("reporead.public-url must be http://127.0.0.1:" + port
                     + " (adb reverse) or an https:// origin without a path, not: " + publicUrl);
         }
-        return publicUrl + "/login/oauth2/code/github";
+        return publicUrl + AppAuthController.GITHUB_CALLBACK_PATH;
     }
 }

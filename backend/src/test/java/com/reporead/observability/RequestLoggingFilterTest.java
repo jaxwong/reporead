@@ -142,6 +142,28 @@ class RequestLoggingFilterTest {
     }
 
     @Test
+    void authenticationCallbackQueriesAreRedacted(CapturedOutput log) throws Exception {
+        for (String callback : new String[] {
+            "/login/oauth2/code/github?code=TEST_ONLY_GITHUB_CODE&state=TEST_ONLY_STATE",
+            "/login/oauth2/code/%67ithub?code=TEST_ONLY_ENCODED_CODE&state=TEST_ONLY_ENCODED_STATE",
+            "/app/signed-in?code=" + "a".repeat(43)
+        }) {
+            var response = get(callback, false);
+
+            String lines = linesOf(log, requestId(response));
+            int queryStart = callback.indexOf('?');
+            String requestSummary = lines.lines()
+                    .filter(line -> line.contains("RequestLoggingFilter "))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(lines));
+            assertTrue(
+                    requestSummary.contains("target=" + callback.substring(0, queryStart) + "?[REDACTED]"),
+                    requestSummary);
+            assertFalse(requestSummary.contains(callback.substring(queryStart + 1)), requestSummary);
+        }
+    }
+
+    @Test
     void anUnhandledFailureIsLoggedWithItsIdAndTheIdIsReturned(CapturedOutput log) throws Exception {
         var failed = get("/api/test-only/unhandled", true);
         assertEquals(500, failed.statusCode());

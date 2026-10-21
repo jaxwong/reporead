@@ -5,8 +5,9 @@ package com.reporead.android.logging
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.BuildConfig
+import com.reporead.android.network.wire.DeviceLogLine
+import com.reporead.android.network.wireJson
 import java.io.File
-import java.time.Instant
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -34,7 +35,8 @@ class DeviceLogTest {
     }
 
     /** The batch's lines, as the upload worker decodes them. */
-    private fun batch(): List<StoredDeviceLogLine> = DeviceLog.claimPendingBatch().orEmpty()
+    private fun batch(): List<DeviceLogLine> =
+        DeviceLog.claimPendingBatch().orEmpty().map { wireJson.decodeFromString<DeviceLogLine>(it) }
 
     @Test
     fun aLineIsStoredAsTheLineTheServerTakesWithThisBuildsVersion() {
@@ -45,8 +47,8 @@ class DeviceLogTest {
 
         assertEquals(
             listOf(
-                DeviceLogLevel.INFO to "Reader ready; documentId=7",
-                DeviceLogLevel.WARN to "Bookmark refused; documentId=7 code=NOT_FOUND",
+                DeviceLogLine.Level.INFO to "Reader ready; documentId=7",
+                DeviceLogLine.Level.WARN to "Bookmark refused; documentId=7 code=NOT_FOUND",
             ),
             lines.map { it.level to it.message },
         )
@@ -74,25 +76,6 @@ class DeviceLogTest {
         assertEquals(listOf("Second"), batch().map { it.message })
         DeviceLog.finishClaimedBatch()
         assertNull(DeviceLog.claimPendingBatch())
-    }
-
-    @Test
-    fun aPendingLineWrittenBeforeTheRenameLoadsAsATypedDurableRecord() {
-        File(store, "pending.jsonl")
-            .writeText(
-                """{"at":"2026-10-21T06:02:11.123Z","appVersion":"0.1.432","level":"WARN","message":"Older run"}""" +
-                    "\n"
-            )
-
-        assertEquals(
-            StoredDeviceLogLine(
-                Instant.parse("2026-10-21T06:02:11.123Z"),
-                "0.1.432",
-                DeviceLogLevel.WARN,
-                "Older run",
-            ),
-            batch().single(),
-        )
     }
 
     @Test
@@ -145,7 +128,7 @@ class DeviceLogTest {
             assertTrue(line.message, line.message.contains("DeviceLogTest.aThrowablesStoredCopy"))
         }
         assertTrue(warned.message.startsWith("Could not stop Save all; repositoryId=3\n"))
-        assertEquals(DeviceLogLevel.ERROR, crashed.level)
+        assertEquals(DeviceLogLine.Level.ERROR, crashed.level)
         assertTrue(crashed.message.startsWith("Crash; thread=${Thread.currentThread().name}\n"))
     }
 

@@ -10,9 +10,6 @@ import jakarta.servlet.http.HttpServletRequest;
 final class PendingAppSignIn {
     static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
 
-    /** The release app's sign-in link on the hosted origin, which assetlinks.json lets only that app open. */
-    static final String SIGNED_IN = "/app/signed-in";
-
     private PendingAppSignIn() {}
 
     /**
@@ -22,7 +19,7 @@ final class PendingAppSignIn {
      * debug app's own scheme, as a loopback address has no domain to verify.
      */
     static String appRedirect(String publicUrl) {
-        return publicUrl.startsWith("https://") ? publicUrl + SIGNED_IN : "reporead-dev://auth";
+        return publicUrl.startsWith("https://") ? publicUrl + AppAuthController.SIGNED_IN_PATH : "reporead-dev://auth";
     }
 
     /**

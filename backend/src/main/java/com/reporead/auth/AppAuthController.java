@@ -32,6 +32,9 @@ import org.springframework.web.servlet.view.RedirectView;
  */
 @RestController
 public class AppAuthController {
+    public static final String GITHUB_CALLBACK_PATH = "/login/oauth2/code/github";
+    public static final String SIGNED_IN_PATH = "/app/signed-in";
+
     private static final Logger LOG = LoggerFactory.getLogger(AppAuthController.class);
     /** The release app, which static/.well-known/assetlinks.json names as the owner of the sign-in link. */
     private static final String RELEASE_APP = "com.reporead.android";
@@ -103,12 +106,12 @@ public class AppAuthController {
      * keeps it (Chrome may, after a redirect nobody tapped) shows this page instead. Its link names the app's package,
      * so tapping it opens that app, and only that app, with the code.
      */
-    @GetMapping(value = PendingAppSignIn.SIGNED_IN, produces = MediaType.TEXT_HTML_VALUE)
+    @GetMapping(value = SIGNED_IN_PATH, produces = MediaType.TEXT_HTML_VALUE)
     ResponseEntity<String> signedIn(@RequestParam("code") String code) {
         if (!AppSessions.TOKEN.matcher(code).matches()) {
             throw new ApiFailure(Code.INVALID_REQUEST, "code must be a RepoRead sign-in code.");
         }
-        String app = "intent://" + host + PendingAppSignIn.SIGNED_IN + "?code=" + code + "#Intent;scheme=https;package="
+        String app = "intent://" + host + SIGNED_IN_PATH + "?code=" + code + "#Intent;scheme=https;package="
                 + RELEASE_APP + ";end";
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())

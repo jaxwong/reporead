@@ -15,11 +15,7 @@ import com.reporead.android.network.wire.DeviceLogIngestControllerUploadRequest
 import com.reporead.android.network.wire.DeviceLogLine
 import com.reporead.android.network.wireJson
 import java.io.File
-import java.net.InetAddress
-import java.net.ServerSocket
 import java.time.Instant
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -54,30 +50,8 @@ class DeviceLogUploadTest {
             wireJson.decodeFromString<DeviceLogIngestControllerUploadRequest>(body).lines
         }
 
-    /** Receives a complete request body and closes the socket without answering it. */
-    private fun receiveWithoutAcknowledgement(server: ServerSocket): String =
-        server.accept().use { client ->
-            client.soTimeout = 5_000
-            val input = client.getInputStream().bufferedReader(Charsets.UTF_8)
-            checkNotNull(input.readLine())
-            var length = 0
-            while (true) {
-                val header = checkNotNull(input.readLine())
-                if (header.isEmpty()) break
-                if (header.startsWith("Content-Length:", ignoreCase = true))
-                    length = header.substringAfter(':').trim().toInt()
-            }
-            CharArray(length)
-                .also { body ->
-                    var read = 0
-                    while (read < body.size) {
-                        val added = input.read(body, read, body.size - read)
-                        check(added > 0) { "Incomplete test device-log body" }
-                        read += added
-                    }
-                }
-                .concatToString()
-        }
+    private fun claimedLines() =
+        DeviceLog.claimPendingBatch().orEmpty().map { wireJson.decodeFromString<DeviceLogLine>(it) }
 
     @Test
     fun linesAreSentOnceAndDeletedOnlyAfterTheServerLoggedThem() = runBlocking {
@@ -100,23 +74,17 @@ class DeviceLogUploadTest {
     @Test
     fun aLostAcknowledgementLeavesTheReceivedBatchReplayableAndItIsSentFirstNextTime() = runBlocking {
         DeviceLog.info("Library sync started; entryId=1")
-        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
-            val received = async(Dispatchers.IO) { receiveWithoutAcknowledgement(server) }
+        LoopbackServer.closeWithoutAnswering("POST /api/app-logs").use { server ->
             assertEquals(
                 Result.retry(),
-                uploadDeviceLogBatch(api("http://127.0.0.1:${server.localPort}"), signedIn = true, attempt = 0),
+                uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 0),
             )
             assertEquals(
                 listOf("Library sync started; entryId=1"),
-                wireJson.decodeFromString<DeviceLogIngestControllerUploadRequest>(received.await()).lines.map {
-                    it.message
-                },
+                sentBatches(server).single().map(DeviceLogLine::message),
             )
         }
-        assertEquals(
-            listOf("Library sync started; entryId=1"),
-            DeviceLog.claimPendingBatch().orEmpty().map { it.message },
-        )
+        assertEquals(listOf("Library sync started; entryId=1"), claimedLines().map(DeviceLogLine::message))
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
             uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 1)
@@ -127,7 +95,7 @@ class DeviceLogUploadTest {
         }
         // The failed attempt's own lines wait for the next upload.
         assertTrue(
-            DeviceLog.claimPendingBatch().orEmpty().any {
+            claimedLines().any {
                 it.message.contains("Backend I/O failed; method=POST path=/api/app-logs")
             }
         )
@@ -165,7 +133,7 @@ class DeviceLogUploadTest {
             assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 0))
         }
 
-        val left = DeviceLog.claimPendingBatch().orEmpty()
+        val left = claimedLines()
         assertTrue(left.toString(), left.none { it.message == "Signed in" })
         assertTrue(
             left.toString(),
@@ -194,7 +162,7 @@ class DeviceLogUploadTest {
         logProcessExits(activities, seen)
         logProcessExits(activities, seen)
 
-        val lines = DeviceLog.claimPendingBatch().orEmpty().filter { it.message.contains("Process exited; at=") }
+        val lines = claimedLines().filter { it.message.contains("Process exited; at=") }
         assertEquals("one line per recorded exit, not repeated", exits.size, lines.size)
         for (exit in exits) {
             assertTrue(lines.toString(), lines.any { it.message.contains("reason=${exit.reason} (") })
