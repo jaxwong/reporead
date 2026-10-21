@@ -91,7 +91,7 @@ internal fun revealedAnswer(html: String, path: String, passage: Passage): Revea
     answerContext(html, passage)?.let { context ->
         RevealedAnswer(
             context,
-            interviewBank(html, path).questions.firstOrNull { it.answer.blockId == passage.blockId },
+            parseInterviewBank(html, path).questions.firstOrNull { it.answer.blockId == passage.blockId },
         )
     }
 
@@ -109,13 +109,12 @@ internal fun reviewQuestion(item: NotebookItem, questions: List<PracticeQuestion
 /** What review holds now, from this phone's cards and grades; null while they are read. */
 @Composable
 internal fun rememberReviewOutlook(dao: LibraryDao): ReviewOutlook? {
-    val items by dao.notebook().collectAsStateWithLifecycle(null)
-    val reviews by dao.reviews().collectAsStateWithLifecycle(null)
+    val cards = dao.notebook().collectAsStateWithLifecycle(null).value
+    val reviewLog = dao.reviews().collectAsStateWithLifecycle(null).value
     val today = rememberStartOfToday()
-    val ready = items
-    val log = reviews
-    return remember(ready, log, today) {
-        if (ready == null || log == null) null else reviewOutlook(ready, log, System.currentTimeMillis(), today.zone)
+    return remember(cards, reviewLog, today) {
+        if (cards == null || reviewLog == null) null
+        else reviewOutlook(cards, reviewLog, System.currentTimeMillis(), today.zone)
     }
 }
 
@@ -151,29 +150,29 @@ private fun startOfToday(): ZonedDateTime =
 
 /**
  * One line on what review holds: the due count, then what falls due next — tomorrow or on the next day with cards — and
- * in the 7 days after the outlook's day. [cap] is the server's session size.
+ * in the 7 days after the outlook's day. [sessionLimit] is the server's session size.
  */
-internal fun outlookLine(outlook: ReviewOutlook, cap: Int?): String {
+internal fun outlookLine(outlook: ReviewOutlook, sessionLimit: Int?): String {
     val next =
         outlook.next
-            ?: return if (outlook.due > 0) dueParts(outlook, cap).joinToString(" · ")
+            ?: return if (outlook.due > 0) dueParts(outlook, sessionLimit).joinToString(" · ")
             else "No cards yet: grade a question below, or make one from a passage in a note."
     val upcoming =
         if (next == outlook.today.plusDays(1)) "${outlook.nextCount} tomorrow"
         else
             "next on ${next.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))}, ${counted(outlook.nextCount, "card")}"
-    return (dueParts(outlook, cap) +
+    return (dueParts(outlook, sessionLimit) +
             upcoming +
             listOfNotNull(outlook.week.takeIf { it > outlook.nextCount }?.let { "$it in the next 7 days" }))
         .joinToString(" · ")
 }
 
-private fun dueParts(outlook: ReviewOutlook, cap: Int?): List<String> =
+private fun dueParts(outlook: ReviewOutlook, sessionLimit: Int?): List<String> =
     if (outlook.due == 0) listOf("Nothing due")
     else
         listOfNotNull(
             "${outlook.due} due",
-            cap?.takeIf { outlook.due > it }?.let { "$it per session" },
+            sessionLimit?.takeIf { outlook.due > it }?.let { "$it per session" },
             outlook.blocked.takeIf { it > 0 }?.let { "$it to check first" },
         )
 
@@ -187,40 +186,49 @@ private sealed interface Revealed {
     data class Shown(val answer: RevealedAnswer) : Revealed
 }
 
+/** A loaded answer paired with the passage it was loaded for, so a stale coroutine result is never shown. */
+private data class LoadedAnswer(val passage: Passage, val revealed: Revealed)
+
 /** Reads a card's answer from the saved copy of its version, from when the card is first shown. */
 @Composable
-private fun rememberRevealed(item: NotebookItem, dao: LibraryDao): Revealed {
-    val row = item.annotation
-    val read by
-        produceState<Pair<Passage, Revealed>?>(null, row.mutationId, row.drawn) {
-            val note = dao.note(row.documentId)
-            val answer =
-                if (note?.blobSha == row.drawn.blobSha)
-                    withContext(Dispatchers.Default) { revealedAnswer(note.html, note.path, row.drawn) }
+private fun rememberRevealed(card: NotebookItem, dao: LibraryDao): Revealed {
+    val annotation = card.annotation
+    val loadedAnswer by
+        produceState<LoadedAnswer?>(null, annotation.mutationId, annotation.drawn) {
+            val savedPage = dao.note(annotation.documentId)
+            val revealedAnswer =
+                if (savedPage?.blobSha == annotation.drawn.blobSha)
+                    withContext(Dispatchers.Default) {
+                        revealedAnswer(savedPage.html, savedPage.path, annotation.drawn)
+                    }
                 else null
-            value = row.drawn to (answer?.let(Revealed::Shown) ?: Revealed.Unverifiable)
+            value =
+                LoadedAnswer(
+                    annotation.drawn,
+                    revealedAnswer?.let(Revealed::Shown) ?: Revealed.Unverifiable,
+                )
         }
-    return read?.takeIf { it.first == row.drawn }?.second ?: Revealed.Reading
+    return loadedAnswer?.takeIf { it.passage == annotation.drawn }?.revealed ?: Revealed.Reading
 }
 
 /** What a card is checked against: a bank question's answer, or the passage in its block's context. */
 @Composable
 private fun ColumnScope.CardAnswer(
-    item: NotebookItem,
-    answer: RevealedAnswer,
+    card: NotebookItem,
+    revealedAnswer: RevealedAnswer,
     visible: Boolean,
     dao: LibraryDao,
     push: (Screen) -> Unit,
     onPrepared: () -> Unit,
 ) {
-    val question = answer.question
+    val question = revealedAnswer.question
     if (question != null) {
-        Text("Interview bank · ${item.path}", style = MaterialTheme.typography.labelMedium)
+        Text("Interview bank · ${card.path}", style = MaterialTheme.typography.labelMedium)
         BankAnswer(
             question,
             visible,
-            item.annotation.documentId,
-            item.path,
+            card.annotation.documentId,
+            card.path,
             dao,
             Modifier.weight(1f),
             push,
@@ -231,11 +239,11 @@ private fun ColumnScope.CardAnswer(
             Modifier.weight(1f).verticalScroll(rememberScrollState(), enabled = visible),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(item.annotation.drawn.exactText, style = MaterialTheme.typography.titleLarge)
-            Text("Context · ${item.path}", style = MaterialTheme.typography.labelMedium)
-            Text(answer.context)
+            Text(card.annotation.drawn.exactText, style = MaterialTheme.typography.titleLarge)
+            Text("Context · ${card.path}", style = MaterialTheme.typography.labelMedium)
+            Text(revealedAnswer.context)
         }
-        LaunchedEffect(answer) { onPrepared() }
+        LaunchedEffect(revealedAnswer) { onPrepared() }
     }
 }
 
@@ -246,27 +254,29 @@ private fun ColumnScope.CardAnswer(
  */
 @Composable
 private fun ColumnScope.FixCard(
-    item: NotebookItem,
-    block: CardBlock,
+    card: NotebookItem,
+    cardBlock: CardBlock,
     confirming: Boolean,
     problem: String?,
     dao: LibraryDao,
     push: (Screen) -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val row = item.annotation
+    val annotation = card.annotation
     val openNote =
         @Composable { label: String ->
             TextButton(
-                onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(row.mutationId))) }
+                onClick = {
+                    push(Screen.Reader(annotation.documentId, card.title, OpenAt.Highlight(annotation.mutationId)))
+                }
             ) {
                 Text(label)
             }
         }
-    when (block) {
+    when (cardBlock) {
         CardBlock.REFUSED -> {
             Text(
-                "The server refused this card, so it can't be reviewed: ${row.rejection} Delete it in its note's Highlights and notes."
+                "The server refused this card, so it can't be reviewed: ${annotation.rejection} Delete it in its note's Highlights and notes."
             )
             openNote("Open note")
         }
@@ -302,11 +312,11 @@ private fun ColumnScope.FixCard(
         CardBlock.UNCONFIRMED -> {
             Text("The note changed since this card was checked. Is this still its answer?")
             problem?.let { StatusLine(it) }
-            when (val answer = rememberRevealed(item, dao)) {
+            when (val revealedAnswer = rememberRevealed(card, dao)) {
                 Revealed.Reading -> {}
                 Revealed.Unverifiable ->
                     Text("The saved page cannot show this answer in context. Open the note to check it.")
-                is Revealed.Shown -> CardAnswer(item, answer.answer, true, dao, push, onPrepared = {})
+                is Revealed.Shown -> CardAnswer(card, revealedAnswer.answer, true, dao, push, onPrepared = {})
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = !confirming, onClick = onConfirm) { Text("Answer is still right") }
@@ -328,7 +338,7 @@ private const val STARTED_AT = "startedAt"
  */
 internal class ReviewViewModel(
     private val sync: Sync,
-    private val saved: SavedStateHandle,
+    private val savedState: SavedStateHandle,
     private val entryId: String,
 ) : ViewModel() {
     data class State(
@@ -343,24 +353,24 @@ internal class ReviewViewModel(
         val problems: Map<String, String> = emptyMap(),
     )
 
-    private val current =
-        MutableStateFlow(State(session = saved[SESSION], startedAt = saved.get<Long>(STARTED_AT) ?: 0))
-    val state: StateFlow<State> = current.asStateFlow()
+    private val _state =
+        MutableStateFlow(State(session = savedState[SESSION], startedAt = savedState.get<Long>(STARTED_AT) ?: 0))
+    val state: StateFlow<State> = _state.asStateFlow()
 
-    private fun move(next: StudySession, notice: String? = current.value.notice) {
-        saved[SESSION] = next
-        current.update { it.copy(session = next, saving = false, notice = notice) }
+    private fun updateSession(nextSession: StudySession, notice: String? = _state.value.notice) {
+        savedState[SESSION] = nextSession
+        _state.update { it.copy(session = nextSession, saving = false, notice = notice) }
     }
 
     /** Chooses the session once, from the cards due now. */
-    fun start(items: List<NotebookItem>, log: List<ReviewRow>, cap: Int) {
-        if (current.value.session != null) return
+    fun start(cards: List<NotebookItem>, reviewLog: List<ReviewRow>, sessionLimit: Int) {
+        if (_state.value.session != null) return
         val startedAt = System.currentTimeMillis()
-        saved[STARTED_AT] = startedAt
-        current.update { it.copy(startedAt = startedAt) }
-        move(
+        savedState[STARTED_AT] = startedAt
+        _state.update { it.copy(startedAt = startedAt) }
+        updateSession(
             StudySession(
-                dueSession(items, log, startedAt, cap, Random.nextInt(), ZoneId.systemDefault()).map {
+                dueSession(cards, reviewLog, startedAt, sessionLimit, Random.nextInt(), ZoneId.systemDefault()).map {
                     it.annotation.mutationId
                 }
             )
@@ -368,64 +378,76 @@ internal class ReviewViewModel(
     }
 
     fun reveal() {
-        current.value.session?.let { move(it.reveal()) }
+        _state.value.session?.let { updateSession(it.reveal()) }
     }
 
     fun skip() {
-        val now = current.value
-        val session = now.session ?: return
-        if (now.saving) AppLog.info("Review skip not taken; entry=$entryId saving=true") else move(session.skip())
+        val stateSnapshot = _state.value
+        val session = stateSnapshot.session ?: return
+        if (stateSnapshot.saving) AppLog.info("Review skip not taken; entry=$entryId saving=true")
+        else updateSession(session.skip())
     }
 
     /**
-     * Each saved grade is one immutable local mutation; the background sync sends it. A card asked [again] only decides
-     * whether it comes back in this session.
+     * Each saved grade is one immutable local mutation; the background sync sends it. A card [wasAskedAgain] only
+     * decides whether it comes back in this session.
      */
-    fun grade(row: AnnotationRow, again: Boolean, grade: Int) {
-        val now = current.value
-        val session = now.session ?: return
-        if (session.current != row.mutationId) return
-        if (again) {
-            move(session.graded(grade))
+    fun grade(annotation: AnnotationRow, wasAskedAgain: Boolean, grade: Int) {
+        val stateSnapshot = _state.value
+        val session = stateSnapshot.session ?: return
+        if (session.current != annotation.mutationId) return
+        if (wasAskedAgain) {
+            updateSession(session.graded(grade))
             return
         }
-        if (now.saving || !current.compareAndSet(now, now.copy(saving = true))) {
-            AppLog.info("Review grade not saved again; entry=$entryId mutationId=${row.mutationId}")
+        if (stateSnapshot.saving || !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(saving = true))) {
+            AppLog.info("Review grade not saved again; entry=$entryId mutationId=${annotation.mutationId}")
             return
         }
-        AppLog.info("Review grade started; entry=$entryId mutationId=${row.mutationId}")
+        AppLog.info("Review grade started; entry=$entryId mutationId=${annotation.mutationId}")
         val review =
             ReviewRow(
                 mutationId = UUID.randomUUID().toString(),
-                cardMutationId = row.mutationId,
+                cardMutationId = annotation.mutationId,
                 grade = grade,
                 reviewedAt = System.currentTimeMillis(),
-                blobSha = row.drawn.blobSha,
+                blobSha = annotation.drawn.blobSha,
                 pending = true,
             )
         viewModelScope.launch {
-            if (sync.recordReview(review)) move(session.graded(grade))
-            else move(session.skip(), "Card changed while answering; grade not saved. Open it to check the answer.")
+            if (sync.recordReview(review)) updateSession(session.graded(grade))
+            else
+                updateSession(
+                    session.skip(),
+                    "Card changed while answering; grade not saved. Open it to check the answer.",
+                )
         }
     }
 
-    /** Online only: the server checks [row]'s answer in [blobSha]; confirmed, it goes to the back of the session. */
-    fun confirmCard(row: AnnotationRow, blobSha: String) {
-        val now = current.value
-        if (now.confirming != null || !current.compareAndSet(now, now.copy(confirming = row.mutationId))) {
-            AppLog.info("Card confirmation not started; entry=$entryId confirming=${now.confirming}")
+    /** Online only: the server checks [annotation]'s answer in [blobSha]; confirmed, it goes to the session's back. */
+    fun confirmCard(annotation: AnnotationRow, blobSha: String) {
+        val stateSnapshot = _state.value
+        if (
+            stateSnapshot.confirming != null ||
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(confirming = annotation.mutationId))
+        ) {
+            AppLog.info("Card confirmation not started; entry=$entryId confirming=${stateSnapshot.confirming}")
             return
         }
-        AppLog.info("Card confirmation started; entry=$entryId mutationId=${row.mutationId}")
+        AppLog.info("Card confirmation started; entry=$entryId mutationId=${annotation.mutationId}")
         viewModelScope.launch {
             try {
-                sync.checkCard(row, blobSha)
-                current.update { it.copy(confirming = null, problems = it.problems - row.mutationId) }
-                current.value.session?.takeIf { it.current == row.mutationId }?.let { move(it.requeue()) }
-            } catch (error: ApiException) {
-                AppLog.warn("Card not confirmed from review; mutationId=${row.mutationId} code=${error.code}")
-                val problem = "Not confirmed: ${error.describe()} Confirming needs the server."
-                current.update { it.copy(confirming = null, problems = it.problems + (row.mutationId to problem)) }
+                sync.checkCard(annotation, blobSha)
+                _state.update { it.copy(confirming = null, problems = it.problems - annotation.mutationId) }
+                _state.value.session
+                    ?.takeIf { it.current == annotation.mutationId }
+                    ?.let { updateSession(it.requeue()) }
+            } catch (failure: ApiException) {
+                AppLog.warn("Card not confirmed from review; mutationId=${annotation.mutationId} code=${failure.code}")
+                val problem = "Not confirmed: ${failure.describe()} Confirming needs the server."
+                _state.update {
+                    it.copy(confirming = null, problems = it.problems + (annotation.mutationId to problem))
+                }
             }
         }
     }
@@ -443,18 +465,15 @@ internal class ReviewViewModel(
  */
 @Composable
 internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (Screen) -> Unit, onBack: () -> Unit) {
-    val model = viewModel { ReviewViewModel(sync, createSavedStateHandle(), entryId) }
-    val state by model.state.collectAsStateWithLifecycle()
-    val banks = rememberBanks(dao)
+    val viewModel = viewModel { ReviewViewModel(sync, createSavedStateHandle(), entryId) }
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val interviewBanks = rememberBanks(dao)
     val outlook = rememberReviewOutlook(dao)
-    val items by dao.notebook().collectAsStateWithLifecycle(null)
-    val reviews by dao.reviews().collectAsStateWithLifecycle(null)
-    val limit by dao.reviewLimit().collectAsStateWithLifecycle(null)
-    val ready = items
-    val log = reviews
-    val cap = limit
-    LaunchedEffect(ready, log, cap) {
-        if (ready != null && log != null && cap != null) model.start(ready, log, cap)
+    val cards = dao.notebook().collectAsStateWithLifecycle(null).value
+    val reviewLog = dao.reviews().collectAsStateWithLifecycle(null).value
+    val sessionLimit = dao.reviewLimit().collectAsStateWithLifecycle(null).value
+    LaunchedEffect(cards, reviewLog, sessionLimit) {
+        if (cards != null && reviewLog != null && sessionLimit != null) viewModel.start(cards, reviewLog, sessionLimit)
     }
     Scaffold(topBar = { AppBar("Review", onBack = onBack) }) { padding ->
         // Not scrolled as a whole: a revealed answer takes the space left, and the grades stay under it.
@@ -462,101 +481,113 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
             Modifier.padding(padding).fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (ready == null || log == null || banks == null || outlook == null) {
+            if (cards == null || reviewLog == null || interviewBanks == null || outlook == null) {
                 Text("Loading saved cards…")
                 return@Column
             }
             StatusLine(state.notice)
-            val refused = log.filter { it.rejection != null }
-            if (refused.isNotEmpty())
+            val refusedReviews = reviewLog.filter { it.rejection != null }
+            if (refusedReviews.isNotEmpty())
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "${counted(refused.size, "grade")} not accepted by the server, so not counted: ${refused.last().rejection}",
+                        "${counted(refusedReviews.size, "grade")} not accepted by the server, so not counted: ${refusedReviews.last().rejection}",
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = model::dismissRefused) { Text("Dismiss") }
+                    TextButton(onClick = viewModel::dismissRefused) { Text("Dismiss") }
                 }
-            val pending = log.count { it.pending && it.rejection == null }
-            if (pending > 0)
+            val pendingReviewCount = reviewLog.count { it.pending && it.rejection == null }
+            if (pendingReviewCount > 0)
                 Text(
-                    "$pending grades saved on this phone; they are sent once it is online.",
+                    "$pendingReviewCount grades saved on this phone; they are sent once it is online.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-            if (cap == null) {
+            if (sessionLimit == null) {
                 Text("Review starts after one sync with the server: open Library while signed in and online.")
                 return@Column
             }
-            val asked = state.session
-            if (asked == null) {
+            val session = state.session
+            if (session == null) {
                 Text("Choosing due cards…")
                 return@Column
             }
             // The cards this session saved a grade for, from the log.
-            val graded =
-                log.filter { it.rejection == null && it.reviewedAt >= state.startedAt }
+            val gradedCardIds =
+                reviewLog
+                    .filter { it.rejection == null && it.reviewedAt >= state.startedAt }
                     .map { it.cardMutationId }
                     .toSet()
-            val id = asked.current
-            if (id == null) {
+            val currentCardId = session.current
+            if (currentCardId == null) {
                 Text(
-                    if (asked.started.isEmpty()) outlookLine(outlook, cap)
-                    else "Session complete: ${counted(asked.completed(graded), "card")} reviewed."
+                    if (session.started.isEmpty()) outlookLine(outlook, sessionLimit)
+                    else "Session complete: ${counted(session.completed(gradedCardIds), "card")} reviewed."
                 )
                 TextButton(onClick = onBack) { Text("Finish") }
                 return@Column
             }
-            val item = ready.firstOrNull { it.annotation.mutationId == id }
+            val card = cards.firstOrNull { it.annotation.mutationId == currentCardId }
             SessionHeader(
-                listOfNotNull("${counted(asked.queue.size, "card")} left", item?.title).joinToString(" · "),
+                listOfNotNull("${counted(session.queue.size, "card")} left", card?.title).joinToString(" · "),
                 skip = "Skip",
                 enabled = !state.saving,
-                onSkip = model::skip,
+                onSkip = viewModel::skip,
             )
-            if (item == null) {
+            if (card == null) {
                 Text("This card was deleted.")
                 return@Column
             }
-            val row = item.annotation
-            val asking = reviewQuestion(item, banks.questions)
-            if (asking != null) QuestionPrompt(asking)
-            else Text(checkNotNull(row.question), style = MaterialTheme.typography.titleLarge)
-            val block = item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
-            if (block != null) {
+            val annotation = card.annotation
+            val bankQuestion = reviewQuestion(card, interviewBanks.questions)
+            if (bankQuestion != null) QuestionPrompt(bankQuestion)
+            else Text(checkNotNull(annotation.question), style = MaterialTheme.typography.titleLarge)
+            val cardBlock = annotation.cardBlock(card.deleted, card.currentBlobSha, card.savedBlobSha)
+            if (cardBlock != null) {
                 FixCard(
-                    item,
-                    block,
-                    confirming = state.confirming == row.mutationId,
-                    problem = state.problems[row.mutationId],
+                    card,
+                    cardBlock,
+                    confirming = state.confirming == annotation.mutationId,
+                    problem = state.problems[annotation.mutationId],
                     dao,
                     push,
-                    onConfirm = { model.confirmCard(row, item.currentBlobSha) },
+                    onConfirm = { viewModel.confirmCard(annotation, card.currentBlobSha) },
                 )
                 return@Column
             }
             // Read while the question is asked, so the answer is ready when it is revealed.
-            val answer = rememberRevealed(item, dao)
-            val again = id in graded
-            key(id, row.drawn) {
-                AnswerSlot(asked.revealed, model::reveal) { visible, onPrepared ->
-                    if (again) AskedAgain()
-                    when (answer) {
+            val revealedAnswer = rememberRevealed(card, dao)
+            val wasAskedAgain = currentCardId in gradedCardIds
+            key(currentCardId, annotation.drawn) {
+                AnswerSlot(session.revealed, viewModel::reveal) { visible, onPrepared ->
+                    if (wasAskedAgain) AskedAgain()
+                    when (revealedAnswer) {
                         Revealed.Reading -> Spacer(Modifier.weight(1f))
                         Revealed.Unverifiable -> {
                             Text("The saved page cannot verify this answer in context. Open the note to check it.")
-                            LaunchedEffect(answer) { onPrepared() }
+                            LaunchedEffect(revealedAnswer) { onPrepared() }
                         }
-                        is Revealed.Shown -> CardAnswer(item, answer.answer, visible, dao, push, onPrepared)
+                        is Revealed.Shown -> CardAnswer(card, revealedAnswer.answer, visible, dao, push, onPrepared)
                     }
                     TextButton(
                         enabled = visible,
-                        onClick = { push(Screen.Reader(row.documentId, item.title, OpenAt.Highlight(id))) },
+                        onClick = {
+                            push(
+                                Screen.Reader(
+                                    annotation.documentId,
+                                    card.title,
+                                    OpenAt.Highlight(currentCardId),
+                                )
+                            )
+                        },
                     ) {
                         Text("Open in note")
                     }
-                    val step = scheduleReviews(row, log, ZoneId.systemDefault()).step
-                    if (answer is Revealed.Shown)
-                        GradeBar(enabled = visible && !state.saving, gaps = if (again) null else gaps(step)) { grade ->
-                            model.grade(row, again, grade)
+                    val scheduleStep = scheduleReviews(annotation, reviewLog, ZoneId.systemDefault()).step
+                    if (revealedAnswer is Revealed.Shown)
+                        GradeBar(
+                            enabled = visible && !state.saving,
+                            gaps = if (wasAskedAgain) null else gaps(scheduleStep),
+                        ) { grade ->
+                            viewModel.grade(annotation, wasAskedAgain, grade)
                         }
                 }
             }

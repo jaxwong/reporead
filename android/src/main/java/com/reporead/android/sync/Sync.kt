@@ -128,9 +128,9 @@ class Sync(
      * with the answer lost), or referred to by nothing ([sweepImages]).
      */
     private suspend fun loadLibrary() {
-        val answer = api.library()
-        val library =
-            answer.repositories.associate { repository ->
+        val snapshot = api.fetchLibrarySnapshot()
+        val repositoriesWithDocuments =
+            snapshot.repositories.associate { repository ->
                 RepositoryRow(
                     repository.id,
                     repository.fullName,
@@ -149,14 +149,21 @@ class Sync(
                         )
                     }
             }
-        val reading = answer.readingStates.map { it.toRow() }
-        val bookmarks = answer.bookmarks.map { BookmarkRow(it.documentId, true, false, it.createdAt.toEpochMilli()) }
-        val annotations = answer.notebook.annotations.map { it.toRow() }
-        val reviews = answer.notebook.reviews.map { it.toRow() }
+        val readingStates = snapshot.readingStates.map { it.toRow() }
+        val bookmarks = snapshot.bookmarks.map { BookmarkRow(it.documentId, true, false, it.createdAt.toEpochMilli()) }
+        val annotations = snapshot.notebook.annotations.map { it.toRow() }
+        val reviews = snapshot.notebook.reviews.map { it.toRow() }
         try {
-            dao.replaceFromServer(library, reading, bookmarks, annotations, reviews, answer.notebook.sessionLimit)
-        } catch (error: InvalidReviewGrade) {
-            throw invalidResponse(200, error)
+            dao.replaceFromServer(
+                repositoriesWithDocuments,
+                readingStates,
+                bookmarks,
+                annotations,
+                reviews,
+                snapshot.notebook.sessionLimit,
+            )
+        } catch (invalidGrade: InvalidReviewGrade) {
+            throw invalidResponse(200, invalidGrade)
         }
         sweepImages()
     }
@@ -187,18 +194,24 @@ class Sync(
      * The saved copy matches a listed note's blob and path. Only repository images and blocked embeds also need the
      * same known snapshot: their contents or resolution may change without a Markdown edit.
      */
-    private fun sameVersion(cached: NoteRow, document: DocumentRow?, commitSha: String?): Boolean {
-        val needsSnapshot = cached.html.contains(IMAGE_PREFIX) || cached.html.contains("image-blocked")
-        return document != null &&
-            !document.deleted &&
-            cached.blobSha == document.blobSha &&
-            cached.path == document.path &&
-            (!needsSnapshot || (cached.snapshotCommitSha != null && cached.snapshotCommitSha == commitSha))
+    private fun sameVersion(
+        savedPage: NoteRow,
+        listedDocument: DocumentRow?,
+        repositoryCommitSha: String?,
+    ): Boolean {
+        val needsSnapshot = savedPage.html.contains(IMAGE_PREFIX) || savedPage.html.contains("image-blocked")
+        return listedDocument != null &&
+            !listedDocument.deleted &&
+            savedPage.blobSha == listedDocument.blobSha &&
+            savedPage.path == listedDocument.path &&
+            (!needsSnapshot ||
+                (savedPage.snapshotCommitSha != null && savedPage.snapshotCommitSha == repositoryCommitSha))
     }
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
-    private fun upToDate(cached: NoteRow, document: DocumentRow?, commitSha: String?) =
-        sameVersion(cached, document, commitSha) && cached.renderFormat >= BuildConfig.RENDER_FORMAT
+    private fun upToDate(savedPage: NoteRow, listedDocument: DocumentRow?, repositoryCommitSha: String?) =
+        sameVersion(savedPage, listedDocument, repositoryCommitSha) &&
+            savedPage.renderFormat >= BuildConfig.RENDER_FORMAT
 
     /**
      * An [upToDate] cached copy opens without a network call. Otherwise the current version is fetched; if that fails,
@@ -207,17 +220,18 @@ class Sync(
      * more; if that fails it is still the current version, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened = locked {
-        val cached = dao.note(documentId)
-        val current = dao.document(documentId)
-        val commitSha = current?.let { dao.repositoryCommitSha(it.repositoryId) }
-        if (cached != null && upToDate(cached, current, commitSha)) return@locked Opened(cached, null)
+        val savedPage = dao.note(documentId)
+        val listedDocument = dao.document(documentId)
+        val repositoryCommitSha = listedDocument?.let { dao.repositoryCommitSha(it.repositoryId) }
+        if (savedPage != null && upToDate(savedPage, listedDocument, repositoryCommitSha))
+            return@locked Opened(savedPage, null)
         try {
             Opened(fetchNote(documentId).also { sweepImages() }, null)
-        } catch (error: ApiException) {
-            if (cached == null) throw error
-            val cachedIsCurrent = sameVersion(cached, current, commitSha)
-            AppLog.info("Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
-            Opened(cached, if (cachedIsCurrent) null else error)
+        } catch (failure: ApiException) {
+            if (savedPage == null) throw failure
+            val savedPageIsCurrent = sameVersion(savedPage, listedDocument, repositoryCommitSha)
+            AppLog.info("Showing cached note; documentId=$documentId code=${failure.code} current=$savedPageIsCurrent")
+            Opened(savedPage, if (savedPageIsCurrent) null else failure)
         }
     }
 
@@ -226,24 +240,24 @@ class Sync(
      * all.
      */
     private suspend fun fetchNote(documentId: Long): NoteRow {
-        val answer = api.noteContent(documentId)
-        val note =
+        val content = api.fetchDocumentContent(documentId)
+        val savedPage =
             NoteRow(
                 documentId,
-                answer.sourceBlobSha,
-                answer.path,
-                answer.title,
-                answer.html,
+                content.sourceBlobSha,
+                content.path,
+                content.title,
+                content.html,
                 System.currentTimeMillis(),
-                answer.renderFormat,
-                answer.snapshotCommitSha,
+                content.renderFormat,
+                content.snapshotCommitSha,
             )
-        val blocks =
-            answer.blocks.mapIndexed { position, block ->
+        val searchBlocks =
+            content.blocks.mapIndexed { position, block ->
                 NoteSearchBlockRow(documentId, block.id, position, block.text)
             }
-        dao.saveNote(note, blocks)
-        return note
+        dao.saveNote(savedPage, searchBlocks)
+        return savedPage
     }
 
     /**
@@ -261,46 +275,46 @@ class Sync(
      * content call per outdated note and 64 image calls per saved page (the server's reference limit). Run only by Save
      * all's background work (BackgroundSync.kt).
      */
-    suspend fun saveAllNotes(repositoryId: Long, onProgress: suspend (done: Int, toFetch: Int) -> Unit): SavedAll {
+    suspend fun saveAllNotes(repositoryId: Long, onProgress: suspend (done: Int, totalNotes: Int) -> Unit): SavedAll {
         refreshLibrary()
-        val documents = dao.listedDocuments(repositoryId)
-        val commitSha = dao.repositoryCommitSha(repositoryId)
-        AppLog.info("Saving all notes; repositoryId=$repositoryId documents=${documents.size}")
+        val listedDocuments = dao.listedDocuments(repositoryId)
+        val repositoryCommitSha = dao.repositoryCommitSha(repositoryId)
+        AppLog.info("Saving all notes; repositoryId=$repositoryId documents=${listedDocuments.size}")
         var fetched = 0
         var alreadySaved = 0
         var cannotShow = 0
-        onProgress(0, documents.size)
-        documents.forEachIndexed { index, document ->
+        onProgress(0, listedDocuments.size)
+        listedDocuments.forEachIndexed { index, document ->
             try {
                 locked {
-                    val cached = dao.note(document.id)
-                    if (cached != null && upToDate(cached, document, commitSha)) {
-                        images.save(cached)
+                    val savedPage = dao.note(document.id)
+                    if (savedPage != null && upToDate(savedPage, document, repositoryCommitSha)) {
+                        images.save(savedPage)
                         alreadySaved++
                     } else {
                         images.save(fetchNote(document.id))
                         fetched++
                     }
                 }
-            } catch (error: ApiException) {
+            } catch (failure: ApiException) {
                 // Unlike refusesItem(), this classifies page failures after a fresh library load, not mutations.
-                val skipped =
-                    when (error.code) {
-                        "UNSUPPORTED_CONTENT" -> error.status == 422
-                        "IMAGE_NOT_FOUND" -> error.status == 404
-                        "INVALID_IMAGE_PATH" -> error.status == 400
+                val canSkipPage =
+                    when (failure.code) {
+                        "UNSUPPORTED_CONTENT" -> failure.status == 422
+                        "IMAGE_NOT_FOUND" -> failure.status == 404
+                        "INVALID_IMAGE_PATH" -> failure.status == 400
                         else -> false
                     }
-                if (!skipped) {
+                if (!canSkipPage) {
                     AppLog.warn(
-                        "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}"
+                        "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${failure.code}"
                     )
-                    throw error
+                    throw failure
                 }
-                AppLog.info("Page skipped; documentId=${document.id} code=${error.code}")
+                AppLog.info("Page skipped; documentId=${document.id} code=${failure.code}")
                 cannotShow++
             }
-            onProgress(index + 1, documents.size)
+            onProgress(index + 1, listedDocuments.size)
         }
         locked { sweepImages() }
         AppLog.info(
@@ -322,17 +336,17 @@ class Sync(
      * phone's copies are then removed by reloading the server's library.
      */
     suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = locked {
-        val synced = sendPending().also { loadLibrary() }
-        val json =
+        val pendingSyncResult = sendPending().also { loadLibrary() }
+        val deletionCounts =
             try {
-                api.storedData(repositoryId)
-            } catch (error: ApiException) {
-                if (error.status != 404 || error.code != "NOT_FOUND") throw error
+                api.repositoryDeletionCounts(repositoryId)
+            } catch (failure: ApiException) {
+                if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
                 AppLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
                 loadLibrary()
                 return@locked null
             }
-        DisconnectPreview(json, dao.unsentInRepository(repositoryId), synced.notSent)
+        DisconnectPreview(deletionCounts, dao.unsentInRepository(repositoryId), pendingSyncResult.notSent)
     }
 
     /**
@@ -343,18 +357,18 @@ class Sync(
      * are logged and deleted again by the next sweep.
      */
     suspend fun disconnect(repositoryId: Long): Unit = committed {
-        val json =
+        val disconnectResponse =
             try {
                 api.disconnectRepository(repositoryId)
-            } catch (error: ApiException) {
-                if (error.status != 404 || error.code != "NOT_FOUND") throw error
+            } catch (failure: ApiException) {
+                if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
                 null
             }
-        if (json == null) {
+        if (disconnectResponse == null) {
             AppLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
             loadLibrary()
         } else {
-            val documentIds = json.documentIds
+            val documentIds = disconnectResponse.documentIds
             dao.forgetRepository(repositoryId, documentIds)
             AppLog.info("Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
             sweepImages()
@@ -362,18 +376,18 @@ class Sync(
     }
 
     /** Only the reader calls this, with the version it actually displayed. False for a disconnected note. */
-    suspend fun saveReading(row: ReadingRow): Boolean = committed {
-        dao.saveDisplayedReading(row.copy(pending = true)).also { saved ->
-            if (saved) onPendingChange()
-            else AppLog.info("Reading position not saved; note gone; documentId=${row.documentId}")
+    suspend fun saveReading(readingState: ReadingRow): Boolean = committed {
+        dao.saveDisplayedReading(readingState.copy(pending = true)).also { wasSaved ->
+            if (wasSaved) onPendingChange()
+            else AppLog.info("Reading position not saved; note gone; documentId=${readingState.documentId}")
         }
     }
 
     /** False when the phone no longer lists the note: nothing is saved. */
     suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = committed {
         dao.saveLocalBookmark(BookmarkRow(documentId, bookmarked, pending = true, System.currentTimeMillis())).also {
-            saved ->
-            if (saved) onPendingChange() else AppLog.info("Bookmark not saved; note gone; documentId=$documentId")
+            wasSaved ->
+            if (wasSaved) onPendingChange() else AppLog.info("Bookmark not saved; note gone; documentId=$documentId")
         }
     }
 
@@ -381,8 +395,8 @@ class Sync(
      * Saves a grade as a pending local mutation; false when its card changed meanwhile and nothing was saved (see
      * recordReview).
      */
-    suspend fun recordReview(row: ReviewRow): Boolean = committed {
-        dao.recordReview(row).also { if (it) onPendingChange() }
+    suspend fun recordReview(review: ReviewRow): Boolean = committed {
+        dao.recordReview(review).also { if (it) onPendingChange() }
     }
 
     /**
@@ -405,60 +419,60 @@ class Sync(
      * run goes on; any other failure ends the run with unacknowledged changes still pending.
      */
     private suspend fun sendPending(): LocalSync {
-        val notSent =
+        val annotationSyncFailure =
             try {
                 sendAnnotations()
                 null
-            } catch (error: ApiException) {
-                if (error.unreachable) throw error
-                error
+            } catch (failure: ApiException) {
+                if (failure.unreachable) throw failure
+                failure
             }
         sendReviews()
-        val refused = mutableListOf<RefusedChange>()
-        for (row in dao.pendingReading()) {
-            val body =
+        val refusedBookmarks = mutableListOf<RefusedChange>()
+        for (readingState in dao.pendingReading()) {
+            val request =
                 ReadingControllerSaveRequest(
-                    lastReadBlobSha = row.lastReadBlobSha,
-                    progressPercent = row.progressPercent,
-                    anchor = wireJson.decodeFromString<ReadingControllerAnchorRequest>(row.anchorJson),
-                    lastReadAt = Instant.ofEpochMilli(row.lastReadAt),
+                    lastReadBlobSha = readingState.lastReadBlobSha,
+                    progressPercent = readingState.progressPercent,
+                    anchor = wireJson.decodeFromString<ReadingControllerAnchorRequest>(readingState.anchorJson),
+                    lastReadAt = Instant.ofEpochMilli(readingState.lastReadAt),
                 )
-            val current =
+            val remoteReadingState =
                 try {
-                    api.saveReading(row.documentId, body).toRow()
-                } catch (error: ApiException) {
-                    if (error.status != 404 || error.code != "NOT_FOUND") throw error
-                    AppLog.info("Reading state no longer owned; documentId=${row.documentId}")
+                    api.saveReading(readingState.documentId, request).toRow()
+                } catch (failure: ApiException) {
+                    if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
+                    AppLog.info("Reading state no longer owned; documentId=${readingState.documentId}")
                     // Not this user's note on the server any more: the position goes with it when the lists are
                     // next replaced. Malformed saves are programmer errors, not item refusals.
-                    dao.acknowledgeReading(row.documentId, row.lastReadAt)
+                    dao.acknowledgeReading(readingState.documentId, readingState.lastReadAt)
                     continue
                 }
-            dao.acknowledgeReading(row.documentId, row.lastReadAt)
-            dao.mergeRemoteReading(current)
+            dao.acknowledgeReading(readingState.documentId, readingState.lastReadAt)
+            dao.mergeRemoteReading(remoteReadingState)
         }
-        for (row in dao.pendingBookmarks()) {
+        for (bookmark in dao.pendingBookmarks()) {
             try {
-                if (row.bookmarked) {
-                    api.setBookmark(row.documentId)
-                    dao.acknowledgeBookmarkSet(row.documentId, row.changedAt)
+                if (bookmark.bookmarked) {
+                    api.setBookmark(bookmark.documentId)
+                    dao.acknowledgeBookmarkSet(bookmark.documentId, bookmark.changedAt)
                 } else {
-                    api.clearBookmark(row.documentId)
-                    dao.acknowledgeBookmarkCleared(row.documentId, row.changedAt)
+                    api.clearBookmark(bookmark.documentId)
+                    dao.acknowledgeBookmarkCleared(bookmark.documentId, bookmark.changedAt)
                 }
-            } catch (error: ApiException) {
-                if (!error.refusesItem()) throw error
-                AppLog.warn("Bookmark refused; documentId=${row.documentId} code=${error.code}")
-                dao.dropBookmark(row.documentId, row.changedAt)
-                refused +=
+            } catch (failure: ApiException) {
+                if (!failure.refusesItem()) throw failure
+                AppLog.warn("Bookmark refused; documentId=${bookmark.documentId} code=${failure.code}")
+                dao.dropBookmark(bookmark.documentId, bookmark.changedAt)
+                refusedBookmarks +=
                     RefusedChange(
-                        row.documentId,
-                        dao.document(row.documentId)?.title,
-                        error,
+                        bookmark.documentId,
+                        dao.document(bookmark.documentId)?.title,
+                        failure,
                     )
             }
         }
-        return LocalSync(refused, notSent)
+        return LocalSync(refusedBookmarks, annotationSyncFailure)
     }
 
     /**
@@ -467,13 +481,13 @@ class Sync(
      */
     suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?, question: String? = null): String? =
         committed {
-            val row = newAnnotation(passage, documentId, note, question)
-            if (!dao.saveLocalAnnotation(row)) {
+            val annotation = newAnnotation(passage, documentId, note, question)
+            if (!dao.saveLocalAnnotation(annotation)) {
                 AppLog.info("Highlight not saved; page gone; documentId=$documentId")
                 return@committed null
             }
             onPendingChange()
-            row.mutationId
+            annotation.mutationId
         }
 
     /**
@@ -494,10 +508,10 @@ class Sync(
                     blobSha = passage.blobSha,
                     pending = true,
                 )
-            val result = dao.saveCardWithFirstReview(card, review)
-            if (result == NewCardGrade.SAVED) onPendingChange()
-            AppLog.info("Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$result")
-            result
+            val saveResult = dao.saveCardWithFirstReview(card, review)
+            if (saveResult == NewCardGrade.SAVED) onPendingChange()
+            AppLog.info("Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$saveResult")
+            saveResult
         }
 
     private fun newAnnotation(
@@ -532,110 +546,126 @@ class Sync(
     suspend fun pushAnnotations() = locked { sendAnnotations() }
 
     private suspend fun sendAnnotations() {
-        for (row in dao.waitingAnnotations()) {
-            val deleting = row.state == AnnotationState.DELETING
-            check(row.serverId == null || deleting) { "Unsent ${row.mutationId} has a server id" }
+        for (annotation in dao.waitingAnnotations()) {
+            val isDeleting = annotation.state == AnnotationState.DELETING
+            check(annotation.serverId == null || isDeleting) { "Unsent ${annotation.mutationId} has a server id" }
             // A deletion whose creation the server has not acknowledged replays the creation first, to learn its id.
-            val acknowledged = if (row.serverId != null) row else sendCreation(row, deleting) ?: continue
-            if (deleting) sendDeletion(acknowledged)
+            val serverBackedAnnotation =
+                if (annotation.serverId != null) annotation else sendCreation(annotation, isDeleting) ?: continue
+            if (isDeleting) sendDeletion(serverBackedAnnotation)
         }
     }
 
     /**
-     * Sends [row]'s creation and saves and returns the server's copy. Null when the server refused this one item: it is
-     * then removed (deleted already, or being [deleting]) or kept as refused. Any other failure stops the run.
+     * Sends [annotation]'s creation and saves and returns the server's copy. Null when the server refused this one
+     * item: it is then removed (deleted already, or being [isDeleting]) or kept as refused. Any other failure stops the
+     * run.
      */
-    private suspend fun sendCreation(row: AnnotationRow, deleting: Boolean): AnnotationRow? {
-        val body =
+    private suspend fun sendCreation(annotation: AnnotationRow, isDeleting: Boolean): AnnotationRow? {
+        val request =
             AnnotationControllerCreateRequest(
-                mutationId = row.mutationId,
+                mutationId = annotation.mutationId,
                 anchor =
-                    Passage(row.sourceBlobSha, row.blockId, row.startOffset, row.endOffset, row.exactText).anchor(),
-                note = row.note,
-                type = row.type.name,
-                question = row.question,
+                    Passage(
+                            annotation.sourceBlobSha,
+                            annotation.blockId,
+                            annotation.startOffset,
+                            annotation.endOffset,
+                            annotation.exactText,
+                        )
+                        .anchor(),
+                note = annotation.note,
+                type = annotation.type.name,
+                question = annotation.question,
             )
-        val created =
+        val serverAnnotation =
             try {
-                api.createAnnotation(row.documentId, body).toRow()
-            } catch (error: ApiException) {
+                api.createAnnotation(annotation.documentId, request).toRow()
+            } catch (failure: ApiException) {
                 when {
-                    (error.status == 410 && error.code == "ANNOTATION_DELETED") || (deleting && error.refusesItem()) ->
-                        dao.removeAnnotation(row.mutationId)
-                    error.refusesItem() -> dao.rejectAnnotation(row.mutationId, error.describe())
+                    (failure.status == 410 && failure.code == "ANNOTATION_DELETED") ||
+                        (isDeleting && failure.refusesItem()) -> dao.removeAnnotation(annotation.mutationId)
+                    failure.refusesItem() -> dao.rejectAnnotation(annotation.mutationId, failure.describe())
                     else -> {
-                        AppLog.warn("Highlight creations stopped; documentId=${row.documentId} code=${error.code}")
-                        throw error
+                        AppLog.warn(
+                            "Highlight creations stopped; documentId=${annotation.documentId} code=${failure.code}"
+                        )
+                        throw failure
                     }
                 }
                 AppLog.warn(
-                    "Highlight creation refused; documentId=${row.documentId} code=${error.code} deleting=$deleting"
+                    "Highlight creation refused; documentId=${annotation.documentId} code=${failure.code} " +
+                        "deleting=$isDeleting"
                 )
                 return null
             }
-        return created.also { dao.saveServerAnnotation(it) }
+        return serverAnnotation.also { dao.saveServerAnnotation(it) }
     }
 
     /**
      * Deletes on the server a creation the user deleted before it was acknowledged; throws a failure that is not this
      * item's.
      */
-    private suspend fun sendDeletion(row: AnnotationRow) {
-        val serverId = checkNotNull(row.serverId) { "Deleting ${row.mutationId} needs its server id" }
+    private suspend fun sendDeletion(annotation: AnnotationRow) {
+        val annotationId = checkNotNull(annotation.serverId) { "Deleting ${annotation.mutationId} needs its server id" }
         try {
-            api.deleteAnnotation(serverId, row.version)
-        } catch (error: ApiException) {
-            if (!error.refusesItem()) {
-                AppLog.warn("Highlight deletions stopped; annotationId=$serverId code=${error.code}")
-                throw error
+            api.deleteAnnotation(annotationId, annotation.version)
+        } catch (failure: ApiException) {
+            if (!failure.refusesItem()) {
+                AppLog.warn("Highlight deletions stopped; annotationId=$annotationId code=${failure.code}")
+                throw failure
             }
-            if (error.code != "NOT_FOUND") {
+            if (failure.code != "NOT_FOUND") {
                 // Changed elsewhere first (409): shown again rather than deleted unseen.
-                AppLog.warn("Highlight deletion refused; annotationId=$serverId code=${error.code}")
-                dao.saveAnnotation(row.copy(state = AnnotationState.ACKNOWLEDGED))
+                AppLog.warn("Highlight deletion refused; annotationId=$annotationId code=${failure.code}")
+                dao.saveAnnotation(annotation.copy(state = AnnotationState.ACKNOWLEDGED))
                 return
             }
         }
-        dao.removeAnnotation(row.mutationId)
-        AppLog.info("Highlight deleted after its creation was acknowledged; annotationId=$serverId")
+        dao.removeAnnotation(annotation.mutationId)
+        AppLog.info("Highlight deleted after its creation was acknowledged; annotationId=$annotationId")
     }
 
     /** Pending creations are sent first, so the server's list already contains them where possible. */
     suspend fun refreshAnnotations(documentId: Long) = locked {
         sendAnnotations()
-        val rows = api.annotations(documentId).annotations.map { it.toRow() }
-        dao.replaceRemoteAnnotations(documentId, rows)
+        val annotations = api.annotations(documentId).annotations.map { it.toRow() }
+        dao.replaceRemoteAnnotations(documentId, annotations)
     }
 
     /** Online only. A 409 ANNOTATION_CONFLICT means another edit landed first; nothing local changes. */
-    suspend fun editAnnotation(row: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow = committed {
-        val serverId =
-            checkNotNull(row.serverId) {
-                "Only acknowledged highlights can be edited; ${row.mutationId} is pending"
-            }
-        val updated =
-            api.editAnnotation(
-                    serverId,
-                    AnnotationControllerEditRequest(note = note, expectedVersion = expectedVersion),
-                )
-                .toRow()
-        dao.saveAnnotation(updated)
-        updated
-    }
+    suspend fun editAnnotation(annotation: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow =
+        committed {
+            val annotationId =
+                checkNotNull(annotation.serverId) {
+                    "Only acknowledged highlights can be edited; ${annotation.mutationId} is pending"
+                }
+            val updated =
+                api.editAnnotation(
+                        annotationId,
+                        AnnotationControllerEditRequest(note = note, expectedVersion = expectedVersion),
+                    )
+                    .toRow()
+            dao.saveAnnotation(updated)
+            updated
+        }
 
     /**
      * Online only: places an acknowledged highlight on a [passage] the user selected. A 409 ANNOTATION_CONFLICT means
      * another change landed first; nothing local changes.
      */
-    suspend fun reattachAnnotation(row: AnnotationRow, passage: Passage): AnnotationRow = committed {
-        val serverId =
-            checkNotNull(row.serverId) {
-                "Only acknowledged highlights can be reattached; ${row.mutationId} is pending"
+    suspend fun reattachAnnotation(annotation: AnnotationRow, passage: Passage): AnnotationRow = committed {
+        val annotationId =
+            checkNotNull(annotation.serverId) {
+                "Only acknowledged highlights can be reattached; ${annotation.mutationId} is pending"
             }
         val updated =
             api.reattachAnnotation(
-                    serverId,
-                    AnnotationControllerReattachRequest(expectedVersion = row.version, anchor = passage.anchor()),
+                    annotationId,
+                    AnnotationControllerReattachRequest(
+                        expectedVersion = annotation.version,
+                        anchor = passage.anchor(),
+                    ),
                 )
                 .toRow()
         dao.saveAnnotation(updated)
@@ -648,64 +678,72 @@ class Sync(
      * once and offline too; the next sync replays the creation (the server may have it after a lost acknowledgement)
      * and deletes it there. A refused creation the server never accepted is only local.
      */
-    suspend fun deleteAnnotation(row: AnnotationRow) = committed {
-        when (row.state) {
+    suspend fun deleteAnnotation(annotation: AnnotationRow) = committed {
+        when (annotation.state) {
             AnnotationState.ACKNOWLEDGED -> {
-                val serverId = checkNotNull(row.serverId) { "Acknowledged ${row.mutationId} has no server id" }
+                val annotationId =
+                    checkNotNull(annotation.serverId) { "Acknowledged ${annotation.mutationId} has no server id" }
                 try {
-                    api.deleteAnnotation(serverId, row.version)
-                } catch (error: ApiException) {
-                    if (error.status != 404 || error.code != "NOT_FOUND") throw error
+                    api.deleteAnnotation(annotationId, annotation.version)
+                } catch (failure: ApiException) {
+                    if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
                 }
-                dao.removeAnnotation(row.mutationId)
+                dao.removeAnnotation(annotation.mutationId)
             }
-            AnnotationState.REFUSED -> dao.removeAnnotation(row.mutationId)
+            AnnotationState.REFUSED -> dao.removeAnnotation(annotation.mutationId)
             AnnotationState.UNSENT -> {
-                dao.markDeleting(row.mutationId)
+                dao.markDeleting(annotation.mutationId)
                 onPendingChange()
             }
-            AnnotationState.DELETING -> error("Highlight ${row.mutationId} is already being deleted; it is not shown")
+            AnnotationState.DELETING ->
+                error("Highlight ${annotation.mutationId} is already being deleted; it is not shown")
         }
     }
 
     private suspend fun sendReviews() {
-        for (row in dao.pendingReviews()) {
+        for (review in dao.pendingReviews()) {
             val card =
-                checkNotNull(dao.annotation(row.cardMutationId)) {
-                    "Review ${row.mutationId} references missing local card ${row.cardMutationId}"
+                checkNotNull(dao.annotation(review.cardMutationId)) {
+                    "Review ${review.mutationId} references missing local card ${review.cardMutationId}"
                 }
             if (card.state == AnnotationState.REFUSED) {
-                dao.rejectReview(row.mutationId, "Card creation was refused: ${card.rejection}")
+                dao.rejectReview(review.mutationId, "Card creation was refused: ${card.rejection}")
                 continue
             }
             // Its card has not reached the server yet (its creation waits for GitHub), so the grade waits with it.
-            val id = card.serverId ?: continue
-            val remote =
+            val cardId = card.serverId ?: continue
+            val acceptedReview =
                 try {
                     api.recordReview(
-                        id,
+                        cardId,
                         ReviewControllerGradeRequest(
-                            mutationId = row.mutationId,
-                            grade = row.grade,
-                            reviewedAt = Instant.ofEpochMilli(row.reviewedAt),
-                            blobSha = row.blobSha,
+                            mutationId = review.mutationId,
+                            grade = review.grade,
+                            reviewedAt = Instant.ofEpochMilli(review.reviewedAt),
+                            blobSha = review.blobSha,
                         ),
                     )
-                } catch (error: ApiException) {
-                    if (!error.refusesItem()) throw error
-                    dao.rejectReview(row.mutationId, error.describe())
-                    AppLog.warn("Review refused; cardId=$id mutationId=${row.mutationId} code=${error.code}")
+                } catch (failure: ApiException) {
+                    if (!failure.refusesItem()) throw failure
+                    dao.rejectReview(review.mutationId, failure.describe())
+                    AppLog.warn("Review refused; cardId=$cardId mutationId=${review.mutationId} code=${failure.code}")
                     continue
                 }
-            if (remote.cardMutationId != row.cardMutationId) throw invalidResponse(200)
-            dao.saveReview(remote.toRow())
+            if (acceptedReview.cardMutationId != review.cardMutationId) throw invalidResponse(200)
+            dao.saveReview(acceptedReview.toRow())
         }
     }
 
-    suspend fun checkCard(row: AnnotationRow, blobSha: String) = committed {
-        val id = checkNotNull(row.serverId) { "Only acknowledged cards can be confirmed; ${row.mutationId} is pending" }
+    suspend fun checkCard(annotation: AnnotationRow, blobSha: String) = committed {
+        val cardId =
+            checkNotNull(annotation.serverId) {
+                "Only acknowledged cards can be confirmed; ${annotation.mutationId} is pending"
+            }
         dao.saveAnnotation(
-            api.checkCard(id, AnnotationControllerCheckRequest(expectedVersion = row.version, blobSha = blobSha))
+            api.checkCard(
+                    cardId,
+                    AnnotationControllerCheckRequest(expectedVersion = annotation.version, blobSha = blobSha),
+                )
                 .toRow()
         )
     }

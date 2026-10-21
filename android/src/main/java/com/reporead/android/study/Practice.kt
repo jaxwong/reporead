@@ -92,7 +92,7 @@ internal fun readBanks(pages: List<PracticePage>): Banks {
         val html = page.html ?: continue
         val blobSha =
             checkNotNull(page.blobSha) { "Saved Practice page ${page.documentId} has HTML without its blob SHA" }
-        val bank = interviewBank(html, page.path)
+        val bank = parseInterviewBank(html, page.path)
         bank.questions.mapTo(questions) { PracticeQuestion(page.documentId, page.title, page.path, blobSha, it) }
         if (bank.unrecognized.isNotEmpty())
             unrecognized += BankProblems(page.documentId, page.title, page.path, blobSha, bank.unrecognized)

@@ -86,8 +86,8 @@ private fun describe(saving: SavingNotes): String =
     when (saving) {
         SavingNotes.Waiting -> "Waiting for a network connection, a retry, or Android to run Save all."
         is SavingNotes.Running ->
-            if (saving.toFetch == 0) "Checking which notes need saving…"
-            else "Saving notes on this phone: ${saving.done} of ${saving.toFetch}."
+            if (saving.totalNotes == 0) "Checking which notes need saving…"
+            else "Saving notes on this phone: ${saving.done} of ${saving.totalNotes}."
         is SavingNotes.Saved ->
             listOfNotNull(
                     "Saved ${counted(saving.fetched, "note")} on this phone; ${saving.alreadySaved} ${if (saving.alreadySaved == 1) "was" else "were"} already saved.",
@@ -97,7 +97,7 @@ private fun describe(saving: SavingNotes): String =
                 )
                 .joinToString(" ")
         is SavingNotes.Stopped ->
-            "Saving stopped after ${saving.done} of ${saving.toFetch} notes; those are saved, and saving again continues from there. " +
+            "Saving stopped after ${saving.done} of ${saving.totalNotes} notes; those are saved, and saving again continues from there. " +
                 (saving.reason ?: "Something went wrong in RepoRead itself.")
     }
 
@@ -342,9 +342,9 @@ fun FolderScreen(
         Column(Modifier.padding(padding).fillMaxSize()) {
             val progress = saving
             when {
-                progress is SavingNotes.Running && progress.toFetch > 0 ->
+                progress is SavingNotes.Running && progress.totalNotes > 0 ->
                     LinearProgressIndicator(
-                        progress = { progress.done.toFloat() / progress.toFetch },
+                        progress = { progress.done.toFloat() / progress.totalNotes },
                         modifier = Modifier.fillMaxWidth(),
                         drawStopIndicator = {},
                     )

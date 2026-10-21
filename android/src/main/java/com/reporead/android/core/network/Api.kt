@@ -62,7 +62,7 @@ class ApiException(
  * does not know. Only known codes authorize anything (Sync.refusesItem).
  */
 @Serializable
-private data class Failure(val code: String, val message: String) {
+private data class ErrorResponse(val code: String, val message: String) {
     init {
         require(code.isNotBlank()) { "Expected a non-blank failure code" }
     }
@@ -78,77 +78,101 @@ class Api(
     private val session: () -> StoredSession,
     private val onUnauthorized: (sent: String?) -> Unit,
 ) {
-    suspend fun library(): LibrarySnapshot =
-        json("GET", "/api/library", maxBytes = BuildConfig.LIBRARY_MAX_RESPONSE_BYTES)
+    suspend fun fetchLibrarySnapshot(): LibrarySnapshot =
+        executeJsonRequest("GET", "/api/library", maxBytes = BuildConfig.LIBRARY_MAX_RESPONSE_BYTES)
 
     suspend fun exchangeToken(request: AppAuthControllerTokenRequest): AppSessionsIssuedSession =
-        json("POST", "/api/app-auth/token", wireJson.encodeToString(request))
+        executeJsonRequest("POST", "/api/app-auth/token", wireJson.encodeToString(request))
 
     suspend fun revokeSession() = noContent("DELETE", "/api/app-auth/session")
 
-    suspend fun deleteAccount(): AccountDeletionDeleted = json("DELETE", "/api/account")
+    suspend fun deleteAccount(): AccountDeletionDeleted = executeJsonRequest("DELETE", "/api/account")
 
-    suspend fun availableRepositories(): RepositoryControllerAvailableList = json("GET", "/api/repositories/available")
+    suspend fun availableRepositories(): RepositoryControllerAvailableList =
+        executeJsonRequest("GET", "/api/repositories/available")
 
     suspend fun connectRepository(
         githubRepositoryId: Long,
         request: RepositoryControllerConnectRequest,
     ): RepositoryConnectionsConnection =
-        json("POST", "/api/repositories/$githubRepositoryId/connect", wireJson.encodeToString(request)) {
+        executeJsonRequest("POST", "/api/repositories/$githubRepositoryId/connect", wireJson.encodeToString(request)) {
             it.githubRepositoryId == githubRepositoryId
         }
 
-    suspend fun syncRepository(id: Long): RepositorySyncResult =
-        json("POST", "/api/repositories/$id/sync") { it.repositoryId == id }
+    suspend fun syncRepository(repositoryId: Long): RepositorySyncResult =
+        executeJsonRequest("POST", "/api/repositories/$repositoryId/sync") { it.repositoryId == repositoryId }
 
-    suspend fun storedData(id: Long): ConnectionDeletionCounts = json("GET", "/api/repositories/$id/stored-data")
+    suspend fun repositoryDeletionCounts(repositoryId: Long): ConnectionDeletionCounts =
+        executeJsonRequest("GET", "/api/repositories/$repositoryId/stored-data")
 
-    suspend fun disconnectRepository(id: Long): ConnectionDeletionDisconnected = json("DELETE", "/api/repositories/$id")
+    suspend fun disconnectRepository(repositoryId: Long): ConnectionDeletionDisconnected =
+        executeJsonRequest("DELETE", "/api/repositories/$repositoryId")
 
-    suspend fun noteContent(id: Long): DocumentControllerContent =
-        json("GET", "/api/documents/$id/content") { it.documentId == id }
+    suspend fun fetchDocumentContent(documentId: Long): DocumentControllerContent =
+        executeJsonRequest("GET", "/api/documents/$documentId/content") { it.documentId == documentId }
 
-    suspend fun saveReading(id: Long, request: ReadingControllerSaveRequest): ReadingStatesState =
-        json("PUT", "/api/documents/$id/reading-state", wireJson.encodeToString(request)) { it.documentId == id }
-
-    suspend fun setBookmark(id: Long): BookmarksBookmark =
-        json("PUT", "/api/documents/$id/bookmark") { it.documentId == id }
-
-    suspend fun clearBookmark(id: Long) = noContent("DELETE", "/api/documents/$id/bookmark")
-
-    suspend fun annotations(id: Long): AnnotationControllerAnnotationList =
-        json("GET", "/api/documents/$id/annotations") { it.annotations.all { row -> row.documentId == id } }
-
-    suspend fun createAnnotation(id: Long, request: AnnotationControllerCreateRequest): AnnotationsAnnotation =
-        json("POST", "/api/documents/$id/annotations", wireJson.encodeToString(request), statuses = setOf(200, 201)) {
-            it.documentId == id && it.mutationId == request.mutationId
+    suspend fun saveReading(documentId: Long, request: ReadingControllerSaveRequest): ReadingStatesState =
+        executeJsonRequest("PUT", "/api/documents/$documentId/reading-state", wireJson.encodeToString(request)) {
+            it.documentId == documentId
         }
 
-    suspend fun editAnnotation(id: Long, request: AnnotationControllerEditRequest): AnnotationsAnnotation =
-        json("PATCH", "/api/annotations/$id", wireJson.encodeToString(request)) { it.id == id }
+    suspend fun setBookmark(documentId: Long): BookmarksBookmark =
+        executeJsonRequest("PUT", "/api/documents/$documentId/bookmark") { it.documentId == documentId }
 
-    suspend fun deleteAnnotation(id: Long, expectedVersion: Int) =
-        noContent("DELETE", "/api/annotations/$id?expectedVersion=$expectedVersion")
+    suspend fun clearBookmark(documentId: Long) = noContent("DELETE", "/api/documents/$documentId/bookmark")
 
-    suspend fun reattachAnnotation(id: Long, request: AnnotationControllerReattachRequest): AnnotationsAnnotation =
-        json("POST", "/api/annotations/$id/reattach", wireJson.encodeToString(request)) { it.id == id }
+    suspend fun annotations(documentId: Long): AnnotationControllerAnnotationList =
+        executeJsonRequest("GET", "/api/documents/$documentId/annotations") {
+            it.annotations.all { annotation -> annotation.documentId == documentId }
+        }
 
-    suspend fun checkCard(id: Long, request: AnnotationControllerCheckRequest): AnnotationsAnnotation =
-        json("POST", "/api/annotations/$id/check", wireJson.encodeToString(request)) { it.id == id }
+    suspend fun createAnnotation(
+        documentId: Long,
+        request: AnnotationControllerCreateRequest,
+    ): AnnotationsAnnotation =
+        executeJsonRequest(
+            "POST",
+            "/api/documents/$documentId/annotations",
+            wireJson.encodeToString(request),
+            expectedStatuses = setOf(200, 201),
+        ) {
+            it.documentId == documentId && it.mutationId == request.mutationId
+        }
+
+    suspend fun editAnnotation(annotationId: Long, request: AnnotationControllerEditRequest): AnnotationsAnnotation =
+        executeJsonRequest("PATCH", "/api/annotations/$annotationId", wireJson.encodeToString(request)) {
+            it.id == annotationId
+        }
+
+    suspend fun deleteAnnotation(annotationId: Long, expectedVersion: Int) =
+        noContent("DELETE", "/api/annotations/$annotationId?expectedVersion=$expectedVersion")
+
+    suspend fun reattachAnnotation(
+        annotationId: Long,
+        request: AnnotationControllerReattachRequest,
+    ): AnnotationsAnnotation =
+        executeJsonRequest("POST", "/api/annotations/$annotationId/reattach", wireJson.encodeToString(request)) {
+            it.id == annotationId
+        }
+
+    suspend fun checkCard(cardId: Long, request: AnnotationControllerCheckRequest): AnnotationsAnnotation =
+        executeJsonRequest("POST", "/api/annotations/$cardId/check", wireJson.encodeToString(request)) {
+            it.id == cardId
+        }
 
     suspend fun uploadAppLog(request: AppLogControllerUploadRequest) =
         noContent("POST", "/api/app-logs", wireJson.encodeToString(request))
 
-    suspend fun recordReview(id: Long, request: ReviewControllerGradeRequest): ReviewsReview =
-        json("POST", "/api/annotations/$id/reviews", wireJson.encodeToString(request)) {
+    suspend fun recordReview(cardId: Long, request: ReviewControllerGradeRequest): ReviewsReview =
+        executeJsonRequest("POST", "/api/annotations/$cardId/reviews", wireJson.encodeToString(request)) {
             it.mutationId == request.mutationId && it.grade == request.grade && it.blobSha == request.blobSha
         }
 
     /** Blocking for WebView resource interception, which already runs on a background thread. */
-    fun noteImage(id: Long, commitSha: String, path: String): ByteArray =
+    fun noteImage(documentId: Long, commitSha: String, path: String): ByteArray =
         execute(
                 "GET",
-                "/api/documents/$id/image?commitSha=${query(commitSha)}&path=${query(path)}",
+                "/api/documents/$documentId/image?commitSha=${query(commitSha)}&path=${query(path)}",
                 null,
                 MAX_IMAGE_BYTES,
                 "*/*",
@@ -159,24 +183,24 @@ class Api(
     private fun query(value: String) = URLEncoder.encode(value, Charsets.UTF_8)
 
     /** Publishes an answer only after bounded transport, decoding and request correspondence have all succeeded. */
-    private suspend inline fun <reified T : Any> json(
+    private suspend inline fun <reified T : Any> executeJsonRequest(
         method: String,
         path: String,
-        body: String? = null,
-        statuses: Set<Int> = setOf(200),
+        requestBody: String? = null,
+        expectedStatuses: Set<Int> = setOf(200),
         maxBytes: Int = MAX_JSON_BYTES,
-        crossinline matches: (T) -> Boolean = { true },
+        crossinline responseMatchesRequest: (T) -> Boolean = { true },
     ): T =
         withContext(Dispatchers.IO) {
-            val (status, bytes) = execute(method, path, body, maxBytes, "application/json", statuses)
-            val answer = decodeResponse<T>(bytes.toString(Charsets.UTF_8), status)
-            if (!matches(answer)) throw invalidResponse(status)
-            answer
+            val (status, bytes) = execute(method, path, requestBody, maxBytes, "application/json", expectedStatuses)
+            val response = decodeResponse<T>(bytes.toString(Charsets.UTF_8), status)
+            if (!responseMatchesRequest(response)) throw invalidResponse(status)
+            response
         }
 
-    private suspend fun noContent(method: String, path: String, body: String? = null): Unit =
+    private suspend fun noContent(method: String, path: String, requestBody: String? = null): Unit =
         withContext(Dispatchers.IO) {
-            execute(method, path, body, MAX_JSON_BYTES, "application/json", setOf(204))
+            execute(method, path, requestBody, MAX_JSON_BYTES, "application/json", setOf(204))
             Unit
         }
 
@@ -184,10 +208,10 @@ class Api(
     private fun execute(
         method: String,
         path: String,
-        body: String?,
+        requestBody: String?,
         maxBytes: Int,
         accept: String,
-        statuses: Set<Int>,
+        expectedStatuses: Set<Int>,
     ): Pair<Int, ByteArray> {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         var status = 0
@@ -202,27 +226,27 @@ class Api(
             connection.setRequestProperty("Accept", accept)
             val token = bearerToken()
             token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
-            if (body != null) {
+            if (requestBody != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
-                connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                connection.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
             }
             status = connection.responseCode
             requestId = connection.getHeaderField("X-Request-Id")
             if (status in 200..299) {
-                if (status !in statuses) throw invalidResponse(status)
+                if (status !in expectedStatuses) throw invalidResponse(status)
                 return status to
                     if (status == 204) byteArrayOf()
                     else connection.inputStream.use { readBounded(it, maxBytes, status) }
             }
             if (status == 401) onUnauthorized(token)
-            val error =
+            val errorResponse =
                 connection.errorStream
                     ?.use { readBounded(it, MAX_JSON_BYTES, status) }
                     ?.let { bytes ->
                         try {
-                            wireJson.decodeFromString<Failure>(bytes.toString(Charsets.UTF_8))
-                        } catch (unreadable: IllegalArgumentException) {
+                            wireJson.decodeFromString<ErrorResponse>(bytes.toString(Charsets.UTF_8))
+                        } catch (_: IllegalArgumentException) {
                             AppLog.warn(
                                 "Error response is not RepoRead's JSON; method=$method path=$route status=$status " +
                                     "requestId=$requestId"
@@ -233,24 +257,24 @@ class Api(
             val failure =
                 ApiException(
                     status,
-                    error?.code ?: "HTTP_$status",
-                    error?.message ?: "RepoRead's server returned HTTP $status.",
+                    errorResponse?.code ?: "HTTP_$status",
+                    errorResponse?.message ?: "RepoRead's server returned HTTP $status.",
                     requestId = requestId,
                 )
             AppLog.warn(
                 "Backend refused; method=$method path=$route status=$status code=${failure.code} requestId=$requestId"
             )
             throw failure
-        } catch (error: IOException) {
+        } catch (ioFailure: IOException) {
             AppLog.warn(
                 "Backend I/O failed; method=$method path=$route status=$status requestId=$requestId " +
-                    "error=${error.javaClass.simpleName}"
+                    "error=${ioFailure.javaClass.simpleName}"
             )
             throw ApiException(
                 0,
                 "BACKEND_UNAVAILABLE",
-                "RepoRead's server could not be reached (${error.javaClass.simpleName}).",
-                error,
+                "RepoRead's server could not be reached (${ioFailure.javaClass.simpleName}).",
+                ioFailure,
                 requestId,
             )
         } finally {
