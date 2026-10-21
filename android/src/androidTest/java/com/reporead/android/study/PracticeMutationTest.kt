@@ -39,7 +39,14 @@ class PracticeMutationTest {
             "Test-only bank",
             "test-only/interview/bank.md",
             sha,
-            StudyQuestion("b1", "Test-only prompt?", StudyAnswer("b2", "Canonical answer: Test-only", emptyList())),
+            StudyQuestion(
+                "b1",
+                "Test-only prompt?",
+                StudyAnswer("b2", "Canonical answer: Test-only", emptyList()),
+                "Test-only short answer.",
+                "Test-only recall.",
+                listOf("Test-only point"),
+            ),
         )
 
     @Before

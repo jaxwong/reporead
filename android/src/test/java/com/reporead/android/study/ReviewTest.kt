@@ -56,7 +56,7 @@ class ReviewTest {
         )
 
     @Test
-    fun aBankCardsPromptFollowsItsCanonicalLineAndOtherwiseKeepsItsSavedPrompt() {
+    fun aBankCardFollowsItsCanonicalLinesCurrentQuestionAndOtherwiseKeepsItsSavedPrompt() {
         val item = card(1)
         val current =
             PracticeQuestion(
@@ -64,14 +64,21 @@ class ReviewTest {
                 "Bank",
                 "topic/interview/bank.md",
                 "new",
-                StudyQuestion("b9", "Edited prompt?", StudyAnswer("b10", "text", emptyList())),
+                StudyQuestion(
+                    "b9",
+                    "Edited prompt?",
+                    StudyAnswer("b10", "text", emptyList()),
+                    "Short.",
+                    "Recall.",
+                    listOf("Name it"),
+                ),
             )
-        assertEquals("Edited prompt?", reviewPrompt(item, listOf(current)))
-        assertEquals("Why?", reviewPrompt(item, emptyList()))
-        assertEquals("Why?", reviewPrompt(item, listOf(current.copy(documentId = 2))))
+        assertEquals(current.question, reviewQuestion(item, listOf(current)))
+        assertNull(reviewQuestion(item, emptyList()))
+        assertNull(reviewQuestion(item, listOf(current.copy(documentId = 2))))
         val editedAnswer =
             current.copy(question = current.question.copy(answer = current.question.answer.copy(text = "new line")))
-        assertEquals("Why?", reviewPrompt(item, listOf(editedAnswer)))
+        assertNull(reviewQuestion(item, listOf(editedAnswer)))
     }
 
     @Test
@@ -256,7 +263,10 @@ class ReviewTest {
         val html =
             "<main id=note><h2 data-block-id=b0 data-anchor-text='Foundations'>Foundations</h2>" +
                 "<h3 data-block-id=b1 data-anchor-text='1. What is ACID?'>1. What is ACID?</h3>" +
-                "<p data-block-id=b2 data-anchor-text='Interviewer is testing: protection.'>Interviewer is testing: protection.</p>" +
+                "<p data-block-id=b2 data-anchor-text='Interviewer is testing: protection.'><strong>Interviewer is testing:</strong> protection.</p>" +
+                "<p data-block-id=b4 data-anchor-text='A complete answer should:'><strong>A complete answer should:</strong></p>" +
+                "<ul><li data-block-id=b5 data-anchor-text='name each property'>name each property</li></ul>" +
+                "<p data-block-id=b6 data-anchor-text='Short answer: Four guarantees.'><strong>Short answer:</strong> Four guarantees.</p>" +
                 "<p data-block-id=b3 data-anchor-text='Canonical answer: ACID'><strong>Canonical answer:</strong> " +
                 "<a href='/note-link?path=core%2Fa.md&amp;heading=acid'>ACID</a></p></main>"
         val answer = Passage("sha", "b3", 0, 22, "Canonical answer: ACID")
@@ -267,7 +277,9 @@ class ReviewTest {
                     "b1",
                     "What is ACID?",
                     StudyAnswer("b3", "Canonical answer: ACID", listOf(AnswerLink(null, "core/a.md", "acid", "ACID"))),
-                    guide = listOf("Interviewer is testing: protection."),
+                    shortAnswer = "Four guarantees.",
+                    testing = "protection.",
+                    checklist = listOf("name each property"),
                     level = "Foundations",
                 ),
             ),

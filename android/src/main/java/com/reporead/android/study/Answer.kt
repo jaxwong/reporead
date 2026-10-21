@@ -1,67 +1,86 @@
 package com.reporead.android.study
 
-import android.content.Context
-import android.util.Log
-import android.view.accessibility.AccessibilityNodeProvider
-import android.webkit.WebView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.reporead.android.OpenAt
+import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.NoteRow
-import com.reporead.android.reader.IsolatedPage
-import com.reporead.android.reader.awaitVisualState
 import com.reporead.android.reader.resolveNoteLink
-import com.reporead.android.sync.Sync
-import org.json.JSONObject
+import com.reporead.android.ui.AppIcon
 
-/** The most of the screen height the bank's checklist takes above the section; it scrolls inside that. */
-private const val GUIDE_HEIGHT = 0.3f
+/** The most of the screen height a question's prompt takes above its answer; long prompt material scrolls inside it. */
+private const val PROMPT_HEIGHT = 0.4f
 
 /** Where a link on an answer line leads, among the bank's repository's saved notes. */
 private sealed interface LinkedNote {
-    data object Loading : LinkedNote
-
     data class Problem(val text: String) : LinkedNote
 
-    data class Found(val document: DocumentRow, val saved: NoteRow?) : LinkedNote
+    data class Found(val document: DocumentRow) : LinkedNote
+}
+
+/** A bank question as asked: its heading with any follow-ups, then the prompt material the bank shows with it. */
+@Composable
+internal fun QuestionPrompt(question: StudyQuestion) {
+    val windowHeight = LocalWindowInfo.current.containerSize.height
+    val most = with(LocalDensity.current) { (windowHeight * PROMPT_HEIGHT).toDp() }
+    Column(
+        Modifier.heightIn(max = most).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(question.prompt, style = MaterialTheme.typography.titleLarge)
+        for (block in question.material) when (block) {
+            is PromptBlock.Paragraph -> Text(block.text)
+            is PromptBlock.Items -> Points(block.items, block.ordered)
+            is PromptBlock.Code ->
+                Text(
+                    block.text,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    softWrap = false,
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest, RoundedCornerShape(8.dp))
+                            .horizontalScroll(rememberScrollState())
+                            .padding(12.dp),
+                )
+        }
+    }
 }
 
 /**
- * Prepares the complete bank answer inside AnswerSlot, including its grading checklist and linked core section (one at
- * a time). [visible] gates keyboard focus and the native page; AnswerSlot owns Compose exposure and pointer input. A
- * parent focusProperties rule cannot exclude buttons inside nested scrollers. [onPrepared] reports a visually ready
- * section or its terminal problem. [push] opens the linked note at that heading.
+ * A bank question's answer inside AnswerSlot: its Short answer, what the interviewer is testing and the checklist to
+ * grade against, any worked solution, and one row per linked section that opens its note at that heading. All of it is
+ * from the bank's saved version that the question (or card) was read from. [visible] gates keyboard focus and links;
+ * AnswerSlot owns Compose exposure and pointer input. [onPrepared] reports the links resolved among the repository's
+ * saved notes: two Room reads, no network call.
  */
 @Composable
 internal fun BankAnswer(
@@ -69,200 +88,135 @@ internal fun BankAnswer(
     visible: Boolean,
     bankDocumentId: Long,
     bankPath: String,
-    sync: Sync,
     dao: LibraryDao,
     modifier: Modifier,
     push: (Screen) -> Unit,
     onPrepared: () -> Unit,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(question.answer.text, style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Your grade confirms only this Canonical line. The linked section is supplementary.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        if (question.guide.isNotEmpty()) {
-            val windowHeight = LocalWindowInfo.current.containerSize.height
-            val most = with(LocalDensity.current) { (windowHeight * GUIDE_HEIGHT).toDp() }
-            Column(Modifier.heightIn(max = most).verticalScroll(rememberScrollState(), enabled = visible)) {
-                for (line in question.guide) Text(line, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-        val links = question.answer.links
-        if (links.isEmpty()) {
-            Text(
-                "This answer line links no section: “${question.answer.text}”. Add a link to the section that answers it."
-            )
-            LaunchedEffect(question) { onPrepared() }
-            return@Column
-        }
-        var selected by rememberSaveable(question.blockId) { mutableIntStateOf(0) }
-        if (links.size > 1)
-            Row(
-                Modifier.horizontalScroll(rememberScrollState(), enabled = visible),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                links.forEachIndexed { index, link ->
-                    FilterChip(
-                        selected = selected == index,
-                        enabled = visible,
-                        onClick = { selected = index },
-                        label = { Text("${index + 1}. ${link.text}") },
-                    )
-                }
-            }
-        key(bankDocumentId, question.blockId, selected) {
-            AnswerSection(links[selected], visible, bankDocumentId, bankPath, sync, dao, push, onPrepared)
-        }
-    }
-}
-
-@Composable
-private fun ColumnScope.AnswerSection(
-    link: AnswerLink,
-    visible: Boolean,
-    bankDocumentId: Long,
-    bankPath: String,
-    sync: Sync,
-    dao: LibraryDao,
-    push: (Screen) -> Unit,
-    onPrepared: () -> Unit,
-) {
     val linked by
-        produceState<LinkedNote>(LinkedNote.Loading, link) {
-            val bank = dao.document(bankDocumentId)
-            value =
-                if (bank == null)
-                    LinkedNote.Problem(
-                        "This bank isn't in a saved note list, so its links can't be followed. Refresh the repository."
-                    )
-                else {
-                    val matches =
-                        resolveNoteLink(link.target, link.path, bankPath, dao.listedDocuments(bank.repositoryId))
-                    when (matches.size) {
-                        0 ->
-                            LinkedNote.Problem(
-                                "No note “${link.path ?: link.target}” in this repository's saved list. Refresh the repository if it is new."
-                            )
-                        1 -> LinkedNote.Found(matches.single(), dao.note(matches.single().id))
-                        else ->
-                            LinkedNote.Problem(
-                                "Several notes are named “${link.target}”: ${matches.joinToString { it.path }}. Link one by its path."
-                            )
-                    }
-                }
+        produceState<List<LinkedNote>?>(null, question, bankDocumentId) {
+            value = linkedNotes(question.answer.links, bankDocumentId, bankPath, dao)
         }
-    when (val note = linked) {
-        LinkedNote.Loading -> Spacer(Modifier.weight(1f))
-        is LinkedNote.Problem -> {
-            Text(note.text)
-            LaunchedEffect(note) { onPrepared() }
+    val notes = linked
+    if (notes == null) {
+        Spacer(modifier)
+        return
+    }
+    LaunchedEffect(notes) { onPrepared() }
+    Column(
+        modifier.verticalScroll(rememberScrollState(), enabled = visible),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Short answer", style = MaterialTheme.typography.labelLarge)
+                Text(question.shortAnswer, style = MaterialTheme.typography.titleMedium)
+            }
         }
-        is LinkedNote.Found -> {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Part("Interviewer is testing") { Text(question.testing) }
+        Part("A complete answer should") { Points(question.checklist, ordered = false) }
+        question.worked?.let { worked ->
+            Part("Worked answer") {
+                // Hidden links would still take keyboard focus, so the text links only once shown.
                 Text(
-                    listOfNotNull(note.document.title, link.heading?.let { "# ${link.text}" }).joinToString(" "),
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f),
+                    buildAnnotatedString {
+                        append(worked.text)
+                        if (visible)
+                            for (link in worked.links) {
+                                val start = worked.text.indexOf(link.text)
+                                if (start >= 0) addLink(LinkAnnotation.Url(link.url), start, start + link.text.length)
+                            }
+                    }
                 )
-                TextButton(
-                    enabled = visible,
+            }
+        }
+        for ((link, note) in question.answer.links.zip(notes)) when (note) {
+            is LinkedNote.Problem -> Text(note.text)
+            is LinkedNote.Found ->
+                OutlinedCard(
                     onClick = {
                         push(Screen.Reader(note.document.id, note.document.title, link.heading?.let(OpenAt::Heading)))
                     },
+                    enabled = visible,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Open note")
+                    Row(
+                        Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        AppIcon(R.drawable.ic_description, null)
+                        Column(Modifier.weight(1f)) {
+                            Text(link.text, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Linked section · ${note.document.title}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
+        }
+    }
+}
+
+/** The notes [links] on a bank's answer line lead to, among its repository's saved note list. */
+private suspend fun linkedNotes(
+    links: List<AnswerLink>,
+    bankDocumentId: Long,
+    bankPath: String,
+    dao: LibraryDao,
+): List<LinkedNote> {
+    val bank =
+        dao.document(bankDocumentId)
+            ?: return links.map {
+                LinkedNote.Problem(
+                    "This bank isn't in a saved note list, so its links can't be followed. Refresh the repository."
+                )
             }
-            val saved = note.saved
-            if (saved == null) {
-                Text("Not saved on this phone yet, so this section can't be shown here. Open the note to fetch it.")
-                LaunchedEffect(note) { onPrepared() }
-                return
-            }
-            var ready by remember(saved.blobSha, link) { mutableStateOf(false) }
-            var notice by remember(saved.blobSha, link) { mutableStateOf<String?>(null) }
-            var failed by remember(saved.blobSha, link) { mutableStateOf(false) }
-            Text("Linked section · saved copy", style = MaterialTheme.typography.labelMedium)
-            if (saved.blobSha != note.document.blobSha)
-                Text("The saved copy is an older version of this note.", style = MaterialTheme.typography.bodySmall)
-            notice?.let { Text(it) }
-            if (!failed)
-                AndroidView(
-                    factory = { context ->
-                        sectionView(
-                            context,
-                            sync,
-                            saved,
-                            link.heading,
-                            onReady = {
-                                ready = true
-                                onPrepared()
-                            },
-                            onProblem = {
-                                notice = it
-                                onPrepared()
-                            },
-                            onFailed = { failed = true },
-                        )
-                    },
-                    update = { view ->
-                        val pageVisible = visible && ready
-                        // INVISIBLE requires becoming VISIBLE in the native readiness callback, before user reveal.
-                        view.alpha = if (pageVisible) 1f else 0f
-                        // Disabling focus clears touch-mode support; restore it too when showing the page.
-                        view.isFocusableInTouchMode = pageVisible
-                        view.isFocusable = pageVisible
-                    },
-                    onRelease = { it.destroy() },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+    val listed = dao.listedDocuments(bank.repositoryId)
+    return links.map { link ->
+        val matches = resolveNoteLink(link.target, link.path, bankPath, listed)
+        when (matches.size) {
+            0 ->
+                LinkedNote.Problem(
+                    "No note “${link.path ?: link.target}” in this repository's saved list. Refresh the repository if it is new."
+                )
+            1 -> LinkedNote.Found(matches.single())
+            else ->
+                LinkedNote.Problem(
+                    "Several notes are named “${link.target}”: ${matches.joinToString { it.path }}. Link one by its path."
                 )
         }
     }
 }
 
-/**
- * The saved [note] as an isolated reader page showing only the section under [heading] (the whole note for null). It
- * stays hidden until the rest is gone, so the top of the note never flashes first, and hidden when the heading is not
- * in this version: the problem is reported instead of showing an unrelated part. Composition owns visibility once
- * [onReady] runs, so preparation cannot reveal an answer. The page never navigates.
- */
-private fun sectionView(
-    context: Context,
-    sync: Sync,
-    note: NoteRow,
-    heading: String?,
-    onReady: () -> Unit,
-    onProblem: (String) -> Unit,
-    onFailed: () -> Unit,
-): WebView =
-    object : IsolatedPage(context) {
-            // Cleared Compose semantics don't exclude WebView's virtual accessibility nodes.
-            override fun getAccessibilityNodeProvider(): AccessibilityNodeProvider? =
-                if (alpha == 0f) null else super.getAccessibilityNodeProvider()
-        }
-        .apply {
-            show(
-                sync.images,
-                note,
-                "Answer section",
-                "window.reporead.showSection(${heading?.let(JSONObject::quote) ?: "null"})",
-                onFailed = {
-                    onProblem("${note.title} could not be shown.")
-                    onFailed()
-                },
-            ) { found ->
-                if (found) {
-                    awaitVisualState()
-                    onReady()
-                } else {
-                    Log.w(
-                        "RepoRead",
-                        "Answer heading not found; documentId=${note.documentId} blobSha=${note.blobSha}",
-                    )
-                    onProblem(
-                        "No section “$heading” in the saved copy of ${note.title}; the answer link may be out of date."
-                    )
-                }
+/** One labelled part of an answer. */
+@Composable
+private fun Part(label: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        content()
+    }
+}
+
+/** List items, bulleted or numbered. */
+@Composable
+private fun Points(items: List<String>, ordered: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items.forEachIndexed { index, item ->
+            Row {
+                Text(if (ordered) "${index + 1}." else "•", Modifier.width(24.dp))
+                Text(item, Modifier.weight(1f))
             }
         }
+    }
+}

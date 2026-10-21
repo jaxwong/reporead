@@ -163,8 +163,6 @@ mark.revealed { background: var(--mark-revealed); }
 .study-section > button {
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--link); font: inherit;
 }
-/* A bank answer's page shows only the linked section (showSection). */
-.outside-section { display: none; }
 
 /* Code highlighting (highlight.js classes), from the palettes above. */
 .hljs { color: var(--fg); }

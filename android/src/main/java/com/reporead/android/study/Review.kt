@@ -95,14 +95,16 @@ internal fun revealedAnswer(html: String, path: String, passage: Passage): Revea
         )
     }
 
-/** A bank card follows its Canonical line's current prompt; unmatched and hand-written cards keep their saved one. */
-internal fun reviewPrompt(item: NotebookItem, questions: List<PracticeQuestion>): String =
+/**
+ * The bank question a card's Canonical line asks now, so the card follows its current prompt; null for unmatched and
+ * hand-written cards, which keep their saved one.
+ */
+internal fun reviewQuestion(item: NotebookItem, questions: List<PracticeQuestion>): StudyQuestion? =
     questions
         .firstOrNull {
             it.documentId == item.annotation.documentId && it.question.answer.text == item.annotation.drawn.exactText
         }
         ?.question
-        ?.prompt ?: checkNotNull(item.annotation.question)
 
 /** What review holds now, from this phone's cards and grades; null while they are read. */
 @Composable
@@ -201,13 +203,12 @@ private fun rememberRevealed(item: NotebookItem, dao: LibraryDao): Revealed {
     return read?.takeIf { it.first == row.drawn }?.second ?: Revealed.Reading
 }
 
-/** What a card is checked against: a bank question's linked section, or the passage in its block's context. */
+/** What a card is checked against: a bank question's answer, or the passage in its block's context. */
 @Composable
 private fun ColumnScope.CardAnswer(
     item: NotebookItem,
     answer: RevealedAnswer,
     visible: Boolean,
-    sync: Sync,
     dao: LibraryDao,
     push: (Screen) -> Unit,
     onPrepared: () -> Unit,
@@ -220,7 +221,6 @@ private fun ColumnScope.CardAnswer(
             visible,
             item.annotation.documentId,
             item.path,
-            sync,
             dao,
             Modifier.weight(1f),
             push,
@@ -250,7 +250,6 @@ private fun ColumnScope.FixCard(
     block: CardBlock,
     confirming: Boolean,
     problem: String?,
-    sync: Sync,
     dao: LibraryDao,
     push: (Screen) -> Unit,
     onConfirm: () -> Unit,
@@ -307,7 +306,7 @@ private fun ColumnScope.FixCard(
                 Revealed.Reading -> {}
                 Revealed.Unverifiable ->
                     Text("The saved page cannot show this answer in context. Open the note to check it.")
-                is Revealed.Shown -> CardAnswer(item, answer.answer, true, sync, dao, push, onPrepared = {})
+                is Revealed.Shown -> CardAnswer(item, answer.answer, true, dao, push, onPrepared = {})
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(enabled = !confirming, onClick = onConfirm) { Text("Answer is still right") }
@@ -518,7 +517,9 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
                 return@Column
             }
             val row = item.annotation
-            Text(reviewPrompt(item, banks.questions), style = MaterialTheme.typography.titleLarge)
+            val asking = reviewQuestion(item, banks.questions)
+            if (asking != null) QuestionPrompt(asking)
+            else Text(checkNotNull(row.question), style = MaterialTheme.typography.titleLarge)
             val block = item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)
             if (block != null) {
                 FixCard(
@@ -526,7 +527,6 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
                     block,
                     confirming = state.confirming == row.mutationId,
                     problem = state.problems[row.mutationId],
-                    sync,
                     dao,
                     push,
                     onConfirm = { model.confirmCard(row, item.currentBlobSha) },
@@ -545,7 +545,7 @@ internal fun ReviewScreen(dao: LibraryDao, sync: Sync, entryId: String, push: (S
                             Text("The saved page cannot verify this answer in context. Open the note to check it.")
                             LaunchedEffect(answer) { onPrepared() }
                         }
-                        is Revealed.Shown -> CardAnswer(item, answer.answer, visible, sync, dao, push, onPrepared)
+                        is Revealed.Shown -> CardAnswer(item, answer.answer, visible, dao, push, onPrepared)
                     }
                     TextButton(
                         enabled = visible,

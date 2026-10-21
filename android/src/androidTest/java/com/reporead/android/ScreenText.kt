@@ -8,7 +8,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
-import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -101,22 +100,6 @@ internal fun findWebView(view: View): WebView? {
             return it
         }
     return null
-}
-
-internal fun findWebView(scenario: ActivityScenario<TestHostActivity>): WebView? {
-    var page: WebView? = null
-    scenario.onActivity { page = findWebView(it.window.decorView) }
-    return page
-}
-
-internal fun pageBounds(scenario: ActivityScenario<TestHostActivity>): Rect {
-    val bounds = Rect()
-    scenario.onActivity {
-        val page = checkNotNull(findWebView(it.window.decorView))
-        val position = IntArray(2).also(page::getLocationOnScreen)
-        bounds.set(position[0], position[1], position[0] + page.width, position[1] + page.height)
-    }
-    return bounds
 }
 
 /** A real pointer tap, without an idle wait between events; callers may dispatch a same-frame double tap. */

@@ -139,39 +139,4 @@ class StudyReaderTest {
                 .trimIndent()
         )
     }
-
-    @Test
-    fun anAnswerPageShowsOnlyTheLinkedSectionWithItsSubsections() {
-        load(
-            block(0, "h1", "Test-only core note") +
-                block(1, "p", "Introduction.") +
-                block(2, "h2", "What SQL is") +
-                block(3, "p", "The answer.") +
-                block(4, "h3", "A detail") +
-                "<ul>" +
-                block(5, "li", "Inside the answer.") +
-                "</ul>" +
-                block(6, "h2", "The logical order") +
-                block(7, "p", "Another answer.") +
-                block(8, "h1", "Appendix") +
-                block(9, "p", "Last.")
-        )
-        checkScript(
-            """
-            const api = window.reporead;
-            const shown = id => document.querySelector('[data-block-id="' + id + '"]').getBoundingClientRect().height > 0;
-            const only = ids => ['b0','b1','b2','b3','b4','b5','b6','b7','b8','b9'].every(id => shown(id) === ids.includes(id));
-            check(api.showSection('what-sql-is'), 'A GitHub anchor names the section');
-            check(only(['b2','b3','b4','b5']), 'Only the section and its subsections show');
-            check(window.scrollY === 0, 'The section starts at the top');
-            check(api.showSection('The logical order'), 'Heading text names the section too');
-            check(only(['b6','b7']), 'A section ends at the next heading of its level or higher');
-            check(!api.showSection('missing-heading'), 'A missing heading is reported');
-            check(api.showSection(null), 'A link to the whole note keeps everything else as it was');
-            check([...document.querySelectorAll('#note [data-block-id]')].every(b => b.textContent === b.dataset.anchorText), 'Canonical text after showSection');
-            return true;
-            """
-                .trimIndent()
-        )
-    }
 }
