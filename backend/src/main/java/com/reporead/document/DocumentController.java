@@ -42,10 +42,10 @@ public class DocumentController {
         snapshot.setReadOnly(true);
     }
 
-    /**
-     * {@code text}: the canonical text of the note's blocks, one per line, for search on the phone.
-     * {@code renderFormat}: MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format.
-     */
+    /** One canonical reader block sent with its identity, so a local search result can open the exact match. */
+    record SearchBlock(String id, String text) {}
+
+    /** {@code renderFormat}: MarkdownRenderer.FORMAT, so the app can refresh saved copies made in an older format. */
     record Content(
             long documentId,
             String path,
@@ -53,17 +53,22 @@ public class DocumentController {
             String sourceBlobSha,
             String snapshotCommitSha,
             String html,
-            String text,
+            List<SearchBlock> blocks,
             int renderFormat) {
         Content {
-            long bytes = List.of(path, title, sourceBlobSha, snapshotCommitSha, html, text).stream()
+            blocks = List.copyOf(blocks);
+            long bytes = List.of(path, title, sourceBlobSha, snapshotCommitSha, html).stream()
                     .mapToLong(value -> value.getBytes(StandardCharsets.UTF_8).length)
                     .sum();
+            for (var block : blocks) {
+                bytes += block.id().getBytes(StandardCharsets.UTF_8).length;
+                bytes += block.text().getBytes(StandardCharsets.UTF_8).length;
+            }
             if (bytes > MarkdownRenderer.MAX_PAGE_BYTES) {
                 throw new ApiFailure(
                         Code.UNSUPPORTED_CONTENT,
                         "Rendered note exceeds the " + MarkdownRenderer.MAX_PAGE_BYTES
-                                + "-byte saved-page limit (HTML, search text and metadata).");
+                                + "-byte saved-page limit (HTML, search blocks and metadata).");
             }
         }
     }
@@ -98,11 +103,9 @@ public class DocumentController {
                 document.blobSha(),
                 document.commitSha(),
                 html,
-                String.join(
-                        "\n",
-                        rendered.blocks().stream()
-                                .map(MarkdownRenderer.Block::text)
-                                .toList()),
+                rendered.blocks().stream()
+                        .map(block -> new SearchBlock(block.id(), block.text()))
+                        .toList(),
                 MarkdownRenderer.FORMAT);
     }
 

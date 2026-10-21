@@ -77,7 +77,7 @@ sealed interface OpenAt {
     /** A highlight or card, from the notebook or a review. */
     @Serializable data class Highlight(val mutationId: String) : OpenAt
 
-    /** A Practice warning's exact block; block ids are meaningful only within [blobSha]. */
+    /** An exact block in a known page version; block ids are meaningful only within [blobSha]. */
     @Serializable data class Block(val blobSha: String, val blockId: String) : OpenAt
 }
 

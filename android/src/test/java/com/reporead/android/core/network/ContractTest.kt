@@ -88,6 +88,9 @@ class ContractTest {
         broken<AnnotationsAnnotation>(wire(testHighlight().copy(version = 0)))
         broken<AppUser>(wire(testSession().user.copy(id = 0)))
         broken<DocumentControllerContent>(wire(testContent().copy(snapshotCommitSha = "INVALID")))
+        val block = testContent().blocks.single()
+        broken<DocumentControllerContent>(wire(testContent().copy(blocks = listOf(block.copy(id = "")))))
+        broken<DocumentControllerContent>(wire(testContent().copy(blocks = listOf(block, block))))
         broken<AppSessionsIssuedSession>(wire(testSession(accessToken = "")))
         // Rules reach into what an answer holds: one bad reading state breaks the whole library.
         broken<LibrarySnapshot>(wire(testLibrary(readingStates = listOf(testReading().copy(progressPercent = -1)))))

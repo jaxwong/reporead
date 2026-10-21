@@ -314,7 +314,7 @@ internal class ReaderSession(
                     if (found) null
                     else
                         missing(
-                            "That bank warning is not in this version of the note. Reopen Practice to see its current warnings."
+                            "That location is not in this version of the note. Open it again from its current source."
                         )
                 }
                 is OpenAt.Highlight -> {

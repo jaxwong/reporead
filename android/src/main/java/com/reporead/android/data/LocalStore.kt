@@ -10,6 +10,9 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.AutoMigrationSpec
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import org.jsoup.Jsoup
+
+private const val MIGRATION_HTML_CHUNK_CHARS = 65_536
 
 /*
  * The phone's offline projection of backend state, plus pending local changes. The backend owns durable state;
@@ -94,12 +97,56 @@ class RetireUnreadablePages : AutoMigrationSpec {
     }
 }
 
+/** v17: replace ambiguous flattened search text with the canonical block identities already present in saved HTML. */
+@DeleteColumn(tableName = "notes", columnName = "searchText")
+class StructureSearchBlocks : AutoMigrationSpec {
+    override fun onPostMigrate(db: SupportSQLiteDatabase) {
+        val pages = mutableListOf<Pair<Long, Int>>()
+        db.query("select documentId, length(html) from notes").use { rows ->
+            while (rows.moveToNext()) pages += rows.getLong(0) to rows.getInt(1)
+        }
+        for ((documentId, length) in pages) {
+            // v16 retained only pages below 2 MiB; 64 Ki-character slices therefore bound this to 32 reads per page
+            // while keeping every CursorWindow far below the device limit.
+            val html =
+                buildString(length) {
+                    var start = 1
+                    while (start <= length) {
+                        db.query(
+                                "select substr(html, ?, ?) from notes where documentId = ?",
+                                arrayOf<Any>(start, MIGRATION_HTML_CHUNK_CHARS, documentId),
+                            )
+                            .use { chunk ->
+                                check(chunk.moveToFirst()) {
+                                    "Missing saved documentId=$documentId during v17 migration"
+                                }
+                                append(chunk.getString(0))
+                            }
+                        start += MIGRATION_HTML_CHUNK_CHARS
+                    }
+                }
+            Jsoup.parse(html).select("[data-block-id][data-anchor-text]").forEachIndexed { position, block ->
+                db.execSQL(
+                    "insert into note_search_blocks (documentId, blockId, position, text) values (?, ?, ?, ?)",
+                    arrayOf<Any>(
+                        documentId,
+                        block.attr("data-block-id"),
+                        position,
+                        block.attr("data-anchor-text"),
+                    ),
+                )
+            }
+        }
+    }
+}
+
 @Database(
     entities =
         [
             RepositoryRow::class,
             DocumentRow::class,
             NoteRow::class,
+            NoteSearchBlockRow::class,
             NoteLinkRow::class,
             ReadingRow::class,
             BookmarkRow::class,
@@ -107,7 +154,7 @@ class RetireUnreadablePages : AutoMigrationSpec {
             ReviewRow::class,
             ReviewLimitRow::class,
         ],
-    version = 16,
+    version = 17,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -124,6 +171,7 @@ class RetireUnreadablePages : AutoMigrationSpec {
             AutoMigration(from = 13, to = 14),
             AutoMigration(from = 14, to = 15, spec = DropChangeBaselines::class),
             AutoMigration(from = 15, to = 16, spec = RetireUnreadablePages::class),
+            AutoMigration(from = 16, to = 17, spec = StructureSearchBlocks::class),
         ],
 )
 abstract class LocalStore : RoomDatabase() {

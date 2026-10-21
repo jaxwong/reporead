@@ -21,6 +21,7 @@ import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.RepositoryRow
+import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.findText
 import com.reporead.android.findWebView
 import com.reporead.android.root
@@ -95,7 +96,7 @@ class ReaderLifecycleTest {
                 """<p data-block-id="b82" data-anchor-text="[^n]: Back to the answer"><span class="fn-def" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]:</span></span> <a href="#answer">Back to the answer</a></p>"""
         val html = testPage(sha, body)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, path, title, sha)))
-        dao.saveNote(
+        dao.saveNoteWithoutSearch(
             NoteRow(1, sha, path, title, html, 0, renderFormat = BuildConfig.RENDER_FORMAT, snapshotCommitSha = sha)
         )
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
@@ -191,13 +192,25 @@ class ReaderLifecycleTest {
     }
 
     @Test
+    fun aSearchResultOpensItsExactBlockOnceAndRecreationKeepsItsPlace() {
+        scenario.onActivity { open(Screen.Reader(1, title, OpenAt.Block(sha, "b20"))) }
+        awaitReader(20)
+        awaitSaved(20)
+        evaluate("window.reporead.showBlock('b30'); return {};")
+        awaitSaved(30)
+        scenario.recreate()
+        awaitReader(30)
+        awaitSaved(30)
+    }
+
+    @Test
     fun aWarningFromAnotherVersionDoesNotJumpToAReusedBlockId() {
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
         scenario.onActivity {
             open(Screen.Reader(1, title, OpenAt.Block("b".repeat(40), "b20")))
         }
-        awaitText("That bank warning is not in this version of the note. Reopen Practice to see its current warnings.")
+        awaitText("That location is not in this version of the note. Open it again from its current source.")
         awaitReader(12)
         awaitSaved(12)
         assertSavedStays(12)
@@ -208,7 +221,7 @@ class ReaderLifecycleTest {
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
         scenario.onActivity { open(Screen.Reader(1, title, OpenAt.Block(sha, "gone"))) }
-        awaitText("That bank warning is not in this version of the note. Reopen Practice to see its current warnings.")
+        awaitText("That location is not in this version of the note. Open it again from its current source.")
         awaitReader(12)
         awaitSaved(12)
         assertSavedStays(12)
@@ -443,7 +456,7 @@ class ReaderLifecycleTest {
             // No reader script, so the page never says it is ready.
             val html =
                 """<main id="note"><p data-block-id="b0" data-anchor-text="Never ready.">Never ready.</p></main>"""
-            dao.saveNote(
+            dao.saveNoteWithoutSearch(
                 NoteRow(
                     2,
                     sha,

@@ -22,6 +22,7 @@ import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReviewLimitRow
+import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.findText
 import com.reporead.android.findWebView
 import com.reporead.android.pageBounds
@@ -57,7 +58,7 @@ class ReviewLifecycleTest {
         store = Room.inMemoryDatabaseBuilder(instrumentation.targetContext, LocalStore::class.java).build()
         val dao = store.library()
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/review.md", "Test-only review", sha)))
-        dao.saveNote(NoteRow(1, sha, "test-only/review.md", "Test-only review", html, 0))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "test-only/review.md", "Test-only review", html, 0))
         dao.saveReviewLimit(ReviewLimitRow(sessionLimit = 40))
         // No token and a closed local port: a server call fails as unreachable instead of leaving the phone.
         val sync =
@@ -133,8 +134,8 @@ class ReviewLifecycleTest {
                     DocumentRow(2, 7, corePath, "Test-only core", "c".repeat(40)),
                 ),
             )
-            dao.saveNote(NoteRow(1, sha, bankPath, "Test-only bank", bank, 0))
-            dao.saveNote(NoteRow(2, oldCoreSha, corePath, "Test-only core", core, 0))
+            dao.saveNoteWithoutSearch(NoteRow(1, sha, bankPath, "Test-only bank", bank, 0))
+            dao.saveNoteWithoutSearch(NoteRow(2, oldCoreSha, corePath, "Test-only core", core, 0))
             dao.saveAnnotation(
                 AnnotationRow(
                     "bank-card",
@@ -231,7 +232,7 @@ class ReviewLifecycleTest {
             val current = "b".repeat(40)
             val dao = store.library()
             dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "test-only/review.md", "Test-only review", current)))
-            dao.saveNote(NoteRow(1, current, "test-only/review.md", "Test-only review", html, 0))
+            dao.saveNoteWithoutSearch(NoteRow(1, current, "test-only/review.md", "Test-only review", html, 0))
             card(1)
             val sync =
                 Sync(
@@ -257,7 +258,7 @@ class ReviewLifecycleTest {
                 (11..4_000).joinToString("") {
                     """<p data-block-id="b$it" data-anchor-text="Filler $it.">Filler $it.</p>"""
                 }
-            dao.saveNote(
+            dao.saveNoteWithoutSearch(
                 NoteRow(1, sha, "test-only/review.md", "Test-only review", html.replace("</main>", "$filler</main>"), 0)
             )
             card(1)

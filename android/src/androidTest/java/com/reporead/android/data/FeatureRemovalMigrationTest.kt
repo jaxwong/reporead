@@ -8,7 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Upgrades from v14/v15 retire only summaries and unreadable pages, never user-owned work. */
+/** Upgrades from v14/v15 retire unreadable pages and structure searchable blocks, never user-owned work. */
 @RunWith(AndroidJUnit4::class)
 class FeatureRemovalMigrationTest {
     @Test
@@ -46,17 +46,22 @@ class FeatureRemovalMigrationTest {
                             db.execSQL("insert into change_baselines values (?, ?)", arrayOf<Any>(id, "c".repeat(40)))
                     }
                     db.execSQL(
-                        "insert into notes values (1, ?, 'a.md', 'a', '<main>kept</main>', 0, 'kept', 3, ?)",
+                        """insert into notes values (1, ?, 'a.md', 'a',
+                        '<main><p data-block-id="b0" data-anchor-text="kept&#10;line">kept</p></main>',
+                        0, 'ambiguous flattened text', 3, ?)""",
                         arrayOf(sha, snapshot),
                     )
                     db.execSQL("insert into note_links values (1, 0, 'path=b.md')")
                     // The cutoff is the combined UTF-8 byte count, including a null searchText. Do not load these pages
                     // into a CursorWindow: the migration must retire them inside SQLite first.
+                    val largeSuffix = """<p data-block-id="b4" data-anchor-text="near limit">near limit</p></main>"""
+                    val largeSearchable =
+                        "<main>" + "x".repeat(2_097_151 - "<main>".length - largeSuffix.length) + largeSuffix
                     for ((id, html, text) in
                         listOf(
                             Triple(2, "x".repeat(1_048_576), "y".repeat(1_048_576)),
                             Triple(3, "x".repeat(2_097_153), null),
-                            Triple(4, "x".repeat(2_097_151), null),
+                            Triple(4, largeSearchable, null),
                             Triple(5, "é".repeat(1_048_576), null),
                             Triple(6, "", "é".repeat(1_048_576)),
                         )) {
@@ -93,7 +98,21 @@ class FeatureRemovalMigrationTest {
                 assertNull(dao.note(3))
                 assertNull(dao.note(5))
                 assertNull(dao.note(6))
-                assertEquals(NoteRow(1, sha, "a.md", "a", "<main>kept</main>", 0, "kept", 3, snapshot), dao.note(1))
+                assertEquals(
+                    NoteRow(
+                        1,
+                        sha,
+                        "a.md",
+                        "a",
+                        """<main><p data-block-id="b0" data-anchor-text="kept&#10;line">kept</p></main>""",
+                        0,
+                        3,
+                        snapshot,
+                    ),
+                    dao.note(1),
+                )
+                assertEquals("kept\nline", dao.searchNoteText("%kept%", 1).single().text)
+                assertEquals("b4", dao.searchNoteText("%near limit%", 1).single().blockId)
                 assertEquals(setOf(1L, 4L), dao.noteLinks(7).map { it.documentId }.toSet())
                 assertTrue(dao.noteLinks(7).contains(NoteLinkRow(1, 0, "path=b.md")))
                 assertEquals(ReadingRow(1, sha, 40, "{}", 5, pending = true), dao.reading(1))
@@ -108,10 +127,15 @@ class FeatureRemovalMigrationTest {
                 assertEquals(listOf(ReviewRow("grade", "card", 2, 8, sha, pending = true)), dao.reviews().first())
                 assertEquals(40, dao.reviewLimit().first())
                 SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                    assertEquals(16, db.version)
+                    assertEquals(17, db.version)
                     db.rawQuery("pragma foreign_key_check", null).use { assertFalse(it.moveToFirst()) }
                     db.rawQuery("select name from sqlite_master where name = 'change_baselines'", null).use {
                         assertFalse(it.moveToFirst())
+                    }
+                    db.rawQuery("pragma table_info(notes)", null).use { columns ->
+                        val names = mutableSetOf<String>()
+                        while (columns.moveToNext()) names += columns.getString(1)
+                        assertFalse("searchText column must be removed", "searchText" in names)
                     }
                 }
             }

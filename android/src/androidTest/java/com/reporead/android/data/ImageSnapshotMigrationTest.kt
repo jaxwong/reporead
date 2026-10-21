@@ -21,7 +21,8 @@ class ImageSnapshotMigrationTest {
                     arrayOf(sha),
                 )
                 db.execSQL(
-                    "insert into notes(documentId, blobSha, path, title, html, fetchedAt, searchText, renderFormat) values (1, ?, 'a.md', 'a', '<main>kept</main>', 0, 'kept', 3)",
+                    """insert into notes(documentId, blobSha, path, title, html, fetchedAt, searchText, renderFormat)
+                    values (1, ?, 'a.md', 'a', '<main><p data-block-id="b0" data-anchor-text="kept">kept</p></main>', 0, 'kept', 3)""",
                     arrayOf(sha),
                 )
                 db.execSQL("insert into note_links(documentId, position, query) values (1, 0, 'path=b.md')")
@@ -37,7 +38,19 @@ class ImageSnapshotMigrationTest {
                 )
             },
         ) { dao ->
-            assertEquals(NoteRow(1, sha, "a.md", "a", "<main>kept</main>", 0, "kept", 3), dao.note(1))
+            assertEquals(
+                NoteRow(
+                    1,
+                    sha,
+                    "a.md",
+                    "a",
+                    """<main><p data-block-id="b0" data-anchor-text="kept">kept</p></main>""",
+                    0,
+                    3,
+                ),
+                dao.note(1),
+            )
+            assertEquals("b0", dao.searchNoteText("%kept%", 1).single().blockId)
             assertNull(dao.allSavedVersions().single().snapshotCommitSha)
             assertEquals(listOf(NoteLinkRow(1, 0, "path=b.md")), dao.noteLinks(7))
             assertEquals(1, dao.pendingReading().size)

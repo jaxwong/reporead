@@ -12,6 +12,7 @@ import com.reporead.android.core.network.wire.BookmarksBookmark
 import com.reporead.android.core.network.wire.ConnectionDeletionCounts
 import com.reporead.android.core.network.wire.ConnectionDeletionDisconnected
 import com.reporead.android.core.network.wire.DocumentControllerContent
+import com.reporead.android.core.network.wire.DocumentControllerSearchBlock
 import com.reporead.android.core.network.wire.DocumentsSummary
 import com.reporead.android.core.network.wire.LibraryRepository
 import com.reporead.android.core.network.wire.LibrarySnapshot
@@ -156,13 +157,13 @@ internal fun testLibrary(
 
 internal fun testContent() =
     DocumentControllerContent(
+        blocks = listOf(DocumentControllerSearchBlock(id = "b0", text = "text")),
         documentId = 1,
         html = "<main id=\"note\"><p>text</p></main>",
         path = "n.md",
         renderFormat = BuildConfig.RENDER_FORMAT,
         snapshotCommitSha = testCommit,
         sourceBlobSha = testSha,
-        text = "text",
         title = "Test-only note",
     )
 

@@ -35,7 +35,7 @@ import org.springframework.web.util.UriUtils;
 
 public final class MarkdownRenderer {
     /**
-     * UTF-8 bytes across a saved page's HTML, search text, path, title, blob SHA and image snapshot SHA. A complete 1
+     * UTF-8 bytes across a saved page's HTML, search blocks, path, title, blob SHA and image snapshot SHA. A complete 1
      * MiB payload round-trips through Room on Android 14; 2 MiB fails its CursorWindow. The remaining space covers row
      * overhead. Even sixfold JSON escaping stays below the phone's 8 MiB content-response ceiling.
      */

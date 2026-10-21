@@ -77,8 +77,11 @@ internal fun checkRules(answer: Any) {
                 "Expected a non-empty UTF-16 passage range matching exactText"
             }
         // Snapshot identity prevents fetching images from an unrelated commit.
-        is DocumentControllerContent ->
+        is DocumentControllerContent -> {
             require(answer.snapshotCommitSha.matches(LOWERCASE_SHA)) { "Expected a lowercase snapshot Git SHA-1" }
+            require(answer.blocks.all { it.id.isNotBlank() }) { "Expected non-blank content block ids" }
+            answer.blocks.uniqueKeys("content block ids") { it.id }
+        }
         // No GitHub credential is ever published; this is RepoRead's own session.
         is AppSessionsIssuedSession -> {
             require(answer.accessToken.isNotBlank()) { "Expected a non-blank accessToken" }

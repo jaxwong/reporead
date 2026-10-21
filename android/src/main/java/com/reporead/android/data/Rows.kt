@@ -51,10 +51,10 @@ data class ChangedNote(
 )
 
 /**
- * The latest complete rendered copy of an opened note, identified by document and source version. [searchText] is its
- * blocks' canonical text, one per line; null for a copy saved before search existed. [renderFormat] is the server's
- * page format for [html]; 0 for copies saved before formats were recorded. [snapshotCommitSha] pins images and embed
- * resolution; null means a legacy page whose image identity is unknown, not permission to fetch current images.
+ * The latest complete rendered copy of an opened note, identified by document and source version. Its searchable
+ * canonical blocks are [NoteSearchBlockRow] children. [renderFormat] is the server's page format for [html]; 0 for
+ * copies saved before formats were recorded. [snapshotCommitSha] pins images and embed resolution; null means a legacy
+ * page whose image identity is unknown, not permission to fetch current images.
  */
 @Entity(tableName = "notes")
 data class NoteRow(
@@ -64,10 +64,26 @@ data class NoteRow(
     val title: String,
     val html: String,
     val fetchedAt: Long,
-    val searchText: String? = null,
     @ColumnInfo(defaultValue = "0") val renderFormat: Int = 0,
     val snapshotCommitSha: String? = null,
 )
+
+/** One backend-issued canonical block of a saved page, searchable without loading the page HTML. */
+@Entity(
+    tableName = "note_search_blocks",
+    primaryKeys = ["documentId", "blockId"],
+    indices = [Index(value = ["documentId", "position"], unique = true)],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = NoteRow::class,
+                parentColumns = ["documentId"],
+                childColumns = ["documentId"],
+                onDelete = ForeignKey.CASCADE,
+            )
+        ],
+)
+data class NoteSearchBlockRow(val documentId: Long, val blockId: String, val position: Int, val text: String)
 
 /** A saved page's identity without its HTML, used to retain only that snapshot's images. */
 data class SavedVersion(
@@ -112,8 +128,18 @@ data class PracticePage(
     val blobSha: String?,
 )
 
-/** A saved note matching a search: [searchText] is set when it matched by text, for a snippet. */
-data class NoteMatch(val documentId: Long, val title: String, val path: String, val searchText: String?)
+/** A note whose current title or path matches. Body matches are [NoteTextMatch] rows instead. */
+data class NoteNameMatch(val documentId: Long, val title: String, val path: String, val titleMatch: Boolean)
+
+/** One canonical block containing a search phrase, with the exact saved version its [blockId] belongs to. */
+data class NoteTextMatch(
+    val documentId: Long,
+    val title: String,
+    val path: String,
+    val blobSha: String,
+    val blockId: String,
+    val text: String,
+)
 
 /** A read note in Continue reading, named by its documents row. */
 data class ReadNote(
@@ -129,6 +155,7 @@ data class BookmarkedNote(val documentId: Long, val title: String, val path: Str
 
 /** A highlight matching a search, with its note's title and path. */
 data class HighlightMatch(
+    val mutationId: String,
     val documentId: Long,
     val title: String,
     val path: String,

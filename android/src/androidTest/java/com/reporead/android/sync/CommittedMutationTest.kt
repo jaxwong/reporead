@@ -33,6 +33,7 @@ import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
+import com.reporead.android.data.saveNoteWithoutSearch
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -75,7 +76,7 @@ class CommittedMutationTest {
         directory = File(context.cacheDir, "test-only-committed-${UUID.randomUUID()}").also { check(it.mkdirs()) }
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 1, testSha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", testSha)))
-        dao.saveNote(
+        dao.saveNoteWithoutSearch(
             NoteRow(
                 1,
                 testSha,
