@@ -7,11 +7,20 @@ import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
 
 private val NUMBERED = Regex("""^\d+\.\s+""")
-/**
- * The line that makes a bank H3 a question: "Canonical answer:" for one question, "Canonical path:" for a follow-up
- * group. Section names and numbers only label.
- */
-private val ANSWER_LINE = Regex("""^Canonical (answer|path):""")
+
+// A question's labels, in the one order the bank contract allows after its prompt material.
+private const val TESTING = "Interviewer is testing:"
+private const val CHECKLIST = "A complete answer should:"
+private const val WORKED = "Worked answer:"
+private const val SHORT = "Short answer:"
+/** The line that is the card: "Canonical answer:" asks the heading; "Canonical path:" asks it with its follow-ups. */
+private const val CANONICAL_ANSWER = "Canonical answer:"
+private const val CANONICAL_PATH = "Canonical path:"
+private val CANONICAL = setOf(CANONICAL_ANSWER, CANONICAL_PATH)
+private val LABELS = setOf(TESTING, CHECKLIST, WORKED, SHORT) + CANONICAL
+
+/** What prompt material may be made of: paragraphs, lists and code blocks. */
+private val PROMPT_TAGS = setOf("p", "ul", "ol", "pre")
 
 /**
  * A link on a bank's answer line: a repository [path] (Markdown link) or an Obsidian [target], its [heading], and its
@@ -25,18 +34,39 @@ internal data class AnswerLink(val target: String?, val path: String?, val headi
  */
 internal data class StudyAnswer(val blockId: String, val text: String, val links: List<AnswerLink>)
 
+/** One block of a question's prompt material, as shown. */
+internal sealed interface PromptBlock {
+    data class Paragraph(val text: String) : PromptBlock
+
+    /** A list's top-level items; nested points are not shown. */
+    data class Items(val items: List<String>, val ordered: Boolean) : PromptBlock
+
+    data class Code(val text: String) : PromptBlock
+}
+
+/** A web link inside [LinkedText]: its [text] as shown and where it goes. */
+internal data class WebLink(val text: String, val url: String)
+
+/** Text as shown with the web links in it, as a bank writes a Worked answer. */
+internal data class LinkedText(val text: String, val links: List<WebLink>)
+
 /**
- * One bank question. [followUps] are a follow-up group's list items, asked together under its heading because they
- * share its one Canonical line, which is the card; [level] is the bank section it sits in (Foundations, Applied
- * questions, …), shown only; [guide] is what the bank says besides the question and its answer line: what the
- * interviewer is testing and what a complete answer covers.
+ * One bank question, as the bank contract shapes it. [material] is shown with the heading before the answer;
+ * [followUps] are a follow-up group's list items, asked together under its heading because they share its one Canonical
+ * line, which is the card. [shortAnswer] answers it; [testing] and [checklist] are the standard to grade against;
+ * [worked] links a worked solution. [level] is the bank section it sits in (Foundations, Applied questions, …), shown
+ * only.
  */
 internal data class StudyQuestion(
     val blockId: String,
     val text: String,
     val answer: StudyAnswer,
+    val shortAnswer: String,
+    val testing: String,
+    val checklist: List<String>,
+    val material: List<PromptBlock> = emptyList(),
     val followUps: List<String> = emptyList(),
-    val guide: List<String> = emptyList(),
+    val worked: LinkedText? = null,
     val level: String? = null,
 ) {
     /** The heading, then the follow-ups numbered in bank order. */
@@ -48,8 +78,8 @@ internal data class StudyQuestion(
 }
 
 /**
- * [unrecognized]: what looks like a question but is not, listed, never dropped silently: an H3 without exactly one
- * Canonical line, a Canonical line under no H3, or a later question repeating a Canonical line.
+ * [unrecognized]: what looks like a question but is not, listed, never dropped silently: an H3 that breaks the question
+ * shape (named with the rule it breaks), a Canonical line under no H3, or a later question repeating a Canonical line.
  */
 internal data class InterviewBank(val questions: List<StudyQuestion>, val unrecognized: List<BankProblem>)
 
@@ -70,12 +100,13 @@ internal fun interviewTopic(path: String): String? {
 internal fun isInterviewBank(path: String): Boolean = interviewTopic(path) != null
 
 /**
- * Reads only the renderer's canonical blocks. Each H3 of a bank whose section (up to the next H1–H3) has exactly one
- * Canonical line is a question, its heading without a leading "N. ": "Canonical answer:" asks the heading; "Canonical
- * path:" asks the heading with its top-level list items as follow-ups; repeated Canonical lines are warnings.
+ * Reads the note's top-level blocks as the renderer wrote them. Each H3 of a bank (its section runs to the next H1–H3)
+ * is a question when it follows the question shape, its heading without a leading "N. "; one that does not, a Canonical
+ * line under no H3, and a repeated Canonical line are warnings.
  */
 internal fun interviewBank(html: String, path: String): InterviewBank {
     if (!isInterviewBank(path)) return InterviewBank(emptyList(), emptyList())
+    val note = Jsoup.parse(html).getElementById("note") ?: return InterviewBank(emptyList(), emptyList())
     val questions = mutableListOf<StudyQuestion>()
     val unrecognized = mutableListOf<BankProblem>()
     val canonicalLines = mutableSetOf<String>()
@@ -84,56 +115,152 @@ internal fun interviewBank(html: String, path: String): InterviewBank {
     val section = mutableListOf<Element>()
     fun finishGroup() {
         group?.let { heading ->
-            val question = bankQuestion(heading, section, level)
-            when {
-                question == null -> unrecognized += BankProblem(heading.attr("data-block-id"), shownText(heading))
-                canonicalLines.add(question.answer.text) -> questions += question
-                else -> unrecognized += BankProblem(question.blockId, "${question.text} — repeats a Canonical line")
+            when (val read = bankQuestion(heading, section, level)) {
+                is Read.Broken ->
+                    unrecognized += BankProblem(heading.attr("data-block-id"), "${shownText(heading)} — ${read.rule}")
+                is Read.Asked ->
+                    if (canonicalLines.add(read.question.answer.text)) questions += read.question
+                    else
+                        unrecognized +=
+                            BankProblem(read.question.blockId, "${read.question.text} — repeats a Canonical line")
             }
         }
         group = null
         section.clear()
     }
-    for (block in Jsoup.parse(html).select("#note [data-block-id]")) {
-        if (isHeading(block)) {
-            val depth = block.tagName()[1].digitToInt()
-            if (depth <= 3) finishGroup()
+    for (block in note.children()) {
+        val depth = headingDepth(block)
+        if (depth != null && depth <= 3) {
+            finishGroup()
             if (depth == 1) level = null
             if (depth == 2) level = shownText(block).replaceFirst(NUMBERED, "")
             if (depth == 3) group = block
             continue
         }
         if (group != null) section.add(block)
-        else if (answerLine(block) != null) unrecognized += BankProblem(block.attr("data-block-id"), shownText(block))
+        else if (label(block) in CANONICAL) unrecognized += BankProblem(block.attr("data-block-id"), shownText(block))
     }
     finishGroup()
     return InterviewBank(questions, unrecognized)
 }
 
-private fun isHeading(block: Element): Boolean =
-    block.tagName().let { it.length == 2 && it[0] == 'h' && it[1] in '1'..'6' }
+private fun headingDepth(block: Element): Int? =
+    block.tagName().takeIf { it.length == 2 && it[0] == 'h' && it[1] in '1'..'6' }?.let { it[1].digitToInt() }
 
-/** A paragraph starting "Canonical answer:" or "Canonical path:", and which of the two. */
-private fun answerLine(block: Element): Pair<Element, String>? =
-    ANSWER_LINE.find(block.attr("data-anchor-text"))
-        ?.takeIf { block.tagName() == "p" }
-        ?.let { block to it.groupValues[1] }
+/** A paragraph's label: the bold text ending in a colon that opens it. */
+private fun label(block: Element): String? =
+    block
+        .takeIf { it.tagName() == "p" }
+        ?.childNodes()
+        ?.firstOrNull { it !is TextNode || !it.isBlank }
+        ?.let { it as? Element }
+        ?.takeIf { it.tagName() == "strong" }
+        ?.let(::shownText)
+        ?.takeIf { it.endsWith(":") }
+
+/** What follows a labelled paragraph's [label]. */
+private fun labelled(block: Element, label: String): String = shownText(block).removePrefix(label).trim()
+
+private sealed interface Read {
+    data class Asked(val question: StudyQuestion) : Read
+
+    data class Broken(val rule: String) : Read
+}
+
+/** How a warning names a block that does not belong where it is. */
+private fun describe(block: Element): String =
+    when (block.tagName()) {
+        "p" -> "paragraph"
+        "ul",
+        "ol" -> "list"
+        "pre" -> "code block"
+        "hr" -> "--- rule"
+        "table" -> "table"
+        "blockquote" -> "quote"
+        else -> if (headingDepth(block) != null) "#### heading" else "<${block.tagName()}>"
+    }
 
 /**
- * The question of one bank H3, from its [blocks] up to the next H1–H3; none unless exactly one is a Canonical line, as
- * with several (questions written as H4s) it is unknown which answers the heading. A path without items asks the
- * heading alone.
+ * The question of one bank H3 from its [blocks] (up to the next H1–H3): prompt material, then exactly the labels in
+ * order, the checklist's bullets right after its label and the Canonical line last; otherwise the first rule it breaks.
  */
-private fun bankQuestion(heading: Element, blocks: List<Element>, level: String?): StudyQuestion? {
-    val (line, kind) = blocks.mapNotNull(::answerLine).singleOrNull() ?: return null
+private fun bankQuestion(heading: Element, blocks: List<Element>, level: String?): Read {
+    val canonical = blocks.filter { label(it) in CANONICAL }
+    if (canonical.isEmpty()) return Read.Broken("no Canonical line")
+    if (canonical.size > 1) return Read.Broken("more than one Canonical line")
+    val start = blocks.indexOfFirst { label(it) != null }
+    val material = blocks.subList(0, start)
+    material
+        .firstOrNull { it.tagName() !in PROMPT_TAGS }
+        ?.let {
+            return Read.Broken("a ${describe(it)} in the prompt")
+        }
+    // Insertion order is block order, which the label order is checked against.
+    val labels = linkedMapOf<String, Element>()
+    var checklist: Element? = null
+    for (index in start until blocks.size) {
+        val block = blocks[index]
+        val name = label(block)
+        when {
+            name == null && block.tagName() == "ul" && label(blocks[index - 1]) == CHECKLIST -> checklist = block
+            name == null -> return Read.Broken("a ${describe(block)} after the labels")
+            name !in LABELS -> return Read.Broken("unknown label “$name”")
+            labels.put(name, block) != null -> return Read.Broken("“$name” twice")
+        }
+    }
+    val line = canonical.single()
+    val kind = checkNotNull(label(line))
+    val order = listOfNotNull(TESTING, CHECKLIST, WORKED.takeIf { it in labels }, SHORT, kind)
+    order
+        .firstOrNull { it !in labels }
+        ?.let {
+            return Read.Broken("no “$it”")
+        }
+    if (labels.keys.toList() != order) return Read.Broken("labels out of order")
+    val testing =
+        labelled(labels.getValue(TESTING), TESTING).ifEmpty {
+            return Read.Broken("“$TESTING” has no text")
+        }
+    val shortAnswer =
+        labelled(labels.getValue(SHORT), SHORT).ifEmpty {
+            return Read.Broken("“$SHORT” has no text")
+        }
+    if (labelled(labels.getValue(CHECKLIST), CHECKLIST).isNotEmpty() || checklist == null)
+        return Read.Broken("the checklist is not a bullet list under its label")
+    if (checklist.select("li ul, li ol").isNotEmpty()) return Read.Broken("the checklist nests bullets")
+    val worked =
+        labels[WORKED]?.let { block ->
+            val links =
+                block.select("a[href^='https://'], a[href^='http://']").map { WebLink(shownText(it), it.attr("href")) }
+            if (links.isEmpty()) return Read.Broken("“$WORKED” links nothing")
+            LinkedText(labelled(block, WORKED), links)
+        }
     val answer = StudyAnswer(line.attr("data-block-id"), line.attr("data-anchor-text"), answerLinks(line))
-    val items = candidates(blocks).filter { it.block !== line }
-    val id = heading.attr("data-block-id")
-    val title = shownText(heading).replaceFirst(NUMBERED, "")
-    if (kind != "path") return StudyQuestion(id, title, answer, guide = items.map { it.text }, level = level)
-    val (followUps, guide) = items.partition { it.listItem }
-    return StudyQuestion(id, title, answer, followUps.map { it.text }, guide.map { it.text }, level)
+    if (answer.links.isEmpty()) return Read.Broken("the Canonical line links no note")
+    val lists = if (kind == CANONICAL_PATH) material.filter { it.tagName() in setOf("ul", "ol") } else emptyList()
+    return Read.Asked(
+        StudyQuestion(
+            heading.attr("data-block-id"),
+            shownText(heading).replaceFirst(NUMBERED, ""),
+            answer,
+            shortAnswer,
+            testing,
+            checklist.children().map { shownText(it) },
+            material.filter { it !in lists }.map(::promptBlock),
+            lists.flatMap { list -> list.children().map { shownText(it, skipNestedLists = true) } },
+            worked,
+            level,
+        )
+    )
 }
+
+private fun promptBlock(block: Element): PromptBlock =
+    when (block.tagName()) {
+        "p" -> PromptBlock.Paragraph(shownText(block))
+        "pre" -> PromptBlock.Code(shownText(block))
+        else ->
+            PromptBlock.Items(block.children().map { shownText(it, skipNestedLists = true) }, block.tagName() == "ol")
+    }
 
 /** The note links on an answer line, in order, as the server wrote them (MarkdownRenderer.noteLink). */
 private fun answerLinks(line: Element): List<AnswerLink> =
@@ -143,31 +270,6 @@ private fun answerLinks(line: Element): List<AnswerLink> =
         val parameters = noteLinkParameters(href.substringAfter('?'))
         AnswerLink(parameters["target"], parameters["path"], parameters["heading"], shownText(link))
     }
-
-/** A question candidate: [block] identifies it, [text] is what the reader sees, [listItem] tells items from prose. */
-private class Candidate(val block: Element, val text: String, val listItem: Boolean)
-
-/**
- * One candidate per paragraph and per top-level list item, at the item's first block: nested points and further
- * paragraphs of an item belong to it. A tight item with nested points has its own text in no block ("- Why?" above " -
- * hint"), so its text is the item's own and its identity the first nested block.
- */
-private fun candidates(blocks: List<Element>): List<Candidate> {
-    val seen = mutableSetOf<Element>()
-    return blocks.mapNotNull { block ->
-        val tag = block.tagName()
-        if (tag != "p" && tag != "li") return@mapNotNull null
-        val item = block.parents().lastOrNull { it.tagName() == "li" } ?: block.takeIf { tag == "li" }
-        val text =
-            when {
-                item == null -> shownText(block)
-                !seen.add(item) -> return@mapNotNull null
-                block.closest("li") === item -> shownText(block)
-                else -> shownText(item, skipNestedLists = true)
-            }
-        text.takeIf { it.isNotBlank() }?.let { Candidate(block, it, item != null) }
-    }
-}
 
 /**
  * What a reader sees of [element]: its text without the hidden source of note links and footnotes (`.wl-hidden`) and,

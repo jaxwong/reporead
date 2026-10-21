@@ -342,28 +342,6 @@ window.reporead.showHeading = text => {
 };
 
 /**
- * For a bank question's answer, a separate page: only the section under the heading [text] names, up to the next
- * heading of the same or a higher level; null keeps the whole note. Layout only, so every block keeps its canonical
- * text. Returns whether the heading is in this version.
- */
-window.reporead.showSection = text => {
-  if (text === null) return true;
-  const heading = findHeading(text);
-  if (!heading) return false;
-  let start = heading;
-  while (start.parentElement !== note) start = start.parentElement;
-  const level = Number(heading.tagName[1]);
-  let inside = false;
-  for (const element of note.children) {
-    if (element === start) inside = true;
-    else if (inside && /^H[1-6]$/.test(element.tagName) && Number(element.tagName[1]) <= level) inside = false;
-    element.classList.toggle('outside-section', !inside);
-  }
-  window.scrollTo(0, 0);
-  return true;
-};
-
-/**
  * The note's headings in order, for the outline: block id, index in the block list (comparable with position()'s
  * blockIndex), level, and the text as shown — hidden link targets are left out, so it reads like the page.
  */

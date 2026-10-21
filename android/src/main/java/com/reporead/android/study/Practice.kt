@@ -210,7 +210,7 @@ private fun NotQuestions(problems: List<BankProblems>, push: (Screen) -> Unit) {
             )
         },
         supportingContent = {
-            Text("Each ### heading needs exactly one Canonical answer or path line, shared with no other question.")
+            Text("Each ### heading must be one question in the bank format; each one names the rule it breaks.")
         },
         trailingContent = { Text(if (open) "Hide" else "Show", style = MaterialTheme.typography.labelLarge) },
     )
@@ -370,7 +370,7 @@ internal fun PracticeScreen(
                 )
                 return@Column
             }
-            Text(question.question.prompt, style = MaterialTheme.typography.titleLarge)
+            QuestionPrompt(question.question)
             val again = key in scheduled
             key(question.key) {
                 AnswerSlot(asked.revealed, model::reveal) { visible, onPrepared ->
@@ -380,7 +380,6 @@ internal fun PracticeScreen(
                         visible,
                         question.documentId,
                         question.path,
-                        sync,
                         dao,
                         Modifier.weight(1f),
                         push,

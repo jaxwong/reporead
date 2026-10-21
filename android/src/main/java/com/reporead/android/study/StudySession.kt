@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -17,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +27,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import com.reporead.android.R
+import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.counted
 import java.io.Serializable
 import kotlin.random.Random
@@ -73,13 +78,25 @@ internal fun <T> interleaveByNote(items: List<T>, seed: Int, note: (T) -> Long):
     }
 }
 
-/** A session's first row: what is left and what the item asked now is ([label]), and [skip] to move past it. */
+/**
+ * A session's first row: what is left and what the item asked now is ([label]), what each grade means on request, and
+ * [skip] to move past it.
+ */
 @Composable
 internal fun SessionHeader(label: String, skip: String, enabled: Boolean, onSkip: () -> Unit) {
+    var grading by rememberSaveable { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+        IconButton(onClick = { grading = true }) { AppIcon(R.drawable.ic_info, "How to grade") }
         TextButton(enabled = enabled, onClick = onSkip) { Text(skip) }
     }
+    if (grading)
+        AlertDialog(
+            onDismissRequest = { grading = false },
+            title = { Text("How to grade") },
+            text = { Text(GRADE_MEANING) },
+            confirmButton = { TextButton(onClick = { grading = false }) { Text("OK") } },
+        )
 }
 
 /**
@@ -136,47 +153,44 @@ internal fun AskedAgain() {
 /**
  * The grades in one row under the answer, so grading never needs scrolling past it; Again, the only failing grade, is
  * set apart from the three that pass. Each shows the days until the card is due again ([gaps], by grade); null when
- * this grade is not saved, so does not schedule.
+ * this grade is not saved, so does not schedule. What each means is in the session header's help.
  */
 @Composable
 internal fun GradeBar(enabled: Boolean, gaps: Map<Int, Long>?, onGrade: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(GRADE_MEANING, style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for ((grade, label) in GRADES) {
-                val modifier = Modifier.weight(1f)
-                val padding = PaddingValues(horizontal = 4.dp)
-                val content: @Composable () -> Unit = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(label)
-                        gaps?.let {
-                            Text(
-                                counted(it.getValue(grade).toInt(), "day"),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((grade, label) in GRADES) {
+            val modifier = Modifier.weight(1f)
+            val padding = PaddingValues(horizontal = 4.dp)
+            val content: @Composable () -> Unit = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(label)
+                    gaps?.let {
+                        Text(
+                            counted(it.getValue(grade).toInt(), "day"),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
                     }
                 }
-                if (isMiss(grade))
-                    OutlinedButton(
-                        enabled = enabled,
-                        modifier = modifier,
-                        contentPadding = padding,
-                        onClick = { onGrade(grade) },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    ) {
-                        content()
-                    }
-                else
-                    Button(
-                        enabled = enabled,
-                        modifier = modifier,
-                        contentPadding = padding,
-                        onClick = { onGrade(grade) },
-                    ) {
-                        content()
-                    }
             }
+            if (isMiss(grade))
+                OutlinedButton(
+                    enabled = enabled,
+                    modifier = modifier,
+                    contentPadding = padding,
+                    onClick = { onGrade(grade) },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    content()
+                }
+            else
+                Button(
+                    enabled = enabled,
+                    modifier = modifier,
+                    contentPadding = padding,
+                    onClick = { onGrade(grade) },
+                ) {
+                    content()
+                }
         }
     }
 }

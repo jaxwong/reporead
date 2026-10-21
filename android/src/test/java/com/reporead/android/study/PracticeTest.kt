@@ -18,8 +18,28 @@ class PracticeTest {
             "note",
             "core/interview/note.md",
             sha,
-            StudyQuestion(block, text, StudyAnswer("${block}a", answer, emptyList())),
+            StudyQuestion(
+                block,
+                text,
+                StudyAnswer("${block}a", answer, emptyList()),
+                "Short.",
+                "Recall.",
+                listOf("Name it"),
+            ),
         )
+
+    /**
+     * One bank question in the contract's shape, as the server renders it: heading [id], then its Canonical line, whose
+     * text is "Canonical answer: [line]".
+     */
+    private fun asked(id: String, heading: String, line: String) =
+        "<h3 data-block-id=$id data-anchor-text='$heading'>$heading</h3>" +
+            "<p data-block-id=${id}t data-anchor-text='Interviewer is testing: recall.'><strong>Interviewer is testing:</strong> recall.</p>" +
+            "<p data-block-id=${id}c data-anchor-text='A complete answer should:'><strong>A complete answer should:</strong></p>" +
+            "<ul><li data-block-id=${id}i data-anchor-text='name it'>name it</li></ul>" +
+            "<p data-block-id=${id}s data-anchor-text='Short answer: It is.'><strong>Short answer:</strong> It is.</p>" +
+            "<p data-block-id=${id}a data-anchor-text='Canonical answer: $line'><strong>Canonical answer:</strong> " +
+            "<a href='/note-link?target=x'>$line</a></p>"
 
     private fun card(
         document: Long,
@@ -131,7 +151,10 @@ class PracticeTest {
                     "b1",
                     "After you add a cache",
                     StudyAnswer("b9", "Canonical path: Caching", emptyList()),
-                    listOf("Which key?", "What expires?"),
+                    "Short.",
+                    "Recall.",
+                    listOf("Name it"),
+                    followUps = listOf("Which key?", "What expires?"),
                 ),
             )
         assertEquals(
@@ -145,11 +168,7 @@ class PracticeTest {
 
     @Test
     fun twoPromptsOverOneCanonicalLineAreOneQuestion() {
-        val html =
-            "<main id=note><h3 data-block-id=b1 data-anchor-text='First?'>First?</h3>" +
-                "<p data-block-id=b2 data-anchor-text='Canonical answer: X'>Canonical answer: X</p>" +
-                "<h3 data-block-id=b3 data-anchor-text='Second?'>Second?</h3>" +
-                "<p data-block-id=b4 data-anchor-text='Canonical answer: X'>Canonical answer: X</p></main>"
+        val html = "<main id=note>" + asked("b1", "First?", "X") + asked("b3", "Second?", "X") + "</main>"
         val banks = readBanks(listOf(PracticePage(1, "Bank", "core/interview/bank.md", html, sha)))
         assertEquals(listOf("First?"), banks.questions.map { it.question.prompt })
         assertEquals(
@@ -161,8 +180,8 @@ class PracticeTest {
     @Test
     fun banksAreTheListedNotesInInterviewFoldersAndNameTheirNonQuestions() {
         val html =
-            "<main id=note><h3 data-block-id=b1 data-anchor-text='1. Asked?'>1. Asked?</h3>" +
-                "<p data-block-id=b2 data-anchor-text='Canonical answer: X'>Canonical answer: X</p>" +
+            "<main id=note>" +
+                asked("b1", "1. Asked?", "X") +
                 "<h3 data-block-id=b3 data-anchor-text='Notes'>Notes</h3></main>"
         val pages =
             listOf(
@@ -174,7 +193,15 @@ class PracticeTest {
         assertEquals(listOf(1L, 2L), banks.pages.map { it.documentId })
         assertEquals(listOf("1:$sha:b1"), banks.questions.map { it.key })
         assertEquals(
-            listOf(BankProblems(1, "Bank", "core/db/interview/01.md", sha, listOf(BankProblem("b3", "Notes")))),
+            listOf(
+                BankProblems(
+                    1,
+                    "Bank",
+                    "core/db/interview/01.md",
+                    sha,
+                    listOf(BankProblem("b3", "Notes — no Canonical line")),
+                )
+            ),
             banks.unrecognized,
         )
     }
@@ -192,8 +219,14 @@ class PracticeTest {
             )
         assertEquals(
             listOf(
-                BankProblems(1, "First bank", path, sha, listOf(BankProblem("b0", "Notes"))),
-                BankProblems(2, "Second bank", path, "b".repeat(40), listOf(BankProblem("b0", "Notes"))),
+                BankProblems(1, "First bank", path, sha, listOf(BankProblem("b0", "Notes — no Canonical line"))),
+                BankProblems(
+                    2,
+                    "Second bank",
+                    path,
+                    "b".repeat(40),
+                    listOf(BankProblem("b0", "Notes — no Canonical line")),
+                ),
             ),
             banks.unrecognized,
         )

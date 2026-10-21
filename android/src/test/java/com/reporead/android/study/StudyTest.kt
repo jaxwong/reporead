@@ -9,202 +9,227 @@ import org.junit.Test
 class StudyTest {
     private val bank = "core/databases/interview/07-transactions.md"
 
-    private fun heading(id: Int, name: String, level: Int = 2) =
-        """<h$level data-block-id="b$id" data-anchor-text="$name">$name</h$level>"""
+    private fun heading(id: String, name: String, level: Int = 3) =
+        """<h$level data-block-id="$id" data-anchor-text="$name">$name</h$level>"""
 
-    private fun block(id: Int, text: String, tag: String = "li") =
-        """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
+    private fun paragraph(id: String, text: String) = """<p data-block-id="$id" data-anchor-text="$text">$text</p>"""
+
+    /** A labelled paragraph as the server renders `**Label:** text`. */
+    private fun labelled(id: String, label: String, text: String = "") =
+        """<p data-block-id="$id" data-anchor-text="$label $text"><strong>$label</strong> $text</p>"""
+
+    private fun bullets(id: String, vararg items: String, tag: String = "ul") =
+        "<$tag>" +
+            items.withIndex().joinToString("") { (index, item) ->
+                """<li data-block-id="$id-$index" data-anchor-text="$item">$item</li>"""
+            } +
+            "</$tag>"
 
     /**
-     * An answer line as the server renders a Markdown link to a heading: label, then link text whose href carries path
-     * and heading.
+     * A Canonical line as the server renders a Markdown link to a heading: label, then links carrying path and heading.
      */
-    private fun answer(id: Int, label: String, vararg links: Pair<String, String>) =
-        """<p data-block-id="b$id" data-anchor-text="$label: ${links.joinToString(" and ") { it.second }}"><strong>$label:</strong> """ +
+    private fun line(id: String, label: String, vararg links: Pair<String, String>) =
+        """<p data-block-id="$id" data-anchor-text="$label ${links.joinToString(" and ") { it.second }}"><strong>$label</strong> """ +
             links.joinToString(" and ") { (href, text) -> """<a href="/note-link?$href">$text</a>""" } +
             "</p>"
+
+    /** One question's blocks after its heading, in contract order; a test drops, swaps or adds one to break a rule. */
+    private fun parts(n: Int, kind: String = "Canonical answer:") =
+        mutableListOf(
+            labelled("t$n", "Interviewer is testing:", "recall."),
+            labelled("c$n", "A complete answer should:"),
+            bullets("i$n", "name it", "say why"),
+            labelled("s$n", "Short answer:", "It is $n."),
+            line("a$n", kind, "path=core%2Fx.md&heading=x$n" to "Section $n"),
+        )
+
+    private fun question(n: Int, title: String, parts: List<String> = parts(n)) =
+        heading("q$n", title) + parts.joinToString("")
 
     private fun page(body: String) = "<main id=note>$body</main>"
 
     @Test
-    fun eachBankH3WithACanonicalAnswerLineIsAQuestionWithItsLinksGuideAndLevel() {
+    fun aQuestionInTheContractsShapeReadsEveryPart() {
         val html =
             page(
-                heading(0, "Bank", 1) +
-                    block(1, "Canonical source: the note.", "p") +
-                    heading(2, "1. Foundations") +
-                    block(3, "Answer in 90 seconds.", "p") +
-                    heading(4, "1. What is ACID?", 3) +
-                    block(5, "Interviewer is testing: protection.", "p") +
-                    block(6, "A complete answer should: name each property.", "p") +
-                    answer(
-                        7,
-                        "Canonical answer",
+                heading("h0", "Bank", 1) +
+                    paragraph("p0", "Answer in 90 seconds.") +
+                    heading("h1", "1. Foundations", 2) +
+                    heading("q1", "1. What is ACID?") +
+                    paragraph("e1", "Evidence:") +
+                    "<pre data-block-id=\"x1\" data-anchor-text=\"\$ ls\n\"><code>\$ ls\nREADME</code></pre>" +
+                    bullets("o1", "one", "two", tag = "ol") +
+                    labelled("t1", "Interviewer is testing:", "protection.") +
+                    labelled("c1", "A complete answer should:") +
+                    bullets("i1", "name each property", "say which the database enforces") +
+                    """<p data-block-id="w1" data-anchor-text="Worked answer: Bitly (free)."><strong>Worked answer:</strong> <a href="https://example.com/bitly">Bitly</a> (free).</p>""" +
+                    labelled("s1", "Short answer:", "Four guarantees of a transaction.") +
+                    line(
+                        "a1",
+                        "Canonical answer:",
                         "path=core%2Fdatabases%2F07.md&heading=acid-in-practical-language" to
                             "ACID in practical language",
+                        "target=b" to "B",
                     ) +
-                    heading(8, "2. Why isolation levels?", 3) +
-                    block(9, "Interviewer is testing: the dial.", "p") +
-                    heading(10, "Detail", 4) +
-                    answer(11, "Canonical answer", "path=core%2Fa.md&heading=a" to "A", "target=b" to "B") +
-                    heading(12, "Diagnosis") +
-                    heading(13, "1. Why 503?", 3) +
-                    "<ul>" +
-                    block(14, "check the route") +
-                    "</ul>" +
-                    answer(15, "Canonical answer", "path=core%2Froutes.md" to "Routes")
-            )
-        val questions = interviewBank(html, bank).questions
-        assertEquals(listOf("What is ACID?", "Why isolation levels?", "Why 503?"), questions.map { it.text })
-        assertEquals(listOf("b4", "b8", "b13"), questions.map { it.blockId })
-        assertEquals(listOf(emptyList<String>(), emptyList(), emptyList()), questions.map { it.followUps })
-        assertEquals(listOf("Foundations", "Foundations", "Diagnosis"), questions.map { it.level })
-        assertEquals(
-            StudyAnswer(
-                "b7",
-                "Canonical answer: ACID in practical language",
-                listOf(
-                    AnswerLink(null, "core/databases/07.md", "acid-in-practical-language", "ACID in practical language")
-                ),
-            ),
-            questions[0].answer,
-        )
-        assertEquals(
-            listOf(AnswerLink(null, "core/a.md", "a", "A"), AnswerLink("b", null, null, "B")),
-            questions[1].answer.links,
-        )
-        assertEquals("Canonical answer: A and B", questions[1].answer.text)
-        // The guide is what to check an answer against; the answer line itself is shown as its linked sections.
-        assertEquals(
-            listOf("Interviewer is testing: protection.", "A complete answer should: name each property."),
-            questions[0].guide,
-        )
-        assertEquals(listOf("check the route"), questions[2].guide)
-    }
-
-    @Test
-    fun sectionNamesAndNumbersOnlyLabelSoTheContractsOwnTemplateIsOneQuestion() {
-        // The bank contract's template: an unnumbered H3 with a bulleted checklist, under a section name never
-        // measured.
-        val html =
-            page(
-                heading(0, "Behavioural") +
-                    heading(1, "What is the difference between replication and sharding?", 3) +
-                    block(2, "Interviewer is testing: copying versus splitting.", "p") +
-                    block(3, "A complete answer should cover:", "p") +
-                    "<ul>" +
-                    block(4, "what each technique does;") +
-                    block(5, "one cost of each.") +
-                    "</ul>" +
-                    answer(
-                        6,
-                        "Canonical answer",
-                        "path=core%2Fr.md&heading=replication-versus-sharding" to "Replication versus sharding",
-                    )
-            )
-        val bank = interviewBank(html, bank)
-        assertEquals(listOf("What is the difference between replication and sharding?"), bank.questions.map { it.text })
-        assertEquals("Behavioural", bank.questions.single().level)
-        assertEquals(
-            listOf(
-                "Interviewer is testing: copying versus splitting.",
-                "A complete answer should cover:",
-                "what each technique does;",
-                "one cost of each.",
-            ),
-            bank.questions.single().guide,
-        )
-        assertEquals(emptyList<BankProblem>(), bank.unrecognized)
-    }
-
-    @Test
-    fun aFollowUpGroupIsOneQuestionAskingEveryItem() {
-        val html =
-            page(
-                heading(0, "3. Design follow-ups") +
-                    block(1, "Asked after a design.", "p") +
-                    heading(2, "After you add a cache", 3) +
-                    "<ol>" +
-                    block(3, "Which key?") +
-                    "<li>What expires?<ul>" +
-                    block(4, "A hint") +
-                    "</ul></li></ol>" +
-                    answer(
-                        5,
-                        "Canonical path",
-                        "path=core%2Fc.md&heading=caching" to "Caching",
-                        "path=core%2Fc.md&heading=expiry" to "Expiry",
-                    ) +
-                    heading(6, "1. How many threads?", 3) +
-                    answer(7, "Canonical answer", "path=core%2Fs.md" to "Sizing")
+                    heading("h2", "Diagnosis", 2) +
+                    question(2, "2. Why 503?")
             )
         val parsed = interviewBank(html, bank)
-        val questions = parsed.questions
-        assertEquals(listOf("After you add a cache", "How many threads?"), questions.map { it.text })
-        assertEquals(listOf("b2", "b6"), questions.map { it.blockId })
-        assertEquals(listOf("Which key?", "What expires?"), questions[0].followUps)
-        assertEquals("After you add a cache\n\n1. Which key?\n2. What expires?", questions[0].prompt)
-        assertEquals(listOf("Caching", "Expiry"), questions[0].answer.links.map { it.text })
-        assertEquals(emptyList<String>(), questions[0].guide)
-        assertEquals("How many threads?", questions[1].prompt)
         assertEquals(emptyList<BankProblem>(), parsed.unrecognized)
-    }
-
-    @Test
-    fun aHeadingWithoutACanonicalLineIsNotAQuestionButIsListed() {
-        val html =
-            page(
-                heading(0, "Stretch") +
-                    heading(1, "1. Why?", 3) +
-                    block(2, "Interviewer is testing: depth.", "p") +
-                    heading(3, "After you deploy", 3) +
-                    answer(4, "Canonical path", "path=core%2Fd.md" to "Deploys") +
-                    heading(5, "2. How?", 3) +
-                    answer(6, "Canonical answer", "path=core%2Fh.md" to "How") +
-                    heading(7, "3. Which?", 3) +
-                    // One spelling only: the plural is no answer line.
-                    answer(8, "Canonical answers", "path=core%2Fw.md" to "Which")
-            )
-        val bank = interviewBank(html, bank)
-        // A path with no items asks its heading alone.
-        assertEquals(listOf("After you deploy", "How?"), bank.questions.map { it.prompt })
-        assertEquals(listOf(BankProblem("b1", "1. Why?"), BankProblem("b7", "3. Which?")), bank.unrecognized)
-    }
-
-    @Test
-    fun aCanonicalLineThatMakesNoQuestionIsListedToo() {
-        val html =
-            page(
-                heading(0, "Applied questions") +
-                    // Under no question heading.
-                    answer(1, "Canonical answer", "target=x" to "X") +
-                    // Questions written as H4s under one H3: which line answers the H3 is unknown.
-                    heading(2, "Transactions", 3) +
-                    heading(3, "1. Why?", 4) +
-                    answer(4, "Canonical answer", "target=a" to "A") +
-                    heading(5, "2. How?", 4) +
-                    answer(6, "Canonical answer", "target=b" to "B")
-            )
-        val bank = interviewBank(html, bank)
-        assertEquals(emptyList<StudyQuestion>(), bank.questions)
+        val (acid, diagnosis) = parsed.questions
         assertEquals(
-            listOf(BankProblem("b1", "Canonical answer: X"), BankProblem("b2", "Transactions")),
-            bank.unrecognized,
+            StudyQuestion(
+                "q1",
+                "What is ACID?",
+                StudyAnswer(
+                    "a1",
+                    "Canonical answer: ACID in practical language and B",
+                    listOf(
+                        AnswerLink(
+                            null,
+                            "core/databases/07.md",
+                            "acid-in-practical-language",
+                            "ACID in practical language",
+                        ),
+                        AnswerLink("b", null, null, "B"),
+                    ),
+                ),
+                shortAnswer = "Four guarantees of a transaction.",
+                testing = "protection.",
+                checklist = listOf("name each property", "say which the database enforces"),
+                material =
+                    listOf(
+                        PromptBlock.Paragraph("Evidence:"),
+                        PromptBlock.Code("\$ ls\nREADME"),
+                        PromptBlock.Items(listOf("one", "two"), ordered = true),
+                    ),
+                worked = LinkedText("Bitly (free).", listOf(WebLink("Bitly", "https://example.com/bitly"))),
+                level = "Foundations",
+            ),
+            acid,
         )
+        assertEquals("What is ACID?", acid.prompt)
+        assertEquals("Diagnosis", diagnosis.level)
+        assertEquals("It is 2.", diagnosis.shortAnswer)
+        assertNull(diagnosis.worked)
+    }
+
+    @Test
+    fun aPathAsksItsPromptListsTopLevelItemsAsFollowUpsAndShowsTheRest() {
+        val html =
+            page(
+                heading("h0", "3. Design follow-ups", 2) +
+                    heading("q1", "After you add a cache") +
+                    paragraph("p1", "Assume one region.") +
+                    "<ol>" +
+                    """<li data-block-id="f0" data-anchor-text="Which key?">Which key?</li>""" +
+                    "<li>What expires?<ul>" +
+                    """<li data-block-id="f1" data-anchor-text="A hint">A hint</li>""" +
+                    "</ul></li></ol>" +
+                    parts(1, "Canonical path:").joinToString("")
+            )
+        val question = interviewBank(html, bank).questions.single()
+        assertEquals(listOf("Which key?", "What expires?"), question.followUps)
+        assertEquals("After you add a cache\n\n1. Which key?\n2. What expires?", question.prompt)
+        assertEquals(listOf(PromptBlock.Paragraph("Assume one region.")), question.material)
+        assertEquals("Canonical path: Section 1", question.answer.text)
+    }
+
+    @Test
+    fun aQuestionBreakingTheShapeIsAWarningNamingTheFirstRuleItBreaks() {
+        val worked =
+            """<p data-block-id="w" data-anchor-text="Worked answer: see notes"><strong>Worked answer:</strong> see notes</p>"""
+        val cases: List<Pair<String, (MutableList<String>) -> Unit>> =
+            listOf(
+                "no Canonical line" to { it.removeAt(4) },
+                "more than one Canonical line" to { it += line("a9", "Canonical answer:", "target=y" to "Y") },
+                "no “Interviewer is testing:”" to { it.removeAt(0) },
+                "no “A complete answer should:”" to
+                    {
+                        it.removeAt(2)
+                        it.removeAt(1)
+                    },
+                "no “Short answer:”" to { it.removeAt(3) },
+                "labels out of order" to { it.add(0, it.removeAt(3)) },
+                "“Short answer:” twice" to { it.add(3, labelled("s9", "Short answer:", "Again.")) },
+                "unknown label “A complete answer should cover:”" to
+                    {
+                        it[1] = labelled("c9", "A complete answer should cover:")
+                    },
+                "the checklist is not a bullet list under its label" to
+                    {
+                        it[1] = labelled("c9", "A complete answer should:", "name it; say why")
+                        it.removeAt(2)
+                    },
+                "a list after the labels" to { it[2] = bullets("i9", "name it", tag = "ol") },
+                "the checklist nests bullets" to
+                    {
+                        it[2] =
+                            "<ul><li>name it<ul>" +
+                                """<li data-block-id="n" data-anchor-text="x">x</li>""" +
+                                "</ul></li></ul>"
+                    },
+                "a paragraph after the labels" to { it.add(4, paragraph("z", "An aside.")) },
+                "a --- rule after the labels" to { it += "<hr>" },
+                "a #### heading after the labels" to { it.add(4, heading("h9", "Detail", 4)) },
+                "a table in the prompt" to
+                    {
+                        it.add(0, """<table><tr><td data-block-id="td" data-anchor-text="x">x</td></tr></table>""")
+                    },
+                "“Short answer:” has no text" to { it[3] = labelled("s9", "Short answer:") },
+                "“Interviewer is testing:” has no text" to { it[0] = labelled("t9", "Interviewer is testing:") },
+                "“Worked answer:” links nothing" to { it.add(3, worked) },
+                "the Canonical line links no note" to
+                    {
+                        it[4] =
+                            """<p data-block-id="a9" data-anchor-text="Canonical answer: see"><strong>Canonical answer:</strong> see</p>"""
+                    },
+            )
+        for ((rule, breaks) in cases) {
+            val blocks = parts(1).also(breaks)
+            val parsed = interviewBank(page(question(1, "1. Why?", blocks)), bank)
+            assertEquals(rule, emptyList<StudyQuestion>(), parsed.questions)
+            assertEquals(rule, listOf(BankProblem("q1", "1. Why? — $rule")), parsed.unrecognized)
+        }
+    }
+
+    @Test
+    fun onlyABoldLabelIsALabel() {
+        // A plain "Canonical answer:" is prose: neither a question's line nor a stray one.
+        val parsed =
+            interviewBank(
+                page(
+                    question(1, "Why?", parts(1).also { it[4] = paragraph("a1", "Canonical answer: Plain") }) +
+                        paragraph("a2", "Canonical answer: Plain")
+                ),
+                bank,
+            )
+        assertEquals(listOf(BankProblem("q1", "Why? — no Canonical line")), parsed.unrecognized)
+    }
+
+    @Test
+    fun aCanonicalLineUnderNoQuestionIsListedToo() {
+        val parsed =
+            interviewBank(
+                page(heading("h0", "Applied questions", 2) + line("a0", "Canonical answer:", "target=x" to "X")),
+                bank,
+            )
+        assertEquals(emptyList<StudyQuestion>(), parsed.questions)
+        assertEquals(listOf(BankProblem("a0", "Canonical answer: X")), parsed.unrecognized)
     }
 
     @Test
     fun repeatedHeadingsKeepTheirOwnBlocksRatherThanTheFirstMatchingText() {
-        val html =
-            page(
-                heading(0, "Repeated", 3) +
-                    block(1, "Canonical answer: X", "p") +
-                    heading(2, "Repeated", 3) +
-                    heading(3, "Repeated", 3)
-            )
-        val parsed = interviewBank(html, bank)
-        assertEquals(listOf("b0"), parsed.questions.map { it.blockId })
-        assertEquals(listOf(BankProblem("b2", "Repeated"), BankProblem("b3", "Repeated")), parsed.unrecognized)
+        val parsed =
+            interviewBank(page(question(1, "Repeated") + heading("r2", "Repeated") + heading("r3", "Repeated")), bank)
+        assertEquals(listOf("q1"), parsed.questions.map { it.blockId })
+        assertEquals(
+            listOf(
+                BankProblem("r2", "Repeated — no Canonical line"),
+                BankProblem("r3", "Repeated — no Canonical line"),
+            ),
+            parsed.unrecognized,
+        )
     }
 
     @Test
@@ -212,37 +237,23 @@ class StudyTest {
         val parsed =
             interviewBank(
                 page(
-                    heading(1, "First?", 3) +
-                        block(2, "Canonical answer: X", "p") +
-                        heading(3, "Second?", 3) +
-                        block(4, "Canonical answer: X", "p") +
-                        heading(5, "Different?", 3) +
-                        block(6, "Canonical answer: Y", "p")
+                    question(1, "First?") +
+                        question(
+                            2,
+                            "Second?",
+                            parts(2).also { it[4] = line("a2", "Canonical answer:", "target=z" to "Section 1") },
+                        ) +
+                        question(3, "Different?")
                 ),
                 bank,
             )
         assertEquals(listOf("First?", "Different?"), parsed.questions.map { it.text })
-        assertEquals(listOf(BankProblem("b3", "Second? — repeats a Canonical line")), parsed.unrecognized)
-    }
-
-    @Test
-    fun anAnswerLineWithoutALinkStillMakesAQuestion() {
-        val question =
-            interviewBank(page(heading(0, "1. Why?", 3) + block(1, "Canonical answer: see the note", "p")), bank)
-                .questions
-                .single()
-        assertEquals(StudyAnswer("b1", "Canonical answer: see the note", emptyList()), question.answer)
-        assertNull(question.level)
+        assertEquals(listOf(BankProblem("q2", "Second? — repeats a Canonical line")), parsed.unrecognized)
     }
 
     @Test
     fun questionsComeOnlyFromNotesInAnInterviewFolder() {
-        val html =
-            page(
-                heading(0, "Applied questions") +
-                    heading(1, "1. A bank question?", 3) +
-                    answer(2, "Canonical answer", "target=x" to "X")
-            )
+        val html = page(heading("h0", "Applied questions", 2) + question(1, "1. A bank question?"))
         assertEquals(1, interviewBank(html, "interview/one.md").questions.size)
         for (path in listOf("core/databases/07-transactions.md", "core/interview.md", "core/interviews/one.md")) {
             assertEquals(path, InterviewBank(emptyList(), emptyList()), interviewBank(html, path))
@@ -270,10 +281,16 @@ class StudyTest {
                 "<a class=\"wikilink\" href=\"/note-link?target=raft\"><span class=\"wl-hidden\">[[raft|</span>Raft<span class=\"wl-hidden\">]]</span></a>" +
                 " elect?<sup class=\"fn-ref\" data-footnote=\"1\"><span class=\"wl-hidden\">[^1]</span></sup></h3>"
         val line =
-            "<p data-block-id=\"b2\" data-anchor-text=\"Canonical answer: [[raft#Election|Election]]\">Canonical answer: " +
+            "<p data-block-id=\"b2\" data-anchor-text=\"Canonical answer: [[raft#Election|Election]]\"><strong>Canonical answer:</strong> " +
                 "<a class=\"wikilink\" href=\"/note-link?target=raft&amp;heading=Election\"><span class=\"wl-hidden\">[[raft#Election|</span>Election" +
                 "<span class=\"wl-hidden\">]]</span></a></p>"
-        val question = interviewBank(page(heading(0, "Foundations") + linked + line), bank).questions.single()
+        val question =
+            interviewBank(
+                    page(heading("h0", "Foundations", 2) + linked + parts(1).dropLast(1).joinToString("") + line),
+                    bank,
+                )
+                .questions
+                .single()
         assertEquals("How does Raft elect?", question.text)
         assertEquals(listOf(AnswerLink("raft", null, "Election", "Election")), question.answer.links)
     }

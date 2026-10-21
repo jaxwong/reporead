@@ -1,6 +1,5 @@
 package com.reporead.android.study
 
-import android.webkit.WebView
 import androidx.compose.material3.MaterialTheme
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
@@ -24,8 +23,6 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReviewLimitRow
 import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.findText
-import com.reporead.android.findWebView
-import com.reporead.android.pageBounds
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.sync.Sync
@@ -108,34 +105,33 @@ class ReviewLifecycleTest {
     }
 
     @Test
-    fun aBankCardShowsItsCurrentPromptAndLabelsAnOlderLinkedSectionAsSupplementary() =
+    fun aBankCardAsksItsCurrentQuestionAndOpensItsLinkedSectionInTheNote() =
         runBlocking<Unit> {
             val dao = store.library()
             val bankPath = "test-only/interview/bank.md"
-            val corePath = "test-only/core.md"
             val line = "Canonical answer: Test-only core"
+            val short = "Test-only review short answer."
+            fun labelled(id: String, label: String, text: String = "") =
+                """<p data-block-id="$id" data-anchor-text="$label $text"><strong>$label</strong> $text</p>"""
             val bank =
                 testPage(
                     sha,
                     """<h3 data-block-id="b1" data-anchor-text="Current test-only bank prompt?">Current test-only bank prompt?</h3>""" +
+                        """<p data-block-id="e1" data-anchor-text="Test-only review evidence.">Test-only review evidence.</p>""" +
+                        labelled("t1", "Interviewer is testing:", "Test-only recall.") +
+                        labelled("c1", "A complete answer should:") +
+                        """<ul><li data-block-id="i1" data-anchor-text="Test-only review point">Test-only review point</li></ul>""" +
+                        labelled("s1", "Short answer:", short) +
                         """<p data-block-id="b2" data-anchor-text="$line"><strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Fcore.md&amp;heading=answer">Test-only core</a></p>""",
-                )
-            val oldCoreSha = "b".repeat(40)
-            val core =
-                testPage(
-                    oldCoreSha,
-                    """<h2 data-block-id="c1" data-anchor-text="Answer">Answer</h2>""" +
-                        """<p data-block-id="c2" data-anchor-text="Test-only supplementary section.">Test-only supplementary section.</p>""",
                 )
             dao.replaceDocuments(
                 7,
                 listOf(
                     DocumentRow(1, 7, bankPath, "Test-only bank", sha),
-                    DocumentRow(2, 7, corePath, "Test-only core", "c".repeat(40)),
+                    DocumentRow(2, 7, "test-only/core.md", "Test-only core", "c".repeat(40)),
                 ),
             )
             dao.saveNoteWithoutSearch(NoteRow(1, sha, bankPath, "Test-only bank", bank, 0))
-            dao.saveNoteWithoutSearch(NoteRow(2, oldCoreSha, corePath, "Test-only core", core, 0))
             dao.saveAnnotation(
                 AnnotationRow(
                     "bank-card",
@@ -155,42 +151,34 @@ class ReviewLifecycleTest {
                     checkedBlobSha = sha,
                 )
             )
+            val sync =
+                Sync(
+                    Api("http://127.0.0.1:1", { StoredSession.Absent }) {},
+                    store,
+                    File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
+                ) {}
+            val pushed = mutableListOf<Screen>()
+            TestHostActivity.content =
+                TestEntries(Screen.Review).content { entry ->
+                    MaterialTheme { ReviewScreen(dao, sync, entry.id, push = { pushed += it }, onBack = {}) }
+                }
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("Current test-only bank prompt?")
+                awaitText("Test-only review evidence.")
                 assertNull(findText(root(), "Old test-only bank prompt?"))
-                val prepared =
-                    withTimeout(10_000) {
-                        var page: WebView? = null
-                        while (page == null) {
-                            scenario.onActivity { page = findWebView(it.window.decorView) }
-                            if (page == null) delay(50)
-                        }
-                        checkNotNull(page)
-                    }
-                scenario.onActivity {
-                    assertEquals(0f, prepared.alpha)
-                    assertNull("No virtual answer nodes before reveal", prepared.accessibilityNodeProvider)
-                    assertTrue("No hidden native keyboard focus", !prepared.requestFocus())
-                }
-                assertNull(findText(root(), line))
-                assertNull(findText(root(), "Linked section · saved copy"))
-                assertNull(findText(root(), "The saved copy is an older version of this note."))
-                assertNull(findText(root(), "Good"))
-                assertNull(findText(root(), "Open in note"))
-                val bounds = pageBounds(scenario)
+                for (text in
+                    listOf(short, "Test-only review point", "Test-only core", "Good", "Open in note")) assertNull(
+                    "No answer in accessibility before reveal: $text",
+                    findText(root(), text),
+                )
                 click("Show answer")
-                awaitText(line)
-                awaitText("Your grade confirms only this Canonical line. The linked section is supplementary.")
-                awaitText("Linked section · saved copy")
-                awaitText("The saved copy is an older version of this note.")
+                awaitText(short)
+                awaitText("Test-only review point")
                 awaitText("Good")
-                scenario.onActivity {
-                    assertSame(prepared, findWebView(it.window.decorView))
-                }
-                assertEquals("Review keeps its prepared viewport", bounds, pageBounds(scenario))
                 scenario.recreate()
-                awaitText("Current test-only bank prompt?")
-                awaitText("The saved copy is an older version of this note.")
+                awaitText(short)
+                click("Test-only core")
+                assertEquals(listOf(Screen.Reader(2, "Test-only core", OpenAt.Heading("answer"))), pushed)
             }
         }
 
