@@ -405,7 +405,7 @@ internal class ReaderSession(
                 pending = true,
             )
         if (sync.saveReading(row))
-            AppLog.info(
+            AppLog.debug(
                 "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} block=$block " +
                     "viewHeight=${view.height}"
             )
@@ -539,7 +539,7 @@ internal class ReaderSession(
     fun setStudy(enabled: Boolean) {
         val webView = openedView() ?: return
         touched = false
-        AppLog.info("Study view changed; documentId=${note.documentId} enabled=$enabled")
+        AppLog.debug("Study view changed; documentId=${note.documentId} enabled=$enabled")
         appScope.launch {
             webView.evaluate("window.reporead.setStudy($enabled)")
             save(webView)
@@ -557,7 +557,7 @@ internal class ReaderSession(
         }
         val clipboard = webView.context.getSystemService(ClipboardManager::class.java)
         clipboard.setPrimaryClip(ClipData.newPlainText("Code", text))
-        AppLog.info("Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
+        AppLog.debug("Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
     }
 
     /**
