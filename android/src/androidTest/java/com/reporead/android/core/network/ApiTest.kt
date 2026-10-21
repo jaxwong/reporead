@@ -3,6 +3,7 @@
 package com.reporead.android.core.network
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
 import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
@@ -27,8 +28,14 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -151,41 +158,114 @@ class ApiTest {
                 "POST /api/annotations/9/check" to (200 to wire(testHighlight())),
                 "POST /api/annotations/10/reviews" to (200 to wire(testReview())),
             )
-        LoopbackServer(routes).use { server ->
-            val api = Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) { fail("No 401 expected") }
-            api.exchangeToken(
-                AppAuthControllerTokenRequest(
-                    code = "TEST_ONLY_CODE",
-                    codeVerifier = "TEST_ONLY_VERIFIER",
-                )
+        val answers =
+            LoopbackServer(routes).use { server ->
+                val api = Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) { fail("No 401 expected") }
+                listOf(
+                        api.exchangeToken(
+                            AppAuthControllerTokenRequest(
+                                code = "TEST_ONLY_CODE",
+                                codeVerifier = "TEST_ONLY_VERIFIER",
+                            )
+                        ),
+                        api.revokeSession(),
+                        api.deleteAccount(),
+                        api.library(),
+                        api.availableRepositories(),
+                        api.connectRepository(11, connect),
+                        api.syncRepository(7),
+                        api.storedData(7),
+                        api.disconnectRepository(7),
+                        api.noteContent(1),
+                        api.noteImage(1, testCommit, "img/a b.png").also {
+                            assertEquals("TEST_ONLY_BYTES", it.toString(Charsets.UTF_8))
+                        },
+                        api.saveReading(1, reading(50, testAt)),
+                        api.setBookmark(1),
+                        api.clearBookmark(1),
+                        api.annotations(1),
+                        api.createAnnotation(1, create),
+                        api.editAnnotation(9, edit),
+                        api.deleteAnnotation(9, 1),
+                        api.reattachAnnotation(9, reattach),
+                        api.checkCard(9, check),
+                        api.recordReview(10, grade),
+                    )
+                    .also { assertEquals(routes.keys.toList(), server.requests) }
+            }
+        val replayed =
+            LoopbackServer(mapOf("POST /api/documents/1/annotations" to (200 to wire(testHighlight())))).use { server ->
+                Api(server.url, { StoredSession.Absent }) {}
+                    .createAnnotation(1, create)
+                    .also { assertEquals(1, server.requests.size) }
+            }
+
+        // Each request, the status it was answered with, and what Api decoded, against what the backend publishes.
+        val served =
+            routes.entries.zip(answers) { (request, answer), decoded -> Triple(request, answer.first, decoded) } +
+                Triple("POST /api/documents/1/annotations", 200, replayed)
+        for ((request, status, decoded) in served) {
+            val operation = publishedOperation(request)
+            val query =
+                request.substringAfter('?', "").split('&').filter(String::isNotEmpty).map { it.substringBefore('=') }
+            val published =
+                operation["parameters"]?.jsonArray.orEmpty().map { it.jsonObject }.filter { it.text("in") == "query" }
+            assertTrue("$request sends $query", published.map { it.text("name") }.containsAll(query))
+            assertTrue(
+                "$request sends $query",
+                query.containsAll(
+                    published.filter { it.getValue("required").jsonPrimitive.boolean }.map { it.text("name") }
+                ),
             )
-            api.revokeSession()
-            api.deleteAccount()
-            api.library()
-            api.availableRepositories()
-            api.connectRepository(11, connect)
-            api.syncRepository(7)
-            api.storedData(7)
-            api.disconnectRepository(7)
-            api.noteContent(1)
-            assertEquals("TEST_ONLY_BYTES", api.noteImage(1, testCommit, "img/a b.png").toString(Charsets.UTF_8))
-            api.saveReading(1, reading(50, testAt))
-            api.setBookmark(1)
-            api.clearBookmark(1)
-            api.annotations(1)
-            api.createAnnotation(1, create)
-            api.editAnnotation(9, edit)
-            api.deleteAnnotation(9, 1)
-            api.reattachAnnotation(9, reattach)
-            api.checkCard(9, check)
-            api.recordReview(10, grade)
-            assertEquals(routes.keys.toList(), server.requests)
+            val response = operation.getValue("responses").jsonObject["$status"]
+            assertNotNull("$request is answered $status, which the backend does not publish", response)
+            assertEquals(request, publishedType(response!!.jsonObject), decodedType(decoded))
         }
-        LoopbackServer(mapOf("POST /api/documents/1/annotations" to (200 to wire(testHighlight())))).use { server ->
-            Api(server.url, { StoredSession.Absent }) {}.createAnnotation(1, create)
-            assertEquals(1, server.requests.size)
+        for ((request, statuses) in served.groupBy({ it.first }, { "${it.second}" })) {
+            assertEquals(
+                "$request: the statuses Api accepts here",
+                publishedOperation(request).getValue("responses").jsonObject.keys,
+                statuses.toSet(),
+            )
         }
     }
+
+    /** The backend's published API (backend/openapi.json), which the build puts into this test APK's assets. */
+    private val publishedPaths by lazy {
+        InstrumentationRegistry.getInstrumentation().context.assets.open("openapi.json").bufferedReader().use {
+            wireJson.parseToJsonElement(it.readText()).jsonObject.getValue("paths").jsonObject
+        }
+    }
+
+    /** The one published operation that "METHOD /path?query" reaches; a path parameter matches one segment. */
+    private fun publishedOperation(request: String): JsonObject {
+        val (method, target) = request.split(' ', limit = 2)
+        val path = target.substringBefore('?')
+        val reached = publishedPaths.filter { (template, operations) ->
+            method.lowercase() in operations.jsonObject &&
+                Regex(template.split(Regex("\\{[^/]+\\}")).joinToString("[^/]+", transform = Regex::escape))
+                    .matches(path)
+        }
+        assertEquals("$request must reach exactly one published operation", 1, reached.size)
+        return reached.values.single().jsonObject.getValue(method.lowercase()).jsonObject
+    }
+
+    private fun JsonObject.text(key: String) = getValue(key).jsonPrimitive.content
+
+    /** A published answer's type: its schema's name, "binary", or "none" when it has no body. */
+    private fun publishedType(response: JsonObject): String {
+        val schema =
+            response["content"]?.jsonObject?.values?.single()?.jsonObject?.getValue("schema")?.jsonObject
+                ?: return "none"
+        return schema["\$ref"]?.jsonPrimitive?.content?.substringAfterLast('/') ?: schema.text("format")
+    }
+
+    private fun decodedType(answer: Any) =
+        when (answer) {
+            Unit -> "none"
+            is ByteArray -> "binary"
+            else -> answer.javaClass.simpleName
+        }
 
     @Test
     fun unexpectedSuccessStatusesAndUnrelatedAnswersNeverCountAsConfirmation() = runBlocking {

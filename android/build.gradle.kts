@@ -35,14 +35,17 @@ val bundleReader = tasks.register<BundleReader>("bundleReader") {
     doFirst { commandLine("npm", "run", "build", "--", assetDirectory.get().asFile.absolutePath) }
 }
 
+/** The backend's published API, which OpenApiSpecTest derives from the controllers and records. */
+val publishedApi = rootProject.layout.projectDirectory.file("backend/openapi.json")
+
 /*
- * The app's wire models are generated from the backend's published API (backend/openapi.json, which OpenApiSpecTest
- * derives from the controllers and records), so no shape is declared twice. Numbers and booleans map to WireJson.kt's
- * aliases, which makes each one @Contextual and decoded by wireJson's strict serializers; times are Instants the same way.
+ * The app's wire models are generated from the backend's published API, so no shape is declared twice. Numbers and
+ * booleans map to WireJson.kt's aliases, which makes each one @Contextual and decoded by wireJson's strict serializers;
+ * times are Instants the same way.
  */
 val wireModels = tasks.register<org.openapitools.generator.gradle.plugin.tasks.GenerateTask>("wireModels") {
     generatorName.set("kotlin")
-    inputSpec.set(rootProject.layout.projectDirectory.file("backend/openapi.json"))
+    inputSpec.set(publishedApi)
     outputDir.set(layout.buildDirectory.dir("generated/wire"))
     cleanupOutput.set(true)
     packageName.set("com.reporead.android.core.network.wire")
@@ -193,9 +196,25 @@ tasks.matching {
     }
 }
 
+/*
+ * Api's routes (method, path, query and statuses) are typed by hand, unlike the generated models. The device tests get
+ * the published API as an asset, and ApiTest checks every route against it.
+ */
+abstract class PublishedApiAsset : DefaultTask() {
+    @get:InputFile abstract val spec: RegularFileProperty
+    @get:OutputDirectory abstract val assetDirectory: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        spec.get().asFile.copyTo(assetDirectory.file("openapi.json").get().asFile, overwrite = true)
+    }
+}
+val publishedApiAsset = tasks.register<PublishedApiAsset>("publishedApiAsset") { spec.set(publishedApi) }
+
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(bundleReader, BundleReader::assetDirectory)
     variant.sources.kotlin?.addGeneratedSourceDirectory(wireModels) { it.outputDir }
+    variant.androidTest?.sources?.assets?.addGeneratedSourceDirectory(publishedApiAsset, PublishedApiAsset::assetDirectory)
 }
 
 dependencies {
