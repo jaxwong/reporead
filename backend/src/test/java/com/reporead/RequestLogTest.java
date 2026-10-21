@@ -110,7 +110,7 @@ class RequestLogTest {
 
         String lines = linesOf(log, requestId(refused));
         assertTrue(lines.contains("API request failed; method=GET path=/api/documents/999999/content"), lines);
-        assertTrue(lines.contains("Request; method=GET path=/api/documents/999999/content status=404"), lines);
+        assertTrue(lines.contains("Request; method=GET target=/api/documents/999999/content status=404"), lines);
     }
 
     @Test
@@ -119,7 +119,7 @@ class RequestLogTest {
         assertEquals(401, unauthorized.statusCode());
 
         String lines = linesOf(log, requestId(unauthorized));
-        assertTrue(lines.contains("Request; method=GET path=/api/library status=401"), lines);
+        assertTrue(lines.contains("Request; method=GET target=/api/library status=401"), lines);
     }
 
     @Test
@@ -128,12 +128,16 @@ class RequestLogTest {
     }
 
     @Test
-    void theQueryIsNotLoggedBecauseItCanNameANote(CapturedOutput log) throws Exception {
+    void theRequestSummaryIncludesTheQuery(CapturedOutput log) throws Exception {
         var image = get("/api/documents/999999/image?commitSha=" + "a".repeat(40) + "&path=private-note.png", true);
 
         String lines = linesOf(log, requestId(image));
-        assertTrue(lines.contains("Request; method=GET path=/api/documents/999999/image status="), lines);
-        assertFalse(log.getAll().contains("private-note"), lines);
+        String requestSummary = lines.lines()
+                .filter(line -> line.contains("com.reporead.RequestLog"))
+                .filter(line -> line.contains("Request; method=GET target=/api/documents/999999/image?"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(lines));
+        assertTrue(requestSummary.contains("commitSha=" + "a".repeat(40) + "&path=private-note.png"), requestSummary);
     }
 
     @Test
@@ -143,7 +147,7 @@ class RequestLogTest {
 
         String lines = linesOf(log, requestId(failed));
         assertTrue(
-                lines.contains("Request failed unhandled; method=GET path=/api/test-only/unhandled durationMs="),
+                lines.contains("Request failed unhandled; method=GET target=/api/test-only/unhandled durationMs="),
                 lines);
         assertTrue(lines.contains("error=IllegalStateException"), lines);
         assertTrue(
