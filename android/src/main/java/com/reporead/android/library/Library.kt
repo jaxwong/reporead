@@ -3,7 +3,6 @@
 package com.reporead.android.library
 
 import android.text.format.DateUtils
-import android.util.Log
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +42,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.R
 import com.reporead.android.Screen
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.ChangedNote
@@ -131,10 +131,10 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
     fun syncNow(reason: String = "asked") {
         val now = current.value
         if (now.syncing || !current.compareAndSet(now, now.copy(syncing = true))) {
-            Log.i("RepoRead", "Library sync not started; entry=$entryId reason=$reason running=true")
+            AppLog.info("Library sync not started; entry=$entryId reason=$reason running=true")
             return
         }
-        Log.i("RepoRead", "Library sync started; entry=$entryId reason=$reason")
+        AppLog.info("Library sync started; entry=$entryId reason=$reason")
         viewModelScope.launch {
             val status =
                 try {

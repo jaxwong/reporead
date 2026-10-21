@@ -1,6 +1,5 @@
 package com.reporead.android.study
 
-import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -38,6 +37,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.AnnotationRow
@@ -374,7 +374,7 @@ internal class ReviewViewModel(
     fun skip() {
         val now = current.value
         val session = now.session ?: return
-        if (now.saving) Log.i("RepoRead", "Review skip not taken; entry=$entryId saving=true") else move(session.skip())
+        if (now.saving) AppLog.info("Review skip not taken; entry=$entryId saving=true") else move(session.skip())
     }
 
     /**
@@ -390,10 +390,10 @@ internal class ReviewViewModel(
             return
         }
         if (now.saving || !current.compareAndSet(now, now.copy(saving = true))) {
-            Log.i("RepoRead", "Review grade not saved again; entry=$entryId mutationId=${row.mutationId}")
+            AppLog.info("Review grade not saved again; entry=$entryId mutationId=${row.mutationId}")
             return
         }
-        Log.i("RepoRead", "Review grade started; entry=$entryId mutationId=${row.mutationId}")
+        AppLog.info("Review grade started; entry=$entryId mutationId=${row.mutationId}")
         val review =
             ReviewRow(
                 mutationId = UUID.randomUUID().toString(),
@@ -413,17 +413,17 @@ internal class ReviewViewModel(
     fun confirmCard(row: AnnotationRow, blobSha: String) {
         val now = current.value
         if (now.confirming != null || !current.compareAndSet(now, now.copy(confirming = row.mutationId))) {
-            Log.i("RepoRead", "Card confirmation not started; entry=$entryId confirming=${now.confirming}")
+            AppLog.info("Card confirmation not started; entry=$entryId confirming=${now.confirming}")
             return
         }
-        Log.i("RepoRead", "Card confirmation started; entry=$entryId mutationId=${row.mutationId}")
+        AppLog.info("Card confirmation started; entry=$entryId mutationId=${row.mutationId}")
         viewModelScope.launch {
             try {
                 sync.checkCard(row, blobSha)
                 current.update { it.copy(confirming = null, problems = it.problems - row.mutationId) }
                 current.value.session?.takeIf { it.current == row.mutationId }?.let { move(it.requeue()) }
             } catch (error: ApiException) {
-                Log.w("RepoRead", "Card not confirmed from review; mutationId=${row.mutationId} code=${error.code}")
+                AppLog.warn("Card not confirmed from review; mutationId=${row.mutationId} code=${error.code}")
                 val problem = "Not confirmed: ${error.describe()} Confirming needs the server."
                 current.update { it.copy(confirming = null, problems = it.problems + (row.mutationId to problem)) }
             }

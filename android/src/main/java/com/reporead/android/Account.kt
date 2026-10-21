@@ -2,9 +2,9 @@
 
 package com.reporead.android
 
-import android.util.Log
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.completeSignIn
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import kotlinx.coroutines.CoroutineScope
@@ -50,7 +50,7 @@ class Account(private val store: SessionStore, private val api: Api, private val
     private fun begin(next: AccountState): Boolean {
         val now = current.value
         val started = now is AccountState.Idle && current.compareAndSet(now, next)
-        if (!started) Log.i("RepoRead", "Account operation not started; running=$now requested=$next")
+        if (!started) AppLog.info("Account operation not started; running=$now requested=$next")
         return started
     }
 
@@ -61,9 +61,8 @@ class Account(private val store: SessionStore, private val api: Api, private val
             try {
                 api.revokeSession()
             } catch (error: ApiException) {
-                if (error.status == 401)
-                    Log.i("RepoRead", "Session already ended; status=${error.status} code=${error.code}")
-                else Log.w("RepoRead", "Session revocation failed; status=${error.status} code=${error.code}")
+                if (error.status == 401) AppLog.info("Session already ended; status=${error.status} code=${error.code}")
+                else AppLog.warn("Session revocation failed; status=${error.status} code=${error.code}")
             }
             store.clear()
             current.value = AccountState.Idle(null)
@@ -77,7 +76,7 @@ class Account(private val store: SessionStore, private val api: Api, private val
             try {
                 api.deleteAccount()
             } catch (error: ApiException) {
-                Log.w("RepoRead", "Account deletion not confirmed; status=${error.status} code=${error.code}")
+                AppLog.warn("Account deletion not confirmed; status=${error.status} code=${error.code}")
                 current.value = AccountState.Idle(AccountNotice.DeletionNotConfirmed(error))
                 return@launch
             }

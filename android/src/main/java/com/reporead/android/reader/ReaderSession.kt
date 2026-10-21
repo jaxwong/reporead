@@ -9,7 +9,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.MotionEvent
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -21,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.OpenAt
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
@@ -194,7 +194,7 @@ internal class ReaderSession(
         // Returning false would end the app with the renderer. This page is lost and can run nothing more, so it saves
         // nothing; the position saved last stands.
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-            Log.w("RepoRead", "Reader page stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
+            AppLog.warn("Reader page stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
             main.removeCallbacksAndMessages(null)
             opening?.cancel()
             outline = null
@@ -217,7 +217,7 @@ internal class ReaderSession(
             try {
                 view.context.startActivity(Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE))
             } catch (error: ActivityNotFoundException) {
-                Log.w("RepoRead", "No app for an external note link; scheme=${url.scheme}")
+                AppLog.warn("No app for an external note link; scheme=${url.scheme}")
                 onMessage(
                     if (url.scheme == "mailto") "No email app is installed to open this link."
                     else "No browser is installed to open this link."
@@ -291,7 +291,7 @@ internal class ReaderSession(
             // A page that failed to render shows why itself.
             view.alpha = 1f
             pageVisible = true
-            Log.w("RepoRead", "Reader did not render; position not saved; documentId=${note.documentId} state=$state")
+            AppLog.warn("Reader did not render; position not saved; documentId=${note.documentId} state=$state")
             if (state == "timeout")
                 onMessage(
                     "This note did not finish rendering, so highlights and your reading position are off here. Reopen it to try again."
@@ -303,7 +303,7 @@ internal class ReaderSession(
                 "(window.reporead.configureStudy(${study.json()}), window.reporead.setStudy(${studying()}), true)"
             )
         check(configured == true) { "Study layout failed; documentId=${note.documentId} blobSha=${note.blobSha}" }
-        Log.i("RepoRead", "Reader ready; documentId=${note.documentId} viewHeight=${view.height}")
+        AppLog.info("Reader ready; documentId=${note.documentId} viewHeight=${view.height}")
         val headings = parseOutline(view.evaluate("window.reporead.outline()") as JSONArray)
         val highlights = dao.annotations(note.documentId)
         // Drawn before opening, so that a highlight to open at is on the page.
@@ -317,17 +317,16 @@ internal class ReaderSession(
                 null -> restoreSaved(view)
                 is OpenAt.Heading -> {
                     val found = view.evaluate("window.reporead.showHeading(${JSONObject.quote(openAt.text)})") == true
-                    Log.i("RepoRead", "Reader opened at a linked heading; documentId=${note.documentId} found=$found")
+                    AppLog.info("Reader opened at a linked heading; documentId=${note.documentId} found=$found")
                     if (found) null else missing("No heading “${openAt.text}” in this note.")
                 }
                 is OpenAt.Block -> {
                     val found =
                         note.blobSha == openAt.blobSha &&
                             view.evaluate("window.reporead.showBlock(${JSONObject.quote(openAt.blockId)})") == true
-                    Log.i(
-                        "RepoRead",
+                    AppLog.info(
                         "Reader opened at an exact block; documentId=${note.documentId} " +
-                            "blobSha=${openAt.blobSha} blockId=${openAt.blockId} found=$found",
+                            "blobSha=${openAt.blobSha} blockId=${openAt.blockId} found=$found"
                     )
                     if (found) null
                     else
@@ -340,17 +339,16 @@ internal class ReaderSession(
                     val found =
                         note.blobSha == passage.blobSha &&
                             view.evaluate("window.reporead.reveal(${JSONObject.quote(SEARCH_TARGET_KEY)})") == true
-                    Log.i(
-                        "RepoRead",
+                    AppLog.info(
                         "Reader opened at a search match; documentId=${note.documentId} " +
-                            "blobSha=${passage.blobSha} blockId=${passage.blockId} found=$found",
+                            "blobSha=${passage.blobSha} blockId=${passage.blockId} found=$found"
                     )
                     if (found) null
                     else missing("That search match is not in this version of the note. Search the current note again.")
                 }
                 is OpenAt.Highlight -> {
                     val found = view.evaluate("window.reporead.reveal(${JSONObject.quote(openAt.mutationId)})") == true
-                    Log.i("RepoRead", "Reader opened at a highlight; documentId=${note.documentId} found=$found")
+                    AppLog.info("Reader opened at a highlight; documentId=${note.documentId} found=$found")
                     if (found) null
                     else
                         missing("That passage isn't marked in this version of the note; Highlights and notes says why.")
@@ -375,10 +373,9 @@ internal class ReaderSession(
     private suspend fun restoreSaved(view: WebView): String? {
         val saved = dao.reading(note.documentId) ?: return null
         val mode = view.evaluate("window.reporead.restore(${saved.anchorJson}, ${saved.progressPercent})") as String
-        Log.i(
-            "RepoRead",
+        AppLog.info(
             "Reader restored; documentId=${note.documentId} mode=$mode savedPercent=${saved.progressPercent} " +
-                "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}",
+                "savedBlock=${JSONObject(saved.anchorJson).getInt("blockIndex")} viewHeight=${view.height}"
         )
         return when {
             mode == "collapsed" -> "Resumed at a collapsed study section; tap Show / hide section to reveal it."
@@ -408,10 +405,9 @@ internal class ReaderSession(
                 pending = true,
             )
         if (sync.saveReading(row))
-            Log.i(
-                "RepoRead",
+            AppLog.info(
                 "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} block=$block " +
-                    "viewHeight=${view.height}",
+                    "viewHeight=${view.height}"
             )
     }
 
@@ -521,9 +517,8 @@ internal class ReaderSession(
                 "window.reporead.showBlock(${if (blockId == null) "null" else JSONObject.quote(blockId)})"
             ) == true
         if (!shown)
-            Log.w(
-                "RepoRead",
-                "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId",
+            AppLog.warn(
+                "Changed section not found; documentId=${note.documentId} blobSha=${note.blobSha} blockId=$blockId"
             )
         return shown
     }
@@ -544,7 +539,7 @@ internal class ReaderSession(
     fun setStudy(enabled: Boolean) {
         val webView = openedView() ?: return
         touched = false
-        Log.i("RepoRead", "Study view changed; documentId=${note.documentId} enabled=$enabled")
+        AppLog.info("Study view changed; documentId=${note.documentId} enabled=$enabled")
         appScope.launch {
             webView.evaluate("window.reporead.setStudy($enabled)")
             save(webView)
@@ -557,12 +552,12 @@ internal class ReaderSession(
         // A link in the note's own text can name /copy-code with something that is not a code block.
         val text = webView.evaluate("window.reporead.codeText(${JSONObject.quote(blockId)})") as? String
         if (text == null) {
-            Log.w("RepoRead", "Copy link names no code block; documentId=${note.documentId} block=$blockId")
+            AppLog.warn("Copy link names no code block; documentId=${note.documentId} block=$blockId")
             return
         }
         val clipboard = webView.context.getSystemService(ClipboardManager::class.java)
         clipboard.setPrimaryClip(ClipData.newPlainText("Code", text))
-        Log.i("RepoRead", "Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
+        AppLog.info("Code copied; documentId=${note.documentId} block=$blockId chars=${text.length}")
     }
 
     /**

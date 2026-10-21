@@ -2,9 +2,9 @@
 
 package com.reporead.android.core.network
 
-import android.util.Log
 import com.reporead.android.BuildConfig
 import com.reporead.android.auth.StoredSession
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.wire.AccountDeletionDeleted
 import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
 import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
@@ -13,6 +13,7 @@ import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
 import com.reporead.android.core.network.wire.AnnotationsAnnotation
 import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
+import com.reporead.android.core.network.wire.AppLogControllerUploadRequest
 import com.reporead.android.core.network.wire.AppSessionsIssuedSession
 import com.reporead.android.core.network.wire.BookmarksBookmark
 import com.reporead.android.core.network.wire.ConnectionDeletionCounts
@@ -135,6 +136,9 @@ class Api(
     suspend fun checkCard(id: Long, request: AnnotationControllerCheckRequest): AnnotationsAnnotation =
         json("POST", "/api/annotations/$id/check", wireJson.encodeToString(request)) { it.id == id }
 
+    suspend fun uploadAppLog(request: AppLogControllerUploadRequest) =
+        noContent("POST", "/api/app-logs", wireJson.encodeToString(request))
+
     suspend fun recordReview(id: Long, request: ReviewControllerGradeRequest): ReviewsReview =
         json("POST", "/api/annotations/$id/reviews", wireJson.encodeToString(request)) {
             it.mutationId == request.mutationId && it.grade == request.grade && it.blobSha == request.blobSha
@@ -170,9 +174,9 @@ class Api(
             answer
         }
 
-    private suspend fun noContent(method: String, path: String): Unit =
+    private suspend fun noContent(method: String, path: String, body: String? = null): Unit =
         withContext(Dispatchers.IO) {
-            execute(method, path, null, MAX_JSON_BYTES, "application/json", setOf(204))
+            execute(method, path, body, MAX_JSON_BYTES, "application/json", setOf(204))
             Unit
         }
 
@@ -219,10 +223,9 @@ class Api(
                         try {
                             wireJson.decodeFromString<Failure>(bytes.toString(Charsets.UTF_8))
                         } catch (unreadable: IllegalArgumentException) {
-                            Log.w(
-                                "RepoRead",
+                            AppLog.warn(
                                 "Error response is not RepoRead's JSON; method=$method path=$route status=$status " +
-                                    "requestId=$requestId",
+                                    "requestId=$requestId"
                             )
                             null
                         }
@@ -234,16 +237,14 @@ class Api(
                     error?.message ?: "RepoRead's server returned HTTP $status.",
                     requestId = requestId,
                 )
-            Log.w(
-                "RepoRead",
-                "Backend refused; method=$method path=$route status=$status code=${failure.code} requestId=$requestId",
+            AppLog.warn(
+                "Backend refused; method=$method path=$route status=$status code=${failure.code} requestId=$requestId"
             )
             throw failure
         } catch (error: IOException) {
-            Log.w(
-                "RepoRead",
+            AppLog.warn(
                 "Backend I/O failed; method=$method path=$route status=$status requestId=$requestId " +
-                    "error=${error.javaClass.simpleName}",
+                    "error=${error.javaClass.simpleName}"
             )
             throw ApiException(
                 0,

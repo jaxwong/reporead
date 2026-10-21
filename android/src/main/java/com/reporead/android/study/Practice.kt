@@ -1,6 +1,5 @@
 package com.reporead.android.study
 
-import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,6 +34,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NewCardGrade
 import com.reporead.android.data.NotebookItem
@@ -280,8 +280,7 @@ internal class PracticeViewModel(
     fun skip() {
         val now = current.value
         val session = now.session ?: return
-        if (now.saving) Log.i("RepoRead", "Practice skip not taken; entry=$entryId saving=true")
-        else move(session.skip())
+        if (now.saving) AppLog.info("Practice skip not taken; entry=$entryId saving=true") else move(session.skip())
     }
 
     /** [again]: graded earlier in this session, so this grade only decides whether it comes back; nothing is saved. */
@@ -289,10 +288,10 @@ internal class PracticeViewModel(
         val now = current.value
         val session = now.session ?: return
         if (now.saving || session.current != question.key || !current.compareAndSet(now, now.copy(saving = true))) {
-            Log.i("RepoRead", "Practice grade not saved again; entry=$entryId saving=${now.saving} key=${question.key}")
+            AppLog.info("Practice grade not saved again; entry=$entryId saving=${now.saving} key=${question.key}")
             return
         }
-        Log.i("RepoRead", "Practice grade started; entry=$entryId key=${question.key} again=$again")
+        AppLog.info("Practice grade started; entry=$entryId key=${question.key} again=$again")
         viewModelScope.launch {
             val problem = if (again) null else gradeNewQuestion(sync, question, grade)
             move(if (problem == null) session.graded(grade) else session.skip(), problem)
