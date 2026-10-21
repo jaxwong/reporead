@@ -6,21 +6,21 @@
 # ~/.config/reporead/reporead-backup-pull.
 set -euo pipefail
 
-DIR="$HOME/Backups/reporead"
-KEEP=30
+BACKUP_DIR="$HOME/Backups/reporead"
+RETENTION_COUNT=30
 
 umask 077
-mkdir -p "$DIR"
-copy="$DIR/reporead-$(date +%Y-%m-%d).dump"
-partial="$copy.partial"
-trap 'rm -f "$partial"' EXIT
+mkdir -p "$BACKUP_DIR"
+backup_path="$BACKUP_DIR/reporead-$(date +%Y-%m-%d).dump"
+partial_path="$backup_path.partial"
+trap 'rm -f "$partial_path"' EXIT
 ssh -T -i "$HOME/.ssh/reporead_backup" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-    backup@152.69.219.238 > "$partial"
+    backup@152.69.219.238 > "$partial_path"
 # A pg_dump custom-format archive starts with PGDMP; anything else is not a backup.
-if [ "$(head -c 5 "$partial")" != PGDMP ]; then
+if [ "$(head -c 5 "$partial_path")" != PGDMP ]; then
   echo "reporead-backup-pull: the VM did not send a pg_dump archive" >&2
   exit 1
 fi
-mv "$partial" "$copy"
-echo "reporead-backup-pull: $(date) $(basename "$copy"), $(stat -f %z "$copy") bytes"
-ls -1 "$DIR"/reporead-*.dump | sort -r | tail -n +$((KEEP + 1)) | xargs rm -f --
+mv "$partial_path" "$backup_path"
+echo "reporead-backup-pull: $(date) $(basename "$backup_path"), $(stat -f %z "$backup_path") bytes"
+ls -1 "$BACKUP_DIR"/reporead-*.dump | sort -r | tail -n +$((RETENTION_COUNT + 1)) | xargs rm -f --

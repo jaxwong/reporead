@@ -7,20 +7,20 @@
 # credential; restoring without the key works, and every user signs in again.
 set -euo pipefail
 
-DIR=/var/lib/reporead-backups
-KEEP=14
-KIND=${1:-nightly}
-if [[ $KIND != nightly && $KIND != deploy ]]; then
-  echo "reporead-backup: the kind of dump must be nightly or deploy, not $KIND" >&2
+BACKUP_DIR=/var/lib/reporead-backups
+RETENTION_COUNT=14
+BACKUP_KIND=${1:-nightly}
+if [[ $BACKUP_KIND != nightly && $BACKUP_KIND != deploy ]]; then
+  echo "reporead-backup: the kind of dump must be nightly or deploy, not $BACKUP_KIND" >&2
   exit 64
 fi
 
 umask 077
-dump="$DIR/$KIND-$(date -u +%Y-%m-%dT%H%M%SZ).dump"
-partial="$dump.partial"
-trap 'rm -f "$partial"' EXIT
-podman exec reporead-postgres pg_dump --username=reporead --dbname=reporead --format=custom > "$partial"
-podman exec -i reporead-postgres pg_restore --list < "$partial" > /dev/null
-mv "$partial" "$dump"
-echo "reporead-backup: wrote $(basename "$dump"), $(stat -c %s "$dump") bytes"
-ls -1 "$DIR"/"$KIND"-*.dump | sort -r | tail -n +$((KEEP + 1)) | xargs -r rm --
+backup_path="$BACKUP_DIR/$BACKUP_KIND-$(date -u +%Y-%m-%dT%H%M%SZ).dump"
+partial_path="$backup_path.partial"
+trap 'rm -f "$partial_path"' EXIT
+podman exec reporead-postgres pg_dump --username=reporead --dbname=reporead --format=custom > "$partial_path"
+podman exec -i reporead-postgres pg_restore --list < "$partial_path" > /dev/null
+mv "$partial_path" "$backup_path"
+echo "reporead-backup: wrote $(basename "$backup_path"), $(stat -c %s "$backup_path") bytes"
+ls -1 "$BACKUP_DIR"/"$BACKUP_KIND"-*.dump | sort -r | tail -n +$((RETENTION_COUNT + 1)) | xargs -r rm --

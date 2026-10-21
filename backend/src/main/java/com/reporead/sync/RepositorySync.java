@@ -76,9 +76,9 @@ public class RepositorySync {
      * in reporead.documents.synced.
      */
     public Result sync(AppUser user, long connectionId) {
-        Result result;
+        Result syncResult;
         try {
-            result = publish(user, connectionId);
+            syncResult = publish(user, connectionId);
         } catch (RuntimeException failure) {
             meters.counter(
                             SYNCS,
@@ -90,63 +90,66 @@ public class RepositorySync {
             throw failure;
         }
         meters.counter(SYNCS, "outcome", "success", "code", "NONE").increment();
-        meters.counter(DOCUMENTS_SYNCED).increment(result.documentCount());
-        return result;
+        meters.counter(DOCUMENTS_SYNCED).increment(syncResult.documentCount());
+        return syncResult;
     }
 
     private Result publish(AppUser user, long connectionId) {
         var connection = connections.find(user.id(), connectionId).orElseThrow(ApiFailure::notFound);
-        String token = credentials.githubUserToken(user.githubUserId());
-        var branch = github.branch(token, connection.owner(), connection.name(), connection.defaultBranch());
-        var tree = github.completeTree(token, connection.owner(), connection.name(), branch.treeSha());
-        var markdown = markdownDocuments(tree);
-        var images = imageFiles(tree);
-        var contentMoves = contentMoves(user, connection, markdown);
+        String githubToken = credentials.githubUserToken(user.githubUserId());
+        var branchSnapshot =
+                github.branch(githubToken, connection.owner(), connection.name(), connection.defaultBranch());
+        var treeEntries =
+                github.completeTree(githubToken, connection.owner(), connection.name(), branchSnapshot.treeSha());
+        var markdownFiles = markdownDocuments(treeEntries);
+        var imagePaths = imageFiles(treeEntries);
+        var detectedMoves = contentMoves(user, connection, markdownFiles);
         Instant syncedAt = Instant.now();
-        var moves = transaction.execute(status -> {
-            var locked = connections.lockForSync(user.id(), connectionId);
+        var publishedMoves = transaction.execute(transactionStatus -> {
+            var lockedConnection = connections.lockForSync(user.id(), connectionId);
             // A reconnect changed the branch while this sync fetched; its snapshot is of a branch no longer synced.
-            if (!locked.defaultBranch().equals(connection.defaultBranch())) {
+            if (!lockedConnection.defaultBranch().equals(connection.defaultBranch())) {
                 LOG.info(
                         "Sync superseded; connectionId={} fetchedBranch={} defaultBranch={}",
                         connectionId,
                         connection.defaultBranch(),
-                        locked.defaultBranch());
+                        lockedConnection.defaultBranch());
                 throw new ApiFailure(
                         Code.SYNC_SUPERSEDED,
                         "The repository's default branch changed during this sync; nothing was published.");
             }
-            String checkpoint = locked.commitSha();
+            String publishedCommitSha = lockedConnection.commitSha();
             // Another sync published while this one fetched; its snapshot may be newer, so this one must not replace
             // it.
-            if (!Objects.equals(checkpoint, connection.lastSyncedCommitSha())
-                    && !branch.commitSha().equals(checkpoint)) {
+            if (!Objects.equals(publishedCommitSha, connection.lastSyncedCommitSha())
+                    && !branchSnapshot.commitSha().equals(publishedCommitSha)) {
                 LOG.info(
                         "Sync superseded; connectionId={} fetched={} startedFrom={} published={}",
                         connectionId,
-                        branch.commitSha(),
+                        branchSnapshot.commitSha(),
                         connection.lastSyncedCommitSha(),
-                        checkpoint);
+                        publishedCommitSha);
                 throw new ApiFailure(
                         Code.SYNC_SUPERSEDED,
                         "Another sync of this repository published first; nothing was published.");
             }
-            var applied = documents.publishSnapshot(connectionId, markdown, syncedAt, contentMoves, checkpoint != null);
-            attachments.replace(connectionId, images);
-            connections.markSynced(connectionId, branch.commitSha());
-            return applied;
+            var appliedMoves = documents.publishSnapshot(
+                    connectionId, markdownFiles, syncedAt, detectedMoves, publishedCommitSha != null);
+            attachments.replace(connectionId, imagePaths);
+            connections.markSynced(connectionId, branchSnapshot.commitSha());
+            return appliedMoves;
         });
-        for (var move : moves) {
+        for (var move : publishedMoves) {
             LOG.info("Document moved; connectionId={} documentId={}", connectionId, move.documentId());
         }
         LOG.info(
                 "Repository synced; userId={} connectionId={} commitSha={} documents={} moves={}",
                 user.id(),
                 connectionId,
-                branch.commitSha(),
-                markdown.size(),
-                moves.size());
-        return new Result(connectionId, branch.commitSha(), markdown.size(), syncedAt);
+                branchSnapshot.commitSha(),
+                markdownFiles.size(),
+                publishedMoves.size());
+        return new Result(connectionId, branchSnapshot.commitSha(), markdownFiles.size(), syncedAt);
     }
 
     /**
@@ -155,33 +158,38 @@ public class RepositorySync {
      * read as a note excludes only that candidate; any other failure fails the sync.
      */
     private List<Documents.Move> contentMoves(
-            AppUser user, RepositoryConnections.Connection connection, List<Documents.SourceFile> files) {
-        var unmatched = Documents.unmatched(documents.existing(connection.id()), files);
-        var withState = documents.withUserState(connection.id());
-        var vanished = unmatched.vanished().stream()
-                .filter(row -> withState.contains(row.id()))
+            AppUser user, RepositoryConnections.Connection connection, List<Documents.SourceFile> markdownFiles) {
+        var unmatchedFiles = Documents.unmatched(documents.existing(connection.id()), markdownFiles);
+        var documentIdsWithUserState = documents.withUserState(connection.id());
+        var vanishedDocuments = unmatchedFiles.vanished().stream()
+                .filter(document -> documentIdsWithUserState.contains(document.id()))
                 .toList();
-        var fresh = unmatched.fresh();
-        if (vanished.isEmpty() || fresh.isEmpty()) return List.of();
-        if (vanished.size() + fresh.size() > MAX_CONTENT_MOVE_CANDIDATES) {
+        var newFiles = unmatchedFiles.fresh();
+        if (vanishedDocuments.isEmpty() || newFiles.isEmpty()) return List.of();
+        if (vanishedDocuments.size() + newFiles.size() > MAX_CONTENT_MOVE_CANDIDATES) {
             LOG.info(
                     "Content moves not checked; connectionId={} vanishedWithUserData={} newPaths={} limit={}",
                     connection.id(),
-                    vanished.size(),
-                    fresh.size(),
+                    vanishedDocuments.size(),
+                    newFiles.size(),
                     MAX_CONTENT_MOVE_CANDIDATES);
             return List.of();
         }
-        var oldVersions = new HashMap<Long, Set<String>>();
-        for (var row : vanished)
-            shingles(user, connection, row.path(), row.blobSha()).ifPresent(set -> oldVersions.put(row.id(), set));
-        var newVersions = new HashMap<String, Set<String>>();
-        for (var file : fresh)
-            shingles(user, connection, file.path(), file.blobSha()).ifPresent(set -> newVersions.put(file.path(), set));
-        var paths = new HashMap<Long, String>();
-        for (var row : vanished) paths.put(row.id(), row.path());
-        return ContentMoves.pairs(oldVersions, newVersions).entrySet().stream()
-                .map(pair -> new Documents.Move(pair.getKey(), paths.get(pair.getKey()), pair.getValue()))
+        var oldShinglesByDocumentId = new HashMap<Long, Set<String>>();
+        for (var document : vanishedDocuments) {
+            shingles(user, connection, document.path(), document.blobSha())
+                    .ifPresent(shingles -> oldShinglesByDocumentId.put(document.id(), shingles));
+        }
+        var newShinglesByPath = new HashMap<String, Set<String>>();
+        for (var file : newFiles) {
+            shingles(user, connection, file.path(), file.blobSha())
+                    .ifPresent(shingles -> newShinglesByPath.put(file.path(), shingles));
+        }
+        var oldPathsByDocumentId = new HashMap<Long, String>();
+        for (var document : vanishedDocuments) oldPathsByDocumentId.put(document.id(), document.path());
+        return ContentMoves.pairs(oldShinglesByDocumentId, newShinglesByPath).entrySet().stream()
+                .map(pair ->
+                        new Documents.Move(pair.getKey(), oldPathsByDocumentId.get(pair.getKey()), pair.getValue()))
                 .toList();
     }
 
@@ -204,30 +212,30 @@ public class RepositorySync {
     }
 
     /** Regular-file blobs the reader displays as images, for resolving Obsidian embeds by name. */
-    static List<String> imageFiles(List<GitHubApi.TreeEntry> tree) {
-        return tree.stream()
+    static List<String> imageFiles(List<GitHubApi.TreeEntry> treeEntries) {
+        return treeEntries.stream()
                 .filter(entry -> regularFile(entry) && MarkdownRenderer.isImagePath(entry.path()))
                 .map(GitHubApi.TreeEntry::path)
                 .toList();
     }
 
     /** Regular-file blobs ending in .md (any case). Symlinks, submodules, and other files are not documents. */
-    static List<Documents.SourceFile> markdownDocuments(List<GitHubApi.TreeEntry> tree) {
-        var result = new ArrayList<Documents.SourceFile>();
-        var paths = new HashSet<String>();
-        for (var entry : tree) {
+    static List<Documents.SourceFile> markdownDocuments(List<GitHubApi.TreeEntry> treeEntries) {
+        var markdownFiles = new ArrayList<Documents.SourceFile>();
+        var seenPaths = new HashSet<String>();
+        for (var entry : treeEntries) {
             if (!regularFile(entry) || !entry.path().toLowerCase(Locale.ROOT).endsWith(".md")) continue;
-            if (!paths.add(entry.path())) {
+            if (!seenPaths.add(entry.path())) {
                 throw new ApiFailure(Code.GITHUB_INVALID_RESPONSE, "GitHub tree listed one path twice.");
             }
-            if (result.size() == MAX_DOCUMENTS) {
+            if (markdownFiles.size() == MAX_DOCUMENTS) {
                 throw new ApiFailure(
                         Code.DOCUMENT_LIMIT,
                         "This repository has more than 5000 Markdown files; no documents were changed.");
             }
-            result.add(new Documents.SourceFile(entry.path(), entry.sha()));
+            markdownFiles.add(new Documents.SourceFile(entry.path(), entry.sha()));
         }
-        return List.copyOf(result);
+        return List.copyOf(markdownFiles);
     }
 
     /** A plain or executable file: symlinks (120000) and submodules (commits) are neither notes nor images. */

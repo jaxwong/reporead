@@ -71,7 +71,7 @@ public class GitHubApi {
 
     /** Installation IDs of this GitHub App that the user can access; a complete list of at most 10. */
     public List<Long> installations(String token) {
-        var page = object(
+        var response = parseObject(
                 get(
                         githubUserApi,
                         uri("/user/installations?per_page=100"),
@@ -81,25 +81,27 @@ public class GitHubApi {
                         GitHubApi::responseLimit,
                         GitHubApi::redirected),
                 "installation");
-        var items = completeList(
-                page,
+        var installationNodes = completeList(
+                response,
                 "installations",
                 MAX_INSTALLATIONS,
                 Code.GITHUB_INSTALLATION_LIMIT,
                 "RepoRead supports at most 10 accessible GitHub App installations; nothing was published.");
-        var ids = new ArrayList<Long>();
-        for (var installation : items) {
-            long id = positiveLong(installation, "id", "installation");
-            if (ids.contains(id)) throw invalid("GitHub returned a duplicate installation id.");
-            ids.add(id);
+        var installationIds = new ArrayList<Long>();
+        for (var installationNode : installationNodes) {
+            long installationId = positiveLong(installationNode, "id", "installation");
+            if (installationIds.contains(installationId)) {
+                throw invalid("GitHub returned a duplicate installation id.");
+            }
+            installationIds.add(installationId);
         }
-        LOG.info("GitHub installations listed; count={}", ids.size());
-        return List.copyOf(ids);
+        LOG.info("GitHub installations listed; count={}", installationIds.size());
+        return List.copyOf(installationIds);
     }
 
     /** Repositories in one installation that this user can access; a complete list of at most 100. */
     public List<Repository> repositories(String token, long installationId) {
-        var page = object(
+        var response = parseObject(
                 get(
                         githubUserApi,
                         uri("/user/installations/" + installationId + "/repositories?per_page=" + MAX_REPOSITORIES),
@@ -109,36 +111,45 @@ public class GitHubApi {
                         GitHubApi::responseLimit,
                         GitHubApi::redirected),
                 "repository");
-        var items = completeList(
-                page,
+        var repositoryNodes = completeList(
+                response,
                 "repositories",
                 MAX_REPOSITORIES,
                 Code.GITHUB_REPOSITORY_LIMIT,
                 "RepoRead requires a complete list of at most 100 repositories per installation; no next page was fetched.");
-        var result = new ArrayList<Repository>();
-        var ids = new HashSet<Long>();
-        for (var repository : items) {
-            long id = positiveLong(repository, "id", "repository");
-            String fullName = string(repository, "full_name", "repository");
-            var privateFlag = repository == null ? null : repository.get("private");
+        var repositories = new ArrayList<Repository>();
+        var repositoryIds = new HashSet<Long>();
+        for (var repositoryNode : repositoryNodes) {
+            long repositoryId = positiveLong(repositoryNode, "id", "repository");
+            String fullName = requiredString(repositoryNode, "full_name", "repository");
+            var privateFlag = repositoryNode == null ? null : repositoryNode.get("private");
             if (privateFlag == null || !privateFlag.isBoolean())
                 throw invalid("GitHub repository metadata requires a private flag.");
-            String branch = string(repository, "default_branch", "repository");
-            String[] parts = fullName.split("/", -1);
-            if (parts.length != 2 || !validName(parts[0]) || !validName(parts[1]) || !ids.add(id)) {
+            String defaultBranch = requiredString(repositoryNode, "default_branch", "repository");
+            String[] fullNameParts = fullName.split("/", -1);
+            if (fullNameParts.length != 2
+                    || !validName(fullNameParts[0])
+                    || !validName(fullNameParts[1])
+                    || !repositoryIds.add(repositoryId)) {
                 throw invalid("GitHub repository metadata contains an invalid name or duplicate id.");
             }
-            result.add(new Repository(id, installationId, parts[0], parts[1], privateFlag.booleanValue(), branch));
+            repositories.add(new Repository(
+                    repositoryId,
+                    installationId,
+                    fullNameParts[0],
+                    fullNameParts[1],
+                    privateFlag.booleanValue(),
+                    defaultBranch));
         }
-        LOG.info("GitHub repositories listed; installationId={} count={}", installationId, result.size());
-        return List.copyOf(result);
+        LOG.info("GitHub repositories listed; installationId={} count={}", installationId, repositories.size());
+        return List.copyOf(repositories);
     }
 
-    public Branch branch(String token, String owner, String name, String branch) {
-        var body = object(
+    public Branch branch(String token, String owner, String name, String branchName) {
+        var response = parseObject(
                 get(
                         githubUserApi,
-                        uri("/repos/{owner}/{name}/branches/{branch}", owner, name, branch),
+                        uri("/repos/{owner}/{name}/branches/{branch}", owner, name, branchName),
                         token,
                         JSON,
                         () -> new ApiFailure(
@@ -147,10 +158,12 @@ public class GitHubApi {
                         GitHubApi::responseLimit,
                         GitHubApi::renamed),
                 "branch");
-        var commit = body.get("commit");
-        String commitSha = string(commit, "sha", "branch commit");
-        var tree = commit.get("commit") == null ? null : commit.get("commit").get("tree");
-        String treeSha = string(tree, "sha", "branch tree");
+        var commitNode = response.get("commit");
+        String commitSha = requiredString(commitNode, "sha", "branch commit");
+        var treeNode = commitNode.get("commit") == null
+                ? null
+                : commitNode.get("commit").get("tree");
+        String treeSha = requiredString(treeNode, "sha", "branch tree");
         if (!Hashes.isGitSha(commitSha) || !Hashes.isGitSha(treeSha))
             throw invalid("GitHub returned an invalid commit or tree SHA.");
         return new Branch(commitSha, treeSha);
@@ -158,7 +171,7 @@ public class GitHubApi {
 
     /** The full recursive tree. A truncated tree is incomplete and is never treated as the repository's contents. */
     public List<TreeEntry> completeTree(String token, String owner, String name, String treeSha) {
-        var body = object(
+        var response = parseObject(
                 get(
                         githubTreeApi,
                         uri("/repos/{owner}/{name}/git/trees/{sha}?recursive=1", owner, name, treeSha),
@@ -168,9 +181,9 @@ public class GitHubApi {
                         GitHubApi::responseLimit,
                         GitHubApi::renamed),
                 "tree");
-        var truncated = body.get("truncated");
-        var entries = body.get("tree");
-        if (truncated == null || !truncated.isBoolean() || entries == null || !entries.isArray()) {
+        var truncated = response.get("truncated");
+        var treeNodes = response.get("tree");
+        if (truncated == null || !truncated.isBoolean() || treeNodes == null || !treeNodes.isArray()) {
             throw invalid("GitHub tree response requires truncated and tree.");
         }
         if (truncated.booleanValue()) {
@@ -178,18 +191,18 @@ public class GitHubApi {
                     Code.GITHUB_TREE_INCOMPLETE,
                     "GitHub returned a truncated repository tree; no documents were changed.");
         }
-        var result = new ArrayList<TreeEntry>(entries.size());
-        for (var entry : entries) {
-            String sha = string(entry, "sha", "tree entry");
-            if (!Hashes.isGitSha(sha)) throw invalid("GitHub tree entry has an invalid SHA.");
-            result.add(new TreeEntry(
-                    string(entry, "path", "tree entry"),
-                    string(entry, "mode", "tree entry"),
-                    string(entry, "type", "tree entry"),
-                    sha));
+        var treeEntries = new ArrayList<TreeEntry>(treeNodes.size());
+        for (var treeNode : treeNodes) {
+            String entrySha = requiredString(treeNode, "sha", "tree entry");
+            if (!Hashes.isGitSha(entrySha)) throw invalid("GitHub tree entry has an invalid SHA.");
+            treeEntries.add(new TreeEntry(
+                    requiredString(treeNode, "path", "tree entry"),
+                    requiredString(treeNode, "mode", "tree entry"),
+                    requiredString(treeNode, "type", "tree entry"),
+                    entrySha));
         }
-        LOG.info("GitHub tree read; entries={}", result.size());
-        return List.copyOf(result);
+        LOG.info("GitHub tree read; entries={}", treeEntries.size());
+        return List.copyOf(treeEntries);
     }
 
     /** Raw blob bytes, bounded by the shared 1 MiB response ceiling, which equals the reader's note limit. */
@@ -251,7 +264,7 @@ public class GitHubApi {
      * or branch's old name, which only a request naming a repository can have.
      */
     private byte[] get(
-            RestTemplate api,
+            RestTemplate client,
             URI uri,
             String token,
             MediaType accept,
@@ -264,26 +277,26 @@ public class GitHubApi {
                 .build();
         ResponseEntity<byte[]> response;
         try {
-            response = api.exchange(request, byte[].class);
-        } catch (RestClientResponseException error) {
-            int status = error.getStatusCode().value();
+            response = client.exchange(request, byte[].class);
+        } catch (RestClientResponseException failure) {
+            int status = failure.getStatusCode().value();
             if (status == 401)
                 throw new ApiFailure(Code.SIGN_IN_REQUIRED, "GitHub rejected the user token; sign in again.");
-            var headers = error.getResponseHeaders();
-            boolean rateLimited = status == 429
+            var responseHeaders = failure.getResponseHeaders();
+            boolean isRateLimited = status == 429
                     || (status == 403
-                            && headers != null
-                            && ("0".equals(headers.getFirst("X-RateLimit-Remaining"))
-                                    || headers.getFirst(HttpHeaders.RETRY_AFTER) != null));
-            if (rateLimited || status >= 500) {
+                            && responseHeaders != null
+                            && ("0".equals(responseHeaders.getFirst("X-RateLimit-Remaining"))
+                                    || responseHeaders.getFirst(HttpHeaders.RETRY_AFTER) != null));
+            if (isRateLimited || status >= 500) {
                 throw new ApiFailure(
                         Code.GITHUB_UNAVAILABLE, "GitHub is unavailable or rate limited; nothing was changed.");
             }
             if (status == 404) throw notFound.get();
             if (status == 403) throw accessDenied();
             throw invalid("GitHub returned an unexpected HTTP status.");
-        } catch (ResourceAccessException error) {
-            if (error.getCause() instanceof GitHubHttp.ResponseTooLarge) throw tooLarge.get();
+        } catch (ResourceAccessException failure) {
+            if (failure.getCause() instanceof GitHubHttp.ResponseTooLarge) throw tooLarge.get();
             throw new ApiFailure(
                     Code.GITHUB_UNAVAILABLE, "The GitHub request failed or timed out; nothing was changed.");
         }
@@ -294,47 +307,54 @@ public class GitHubApi {
         return response.getBody() == null ? new byte[0] : response.getBody();
     }
 
-    private JsonNode object(byte[] body, String what) {
-        JsonNode node;
+    private JsonNode parseObject(byte[] responseBody, String resourceName) {
+        JsonNode response;
         try {
-            node = json.reader()
+            response = json.reader()
                     .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                    .readTree(body);
-        } catch (JacksonException error) {
-            throw invalid("GitHub returned malformed " + what + " JSON.");
+                    .readTree(responseBody);
+        } catch (JacksonException failure) {
+            throw invalid("GitHub returned malformed " + resourceName + " JSON.");
         }
-        if (node == null || !node.isObject()) throw invalid("GitHub " + what + " response must be an object.");
-        return node;
+        if (response == null || !response.isObject()) {
+            throw invalid("GitHub " + resourceName + " response must be an object.");
+        }
+        return response;
     }
 
-    private static JsonNode completeList(JsonNode page, String field, int max, Code limit, String limitMessage) {
-        var total = page.get("total_count");
-        var items = page.get(field);
-        if (total == null
-                || !total.isIntegralNumber()
-                || !total.canConvertToInt()
-                || total.intValue() < 0
-                || items == null
-                || !items.isArray()) {
-            throw invalid("GitHub list response requires total_count and " + field + ".");
+    private static JsonNode completeList(
+            JsonNode response, String fieldName, int maximumItems, Code limitCode, String limitMessage) {
+        var totalCount = response.get("total_count");
+        var nodes = response.get(fieldName);
+        if (totalCount == null
+                || !totalCount.isIntegralNumber()
+                || !totalCount.canConvertToInt()
+                || totalCount.intValue() < 0
+                || nodes == null
+                || !nodes.isArray()) {
+            throw invalid("GitHub list response requires total_count and " + fieldName + ".");
         }
-        if (total.intValue() > max || items.size() > max) throw new ApiFailure(limit, limitMessage);
-        if (items.size() != total.intValue()) throw invalid("GitHub returned an incomplete " + field + " list.");
-        return items;
+        if (totalCount.intValue() > maximumItems || nodes.size() > maximumItems) {
+            throw new ApiFailure(limitCode, limitMessage);
+        }
+        if (nodes.size() != totalCount.intValue()) {
+            throw invalid("GitHub returned an incomplete " + fieldName + " list.");
+        }
+        return nodes;
     }
 
-    private static long positiveLong(JsonNode node, String field, String what) {
-        var value = node == null ? null : node.get(field);
+    private static long positiveLong(JsonNode node, String fieldName, String resourceName) {
+        var value = node == null ? null : node.get(fieldName);
         if (value == null || !value.isIntegralNumber() || !value.canConvertToLong() || value.longValue() <= 0) {
-            throw invalid("GitHub " + what + " metadata requires a positive " + field + ".");
+            throw invalid("GitHub " + resourceName + " metadata requires a positive " + fieldName + ".");
         }
         return value.longValue();
     }
 
-    private static String string(JsonNode node, String field, String what) {
-        var value = node == null ? null : node.get(field);
+    private static String requiredString(JsonNode node, String fieldName, String resourceName) {
+        var value = node == null ? null : node.get(fieldName);
         if (value == null || !value.isString() || value.stringValue().isBlank()) {
-            throw invalid("GitHub " + what + " metadata requires " + field + ".");
+            throw invalid("GitHub " + resourceName + " metadata requires " + fieldName + ".");
         }
         return value.stringValue();
     }

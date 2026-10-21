@@ -7,48 +7,50 @@
 # Prints only outcomes and the jar's SHA-256, never backend logs: the CI log is public and those logs name note paths.
 set -euo pipefail
 
-JAR=/opt/reporead/backend.jar
-PREVIOUS=/opt/reporead/backend.previous.jar
+BACKEND_JAR=/opt/reporead/backend.jar
+PREVIOUS_BACKEND_JAR=/opt/reporead/backend.previous.jar
 MAX_BYTES=$((200 * 1024 * 1024))
-HEALTH=http://127.0.0.1:8082/actuator/health
+HEALTH_URL=http://127.0.0.1:8082/actuator/health
 HEALTH_WAIT_SECONDS=120   # startup takes ~12 s on this VM
 
 exec 9>/run/reporead-deploy.lock
 flock -n 9 || { echo "reporead-deploy: another deploy is running" >&2; exit 75; }
 
-incoming=$(mktemp /opt/reporead/incoming.XXXXXX)
-trap 'rm -f "$incoming"' EXIT
-head -c $((MAX_BYTES + 1)) > "$incoming"
-size=$(stat -c %s "$incoming")
-if (( size == 0 || size > MAX_BYTES )); then
-  echo "reporead-deploy: expected a jar of 1..$MAX_BYTES bytes on stdin, got $size bytes" >&2; exit 65
+incoming_jar=$(mktemp /opt/reporead/incoming.XXXXXX)
+trap 'rm -f "$incoming_jar"' EXIT
+head -c $((MAX_BYTES + 1)) > "$incoming_jar"
+jar_size_bytes=$(stat -c %s "$incoming_jar")
+if (( jar_size_bytes == 0 || jar_size_bytes > MAX_BYTES )); then
+  echo "reporead-deploy: expected a jar of 1..$MAX_BYTES bytes on stdin, got $jar_size_bytes bytes" >&2; exit 65
 fi
-not_a_jar() { echo "reporead-deploy: stdin is not a RepoRead Spring Boot jar ($size bytes)" >&2; exit 65; }
-unzip -tq "$incoming" >/dev/null 2>&1 || not_a_jar
+reject_non_backend_jar() {
+  echo "reporead-deploy: stdin is not a RepoRead Spring Boot jar ($jar_size_bytes bytes)" >&2; exit 65
+}
+unzip -tq "$incoming_jar" >/dev/null 2>&1 || reject_non_backend_jar
 # List first, then search: piping unzip into grep -q under pipefail failed at random (about 1 in 7), because grep exits
 # at its first match and unzip then dies of SIGPIPE.
-entries=$(unzip -Z1 "$incoming")
-grep -qx 'BOOT-INF/classes/com/reporead/RepoReadApplication.class' <<<"$entries" || not_a_jar
+jar_entries=$(unzip -Z1 "$incoming_jar")
+grep -qx 'BOOT-INF/classes/com/reporead/RepoReadApplication.class' <<<"$jar_entries" || reject_non_backend_jar
 
-healthy() {
+wait_until_healthy() {
   local deadline=$((SECONDS + HEALTH_WAIT_SECONDS))
-  until curl -sf -m 5 "$HEALTH" >/dev/null; do
+  until curl -sf -m 5 "$HEALTH_URL" >/dev/null; do
     (( SECONDS < deadline )) || return 1
     sleep 2
   done
 }
 
 /usr/local/sbin/reporead-backup deploy
-echo "reporead-deploy: installing jar sha256 $(sha256sum "$incoming" | cut -d' ' -f1)"
+echo "reporead-deploy: installing jar sha256 $(sha256sum "$incoming_jar" | cut -d' ' -f1)"
 # Only a jar that is serving is worth going back to: after a failed deploy the installed jar is the broken one.
-if curl -sf -m 5 "$HEALTH" >/dev/null; then cp -p "$JAR" "$PREVIOUS"; fi
-install -m 0644 -o root -g root "$incoming" "$JAR"
+if curl -sf -m 5 "$HEALTH_URL" >/dev/null; then cp -p "$BACKEND_JAR" "$PREVIOUS_BACKEND_JAR"; fi
+install -m 0644 -o root -g root "$incoming_jar" "$BACKEND_JAR"
 systemctl restart reporead-backend
-if healthy; then
+if wait_until_healthy; then
   echo "reporead-deploy: healthy"
   exit 0
 fi
 
-echo "reporead-deploy: not healthy within ${HEALTH_WAIT_SECONDS}s; the previous jar is $PREVIOUS and the deploy" \
+echo "reporead-deploy: not healthy within ${HEALTH_WAIT_SECONDS}s; the previous jar is $PREVIOUS_BACKEND_JAR and the deploy" \
   "dump above is the database before this deploy (backend/README.md); see 'journalctl -u reporead-backend'" >&2
 exit 1

@@ -4,6 +4,6 @@
 # (root 0755); /etc/sudoers.d/reporead-backup lets the backup user run this and nothing else.
 set -euo pipefail
 
-latest=$(ls -1 /var/lib/reporead-backups/nightly-*.dump | sort | tail -n 1)
-echo "reporead-backup-latest: $(basename "$latest")" >&2
-exec cat "$latest"
+latest_backup=$(ls -1 /var/lib/reporead-backups/nightly-*.dump | sort | tail -n 1)
+echo "reporead-backup-latest: $(basename "$latest_backup")" >&2
+exec cat "$latest_backup"
