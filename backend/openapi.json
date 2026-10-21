@@ -236,6 +236,27 @@
         "tags" : [ "app-auth-controller" ]
       }
     },
+    "/api/app-logs" : {
+      "post" : {
+        "operationId" : "upload",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AppLogControllerUploadRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        },
+        "tags" : [ "app-log-controller" ]
+      }
+    },
     "/api/auth/me" : {
       "get" : {
         "operationId" : "me",
@@ -861,6 +882,38 @@
           },
           "codeVerifier" : {
             "type" : "string"
+          }
+        }
+      },
+      "AppLogControllerLine" : {
+        "required" : [ "at", "level", "message" ],
+        "type" : "object",
+        "properties" : {
+          "at" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "level" : {
+            "type" : "string",
+            "enum" : [ "INFO", "WARN", "ERROR" ]
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AppLogControllerUploadRequest" : {
+        "required" : [ "appVersion", "lines" ],
+        "type" : "object",
+        "properties" : {
+          "appVersion" : {
+            "type" : "string"
+          },
+          "lines" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/AppLogControllerLine"
+            }
           }
         }
       },
