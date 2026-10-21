@@ -175,9 +175,9 @@ Added after the MVP (see the [feature list](feature-list.md#after-the-mvp)).
 **Acceptance criteria**
 
 - I choose a topic that has an interview folder, or all topics, and see how many questions are new or scheduled.
-- Each question shows alone; **Show answer** shows the bank's checklist and the core section its answer links to, from my saved notes.
+- Each question shows alone, with any evidence it gives; **Show answer** shows the bank's short answer and checklist, and each core section the answer links to opens in my saved notes.
 - My first grade schedules the question for review; a question I missed comes back in the same session.
-- A heading that does not follow the bank format is named, not silently skipped.
+- A heading that does not follow the bank format is named with the rule it breaks, not silently skipped.
 - Practising works offline and changes nothing in the repository.
 
 ### US-15 — Review what I chose to remember

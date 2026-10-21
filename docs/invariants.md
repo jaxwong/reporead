@@ -98,7 +98,7 @@ These come from the original implementation spec's engineering invariants and th
 **A card whose note changed is not graded until its answer is resolved in the new version and confirmed.**
 
 - Enforced by: the server rejects a new grade of an outdated answer (409 `CARD_CHANGED`); the phone leaves such cards out of grading until checked.
-- A bank card confirms only its Canonical line, not its linked section. Practice and Review label that section as a supplementary saved copy; its version is not the bank card's confirmation.
+- A bank card confirms only its Canonical line. The answer Practice and Review show for it comes from that confirmed bank version; a linked section opens in the reader as its own note, outside the card's confirmation.
 - Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling).
 
 ## Security and privacy

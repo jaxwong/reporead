@@ -181,6 +181,10 @@ Implemented and locally verified in open [PR #84](https://github.com/jaxwong/rep
 
 Implemented and locally verified on branch `path-group-question`, after the freeze by user decision: a `Canonical path` group is one question, its heading and numbered items, and a path without items asks its heading; `Canonical answers:` is no longer accepted (ADR-20 Recognition). On the real notes StudyCorpus went from 404 warnings to 150 (109 headings sharing another question's line, 38 practice-bank prompts without a line, and 3 plural lines until renamed); the remaining warnings are the notes' to fix. Android JVM gates pass; device suite, release and phone install not run.
 
+## Closed question shape (2026-10-21)
+
+Implemented on branch `question-shape` by user decision: every bank H3 follows one closed shape (ADR-20 Recognition), Practice and Review show prompt material with the question and answer with the bank's Short answer and checklist, and linked sections open in the reader (ADR-20 Session). Android JVM gates pass. After the notes' conversion (notes commit `72a3447`), StudyCorpus reads all 1,740 questions with no warnings, and every Canonical line is unchanged from before the conversion, so existing cards keep their history. The isolated device suite passes on the Pixel (191 tests); release, phone install and a real session on converted notes not run.
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:
