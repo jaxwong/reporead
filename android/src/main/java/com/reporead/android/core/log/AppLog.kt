@@ -35,9 +35,10 @@ private const val MAX_CAUSES = 4
 
 /**
  * The app's one logger. Every line goes to logcat (tag RepoRead) and to a store on the phone that [upload] sends to the
- * server's log (AppLogController), so the phone's lines are read on the server without adb. Lines name ids, codes and
- * counts, never note text (ADR-21). A throwable's message is free text that can quote a note, so the stored copy keeps
- * only its types and frames; logcat keeps the whole throwable. When the store outgrows its cap, its oldest lines go.
+ * server's log (AppLogController), so the phone's lines are read on the server without adb. The app's own lines name
+ * ids, codes and counts; a throwable's messages and the reader page's console output can quote a note, and are sent as
+ * they are (ADR-21, 2026-10-21: the one user's own server log may hold note text). When the store outgrows its cap, its
+ * oldest lines go.
  */
 object AppLog {
     private val lock = Any()
@@ -57,12 +58,14 @@ object AppLog {
 
     fun warn(message: String, error: Throwable? = null) {
         if (error == null) Log.w(TAG, message) else Log.w(TAG, message, error)
-        store(AppLogControllerLine.Level.WARN, if (error == null) message else "$message\n${frames(error)}")
+        store(AppLogControllerLine.Level.WARN, if (error == null) message else "$message\n${trace(error)}")
     }
 
-    /** The uncaught-exception handler's line, stored before the process ends; Android logs the full trace itself. */
+    /**
+     * The uncaught-exception handler's line, stored before the process ends; Android logs the trace to logcat itself.
+     */
     fun crash(thread: Thread, error: Throwable) {
-        store(AppLogControllerLine.Level.ERROR, "Crash; thread=${thread.name}\n${frames(error)}")
+        store(AppLogControllerLine.Level.ERROR, "Crash; thread=${thread.name}\n${trace(error)}")
     }
 
     /**
@@ -147,13 +150,13 @@ object AppLog {
 private fun complete(text: String): List<AppLogControllerLine> =
     text.split('\n').dropLast(1).filter { it.isNotEmpty() }.map { wireJson.decodeFromString(it) }
 
-/** A throwable's class names and frames, causes included, without the messages. */
-private fun frames(error: Throwable): String = buildString {
+/** A throwable's classes, messages and frames, causes included, bounded as [MAX_FRAMES] and [MAX_CAUSES] say. */
+private fun trace(error: Throwable): String = buildString {
     var current: Throwable? = error
     var depth = 0
     while (current != null && depth <= MAX_CAUSES) {
         if (depth > 0) append("\nCaused by: ")
-        append(current.javaClass.name)
+        append(current)
         current.stackTrace.take(MAX_FRAMES).forEach { append("\n\tat ").append(it) }
         if (current.stackTrace.size > MAX_FRAMES) append("\n\t... ${current.stackTrace.size - MAX_FRAMES} more")
         current = current.cause

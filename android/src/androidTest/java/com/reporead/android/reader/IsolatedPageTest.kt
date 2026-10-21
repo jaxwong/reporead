@@ -100,6 +100,21 @@ class IsolatedPageTest {
         assertEquals("true", shown(withDiagram, "$loads && document.querySelector('.diagram svg') !== null"))
     }
 
+    /** A reader script's console error reaches the app's stored log lines, text included, for the server's log. */
+    @Test
+    fun aPageConsoleErrorBecomesAnAppLine() {
+        val plain = """<p data-block-id="b0" data-anchor-text="Test-only page">Test-only page</p>"""
+        assertEquals("true", shown(plain, "(console.error('Test-only console error 1f3a'), true)"))
+
+        val folder = File(instrumentation.targetContext.filesDir, "app-log")
+        val stored =
+            listOf("pending.jsonl", "sending.jsonl").joinToString("") {
+                File(folder, it).takeIf(File::exists)?.readText().orEmpty()
+            }
+        assertTrue(stored.takeLast(2_000), stored.contains("Page console; level=ERROR source="))
+        assertTrue(stored.takeLast(2_000), stored.contains("message=Test-only console error 1f3a"))
+    }
+
     /**
      * Shows [body] as an isolated page and returns [script]'s value, as evaluateJavascript encodes it, once rendered.
      */

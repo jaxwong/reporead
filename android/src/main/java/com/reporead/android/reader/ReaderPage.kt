@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
+import android.webkit.ConsoleMessage
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -60,6 +62,23 @@ internal fun WebView.isolateReaderPage() {
     settings.allowContentAccess = false
     settings.blockNetworkLoads = true
     settings.textZoom = (context.resources.configuration.fontScale * 100).toInt()
+    webChromeClient = PageConsole
+}
+
+/**
+ * The page's console errors and warnings become app lines, so a reader script failure, such as a diagram Mermaid
+ * rejected, reaches the server's log with its text. Other levels stay with WebView's own logcat output.
+ */
+private object PageConsole : WebChromeClient() {
+    override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+        val level = message.messageLevel()
+        if (level != ConsoleMessage.MessageLevel.ERROR && level != ConsoleMessage.MessageLevel.WARNING) return false
+        AppLog.warn(
+            "Page console; level=$level source=${message.sourceId()} line=${message.lineNumber()} " +
+                "message=${message.message()}"
+        )
+        return true
+    }
 }
 
 internal fun readerAssets(context: Context): WebViewAssetLoader =
