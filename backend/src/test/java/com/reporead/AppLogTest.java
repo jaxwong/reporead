@@ -54,12 +54,17 @@ class AppLogTest extends SharedSpringTest {
     }
 
     private static String line(String level, String message) {
-        return "{\"at\":\"2026-10-21T06:02:11.123Z\",\"level\":\"" + level + "\",\"message\":\"" + message + "\"}";
+        return line("0.1.433", level, message);
+    }
+
+    private static String line(String version, String level, String message) {
+        return "{\"at\":\"2026-10-21T06:02:11.123Z\",\"appVersion\":\"" + version + "\",\"level\":\"" + level
+                + "\",\"message\":\"" + message + "\"}";
     }
 
     @Test
     void eachLineIsLoggedAtItsLevelWithThePhonesTime(CapturedOutput log) throws Exception {
-        upload("{\"appVersion\":\"0.1.433\",\"lines\":["
+        upload("{\"lines\":["
                         + line("INFO", "Reader ready; documentId=7")
                         + ","
                         + line("WARN", "Backend refused; status=404 code=NOT_FOUND requestId=test-only-id")
@@ -81,9 +86,24 @@ class AppLogTest extends SharedSpringTest {
                                 ": App line; userId=1 version=0.1.433 at=2026-10-21T06:02:11.123Z " + message));
     }
 
+    /** Lines an older run left are sent by the updated app, and still name the version that logged them. */
+    @Test
+    void eachLineNamesTheVersionThatLoggedIt(CapturedOutput log) throws Exception {
+        upload("{\"lines\":[" + line("0.1.432", "INFO", "Reader ready; documentId=7") + ","
+                        + line("0.1.433", "INFO", "Signed in") + "]}")
+                .andExpect(status().isNoContent());
+
+        String lines = log.getAll();
+        assertTrue(
+                lines.contains(
+                        "App line; userId=1 version=0.1.432 at=2026-10-21T06:02:11.123Z Reader ready; documentId=7"),
+                lines);
+        assertTrue(lines.contains("App line; userId=1 version=0.1.433 at=2026-10-21T06:02:11.123Z Signed in"), lines);
+    }
+
     @Test
     void appTextCannotStartALineThatReadsAsTheServers(CapturedOutput log) throws Exception {
-        upload("{\"appVersion\":\"0.1.433\",\"lines\":["
+        upload("{\"lines\":["
                         + line(
                                 "ERROR",
                                 "Crash; error=IllegalStateException\\n\\tat a.b(C.kt:1)\\r\\n2026-10-21 INFO forged\\u001b[31m")
@@ -101,11 +121,11 @@ class AppLogTest extends SharedSpringTest {
     @Test
     void aBatchTheServerCannotLogIsRefusedAndNothingIsLogged(CapturedOutput log) throws Exception {
         for (String body : new String[] {
-            "{\"lines\":[" + line("INFO", "test-only") + "]}",
-            "{\"appVersion\":\"0.1 433\",\"lines\":[" + line("INFO", "test-only") + "]}",
-            "{\"appVersion\":\"0.1.433\",\"lines\":[]}",
-            "{\"appVersion\":\"0.1.433\",\"lines\":[{\"at\":\"2026-10-21T06:02:11Z\",\"message\":\"test-only\"}]}",
-            "{\"appVersion\":\"0.1.433\",\"lines\":[" + line("DEBUG", "test-only") + "]}"
+            "{\"lines\":[{\"at\":\"2026-10-21T06:02:11Z\",\"level\":\"INFO\",\"message\":\"test-only\"}]}",
+            "{\"lines\":[" + line("0.1 433", "INFO", "test-only") + "]}",
+            "{\"lines\":[]}",
+            "{\"lines\":[{\"at\":\"2026-10-21T06:02:11Z\",\"appVersion\":\"0.1.433\",\"message\":\"test-only\"}]}",
+            "{\"lines\":[" + line("DEBUG", "test-only") + "]}"
         }) {
             upload(body)
                     .andExpect(status().isBadRequest())
@@ -118,7 +138,7 @@ class AppLogTest extends SharedSpringTest {
     void onlyASignedInAppCanUpload() throws Exception {
         mvc.perform(post("/api/app-logs")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"appVersion\":\"0.1.433\",\"lines\":[" + line("INFO", "test-only") + "]}"))
+                        .content("{\"lines\":[" + line("INFO", "test-only") + "]}"))
                 .andExpect(status().isUnauthorized());
     }
 }

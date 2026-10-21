@@ -69,7 +69,7 @@ class AppLogTest {
         AppLog.upload(api())
 
         assertEquals(1, received.size)
-        assertEquals(BuildConfig.VERSION_NAME, received[0].appVersion)
+        assertTrue(received[0].lines.all { it.appVersion == BuildConfig.VERSION_NAME })
         assertEquals(
             listOf(
                 AppLogControllerLine.Level.INFO to "Reader ready; documentId=7",
@@ -158,7 +158,7 @@ class AppLogTest {
     @Test
     fun aLineTheProcessEndedWhileWritingIsNotSent() = runBlocking {
         AppLog.info("Reader ready; documentId=7")
-        File(temporary.root, "pending.jsonl").appendText("""{"at":"2026-10-21T06:02:11Z","level":"IN""")
+        File(temporary.root, "pending.jsonl").appendText("""{"at":"2026-10-21T06:02:11Z","appVersion":"0.1.1","lev""")
 
         AppLog.upload(api())
 

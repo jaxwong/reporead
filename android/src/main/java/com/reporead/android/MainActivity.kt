@@ -43,7 +43,6 @@ class MainActivity : ComponentActivity() {
         // Debug builds only: lets Chrome DevTools inspect the reader over adb. Release builds never expose it.
         WebView.setWebContentsDebuggingEnabled(applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0)
         if (savedInstanceState == null) receive(intent)
-        // Each start sends the phone's stored log lines to the server once there is a network.
         requestAppLogUpload(this)
         setContent {
             // Follows the phone's light/dark setting with its wallpaper colors. The DayNight window theme in the
@@ -64,6 +63,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /** Leaving the app sends what it just logged, and each start what the last run left, once there is a network. */
+    override fun onStop() {
+        super.onStop()
+        requestAppLogUpload(this)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
