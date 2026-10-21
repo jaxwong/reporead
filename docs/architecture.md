@@ -258,7 +258,6 @@ erDiagram
         timestamptz updated_at
         text resolved_blob_sha "highlights and cards"
         text question "cards only"
-        text checked_blob_sha "unused since 2026-10-21; a contract migration drops it"
         uuid mutation_id "highlights and cards; unique per user"
     }
     annotation_anchors {
