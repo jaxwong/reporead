@@ -22,6 +22,7 @@ import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.data.LibraryDao
+import com.reporead.android.data.Passage
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
@@ -37,10 +38,17 @@ private const val TYPING_PAUSE_MS = 150L
 internal fun likePattern(query: String): String =
     "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
-/** One line of [text] around the first case-insensitive occurrence of [query]. */
-internal fun snippet(text: String, query: String): String {
+/** The first occurrence search selected; the database already established that one exists. */
+private fun matchStart(text: String, query: String): Int {
     val at = text.indexOf(query, ignoreCase = true)
     check(at >= 0) { "A text match must contain the query" }
+    return at
+}
+
+/** One line of [text] around the first case-insensitive occurrence of [query]. */
+internal fun snippet(text: String, query: String): String = snippet(text, query, matchStart(text, query))
+
+private fun snippet(text: String, query: String, at: Int): String {
     val start = maxOf(0, at - 40)
     val end = minOf(text.length, at + query.length + 60)
     val line = text.substring(start, end).replace('\n', ' ')
@@ -55,7 +63,7 @@ internal data class SearchResult(
     val openAt: OpenAt?,
 )
 
-/** The matches listed for a query; [truncated] when a query owner omitted matches under its structural cap. */
+/** The matches listed for a query; [truncated] when a result category reached the global [SEARCH_LIMIT]. */
 internal data class SearchResults(val matches: List<SearchResult>, val truncated: Boolean)
 
 /**
@@ -78,12 +86,21 @@ internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
             )
         } +
             noteText.map { match ->
+                val start = matchStart(match.text, query)
                 SearchResult(
                     match.documentId,
                     match.title,
                     match.path,
-                    "Note text · ${snippet(match.text, query)}",
-                    OpenAt.Block(match.blobSha, match.blockId),
+                    "Note text · ${snippet(match.text, query, start)}",
+                    OpenAt.Search(
+                        Passage(
+                            match.blobSha,
+                            match.blockId,
+                            start,
+                            start + query.length,
+                            match.text.substring(start, start + query.length),
+                        )
+                    ),
                 )
             } +
             highlights.map { highlight ->
@@ -99,11 +116,7 @@ internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
             }
     return SearchResults(
         results,
-        truncated =
-            names.size == SEARCH_LIMIT ||
-                noteText.size == SEARCH_LIMIT ||
-                noteText.any { it.noteTruncated } ||
-                highlights.size == SEARCH_LIMIT,
+        truncated = names.size == SEARCH_LIMIT || noteText.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT,
     )
 }
 

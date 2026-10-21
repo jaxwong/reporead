@@ -6,17 +6,22 @@ package com.reporead.android.reader
 import android.util.Log
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,6 +35,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -58,12 +66,15 @@ import com.reporead.android.ui.LoadContent
 import java.io.Serializable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val FIND_TYPING_PAUSE_MS = 150L
 
 /** The displayed copy and its study model are published together, so reloads cannot use a previous version's blocks. */
 internal data class StudyPage(val opened: Sync.Opened, val study: StudyNote)
@@ -406,6 +417,12 @@ fun ReaderScreen(
     val annotations by dao.annotations(screen.documentId).collectAsStateWithLifecycle(emptyList())
     var notesOpen by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var overlay by rememberSaveable(screen.documentId) { mutableStateOf<ReaderOverlay?>(null) }
+    var findOpen by rememberSaveable(screen.documentId) { mutableStateOf(false) }
+    var findQuery by
+        rememberSaveable(screen.documentId) {
+            mutableStateOf((screen.openAt as? OpenAt.Search)?.passage?.exactText.orEmpty())
+        }
+    var requestedFindIndex by rememberSaveable(screen.documentId) { mutableStateOf(0) }
     // An overlay an operation opened becomes the screen's own, the one value ADR-25 keeps.
     LaunchedEffect(state.overlay, overlay) {
         if (overlay == null) model.claimOverlay()?.let { overlay = it }
@@ -467,48 +484,91 @@ fun ReaderScreen(
         session?.setStudy(studying)
     }
 
+    fun closeFind() {
+        findOpen = false
+        scope.launch { session?.clearFind() }
+    }
+
+    BackHandler(findOpen, ::closeFind)
+    LaunchedEffect(findOpen, findQuery, requestedFindIndex, session?.opened) {
+        if (!findOpen || session?.opened != true) return@LaunchedEffect
+        if (findQuery.isEmpty()) {
+            session.clearFind()
+            return@LaunchedEffect
+        }
+        delay(FIND_TYPING_PAUSE_MS)
+        session.find(findQuery, requestedFindIndex)
+    }
+
     val barsShown = session?.barsShown ?: true
-    ReadingBars(barsShown)
+    ReadingBars(barsShown || findOpen)
     val section = session?.let { it.outline?.sectionAt(it.topBlock) }
 
     Column(Modifier.fillMaxSize()) {
-        androidx.compose.animation.AnimatedVisibility(barsShown) {
-            AppBar(
-                screen.title,
-                subtitle = section?.text?.ifBlank { null },
-                onBack = onBack,
-                actions = {
-                    val opened = page?.opened
-                    if (!session?.outline.isNullOrEmpty()) {
-                        IconButton(onClick = { overlay = ReaderOverlay.Outline }) {
-                            AppIcon(R.drawable.ic_toc, "Outline")
-                        }
-                    }
-                    if (opened != null) {
-                        if (page.study.recognized) {
-                            // Only once the page is ready: before, it would change nothing on the page.
-                            TextButton(enabled = session?.opened == true, onClick = ::toggleStudy) {
-                                Text(if (studying) "Read" else "Study")
+        androidx.compose.animation.AnimatedVisibility(barsShown || findOpen) {
+            Column {
+                AppBar(
+                    screen.title,
+                    subtitle = section?.text?.ifBlank { null },
+                    onBack = if (findOpen) ::closeFind else onBack,
+                    actions = {
+                        val opened = page?.opened
+                        if (!session?.outline.isNullOrEmpty()) {
+                            IconButton(onClick = { overlay = ReaderOverlay.Outline }) {
+                                AppIcon(R.drawable.ic_toc, "Outline")
                             }
                         }
-                        IconButton(onClick = { notesOpen = !notesOpen }) {
-                            BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
+                        if (opened != null) {
+                            IconButton(enabled = session?.opened == true, onClick = { findOpen = true }) {
+                                AppIcon(R.drawable.ic_search, "Find in note")
+                            }
+                            if (page.study.recognized) {
+                                // Only once the page is ready: before, it would change nothing on the page.
+                                TextButton(enabled = session?.opened == true, onClick = ::toggleStudy) {
+                                    Text(if (studying) "Read" else "Study")
+                                }
+                            }
+                            IconButton(onClick = { notesOpen = !notesOpen }) {
+                                BadgedBox(
+                                    badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }
+                                ) {
+                                    AppIcon(
+                                        R.drawable.ic_notes,
+                                        if (notesOpen) "Hide highlights and notes" else "Highlights and notes",
+                                    )
+                                }
+                            }
+                            val marked = bookmark?.bookmarked == true
+                            IconButton(onClick = { model.setBookmark(!marked) }) {
                                 AppIcon(
-                                    R.drawable.ic_notes,
-                                    if (notesOpen) "Hide highlights and notes" else "Highlights and notes",
+                                    if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border,
+                                    if (marked) "Remove bookmark" else "Bookmark",
                                 )
                             }
                         }
-                        val marked = bookmark?.bookmarked == true
-                        IconButton(onClick = { model.setBookmark(!marked) }) {
-                            AppIcon(
-                                if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border,
-                                if (marked) "Remove bookmark" else "Bookmark",
-                            )
-                        }
-                    }
-                },
-            )
+                    },
+                )
+                if (findOpen) {
+                    val result = session?.findResult?.takeIf { it.query == findQuery }
+                    FindBar(
+                        findQuery,
+                        result,
+                        onQuery = {
+                            findQuery = it
+                            requestedFindIndex = 0
+                        },
+                        onPrevious = {
+                            if (result != null && result.count > 0)
+                                requestedFindIndex = (result.index - 1 + result.count) % result.count
+                        },
+                        onNext = {
+                            if (result != null && result.count > 0)
+                                requestedFindIndex = (result.index + 1) % result.count
+                        },
+                        onClose = ::closeFind,
+                    )
+                }
+            }
         }
         LoadContent(state.page, onRetry = model::retry) { ready ->
             val opened = ready.opened
@@ -540,11 +600,14 @@ fun ReaderScreen(
                 onDispose { lifecycle.removeObserver(observer) }
             }
             if (!session.stopped)
-                AndroidView(
-                    factory = { context -> session.createView(context) },
-                    onRelease = { view -> session.release(view) },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                )
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    AndroidView(
+                        factory = { context -> session.createView(context) },
+                        onRelease = { view -> session.release(view) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    if (!session.pageVisible) Text("Opening note…", Modifier.align(Alignment.Center))
+                }
             if (notesOpen) {
                 NotesPanel(
                     opened.note.documentId,
@@ -653,6 +716,49 @@ fun ReaderScreen(
                 onKeepMine = model::keepMine,
             )
         }
+}
+
+/** The reader's Ctrl-F controls; [result] is null while the current [query] is still being evaluated. */
+@Composable
+private fun FindBar(
+    query: String,
+    result: FindResult?,
+    onQuery: (String) -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val count =
+        when {
+            query.isEmpty() -> ""
+            result == null -> "Searching…"
+            result.count == 0 -> "No matches"
+            else -> "${result.index + 1} of ${result.count}"
+        }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            label = { Text("Find in note") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onNext() }),
+            modifier = Modifier.weight(1f).focusRequester(focus),
+        )
+        Text(count, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp))
+        IconButton(enabled = result?.count?.let { it > 0 } == true, onClick = onPrevious) {
+            AppIcon(R.drawable.ic_arrow_up, "Previous match")
+        }
+        IconButton(enabled = result?.count?.let { it > 0 } == true, onClick = onNext) {
+            AppIcon(R.drawable.ic_arrow_down, "Next match")
+        }
+        IconButton(onClick = onClose) { AppIcon(R.drawable.ic_close, "Close find") }
+    }
 }
 
 /**

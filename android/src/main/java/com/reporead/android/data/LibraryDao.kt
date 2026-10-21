@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.first
 
 /** Ids bound in one statement, so it stays under SQLite's limit on bound variables. */
 private const val IDS_PER_STATEMENT = 500
-private const val NOTE_TEXT_MATCHES_PER_NOTE = 3
 
 @Dao
 interface LibraryDao {
@@ -212,20 +211,15 @@ interface LibraryDao {
     )
     suspend fun searchNoteNames(pattern: String, limit: Int): List<NoteNameMatch>
 
-    /**
-     * The first three canonical blocks per note containing [pattern], each with its saved version and reader block id.
-     */
+    /** The first canonical block per note containing [pattern], with its saved version and exact reader block id. */
     @Query(
-        """select d.id as documentId, d.title, d.path, n.blobSha, b.blockId, b.text,
-              case when (select count(*) from note_search_blocks matching
-                where matching.documentId = b.documentId and matching.text like :pattern escape '\')
-                > $NOTE_TEXT_MATCHES_PER_NOTE then 1 else 0 end as noteTruncated
+        """select d.id as documentId, d.title, d.path, n.blobSha, b.blockId, b.text
               from note_search_blocks b join notes n on n.documentId = b.documentId
               join documents d on d.id = b.documentId
               where b.text like :pattern escape '\'
-              and (select count(*) from note_search_blocks earlier
-                where earlier.documentId = b.documentId and earlier.position <= b.position
-                and earlier.text like :pattern escape '\') <= $NOTE_TEXT_MATCHES_PER_NOTE
+              and not exists (select 1 from note_search_blocks earlier
+                where earlier.documentId = b.documentId and earlier.position < b.position
+                and earlier.text like :pattern escape '\')
               order by d.title, b.position limit :limit"""
     )
     suspend fun searchNoteText(pattern: String, limit: Int): List<NoteTextMatch>

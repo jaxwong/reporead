@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -291,7 +292,7 @@ class LocalStoreTest {
     }
 
     @Test
-    fun oneRepetitiveNoteContributesOnlyThreeBodyResultsWithoutHidingTheNextNote() = runBlocking {
+    fun oneRepetitiveNoteContributesOnlyOneBodyResultWithoutHidingTheNextNote() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(
             7,
@@ -310,13 +311,16 @@ class LocalStoreTest {
         )
 
         val rows = dao.searchNoteText("%needle%", 50)
-        assertEquals(listOf(1L, 1L, 1L, 2L), rows.map { it.documentId })
-        assertEquals(listOf("b0", "b1", "b2", "b0"), rows.map { it.blockId })
-        assertTrue(rows.filter { it.documentId == 1L }.all { it.noteTruncated })
-        assertTrue(rows.single { it.documentId == 2L }.noteTruncated.not())
+        assertEquals(listOf(1L, 2L), rows.map { it.documentId })
+        assertEquals(listOf("b0", "b0"), rows.map { it.blockId })
         val found = search(dao, "needle")
-        assertEquals(rows.map { OpenAt.Block(it.blobSha, it.blockId) }, found.matches.map { it.openAt })
-        assertTrue(found.truncated)
+        assertEquals(
+            rows.map {
+                OpenAt.Search(Passage(it.blobSha, it.blockId, 0, 6, "Needle"))
+            },
+            found.matches.map { it.openAt },
+        )
+        assertFalse(found.truncated)
     }
 
     @Test
@@ -343,7 +347,7 @@ class LocalStoreTest {
         val written = search(dao, "written").matches.single()
         assertEquals("Renamed" to "now/Renamed.md", written.title to written.path)
         assertEquals("Note text · Written about a topic", written.detail)
-        assertEquals(OpenAt.Block("c".repeat(40), "b3"), written.openAt)
+        assertEquals(OpenAt.Search(Passage("c".repeat(40), "b3", 0, 7, "Written")), written.openAt)
     }
 
     @Test

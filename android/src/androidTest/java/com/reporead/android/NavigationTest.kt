@@ -9,6 +9,7 @@ import androidx.savedstate.serialization.decodeFromSavedState
 import androidx.savedstate.serialization.encodeToSavedState
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.reporead.android.data.Passage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -35,7 +36,7 @@ class NavigationTest {
                 Entry("linked", Screen.Reader(2, "Linked", OpenAt.Heading("Answer"))),
                 Entry("card", Screen.Reader(3, "Card", OpenAt.Highlight("mutation"))),
                 Entry("warning", Screen.Reader(4, "Warning", OpenAt.Block(sha, "b20"))),
-                Entry("search", Screen.Reader(5, "Search", OpenAt.Block(sha, "b1"))),
+                Entry("search", Screen.Reader(5, "Search", OpenAt.Search(Passage(sha, "b1", 4, 10, "needle")))),
                 Entry("notebook", Screen.Notebook),
                 Entry("review", Screen.Review),
                 Entry("topic", Screen.Practice("topic")),

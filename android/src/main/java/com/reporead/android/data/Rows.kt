@@ -9,6 +9,7 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.io.Serializable
+import kotlinx.serialization.Serializable as KotlinSerializable
 
 /** Owns the phone's connection/checkpoint projection; document metadata belongs to DocumentRow. */
 @Entity(tableName = "repositories")
@@ -139,7 +140,6 @@ data class NoteTextMatch(
     val blobSha: String,
     val blockId: String,
     val text: String,
-    val noteTruncated: Boolean,
 )
 
 /** A read note in Continue reading, named by its documents row. */
@@ -185,9 +185,10 @@ data class BookmarkRow(
 )
 
 /**
- * A passage in one source version of a note, as UTF-16 offsets into a block's canonical text. Serializable so a screen
- * can keep one across activity recreation.
+ * A passage in one source version of a note, as UTF-16 offsets into a block's canonical text. Java- and Kotlin-
+ * serializable so saved reader state can keep one across activity recreation and process death.
  */
+@KotlinSerializable
 data class Passage(
     val blobSha: String,
     val blockId: String,
