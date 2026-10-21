@@ -2,7 +2,7 @@
 
 Spring Boot owns user identity, app sessions, authorized repository connections, logical Markdown documents and their identity across moves, safe note rendering, reading state, bookmarks, highlights and review cards, re-anchoring, and the review log. GitHub owns the Markdown; PostgreSQL owns RepoRead's state. The server never writes to GitHub.
 
-This README owns the backend's contracts and commands. Why things are this way is in the [ADRs](../docs/adrs.md), the rules every change keeps in [invariants](../docs/invariants.md), and how the backend fits with the app in the [architecture](../docs/architecture.md).
+This README owns the backend's contracts and commands. Why things are this way is in the [ADRs](../docs/adrs.md), the rules every change keeps in [invariants](../docs/invariants.md), naming and decomposition are in [code style](../docs/code-style.md), and how the backend fits with the app is in the [architecture](../docs/architecture.md).
 
 Requirements: JDK 25, Docker, and the repository's Gradle wrapper.
 
