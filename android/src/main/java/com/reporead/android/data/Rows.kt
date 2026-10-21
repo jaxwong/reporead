@@ -139,6 +139,7 @@ data class NoteTextMatch(
     val blobSha: String,
     val blockId: String,
     val text: String,
+    val noteTruncated: Boolean,
 )
 
 /** A read note in Continue reading, named by its documents row. */
