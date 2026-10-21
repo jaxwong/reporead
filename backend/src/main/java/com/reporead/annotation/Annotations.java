@@ -65,8 +65,8 @@ public class Annotations {
      */
     public DeletedAnnotations deleteOnConnection(long connectionId) {
         var types = db.sql("""
-                delete from annotations where document_id in (select id from documents where repository_connection_id = :connectionId)
-                returning type""")
+                DELETE FROM annotations WHERE document_id IN (SELECT id FROM documents WHERE repository_connection_id = :connectionId)
+                RETURNING type""")
                 .param("connectionId", connectionId)
                 .query((row, n) -> Type.valueOf(row.getString("type")))
                 .list();
@@ -78,7 +78,7 @@ public class Annotations {
 
     /** Deletes a user's mutation records (request hashes); called when deleting the account, after its annotations. */
     public void deleteMutations(long userId) {
-        db.sql("delete from annotation_mutations where user_id = :userId")
+        db.sql("DELETE FROM annotation_mutations WHERE user_id = :userId")
                 .param("userId", userId)
                 .update();
     }
@@ -136,27 +136,27 @@ public class Annotations {
     record Created(Annotation annotation, boolean replayed) {}
 
     private static final String SELECT = """
-        select a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at, a.mutation_id, a.resolved_blob_sha,
-               n.source_blob_sha as anchor_source_blob_sha, n.block_id as anchor_block_id, n.exact_text as anchor_exact_text,
-               n.prefix_text as anchor_prefix_text, n.suffix_text as anchor_suffix_text, n.start_offset as anchor_start_offset,
-               n.end_offset as anchor_end_offset, n.heading_path::text as anchor_heading_path,
-               l.source_blob_sha as location_source_blob_sha, l.block_id as location_block_id, l.exact_text as location_exact_text,
-               l.prefix_text as location_prefix_text, l.suffix_text as location_suffix_text, l.start_offset as location_start_offset,
-               l.end_offset as location_end_offset, l.heading_path::text as location_heading_path,
+        SELECT a.id, a.document_id, a.type, a.note, a.status, a.version, a.created_at, a.updated_at, a.mutation_id, a.resolved_blob_sha,
+               n.source_blob_sha AS anchor_source_blob_sha, n.block_id AS anchor_block_id, n.exact_text AS anchor_exact_text,
+               n.prefix_text AS anchor_prefix_text, n.suffix_text AS anchor_suffix_text, n.start_offset AS anchor_start_offset,
+               n.end_offset AS anchor_end_offset, n.heading_path::text AS anchor_heading_path,
+               l.source_blob_sha AS location_source_blob_sha, l.block_id AS location_block_id, l.exact_text AS location_exact_text,
+               l.prefix_text AS location_prefix_text, l.suffix_text AS location_suffix_text, l.start_offset AS location_start_offset,
+               l.end_offset AS location_end_offset, l.heading_path::text AS location_heading_path,
                l.block_sha, l.quote_occurrences, l.rival_context, l.rival_quote, a.question
-        from annotations a join annotation_anchors n on n.annotation_id = a.id
-        join annotation_locations l on l.annotation_id = a.id
-        where a.type in ('HIGHLIGHT', 'CARD') and a.user_id = :userId""";
+        FROM annotations a JOIN annotation_anchors n ON n.annotation_id = a.id
+        JOIN annotation_locations l ON l.annotation_id = a.id
+        WHERE a.type IN ('HIGHLIGHT', 'CARD') AND a.user_id = :userId""";
 
     List<Annotation> notebook(long userId) {
-        return db.sql(SELECT + " order by a.created_at, a.id")
+        return db.sql(SELECT + " ORDER BY a.created_at, a.id")
                 .param("userId", userId)
                 .query(this::annotation)
                 .list();
     }
 
     List<Annotation> list(long userId, long documentId) {
-        return db.sql(SELECT + " and a.document_id = :documentId order by a.created_at, a.id")
+        return db.sql(SELECT + " AND a.document_id = :documentId ORDER BY a.created_at, a.id")
                 .param("userId", userId)
                 .param("documentId", documentId)
                 .query(this::annotation)
@@ -164,7 +164,7 @@ public class Annotations {
     }
 
     Optional<Annotation> find(long userId, long id) {
-        return db.sql(SELECT + " and a.id = :id")
+        return db.sql(SELECT + " AND a.id = :id")
                 .param("userId", userId)
                 .param("id", id)
                 .query(this::annotation)
@@ -177,7 +177,7 @@ public class Annotations {
      */
     Optional<Annotation> replay(long userId, UUID mutationId, byte[] requestHash) {
         var hash = db.sql(
-                        "select request_hash from annotation_mutations where user_id = :userId and mutation_id = :mutationId")
+                        "SELECT request_hash FROM annotation_mutations WHERE user_id = :userId AND mutation_id = :mutationId")
                 .param("userId", userId)
                 .param("mutationId", mutationId)
                 .query((row, n) -> row.getBytes("request_hash"))
@@ -187,7 +187,7 @@ public class Annotations {
             throw new ApiFailure(
                     Code.MUTATION_ID_REUSED, "This mutationId was already used for a different annotation request.");
         }
-        var created = db.sql(SELECT + " and a.mutation_id = :mutationId")
+        var created = db.sql(SELECT + " AND a.mutation_id = :mutationId")
                 .param("userId", userId)
                 .param("mutationId", mutationId)
                 .query(this::annotation)
@@ -217,7 +217,7 @@ public class Annotations {
         return transaction.execute(status -> {
             // Serialize new-annotation admission across repositories. User before connection matches account deletion;
             // NO KEY UPDATE still permits the foreign-key checks of unrelated writes.
-            db.sql("select id from users where id = :userId for no key update")
+            db.sql("SELECT id FROM users WHERE id = :userId FOR NO KEY UPDATE")
                     .param("userId", userId)
                     .query(Long.class)
                     .optional()
@@ -225,8 +225,8 @@ public class Annotations {
             connections.lockForDocumentWrite(userId, documentId);
             Instant now = Instant.now();
             int claimed = db.sql("""
-                    insert into annotation_mutations (user_id, mutation_id, request_hash, created_at)
-                    values (:userId, :mutationId, :hash, :now) on conflict do nothing""")
+                    INSERT INTO annotation_mutations (user_id, mutation_id, request_hash, created_at)
+                    VALUES (:userId, :mutationId, :hash, :now) ON CONFLICT DO NOTHING""")
                     .param("userId", userId)
                     .param("mutationId", mutationId)
                     .param("hash", requestHash)
@@ -236,8 +236,8 @@ public class Annotations {
                 return new Created(replay(userId, mutationId, requestHash).orElseThrow(), true);
             record Counts(long documentCount, long userCount) {}
             var counts = db.sql("""
-                    select count(*) filter (where document_id = :documentId) as document_count, count(*) as user_count
-                    from annotations where user_id = :userId and type in ('HIGHLIGHT', 'CARD')""")
+                    SELECT count(*) FILTER (WHERE document_id = :documentId) AS document_count, count(*) AS user_count
+                    FROM annotations WHERE user_id = :userId AND type IN ('HIGHLIGHT', 'CARD')""")
                     .param("documentId", documentId)
                     .param("userId", userId)
                     .query(Counts.class)
@@ -249,9 +249,9 @@ public class Annotations {
                                 + " per user may be stored; delete existing annotations before creating more.");
             }
             long id = db.sql("""
-                    insert into annotations (user_id, document_id, type, note, created_at, updated_at, resolved_blob_sha, question,
+                    INSERT INTO annotations (user_id, document_id, type, note, created_at, updated_at, resolved_blob_sha, question,
                                              mutation_id)
-                    values (:userId, :documentId, :type, :note, :now, :now, :sha, :question, :mutationId) returning id""")
+                    VALUES (:userId, :documentId, :type, :note, :now, :now, :sha, :question, :mutationId) RETURNING id""")
                     .param("userId", userId)
                     .param("documentId", documentId)
                     .param("sha", anchor.sourceBlobSha())
@@ -263,9 +263,9 @@ public class Annotations {
                     .query(Long.class)
                     .single();
             db.sql("""
-                    insert into annotation_anchors (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text,
+                    INSERT INTO annotation_anchors (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text,
                                                     start_offset, end_offset, heading_path)
-                    values (:id, :sha, :block, :exact, :prefix, :suffix, :start, :end, cast(:headings as jsonb))""")
+                    VALUES (:id, :sha, :block, :exact, :prefix, :suffix, :start, :end, CAST(:headings AS jsonb))""")
                     .param("id", id)
                     .param("sha", anchor.sourceBlobSha())
                     .param("block", anchor.blockId())
@@ -286,8 +286,8 @@ public class Annotations {
         return transaction.execute(tx -> {
             lockForWrite(userId, id);
             int updated = db.sql("""
-                    update annotations set note = :note, version = version + 1, updated_at = :now
-                    where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
+                    UPDATE annotations SET note = :note, version = version + 1, updated_at = :now
+                    WHERE id = :id AND user_id = :userId AND type IN ('HIGHLIGHT', 'CARD') AND version = :expected""")
                     .param("note", note)
                     .param("now", Timestamp.from(Instant.now()))
                     .param("id", id)
@@ -301,7 +301,7 @@ public class Annotations {
 
     void delete(long userId, long id, int expectedVersion) {
         int deleted = db.sql(
-                        "delete from annotations where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected")
+                        "DELETE FROM annotations WHERE id = :id AND user_id = :userId AND type IN ('HIGHLIGHT', 'CARD') AND version = :expected")
                 .param("id", id)
                 .param("userId", userId)
                 .param("expected", expectedVersion)
@@ -321,8 +321,8 @@ public class Annotations {
                 .orElse(Status.ORPHANED);
         return Boolean.TRUE.equals(transaction.execute(tx -> {
             int updated = db.sql("""
-                    update annotations set status = :status, resolved_blob_sha = :sha
-                    where id = :id and type in ('HIGHLIGHT', 'CARD') and resolved_blob_sha = :expected and version = :version""")
+                    UPDATE annotations SET status = :status, resolved_blob_sha = :sha
+                    WHERE id = :id AND type IN ('HIGHLIGHT', 'CARD') AND resolved_blob_sha = :expected AND version = :version""")
                     .param("status", status.name())
                     .param("sha", blobSha)
                     .param("id", annotation.id())
@@ -340,8 +340,8 @@ public class Annotations {
         return transaction.execute(tx -> {
             lockForWrite(userId, id);
             int updated = db.sql("""
-                    update annotations set status = 'REANCHORED', resolved_blob_sha = :sha, version = version + 1, updated_at = :now
-                    where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD') and version = :expected""")
+                    UPDATE annotations SET status = 'REANCHORED', resolved_blob_sha = :sha, version = version + 1, updated_at = :now
+                    WHERE id = :id AND user_id = :userId AND type IN ('HIGHLIGHT', 'CARD') AND version = :expected""")
                     .param("sha", location.passage().sourceBlobSha())
                     .param("now", Timestamp.from(Instant.now()))
                     .param("id", id)
@@ -360,7 +360,7 @@ public class Annotations {
      */
     void lockCard(long userId, long id) {
         lockForWrite(userId, id);
-        db.sql("select id from annotations where id = :id and user_id = :userId and type = 'CARD' for update")
+        db.sql("SELECT id FROM annotations WHERE id = :id AND user_id = :userId AND type = 'CARD' FOR UPDATE")
                 .param("id", id)
                 .param("userId", userId)
                 .query(Long.class)
@@ -375,7 +375,7 @@ public class Annotations {
      */
     private void lockForWrite(long userId, long id) {
         long documentId = db.sql(
-                        "select document_id from annotations where id = :id and user_id = :userId and type in ('HIGHLIGHT', 'CARD')")
+                        "SELECT document_id FROM annotations WHERE id = :id AND user_id = :userId AND type IN ('HIGHLIGHT', 'CARD')")
                 .param("id", id)
                 .param("userId", userId)
                 .query(Long.class)
@@ -387,11 +387,11 @@ public class Annotations {
     private void writeLocation(long id, Location location) {
         var passage = location.passage();
         db.sql("""
-                insert into annotation_locations (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset,
+                INSERT INTO annotation_locations (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset,
                                                   end_offset, heading_path, block_sha, quote_occurrences, rival_context, rival_quote)
-                values (:id, :sha, :block, :exact, :prefix, :suffix, :start, :end, cast(:headings as jsonb), :blockSha, :occurrences,
+                VALUES (:id, :sha, :block, :exact, :prefix, :suffix, :start, :end, CAST(:headings AS jsonb), :blockSha, :occurrences,
                         :rivalContext, :rivalQuote)
-                on conflict (annotation_id) do update set source_blob_sha = excluded.source_blob_sha, block_id = excluded.block_id,
+                ON CONFLICT (annotation_id) DO UPDATE SET source_blob_sha = excluded.source_blob_sha, block_id = excluded.block_id,
                     exact_text = excluded.exact_text, prefix_text = excluded.prefix_text, suffix_text = excluded.suffix_text,
                     start_offset = excluded.start_offset, end_offset = excluded.end_offset, heading_path = excluded.heading_path,
                     block_sha = excluded.block_sha, quote_occurrences = excluded.quote_occurrences,

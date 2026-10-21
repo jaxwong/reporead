@@ -117,8 +117,8 @@ class DeletionTest extends SharedSpringTest {
 
     private long connection(long userId, long githubRepositoryId, String name) {
         return db.sql("""
-                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
-                values (:userId, :repo, 'test-only', :name, 'main', :sha) returning id""")
+                INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
+                VALUES (:userId, :repo, 'test-only', :name, 'main', :sha) RETURNING id""")
                 .param("userId", userId)
                 .param("repo", githubRepositoryId)
                 .param("name", name)
@@ -129,8 +129,8 @@ class DeletionTest extends SharedSpringTest {
 
     private long document(long connectionId, String path, boolean deleted) {
         return db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
-                values (:connectionId, :path, 'title', :sha, case when :deleted then now() end) returning id""")
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
+                VALUES (:connectionId, :path, 'title', :sha, CASE WHEN :deleted THEN now() END) RETURNING id""")
                 .param("connectionId", connectionId)
                 .param("path", path)
                 .param("sha", SHA)
@@ -141,8 +141,8 @@ class DeletionTest extends SharedSpringTest {
 
     private void reading(long userId, long documentId) {
         db.sql("""
-                insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
-                values (:userId, :documentId, :sha, 10, '{"headingPath":[],"textPrefix":null,"blockIndex":0}', now())""")
+                INSERT INTO reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
+                VALUES (:userId, :documentId, :sha, 10, '{"headingPath":[],"textPrefix":null,"blockIndex":0}', now())""")
                 .param("userId", userId)
                 .param("documentId", documentId)
                 .param("sha", SHA)
@@ -151,7 +151,7 @@ class DeletionTest extends SharedSpringTest {
 
     private void bookmark(long userId, long documentId) {
         db.sql(
-                        "insert into annotations (user_id, document_id, type, created_at, updated_at) values (:userId, :documentId, 'BOOKMARK', now(), now())")
+                        "INSERT INTO annotations (user_id, document_id, type, created_at, updated_at) VALUES (:userId, :documentId, 'BOOKMARK', now(), now())")
                 .param("userId", userId)
                 .param("documentId", documentId)
                 .update();
@@ -159,8 +159,8 @@ class DeletionTest extends SharedSpringTest {
 
     private void highlight(long userId, long documentId, String mutationId) {
         long id = db.sql("""
-                insert into annotations (user_id, document_id, type, created_at, updated_at, note, resolved_blob_sha, mutation_id)
-                values (:userId, :documentId, 'HIGHLIGHT', now(), now(), 'private note text', :sha, cast(:mutationId as uuid)) returning id""")
+                INSERT INTO annotations (user_id, document_id, type, created_at, updated_at, note, resolved_blob_sha, mutation_id)
+                VALUES (:userId, :documentId, 'HIGHLIGHT', now(), now(), 'private note text', :sha, CAST(:mutationId AS uuid)) RETURNING id""")
                 .param("userId", userId)
                 .param("documentId", documentId)
                 .param("sha", SHA)
@@ -168,16 +168,16 @@ class DeletionTest extends SharedSpringTest {
                 .query(Long.class)
                 .single();
         db.sql("""
-                insert into annotation_anchors (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset, end_offset, heading_path)
-                values (:id, :sha, 'b1', 'quoted passage', '', '', 0, 14, '[]')""").param("id", id).param("sha", SHA).update();
+                INSERT INTO annotation_anchors (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset, end_offset, heading_path)
+                VALUES (:id, :sha, 'b1', 'quoted passage', '', '', 0, 14, '[]')""").param("id", id).param("sha", SHA).update();
         // A location records how distinguishable its passage is: here, the only occurrence, with no rival or
         // look-alike.
         db.sql("""
-                insert into annotation_locations (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset, end_offset,
+                INSERT INTO annotation_locations (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset, end_offset,
                                                   heading_path, quote_occurrences, rival_context, rival_quote)
-                values (:id, :sha, 'b1', 'quoted passage', '', '', 0, 14, '[]', 1, 0, 0)""").param("id", id).param("sha", SHA).update();
+                VALUES (:id, :sha, 'b1', 'quoted passage', '', '', 0, 14, '[]', 1, 0, 0)""").param("id", id).param("sha", SHA).update();
         db.sql(
-                        "insert into annotation_mutations (user_id, mutation_id, request_hash, created_at) values (:userId, cast(:mutationId as uuid), '\\x00', now())")
+                        "INSERT INTO annotation_mutations (user_id, mutation_id, request_hash, created_at) VALUES (:userId, CAST(:mutationId AS uuid), '\\x00', now())")
                 .param("userId", userId)
                 .param("mutationId", mutationId)
                 .update();
@@ -189,16 +189,16 @@ class DeletionTest extends SharedSpringTest {
 
     private void cardWithReview(long userId, long documentId, String mutationId) {
         highlight(userId, documentId, mutationId);
-        long id = db.sql("select id from annotations where user_id = :user and mutation_id = cast(:mutation as uuid)")
+        long id = db.sql("SELECT id FROM annotations WHERE user_id = :user AND mutation_id = CAST(:mutation AS uuid)")
                 .param("user", userId)
                 .param("mutation", mutationId)
                 .query(Long.class)
                 .single();
-        db.sql("update annotations set type = 'CARD', question = 'Test-only question?' where id = :id")
+        db.sql("UPDATE annotations SET type = 'CARD', question = 'Test-only question?' WHERE id = :id")
                 .param("id", id)
                 .update();
         db.sql(
-                        "insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha) values (:user, cast(:mutation as uuid), :id, 4, now(), :sha)")
+                        "INSERT INTO review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha) VALUES (:user, CAST(:mutation AS uuid), :id, 4, now(), :sha)")
                 .param("user", userId)
                 .param("mutation", mutationId)
                 .param("id", id)
@@ -216,14 +216,14 @@ class DeletionTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.cards").value(1));
         mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(jsonPath("$.cards").value(1));
-        assertEquals(2, count("select count(*) from review_log"));
+        assertEquals(2, count("SELECT count(*) FROM review_log"));
         TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_USER_TOKEN", withNoContent());
         mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.cards").value(1));
-        assertEquals(0, count("select count(*) from review_log where user_id = 1"));
-        assertEquals(1, count("select count(*) from review_log where user_id = 2"));
-        assertEquals(1, count("select count(*) from annotations where user_id = 2 and type = 'CARD'"));
+        assertEquals(0, count("SELECT count(*) FROM review_log WHERE user_id = 1"));
+        assertEquals(1, count("SELECT count(*) FROM review_log WHERE user_id = 2"));
+        assertEquals(1, count("SELECT count(*) FROM annotations WHERE user_id = 2 AND type = 'CARD'"));
     }
 
     @Test
@@ -237,7 +237,7 @@ class DeletionTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.highlights").value(1));
 
         db.sql(
-                        "insert into repository_images (repository_connection_id, path) values (:notes, 'a.png'), (:other, 'b.png')")
+                        "INSERT INTO repository_images (repository_connection_id, path) VALUES (:notes, 'a.png'), (:other, 'b.png')")
                 .param("notes", notes)
                 .param("other", other)
                 .update();
@@ -252,36 +252,36 @@ class DeletionTest extends SharedSpringTest {
 
         assertEquals(
                 List.of(other, bobs),
-                db.sql("select id from repository_connections order by id")
+                db.sql("SELECT id FROM repository_connections ORDER BY id")
                         .query(Long.class)
                         .list());
         assertEquals(
                 List.of(otherNote, bobNote),
-                db.sql("select id from documents order by id").query(Long.class).list());
+                db.sql("SELECT id FROM documents ORDER BY id").query(Long.class).list());
         assertEquals(
                 List.of(otherNote, bobNote),
-                db.sql("select document_id from reading_states order by document_id")
+                db.sql("SELECT document_id FROM reading_states ORDER BY document_id")
                         .query(Long.class)
                         .list());
         assertEquals(
                 List.of(otherNote, bobNote),
-                db.sql("select document_id from annotations order by document_id")
+                db.sql("SELECT document_id FROM annotations ORDER BY document_id")
                         .query(Long.class)
                         .list());
         assertEquals(
                 List.of("b.png"),
-                db.sql("select path from repository_images").query(String.class).list());
-        assertEquals(2, count("select count(*) from annotation_anchors"));
-        assertEquals(2, count("select count(*) from annotation_locations"));
+                db.sql("SELECT path FROM repository_images").query(String.class).list());
+        assertEquals(2, count("SELECT count(*) FROM annotation_anchors"));
+        assertEquals(2, count("SELECT count(*) FROM annotation_locations"));
         // The deleted highlight's mutation record stays, named by no annotation, so a late replay is answered as
         // deleted, not recreated.
         assertEquals(
                 1,
                 count(
-                        "select count(*) from annotation_mutations where mutation_id = '11111111-1111-1111-1111-111111111111'"));
+                        "SELECT count(*) FROM annotation_mutations WHERE mutation_id = '11111111-1111-1111-1111-111111111111'"));
         assertEquals(
                 0,
-                count("select count(*) from annotations where mutation_id = '11111111-1111-1111-1111-111111111111'"));
+                count("SELECT count(*) FROM annotations WHERE mutation_id = '11111111-1111-1111-1111-111111111111'"));
 
         mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isNotFound());
@@ -339,7 +339,7 @@ class DeletionTest extends SharedSpringTest {
                 404,
                 writeDuringDisconnect(() -> mvc.perform(put("/api/documents/" + active + "/bookmark")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))));
-        assertEquals(0, count("select count(*) from documents where repository_connection_id = " + notes));
+        assertEquals(0, count("SELECT count(*) FROM documents WHERE repository_connection_id = " + notes));
     }
 
     @Test
@@ -367,8 +367,8 @@ class DeletionTest extends SharedSpringTest {
             connecting.get(10, TimeUnit.SECONDS);
             assertEquals(200, deleting.get(10, TimeUnit.SECONDS));
         }
-        assertEquals(0, count("select count(*) from repository_connections where user_id = 1"));
-        assertEquals(0, count("select count(*) from users where id = 1"));
+        assertEquals(0, count("SELECT count(*) FROM repository_connections WHERE user_id = 1"));
+        assertEquals(0, count("SELECT count(*) FROM users WHERE id = 1"));
     }
 
     /**
@@ -412,7 +412,7 @@ class DeletionTest extends SharedSpringTest {
             assertEquals(401, refused.getStatus());
             assertTrue(refused.getContentAsString().contains("\"SIGN_IN_REQUIRED\""), refused.getContentAsString());
         }
-        assertEquals(0, count("select count(*) from repository_connections where user_id = 1"));
+        assertEquals(0, count("SELECT count(*) FROM repository_connections WHERE user_id = 1"));
     }
 
     /**
@@ -442,8 +442,8 @@ class DeletionTest extends SharedSpringTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
         mvc.perform(delete("/api/repositories/" + notes)).andExpect(status().isUnauthorized());
-        assertEquals(3, count("select count(*) from repository_connections"));
-        assertEquals(4, count("select count(*) from documents"));
+        assertEquals(3, count("SELECT count(*) FROM repository_connections"));
+        assertEquals(4, count("SELECT count(*) FROM documents"));
     }
 
     @Test
@@ -464,12 +464,12 @@ class DeletionTest extends SharedSpringTest {
                 "annotation_mutations",
                 "app_sessions",
                 "app_sign_in_codes")) {
-            assertEquals(0, count("select count(*) from " + table + " where user_id = 1"), table);
+            assertEquals(0, count("SELECT count(*) FROM " + table + " WHERE user_id = 1"), table);
         }
-        assertEquals(0, count("select count(*) from users where id = 1"));
+        assertEquals(0, count("SELECT count(*) FROM users WHERE id = 1"));
         assertEquals(
                 List.of(bobNote),
-                db.sql("select id from documents").query(Long.class).list());
+                db.sql("SELECT id FROM documents").query(Long.class).list());
         assertNull(
                 clients.loadAuthorizedClient("github", "42"), "the server keeps no GitHub token for a deleted account");
         assertNotNull(clients.loadAuthorizedClient("github", "84"));
@@ -479,8 +479,8 @@ class DeletionTest extends SharedSpringTest {
         }
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob))
                 .andExpect(status().isOk());
-        assertEquals(1, count("select count(*) from annotations where user_id = 2"));
-        assertEquals(1, count("select count(*) from annotation_mutations where user_id = 2"));
+        assertEquals(1, count("SELECT count(*) FROM annotations WHERE user_id = 2"));
+        assertEquals(1, count("SELECT count(*) FROM annotation_mutations WHERE user_id = 2"));
     }
 
     @Test
@@ -490,7 +490,7 @@ class DeletionTest extends SharedSpringTest {
         github.expect(requestTo("https://api.github.com/applications/test-only-not-a-github-app/grant"))
                 .andExpect(request -> assertEquals(
                         0,
-                        count("select count(*) from users where id = 1"),
+                        count("SELECT count(*) FROM users WHERE id = 1"),
                         "the account must already be deleted when GitHub is asked to revoke its authorization"))
                 .andRespond(withNoContent());
         mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
@@ -503,7 +503,7 @@ class DeletionTest extends SharedSpringTest {
         TestSessions.expectAuthorizationRevoked(github, "TEST_ONLY_ALICE_USER_TOKEN", withServiceUnavailable());
         mvc.perform(delete("/api/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isOk());
-        assertEquals(0, count("select count(*) from users where id = 1"));
+        assertEquals(0, count("SELECT count(*) FROM users WHERE id = 1"));
         assertNull(clients.loadAuthorizedClient("github", "42"));
     }
 }

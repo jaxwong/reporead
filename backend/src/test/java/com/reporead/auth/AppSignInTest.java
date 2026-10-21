@@ -211,10 +211,10 @@ class AppSignInTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.login").value("test-only-alice"));
         assertEquals(
                 0,
-                db.sql("select count(*) from app_sign_in_codes")
+                db.sql("SELECT count(*) FROM app_sign_in_codes")
                         .query(Integer.class)
                         .single());
-        var stored = db.sql("select token_hash from app_sessions")
+        var stored = db.sql("SELECT token_hash FROM app_sessions")
                 .query(byte[].class)
                 .single();
         assertNotEquals(
@@ -236,11 +236,11 @@ class AppSignInTest extends SharedSpringTest {
                                 request, new MockHttpServletResponse(), github(42, "test-only-alice")));
         assertEquals(
                 0,
-                db.sql("select count(*) from app_sign_in_codes")
+                db.sql("SELECT count(*) FROM app_sign_in_codes")
                         .query(Integer.class)
                         .single());
         assertEquals(
-                0, db.sql("select count(*) from users").query(Integer.class).single());
+                0, db.sql("SELECT count(*) FROM users").query(Integer.class).single());
     }
 
     @Test
@@ -261,7 +261,7 @@ class AppSignInTest extends SharedSpringTest {
         exchange(code, verifier).andExpect(status().isBadRequest());
 
         String late = code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice"));
-        db.sql("update app_sign_in_codes set expires_at = now() - interval '1 second'")
+        db.sql("UPDATE app_sign_in_codes SET expires_at = now() - INTERVAL '1 second'")
                 .update();
         exchange(late, verifier)
                 .andExpect(status().isBadRequest())
@@ -282,7 +282,7 @@ class AppSignInTest extends SharedSpringTest {
         }
         assertEquals(
                 1,
-                db.sql("select count(*) from app_sessions").query(Integer.class).single());
+                db.sql("SELECT count(*) FROM app_sessions").query(Integer.class).single());
     }
 
     @Test
@@ -290,21 +290,21 @@ class AppSignInTest extends SharedSpringTest {
         String abandoned = TestSessions.verifier();
         code(completeGitHubLogin(TestSessions.challenge(abandoned), 42, "test-only-alice"));
         TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
-        db.sql("update app_sign_in_codes set expires_at = now() - interval '1 second'")
+        db.sql("UPDATE app_sign_in_codes SET expires_at = now() - INTERVAL '1 second'")
                 .update();
-        db.sql("update app_sessions set expires_at = now() - interval '1 second'")
+        db.sql("UPDATE app_sessions SET expires_at = now() - INTERVAL '1 second'")
                 .update();
 
         String verifier = TestSessions.verifier();
         accessToken(code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice")), verifier);
         assertEquals(
                 0,
-                db.sql("select count(*) from app_sign_in_codes")
+                db.sql("SELECT count(*) FROM app_sign_in_codes")
                         .query(Integer.class)
                         .single());
         assertEquals(
                 1,
-                db.sql("select count(*) from app_sessions").query(Integer.class).single());
+                db.sql("SELECT count(*) FROM app_sessions").query(Integer.class).single());
     }
 
     @Test
@@ -337,7 +337,7 @@ class AppSignInTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.login").value("test-only-new"));
         assertEquals(
-                1, db.sql("select count(*) from users").query(Integer.class).single());
+                1, db.sql("SELECT count(*) FROM users").query(Integer.class).single());
     }
 
     @Test
@@ -360,7 +360,7 @@ class AppSignInTest extends SharedSpringTest {
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob))
                 .andExpect(status().isOk());
 
-        db.sql("update app_sessions set expires_at = now() - interval '1 second'")
+        db.sql("UPDATE app_sessions SET expires_at = now() - INTERVAL '1 second'")
                 .update();
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob))
                 .andExpect(status().isUnauthorized());
@@ -384,7 +384,7 @@ class AppSignInTest extends SharedSpringTest {
         String expired = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE_GITHUB_TOKEN");
         TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_GITHUB_TOKEN");
         db.sql(
-                        "update app_sessions set expires_at = now() - interval '1 second' where token_hash = sha256(convert_to(:token, 'UTF8'))")
+                        "UPDATE app_sessions SET expires_at = now() - INTERVAL '1 second' WHERE token_hash = sha256(convert_to(:token, 'UTF8'))")
                 .param("token", expired)
                 .update();
 

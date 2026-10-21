@@ -31,27 +31,27 @@ class FeatureRemovalMigrationTest {
                 version,
                 fill = { db ->
                     path = db.path
-                    db.execSQL("insert into repositories values (7, 'test/notes', 6, ?)", arrayOf(snapshot))
+                    db.execSQL("INSERT INTO repositories VALUES (7, 'test/notes', 6, ?)", arrayOf(snapshot))
                     for (id in 1..6) {
                         db.execSQL(
-                            "insert into documents values (?, 7, 'a.md', 'a', ?, null, 0)",
+                            "INSERT INTO documents VALUES (?, 7, 'a.md', 'a', ?, NULL, 0)",
                             arrayOf<Any>(id, sha),
                         )
                         db.execSQL(
-                            "insert into reading_states values (?, ?, 40, '{}', 5, ?)",
+                            "INSERT INTO reading_states VALUES (?, ?, 40, '{}', 5, ?)",
                             arrayOf<Any>(id, sha, if (id == 1) 1 else 0),
                         )
-                        db.execSQL("insert into bookmarks values (?, 1, ?, 6)", arrayOf(id, if (id == 1) 1 else 0))
+                        db.execSQL("INSERT INTO bookmarks VALUES (?, 1, ?, 6)", arrayOf(id, if (id == 1) 1 else 0))
                         if (version == 14)
-                            db.execSQL("insert into change_baselines values (?, ?)", arrayOf<Any>(id, "c".repeat(40)))
+                            db.execSQL("INSERT INTO change_baselines VALUES (?, ?)", arrayOf<Any>(id, "c".repeat(40)))
                     }
                     db.execSQL(
-                        """insert into notes values (1, ?, 'a.md', 'a',
+                        """INSERT INTO notes VALUES (1, ?, 'a.md', 'a',
                         '<main><p data-block-id="b0" data-anchor-text="kept&#10;line">kept</p></main>',
                         0, 'ambiguous flattened text', 3, ?)""",
                         arrayOf(sha, snapshot),
                     )
-                    db.execSQL("insert into note_links values (1, 0, 'path=b.md')")
+                    db.execSQL("INSERT INTO note_links VALUES (1, 0, 'path=b.md')")
                     // The cutoff is the combined UTF-8 byte count, including a null searchText. Do not load these pages
                     // into a CursorWindow: the migration must retire them inside SQLite first.
                     val largeSuffix = """<p data-block-id="b4" data-anchor-text="near limit">near limit</p></main>"""
@@ -66,25 +66,25 @@ class FeatureRemovalMigrationTest {
                             Triple(6, "", "é".repeat(1_048_576)),
                         )) {
                         db.execSQL(
-                            "insert into notes values (?, ?, 'a.md', 'a', ?, 0, ?, 3, ?)",
+                            "INSERT INTO notes VALUES (?, ?, 'a.md', 'a', ?, 0, ?, 3, ?)",
                             arrayOf<Any?>(id, sha, html, text, snapshot),
                         )
-                        db.execSQL("insert into note_links values (?, 0, 'path=gone.md')", arrayOf(id))
+                        db.execSQL("INSERT INTO note_links VALUES (?, 0, 'path=gone.md')", arrayOf(id))
                     }
                     db.execSQL(
-                        """insert into annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset,
+                        """INSERT INTO annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset,
                     endOffset, exactText, note, version, createdAt, state, type, question, checkedBlobSha)
-                    values ('card', null, 2, ?, 'b1', 0, 4, 'text', 'mine', 1, 7, 'UNSENT', 'CARD', 'Why?', ?)""",
+                    VALUES ('card', NULL, 2, ?, 'b1', 0, 4, 'text', 'mine', 1, 7, 'UNSENT', 'CARD', 'Why?', ?)""",
                         arrayOf(sha, sha),
                     )
                     db.execSQL(
-                        """insert into annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset,
+                        """INSERT INTO annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset,
                     endOffset, exactText, note, version, createdAt, state)
-                    values ('highlight', 9, 2, ?, 'b1', 0, 4, 'text', 'saved', 1, 7, 'ACKNOWLEDGED')""",
+                    VALUES ('highlight', 9, 2, ?, 'b1', 0, 4, 'text', 'saved', 1, 7, 'ACKNOWLEDGED')""",
                         arrayOf(sha),
                     )
-                    db.execSQL("insert into review_log values ('grade', 'card', 2, 8, ?, 1, null)", arrayOf(sha))
-                    db.execSQL("insert into review_limits values (1, 40)")
+                    db.execSQL("INSERT INTO review_log VALUES ('grade', 'card', 2, 8, ?, 1, NULL)", arrayOf(sha))
+                    db.execSQL("INSERT INTO review_limits VALUES (1, 40)")
                 },
             ) { dao ->
                 assertEquals(listOf(RepositoryEntity(7, "test/notes", 6, snapshot)), dao.repositories().first())
@@ -128,11 +128,11 @@ class FeatureRemovalMigrationTest {
                 assertEquals(40, dao.reviewLimit().first())
                 SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
                     assertEquals(18, db.version)
-                    db.rawQuery("pragma foreign_key_check", null).use { assertFalse(it.moveToFirst()) }
-                    db.rawQuery("select name from sqlite_master where name = 'change_baselines'", null).use {
+                    db.rawQuery("PRAGMA foreign_key_check", null).use { assertFalse(it.moveToFirst()) }
+                    db.rawQuery("SELECT name FROM sqlite_master WHERE name = 'change_baselines'", null).use {
                         assertFalse(it.moveToFirst())
                     }
-                    db.rawQuery("pragma table_info(notes)", null).use { columns ->
+                    db.rawQuery("PRAGMA table_info(notes)", null).use { columns ->
                         val names = mutableSetOf<String>()
                         while (columns.moveToNext()) names += columns.getString(1)
                         assertFalse("searchText column must be removed", "searchText" in names)

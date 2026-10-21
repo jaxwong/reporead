@@ -17,13 +17,13 @@ class CardConfirmationMigrationTest {
             17,
             fill = { db ->
                 db.execSQL(
-                    """insert into annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
+                    """INSERT INTO annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
                     exactText, note, version, createdAt, state, type, question, checkedBlobSha)
-                    values ('card', 3, 1, ?, 'b1', 0, 4, 'line', null, 2, 5, 'ACKNOWLEDGED', 'CARD', 'Test-only question?', ?)""",
+                    VALUES ('card', 3, 1, ?, 'b1', 0, 4, 'line', NULL, 2, 5, 'ACKNOWLEDGED', 'CARD', 'Test-only question?', ?)""",
                     arrayOf<Any>(sha, "b".repeat(40)),
                 )
                 db.execSQL(
-                    "insert into review_log(mutationId, cardMutationId, grade, reviewedAt, blobSha, pending) values ('grade', 'card', 4, 6, ?, 1)",
+                    "INSERT INTO review_log(mutationId, cardMutationId, grade, reviewedAt, blobSha, pending) VALUES ('grade', 'card', 4, 6, ?, 1)",
                     arrayOf<Any>(sha),
                 )
             },

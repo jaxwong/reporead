@@ -30,7 +30,7 @@ public class Bookmarks {
     public record Bookmark(long documentId, Instant createdAt) {}
 
     private static final String SELECT = """
-        select a.document_id, a.created_at from annotations a where a.type = 'BOOKMARK' and a.user_id = :userId""";
+        SELECT a.document_id, a.created_at FROM annotations a WHERE a.type = 'BOOKMARK' AND a.user_id = :userId""";
 
     /**
      * Bookmarking an already bookmarked document keeps the original bookmark. Holds the document's connection lock
@@ -41,14 +41,14 @@ public class Bookmarks {
         return transaction.execute(status -> {
             connections.lockForDocumentWrite(userId, documentId);
             db.sql("""
-                    insert into annotations (user_id, document_id, type, created_at, updated_at)
-                    values (:userId, :documentId, 'BOOKMARK', :now, :now)
-                    on conflict (user_id, document_id) where type = 'BOOKMARK' do nothing""")
+                    INSERT INTO annotations (user_id, document_id, type, created_at, updated_at)
+                    VALUES (:userId, :documentId, 'BOOKMARK', :now, :now)
+                    ON CONFLICT (user_id, document_id) WHERE type = 'BOOKMARK' DO NOTHING""")
                     .param("userId", userId)
                     .param("documentId", documentId)
                     .param("now", Timestamp.from(Instant.now()))
                     .update();
-            return db.sql(SELECT + " and a.document_id = :documentId")
+            return db.sql(SELECT + " AND a.document_id = :documentId")
                     .param("userId", userId)
                     .param("documentId", documentId)
                     .query(Bookmark.class)
@@ -62,14 +62,14 @@ public class Bookmarks {
      */
     void clear(long userId, long documentId) {
         documents.find(userId, documentId).orElseThrow(ApiFailure::notFound);
-        db.sql("delete from annotations where type = 'BOOKMARK' and user_id = :userId and document_id = :documentId")
+        db.sql("DELETE FROM annotations WHERE type = 'BOOKMARK' AND user_id = :userId AND document_id = :documentId")
                 .param("userId", userId)
                 .param("documentId", documentId)
                 .update();
     }
 
     public List<Bookmark> list(long userId) {
-        return db.sql(SELECT + " order by a.created_at desc")
+        return db.sql(SELECT + " ORDER BY a.created_at DESC")
                 .param("userId", userId)
                 .query(Bookmark.class)
                 .list();

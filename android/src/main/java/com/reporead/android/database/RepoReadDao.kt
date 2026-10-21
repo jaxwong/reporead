@@ -13,15 +13,15 @@ private const val IDS_PER_STATEMENT = 500
 
 @Dao
 interface RepoReadDao {
-    @Query("select * from repositories order by fullName") fun repositories(): Flow<List<RepositoryEntity>>
+    @Query("SELECT * FROM repositories ORDER BY fullName") fun repositories(): Flow<List<RepositoryEntity>>
 
-    @Query("delete from repositories") suspend fun clearRepositories()
+    @Query("DELETE FROM repositories") suspend fun clearRepositories()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertRepositories(rows: List<RepositoryEntity>)
 
-    @Query("select id from repositories") suspend fun repositoryIds(): List<Long>
+    @Query("SELECT id FROM repositories") suspend fun repositoryIds(): List<Long>
 
-    @Query("select lastSyncedCommitSha from repositories where id = :repositoryId")
+    @Query("SELECT lastSyncedCommitSha FROM repositories WHERE id = :repositoryId")
     suspend fun repositoryCommitSha(repositoryId: Long): String?
 
     /**
@@ -59,20 +59,20 @@ interface RepoReadDao {
         forgetUnreferencedNotes()
     }
 
-    @Query("select * from documents where repositoryId = :repositoryId and not deleted order by path")
+    @Query("SELECT * FROM documents WHERE repositoryId = :repositoryId AND NOT deleted ORDER BY path")
     fun documents(repositoryId: Long): Flow<List<DocumentEntity>>
 
     /** The notes [repositoryId] lists now: what note links resolve against and Save all fetches. */
-    @Query("select * from documents where repositoryId = :repositoryId and not deleted")
+    @Query("SELECT * FROM documents WHERE repositoryId = :repositoryId AND NOT deleted")
     suspend fun listedDocuments(repositoryId: Long): List<DocumentEntity>
 
     /** Every note of [repositoryId], removed ones too. */
-    @Query("select id from documents where repositoryId = :repositoryId")
+    @Query("SELECT id FROM documents WHERE repositoryId = :repositoryId")
     suspend fun documentIds(repositoryId: Long): List<Long>
 
-    @Query("select * from documents where id = :id") suspend fun document(id: Long): DocumentEntity?
+    @Query("SELECT * FROM documents WHERE id = :id") suspend fun document(id: Long): DocumentEntity?
 
-    @Query("delete from documents where repositoryId = :repositoryId") suspend fun clearDocuments(repositoryId: Long)
+    @Query("DELETE FROM documents WHERE repositoryId = :repositoryId") suspend fun clearDocuments(repositoryId: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDocuments(rows: List<DocumentEntity>)
 
@@ -82,17 +82,17 @@ interface RepoReadDao {
         insertDocuments(rows)
     }
 
-    @Query("delete from repositories where id = :repositoryId") suspend fun deleteRepository(repositoryId: Long)
+    @Query("DELETE FROM repositories WHERE id = :repositoryId") suspend fun deleteRepository(repositoryId: Long)
 
-    @Query("delete from notes where documentId in (:documentIds)") suspend fun deleteNotes(documentIds: List<Long>)
+    @Query("DELETE FROM notes WHERE documentId IN (:documentIds)") suspend fun deleteNotes(documentIds: List<Long>)
 
-    @Query("delete from reading_states where documentId in (:documentIds)")
+    @Query("DELETE FROM reading_states WHERE documentId IN (:documentIds)")
     suspend fun deleteReading(documentIds: List<Long>)
 
-    @Query("delete from bookmarks where documentId in (:documentIds)")
+    @Query("DELETE FROM bookmarks WHERE documentId IN (:documentIds)")
     suspend fun deleteBookmarks(documentIds: List<Long>)
 
-    @Query("delete from annotations where documentId in (:documentIds)")
+    @Query("DELETE FROM annotations WHERE documentId IN (:documentIds)")
     suspend fun deleteAnnotations(documentIds: List<Long>)
 
     /**
@@ -112,10 +112,10 @@ interface RepoReadDao {
         deleteRepository(repositoryId)
     }
 
-    @Query("select * from notes where documentId = :documentId") suspend fun note(documentId: Long): SavedPageEntity?
+    @Query("SELECT * FROM notes WHERE documentId = :documentId") suspend fun note(documentId: Long): SavedPageEntity?
 
     /** Every saved page's version: the only images worth keeping (NoteImages.sweep). */
-    @Query("select documentId, blobSha, path, renderFormat, snapshotCommitSha from notes")
+    @Query("SELECT documentId, blobSha, path, renderFormat, snapshotCommitSha FROM notes")
     suspend fun allSavedVersions(): List<SavedVersion>
 
     /**
@@ -125,20 +125,20 @@ interface RepoReadDao {
      * superset of isInterviewBank (LIKE ignores ASCII case), which still decides.
      */
     @Query(
-        """select d.id as documentId, d.title, d.path, n.html, n.blobSha
-              from documents d left join notes n on n.documentId = d.id and n.blobSha = d.blobSha
-              where not d.deleted and ('/' || d.path) like '%/interview/%' order by d.id"""
+        """SELECT d.id AS documentId, d.title, d.path, n.html, n.blobSha
+              FROM documents d LEFT JOIN notes n ON n.documentId = d.id AND n.blobSha = d.blobSha
+              WHERE NOT d.deleted AND ('/' || d.path) LIKE '%/interview/%' ORDER BY d.id"""
     )
     fun bankPages(): Flow<List<PracticePage>>
 
     /** The note links in [repositoryId]'s saved pages, for Linked from; the pages themselves are not read. */
     @Query(
-        "select l.* from note_links l join documents d on d.id = l.documentId where d.repositoryId = :repositoryId and not d.deleted"
+        "SELECT l.* FROM note_links l JOIN documents d ON d.id = l.documentId WHERE d.repositoryId = :repositoryId AND NOT d.deleted"
     )
     suspend fun noteLinks(repositoryId: Long): List<NoteLinkEntity>
 
     @Query(
-        "select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId and not d.deleted"
+        "SELECT count(*) FROM notes n JOIN documents d ON d.id = n.documentId WHERE d.repositoryId = :repositoryId AND NOT d.deleted"
     )
     suspend fun savedNoteCount(repositoryId: Long): Int
 
@@ -148,9 +148,9 @@ interface RepoReadDao {
 
     @Insert suspend fun insertNoteSearchBlocks(rows: List<NoteSearchBlockEntity>)
 
-    @Query("delete from note_links where documentId = :documentId") suspend fun deleteNoteLinks(documentId: Long)
+    @Query("DELETE FROM note_links WHERE documentId = :documentId") suspend fun deleteNoteLinks(documentId: Long)
 
-    @Query("delete from note_search_blocks where documentId = :documentId")
+    @Query("DELETE FROM note_search_blocks WHERE documentId = :documentId")
     suspend fun deleteNoteSearchBlocks(documentId: Long)
 
     /** Saves a page with its backend-issued search blocks and derived note links, replacing the complete older copy. */
@@ -166,9 +166,9 @@ interface RepoReadDao {
     }
 
     @Query(
-        """select documentId from notes where documentId not in (select id from documents where not deleted)
-              and documentId not in (select documentId from reading_states) and documentId not in (select documentId from bookmarks)
-              and documentId not in (select documentId from annotations)"""
+        """SELECT documentId FROM notes WHERE documentId NOT IN (SELECT id FROM documents WHERE NOT deleted)
+              AND documentId NOT IN (SELECT documentId FROM reading_states) AND documentId NOT IN (SELECT documentId FROM bookmarks)
+              AND documentId NOT IN (SELECT documentId FROM annotations)"""
     )
     suspend fun unreferencedNoteIds(): List<Long>
 
@@ -186,75 +186,75 @@ interface RepoReadDao {
      * Highlights, cards, and grades on [repositoryId]'s listed notes that exist only on this phone (unsent or refused).
      */
     @Query(
-        """select (select count(*) from annotations a join documents d on d.id = a.documentId where d.repositoryId = :repositoryId and a.state <> 'ACKNOWLEDGED')
-              + (select count(*) from review_log l join annotations a on a.mutationId = l.cardMutationId join documents d on d.id = a.documentId
-                 where d.repositoryId = :repositoryId and l.pending)"""
+        """SELECT (SELECT count(*) FROM annotations a JOIN documents d ON d.id = a.documentId WHERE d.repositoryId = :repositoryId AND a.state <> 'ACKNOWLEDGED')
+              + (SELECT count(*) FROM review_log l JOIN annotations a ON a.mutationId = l.cardMutationId JOIN documents d ON d.id = a.documentId
+                 WHERE d.repositoryId = :repositoryId AND l.pending)"""
     )
     suspend fun unsentInRepository(repositoryId: Long): Int
 
     /** Changes waiting to be sent, excluding work the server already refused. */
     @Query(
-        """select (select count(*) from annotations where state in ('UNSENT', 'DELETING'))
-              + (select count(*) from review_log where pending and rejection is null)
-              + (select count(*) from reading_states where pending) + (select count(*) from bookmarks where pending)"""
+        """SELECT (SELECT count(*) FROM annotations WHERE state IN ('UNSENT', 'DELETING'))
+              + (SELECT count(*) FROM review_log WHERE pending AND rejection IS NULL)
+              + (SELECT count(*) FROM reading_states WHERE pending) + (SELECT count(*) FROM bookmarks WHERE pending)"""
     )
     fun waitingCount(): Flow<Int>
 
     /** Name-only matches; a note with a body match is omitted because its exact [NoteTextMatch] is more useful. */
     @Query(
-        """select d.id as documentId, d.title, d.path, d.title like :pattern escape '\' as titleMatch
-              from documents d left join notes n on n.documentId = d.id
-              where (not d.deleted or n.documentId is not null)
-              and (d.title like :pattern escape '\' or d.path like :pattern escape '\')
-              and not exists (select 1 from note_search_blocks b where b.documentId = d.id and b.text like :pattern escape '\')
-              order by d.title limit :limit"""
+        """SELECT d.id AS documentId, d.title, d.path, d.title LIKE :pattern ESCAPE '\' AS titleMatch
+              FROM documents d LEFT JOIN notes n ON n.documentId = d.id
+              WHERE (NOT d.deleted OR n.documentId IS NOT NULL)
+              AND (d.title LIKE :pattern ESCAPE '\' OR d.path LIKE :pattern ESCAPE '\')
+              AND NOT EXISTS (SELECT 1 FROM note_search_blocks b WHERE b.documentId = d.id AND b.text LIKE :pattern ESCAPE '\')
+              ORDER BY d.title LIMIT :limit"""
     )
     suspend fun searchNoteNames(pattern: String, limit: Int): List<NoteNameMatch>
 
     /** The first canonical block per note containing [pattern], with its saved version and exact reader block id. */
     @Query(
-        """select d.id as documentId, d.title, d.path, n.blobSha, b.blockId, b.text
-              from note_search_blocks b join notes n on n.documentId = b.documentId
-              join documents d on d.id = b.documentId
-              where b.text like :pattern escape '\'
-              and not exists (select 1 from note_search_blocks earlier
-                where earlier.documentId = b.documentId and earlier.position < b.position
-                and earlier.text like :pattern escape '\')
-              order by d.title, b.position limit :limit"""
+        """SELECT d.id AS documentId, d.title, d.path, n.blobSha, b.blockId, b.text
+              FROM note_search_blocks b JOIN notes n ON n.documentId = b.documentId
+              JOIN documents d ON d.id = b.documentId
+              WHERE b.text LIKE :pattern ESCAPE '\'
+              AND NOT EXISTS (SELECT 1 FROM note_search_blocks earlier
+                WHERE earlier.documentId = b.documentId AND earlier.position < b.position
+                AND earlier.text LIKE :pattern ESCAPE '\')
+              ORDER BY d.title, b.position LIMIT :limit"""
     )
     suspend fun searchNoteText(pattern: String, limit: Int): List<NoteTextMatch>
 
     @Query(
-        """select a.mutationId, a.documentId, d.title, d.path, a.exactText, a.note
-              from annotations a join documents d on d.id = a.documentId
-              where a.state <> 'DELETING' and (a.exactText like :pattern escape '\' or a.note like :pattern escape '\')
-              order by a.createdAt desc limit :limit"""
+        """SELECT a.mutationId, a.documentId, d.title, d.path, a.exactText, a.note
+              FROM annotations a JOIN documents d ON d.id = a.documentId
+              WHERE a.state <> 'DELETING' AND (a.exactText LIKE :pattern ESCAPE '\' OR a.note LIKE :pattern ESCAPE '\')
+              ORDER BY a.createdAt DESC LIMIT :limit"""
     )
     suspend fun searchHighlights(pattern: String, limit: Int): List<HighlightMatch>
 
-    @Query("select count(*) from documents where not deleted") suspend fun savedListCount(): Int
+    @Query("SELECT count(*) FROM documents WHERE NOT deleted") suspend fun savedListCount(): Int
 
     /** Notes in the saved lists with a saved page: the part of [savedListCount] whose canonical blocks are searched. */
-    @Query("select count(*) from notes n join documents d on d.id = n.documentId where not d.deleted")
+    @Query("SELECT count(*) FROM notes n JOIN documents d ON d.id = n.documentId WHERE NOT d.deleted")
     suspend fun searchableNoteCount(): Int
 
     @Query(
-        """select r.documentId, d.title, d.path, d.deleted, r.progressPercent
-              from reading_states r join documents d on d.id = r.documentId order by r.lastReadAt desc limit :limit"""
+        """SELECT r.documentId, d.title, d.path, d.deleted, r.progressPercent
+              FROM reading_states r JOIN documents d ON d.id = r.documentId ORDER BY r.lastReadAt DESC LIMIT :limit"""
     )
     fun recentReading(limit: Int): Flow<List<ReadNote>>
 
-    @Query("select * from reading_states where documentId = :documentId")
+    @Query("SELECT * FROM reading_states WHERE documentId = :documentId")
     suspend fun reading(documentId: Long): ReadingStateEntity?
 
     /**
      * Read notes whose current version in the saved note lists is not the one last read; most recently changed first.
      */
     @Query(
-        """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
-              from reading_states r join documents d on d.id = r.documentId
-              where not d.deleted and d.blobSha != r.lastReadBlobSha
-              order by d.changedAt is null, d.changedAt desc, r.lastReadAt desc"""
+        """SELECT d.id AS documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
+              FROM reading_states r JOIN documents d ON d.id = r.documentId
+              WHERE NOT d.deleted AND d.blobSha != r.lastReadBlobSha
+              ORDER BY d.changedAt IS NULL, d.changedAt DESC, r.lastReadAt DESC"""
     )
     fun updatedSinceRead(): Flow<List<ChangedNote>>
 
@@ -263,10 +263,10 @@ interface RepoReadDao {
      * version.
      */
     @Query(
-        """select d.id as documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
-              from documents d left join reading_states r on r.documentId = d.id
-              where not d.deleted and d.changedAt is not null and (r.lastReadBlobSha is null or r.lastReadBlobSha = d.blobSha)
-              order by d.changedAt desc limit :limit"""
+        """SELECT d.id AS documentId, d.title, d.path, d.blobSha, d.changedAt, r.lastReadBlobSha
+              FROM documents d LEFT JOIN reading_states r ON r.documentId = d.id
+              WHERE NOT d.deleted AND d.changedAt IS NOT NULL AND (r.lastReadBlobSha IS NULL OR r.lastReadBlobSha = d.blobSha)
+              ORDER BY d.changedAt DESC LIMIT :limit"""
     )
     fun recentlyChanged(limit: Int): Flow<List<ChangedNote>>
 
@@ -281,12 +281,12 @@ interface RepoReadDao {
         return true
     }
 
-    @Query("select * from reading_states where pending") suspend fun pendingReading(): List<ReadingStateEntity>
+    @Query("SELECT * FROM reading_states WHERE pending") suspend fun pendingReading(): List<ReadingStateEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReading(row: ReadingStateEntity)
 
     /** Acknowledges only the save that was sent; a newer local save made meanwhile stays pending. */
-    @Query("update reading_states set pending = 0 where documentId = :documentId and lastReadAt = :lastReadAt")
+    @Query("UPDATE reading_states SET pending = 0 WHERE documentId = :documentId AND lastReadAt = :lastReadAt")
     suspend fun acknowledgeReading(documentId: Long, lastReadAt: Long)
 
     /** A local pending save wins unless the server's state is at least as new. */
@@ -297,7 +297,7 @@ interface RepoReadDao {
             saveReading(remote.copy(pending = false))
     }
 
-    @Query("delete from reading_states where not pending") suspend fun clearAcknowledgedReading()
+    @Query("DELETE FROM reading_states WHERE NOT pending") suspend fun clearAcknowledgedReading()
 
     /**
      * The server's complete list replaces acknowledged rows; pending local saves are kept or yield as
@@ -310,15 +310,15 @@ interface RepoReadDao {
     }
 
     @Query(
-        """select b.documentId, d.title, d.path, d.deleted from bookmarks b join documents d on d.id = b.documentId
-              where b.bookmarked order by b.changedAt desc"""
+        """SELECT b.documentId, d.title, d.path, d.deleted FROM bookmarks b JOIN documents d ON d.id = b.documentId
+              WHERE b.bookmarked ORDER BY b.changedAt DESC"""
     )
     fun bookmarks(): Flow<List<BookmarkedNote>>
 
-    @Query("select * from bookmarks where documentId = :documentId")
+    @Query("SELECT * FROM bookmarks WHERE documentId = :documentId")
     fun bookmark(documentId: Long): Flow<BookmarkEntity?>
 
-    @Query("select * from bookmarks where pending") suspend fun pendingBookmarks(): List<BookmarkEntity>
+    @Query("SELECT * FROM bookmarks WHERE pending") suspend fun pendingBookmarks(): List<BookmarkEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBookmark(row: BookmarkEntity)
 
@@ -330,38 +330,38 @@ interface RepoReadDao {
         return true
     }
 
-    @Query("update bookmarks set pending = 0 where documentId = :documentId and changedAt = :changedAt and bookmarked")
+    @Query("UPDATE bookmarks SET pending = 0 WHERE documentId = :documentId AND changedAt = :changedAt AND bookmarked")
     suspend fun acknowledgeBookmarkSet(documentId: Long, changedAt: Long)
 
-    @Query("delete from bookmarks where documentId = :documentId and changedAt = :changedAt and not bookmarked")
+    @Query("DELETE FROM bookmarks WHERE documentId = :documentId AND changedAt = :changedAt AND NOT bookmarked")
     suspend fun acknowledgeBookmarkCleared(documentId: Long, changedAt: Long)
 
-    @Query("delete from bookmarks where documentId = :documentId and changedAt = :changedAt")
+    @Query("DELETE FROM bookmarks WHERE documentId = :documentId AND changedAt = :changedAt")
     suspend fun dropBookmark(documentId: Long, changedAt: Long)
 
-    @Query("delete from bookmarks where not pending") suspend fun clearAcknowledgedBookmarks()
+    @Query("DELETE FROM bookmarks WHERE NOT pending") suspend fun clearAcknowledgedBookmarks()
 
-    @Query("select documentId from bookmarks where pending") suspend fun pendingBookmarkIds(): List<Long>
+    @Query("SELECT documentId FROM bookmarks WHERE pending") suspend fun pendingBookmarkIds(): List<Long>
 
-    @Query("select * from annotations where documentId = :documentId and state <> 'DELETING' order by createdAt")
+    @Query("SELECT * FROM annotations WHERE documentId = :documentId AND state <> 'DELETING' ORDER BY createdAt")
     fun annotations(documentId: Long): Flow<List<AnnotationEntity>>
 
-    @Query("select * from annotations where mutationId = :mutationId")
+    @Query("SELECT * FROM annotations WHERE mutationId = :mutationId")
     suspend fun annotation(mutationId: String): AnnotationEntity?
 
-    @Query("select * from annotations where state in ('UNSENT', 'DELETING') order by createdAt")
+    @Query("SELECT * FROM annotations WHERE state IN ('UNSENT', 'DELETING') ORDER BY createdAt")
     suspend fun waitingAnnotations(): List<AnnotationEntity>
 
     @Query(
-        """select a.*, d.title, d.path, d.blobSha as currentBlobSha, d.deleted, n.blobSha as savedBlobSha
-              from annotations a join documents d on d.id = a.documentId left join notes n on n.documentId = a.documentId
-              where a.state <> 'DELETING' order by a.createdAt, a.mutationId"""
+        """SELECT a.*, d.title, d.path, d.blobSha AS currentBlobSha, d.deleted, n.blobSha AS savedBlobSha
+              FROM annotations a JOIN documents d ON d.id = a.documentId LEFT JOIN notes n ON n.documentId = a.documentId
+              WHERE a.state <> 'DELETING' ORDER BY a.createdAt, a.mutationId"""
     )
     fun notebook(): Flow<List<NotebookItem>>
 
-    @Query("select * from review_log order by reviewedAt, mutationId") fun reviews(): Flow<List<ReviewEntity>>
+    @Query("SELECT * FROM review_log ORDER BY reviewedAt, mutationId") fun reviews(): Flow<List<ReviewEntity>>
 
-    @Query("select * from review_log where pending and rejection is null order by reviewedAt, mutationId")
+    @Query("SELECT * FROM review_log WHERE pending AND rejection IS NULL ORDER BY reviewedAt, mutationId")
     suspend fun pendingReviews(): List<ReviewEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertReview(row: ReviewEntity)
@@ -414,30 +414,30 @@ interface RepoReadDao {
         return true
     }
 
-    @Query("update review_log set rejection = :reason where mutationId = :mutationId")
+    @Query("UPDATE review_log SET rejection = :reason WHERE mutationId = :mutationId")
     suspend fun rejectReview(mutationId: String, reason: String)
 
     /** Forgets grades the server refused; they never reached it and the schedule already ignores them. */
-    @Query("delete from review_log where rejection is not null") suspend fun dismissRefusedReviews()
+    @Query("DELETE FROM review_log WHERE rejection IS NOT NULL") suspend fun dismissRefusedReviews()
 
-    @Query("select sessionLimit from review_limits where id = 1") fun reviewLimit(): Flow<Int?>
+    @Query("SELECT sessionLimit FROM review_limits WHERE id = 1") fun reviewLimit(): Flow<Int?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReviewLimit(row: ReviewLimitEntity)
 
-    @Query("delete from review_log where cardMutationId = :mutationId")
+    @Query("DELETE FROM review_log WHERE cardMutationId = :mutationId")
     suspend fun deleteCardReviews(mutationId: String)
 
     @Query(
-        "delete from review_log where cardMutationId in (select mutationId from annotations where documentId in (:ids))"
+        "DELETE FROM review_log WHERE cardMutationId IN (SELECT mutationId FROM annotations WHERE documentId IN (:ids))"
     )
     suspend fun deleteReviewsOnDocuments(ids: List<Long>)
 
-    @Query("delete from review_log where not pending") suspend fun clearAcknowledgedReviews()
+    @Query("DELETE FROM review_log WHERE NOT pending") suspend fun clearAcknowledgedReviews()
 
-    @Query("delete from review_log where cardMutationId not in (select mutationId from annotations)")
+    @Query("DELETE FROM review_log WHERE cardMutationId NOT IN (SELECT mutationId FROM annotations)")
     suspend fun deleteMissingCardReviews()
 
-    @Query("delete from annotations where state = 'ACKNOWLEDGED'") suspend fun clearAcknowledgedNotebook()
+    @Query("DELETE FROM annotations WHERE state = 'ACKNOWLEDGED'") suspend fun clearAcknowledgedNotebook()
 
     @Transaction
     suspend fun replaceRemoteNotebook(rows: List<AnnotationEntity>, reviews: List<ReviewEntity>, limit: Int) {
@@ -480,10 +480,10 @@ interface RepoReadDao {
         )
     }
 
-    @Query("update annotations set state = 'DELETING' where mutationId = :mutationId")
+    @Query("UPDATE annotations SET state = 'DELETING' WHERE mutationId = :mutationId")
     suspend fun setDeleting(mutationId: String)
 
-    @Query("delete from review_log where cardMutationId = :mutationId and pending")
+    @Query("DELETE FROM review_log WHERE cardMutationId = :mutationId AND pending")
     suspend fun deletePendingCardReviews(mutationId: String)
 
     /**
@@ -495,12 +495,12 @@ interface RepoReadDao {
         setDeleting(mutationId)
     }
 
-    @Query("delete from annotations where mutationId = :mutationId") suspend fun deleteAnnotation(mutationId: String)
+    @Query("DELETE FROM annotations WHERE mutationId = :mutationId") suspend fun deleteAnnotation(mutationId: String)
 
-    @Query("update annotations set state = 'REFUSED', rejection = :reason where mutationId = :mutationId")
+    @Query("UPDATE annotations SET state = 'REFUSED', rejection = :reason WHERE mutationId = :mutationId")
     suspend fun rejectAnnotation(mutationId: String, reason: String)
 
-    @Query("delete from annotations where documentId = :documentId and state = 'ACKNOWLEDGED'")
+    @Query("DELETE FROM annotations WHERE documentId = :documentId AND state = 'ACKNOWLEDGED'")
     suspend fun clearAcknowledgedAnnotations(documentId: Long)
 
     /**

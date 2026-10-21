@@ -17,9 +17,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class Reviews {
     private static final int SESSION_LIMIT = 40;
     private static final String SELECT = """
-        select r.mutation_id, a.mutation_id as card_mutation_id, r.grade, r.reviewed_at, r.blob_sha
-        from review_log r join annotations a on a.id = r.annotation_id
-        where r.user_id = :userId""";
+        SELECT r.mutation_id, a.mutation_id AS card_mutation_id, r.grade, r.reviewed_at, r.blob_sha
+        FROM review_log r JOIN annotations a ON a.id = r.annotation_id
+        WHERE r.user_id = :userId""";
 
     private final JdbcClient db;
     private final Annotations annotations;
@@ -42,7 +42,7 @@ public class Reviews {
     public Notebook notebook(long userId) {
         return new Notebook(
                 annotations.notebook(userId),
-                db.sql(SELECT + " order by r.reviewed_at, r.mutation_id")
+                db.sql(SELECT + " ORDER BY r.reviewed_at, r.mutation_id")
                         .param("userId", userId)
                         .query(Review.class)
                         .list(),
@@ -63,8 +63,8 @@ public class Reviews {
             Instant storedAt =
                     reviewedAt.isBefore(Instant.EPOCH) ? Instant.EPOCH : reviewedAt.isAfter(now) ? now : reviewedAt;
             db.sql("""
-                    insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at)
-                    values (:userId, :mutation, :id, :grade, :at, :sha, :clientAt) on conflict do nothing""")
+                    INSERT INTO review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at)
+                    VALUES (:userId, :mutation, :id, :grade, :at, :sha, :clientAt) ON CONFLICT DO NOTHING""")
                     .param("userId", userId)
                     .param("mutation", mutation)
                     .param("id", cardId)
@@ -74,7 +74,7 @@ public class Reviews {
                     .param("sha", blobSha)
                     .update();
             var stored = db.sql(
-                            "select annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at from review_log where user_id = :userId and mutation_id = :mutation")
+                            "SELECT annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at FROM review_log WHERE user_id = :userId AND mutation_id = :mutation")
                     .param("userId", userId)
                     .param("mutation", mutation)
                     .query(Stored.class)
@@ -88,7 +88,7 @@ public class Reviews {
                     || !stored.blobSha().equals(blobSha)) {
                 throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
             }
-            return db.sql(SELECT + " and r.mutation_id = :mutation")
+            return db.sql(SELECT + " AND r.mutation_id = :mutation")
                     .param("userId", userId)
                     .param("mutation", mutation)
                     .query(Review.class)

@@ -18,14 +18,14 @@ class NoteLinksMigrationTest {
             9,
             fill = { db ->
                 db.execSQL(
-                    "insert into documents(id, repositoryId, path, title, blobSha) values (1, 7, 'a.md', 'a', 'sha'), (2, 7, 'b.md', 'b', 'sha')"
+                    "INSERT INTO documents(id, repositoryId, path, title, blobSha) VALUES (1, 7, 'a.md', 'a', 'sha'), (2, 7, 'b.md', 'b', 'sha')"
                 )
                 db.execSQL(
-                    "insert into notes(documentId, blobSha, path, title, html, fetchedAt, renderFormat) values (1, 'sha', 'a.md', 'a', ?, 0, 3)",
+                    "INSERT INTO notes(documentId, blobSha, path, title, html, fetchedAt, renderFormat) VALUES (1, 'sha', 'a.md', 'a', ?, 0, 3)",
                     arrayOf(linking),
                 )
                 db.execSQL(
-                    "insert into notes(documentId, blobSha, path, title, html, fetchedAt, renderFormat) values (2, 'sha', 'b.md', 'b', '<main>none</main>', 0, 3)"
+                    "INSERT INTO notes(documentId, blobSha, path, title, html, fetchedAt, renderFormat) VALUES (2, 'sha', 'b.md', 'b', '<main>none</main>', 0, 3)"
                 )
             },
         ) { dao ->

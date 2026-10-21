@@ -45,9 +45,9 @@ public class AppSessions {
 
     long saveUser(long githubUserId, String login) {
         return db.sql("""
-                insert into users (github_user_id, login) values (:githubUserId, :login)
-                on conflict (github_user_id) do update set login = excluded.login
-                returning id""")
+                INSERT INTO users (github_user_id, login) VALUES (:githubUserId, :login)
+                ON CONFLICT (github_user_id) DO UPDATE SET login = excluded.login
+                RETURNING id""")
                 .param("githubUserId", githubUserId)
                 .param("login", login)
                 .query(Long.class)
@@ -60,11 +60,11 @@ public class AppSessions {
             throw new IllegalArgumentException("codeChallenge must be an S256 PKCE challenge");
         String code = randomToken();
         Instant now = Instant.now();
-        db.sql("delete from app_sign_in_codes where expires_at <= :now")
+        db.sql("DELETE FROM app_sign_in_codes WHERE expires_at <= :now")
                 .param("now", Timestamp.from(now))
                 .update();
         db.sql(
-                        "insert into app_sign_in_codes (code_hash, user_id, code_challenge, expires_at) values (:hash, :userId, :challenge, :expiresAt)")
+                        "INSERT INTO app_sign_in_codes (code_hash, user_id, code_challenge, expires_at) VALUES (:hash, :userId, :challenge, :expiresAt)")
                 .param("hash", hash(code))
                 .param("userId", userId)
                 .param("challenge", codeChallenge)
@@ -87,7 +87,7 @@ public class AppSessions {
         /** The consumed code's stored binding; validation failure deliberately does not restore it. */
         record Pending(long userId, String codeChallenge, Instant expiresAt) {}
         var pending = db.sql(
-                        "delete from app_sign_in_codes where code_hash = :hash returning user_id, code_challenge, expires_at")
+                        "DELETE FROM app_sign_in_codes WHERE code_hash = :hash RETURNING user_id, code_challenge, expires_at")
                 .param("hash", hash(code))
                 .query(Pending.class)
                 .optional();
@@ -101,17 +101,17 @@ public class AppSessions {
         String token = randomToken();
         Instant now = Instant.now();
         Instant expiresAt = now.plus(SESSION_LIFETIME);
-        db.sql("delete from app_sessions where expires_at <= :now")
+        db.sql("DELETE FROM app_sessions WHERE expires_at <= :now")
                 .param("now", Timestamp.from(now))
                 .update();
         db.sql(
-                        "insert into app_sessions (token_hash, user_id, created_at, expires_at) values (:hash, :userId, :createdAt, :expiresAt)")
+                        "INSERT INTO app_sessions (token_hash, user_id, created_at, expires_at) VALUES (:hash, :userId, :createdAt, :expiresAt)")
                 .param("hash", hash(token))
                 .param("userId", pending.get().userId())
                 .param("createdAt", Timestamp.from(now))
                 .param("expiresAt", Timestamp.from(expiresAt))
                 .update();
-        var user = db.sql("select id, github_user_id, login from users where id = :id")
+        var user = db.sql("SELECT id, github_user_id, login FROM users WHERE id = :id")
                 .param("id", pending.get().userId())
                 .query(AppUser.class)
                 .single();
@@ -122,8 +122,8 @@ public class AppSessions {
     Optional<AppUser> authenticate(String token) {
         if (!TOKEN.matcher(token).matches()) return Optional.empty();
         return db.sql("""
-                select u.id, u.github_user_id, u.login from app_sessions s join users u on u.id = s.user_id
-                where s.token_hash = :hash and s.expires_at > :now""")
+                SELECT u.id, u.github_user_id, u.login FROM app_sessions s JOIN users u ON u.id = s.user_id
+                WHERE s.token_hash = :hash AND s.expires_at > :now""")
                 .param("hash", hash(token))
                 .param("now", Timestamp.from(Instant.now()))
                 .query(AppUser.class)
@@ -137,7 +137,7 @@ public class AppSessions {
             throw new IllegalStateException("lockUserForDeletion(userId=" + userId
                     + ") ran outside a transaction, where its row lock is released as soon as it is taken");
         }
-        db.sql("select id from users where id = :userId for update")
+        db.sql("SELECT id FROM users WHERE id = :userId FOR UPDATE")
                 .param("userId", userId)
                 .query(Long.class)
                 .single();
@@ -153,7 +153,7 @@ public class AppSessions {
             throw new IllegalStateException("lockUserForWrite(userId=" + userId
                     + ") ran outside a transaction, where its row lock is released as soon as it is taken");
         }
-        return db.sql("select id from users where id = :userId for share")
+        return db.sql("SELECT id FROM users WHERE id = :userId FOR SHARE")
                 .param("userId", userId)
                 .query(Long.class)
                 .optional()
@@ -162,13 +162,13 @@ public class AppSessions {
 
     /** Deletes the user, their sign-in codes, and every session; their other data must already be deleted. */
     public void deleteUser(long userId) {
-        db.sql("delete from app_sign_in_codes where user_id = :userId")
+        db.sql("DELETE FROM app_sign_in_codes WHERE user_id = :userId")
                 .param("userId", userId)
                 .update();
-        db.sql("delete from app_sessions where user_id = :userId")
+        db.sql("DELETE FROM app_sessions WHERE user_id = :userId")
                 .param("userId", userId)
                 .update();
-        db.sql("delete from users where id = :userId").param("userId", userId).update();
+        db.sql("DELETE FROM users WHERE id = :userId").param("userId", userId).update();
     }
 
     /**
@@ -179,16 +179,16 @@ public class AppSessions {
     int revoke(String token, long userId) {
         return transaction.execute(status -> {
             if (TOKEN.matcher(token).matches())
-                db.sql("delete from app_sessions where token_hash = :hash")
+                db.sql("DELETE FROM app_sessions WHERE token_hash = :hash")
                         .param("hash", hash(token))
                         .update();
-            int remaining = db.sql("select count(*) from app_sessions where user_id = :userId and expires_at > :now")
+            int remaining = db.sql("SELECT count(*) FROM app_sessions WHERE user_id = :userId AND expires_at > :now")
                     .param("userId", userId)
                     .param("now", Timestamp.from(Instant.now()))
                     .query(Integer.class)
                     .single();
             if (remaining == 0) {
-                db.sql("delete from app_sign_in_codes where user_id = :userId")
+                db.sql("DELETE FROM app_sign_in_codes WHERE user_id = :userId")
                         .param("userId", userId)
                         .update();
             }

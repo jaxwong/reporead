@@ -72,8 +72,8 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
                 Instant refreshTokenIssuedAt) {}
         var row =
                 db.sql("""
-                select access_token, access_token_issued_at, access_token_expires_at, refresh_token, refresh_token_issued_at
-                from github_tokens where github_user_id = :githubUserId""").param("githubUserId", githubUserId).query(Row.class).optional();
+                SELECT access_token, access_token_issued_at, access_token_expires_at, refresh_token, refresh_token_issued_at
+                FROM github_tokens WHERE github_user_id = :githubUserId""").param("githubUserId", githubUserId).query(Row.class).optional();
         if (row.isEmpty()) return null;
         OAuth2AccessToken access;
         OAuth2RefreshToken refresh;
@@ -110,10 +110,10 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
                     + access.getTokenType().getValue());
         }
         db.sql("""
-                insert into github_tokens (github_user_id, access_token, access_token_issued_at, access_token_expires_at,
+                INSERT INTO github_tokens (github_user_id, access_token, access_token_issued_at, access_token_expires_at,
                                            refresh_token, refresh_token_issued_at, updated_at)
-                values (:githubUserId, :access, :accessIssued, :accessExpires, :refresh, :refreshIssued, now())
-                on conflict (github_user_id) do update set access_token = excluded.access_token,
+                VALUES (:githubUserId, :access, :accessIssued, :accessExpires, :refresh, :refreshIssued, now())
+                ON CONFLICT (github_user_id) DO UPDATE SET access_token = excluded.access_token,
                     access_token_issued_at = excluded.access_token_issued_at, access_token_expires_at = excluded.access_token_expires_at,
                     refresh_token = excluded.refresh_token, refresh_token_issued_at = excluded.refresh_token_issued_at,
                     updated_at = excluded.updated_at""")
@@ -132,7 +132,7 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
     }
 
     private void remove(long githubUserId) {
-        db.sql("delete from github_tokens where github_user_id = :githubUserId")
+        db.sql("DELETE FROM github_tokens WHERE github_user_id = :githubUserId")
                 .param("githubUserId", githubUserId)
                 .update();
     }

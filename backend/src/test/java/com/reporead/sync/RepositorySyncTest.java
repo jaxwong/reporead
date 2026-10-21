@@ -114,8 +114,8 @@ class RepositorySyncTest extends SharedSpringTest {
 
     private long connect(long userId, String branch) {
         return db.sql("""
-                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch)
-                values (:userId, 11, 'test-only', 'notes', :branch) returning id""")
+                INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch)
+                VALUES (:userId, 11, 'test-only', 'notes', :branch) RETURNING id""")
                 .param("userId", userId)
                 .param("branch", branch)
                 .query(Long.class)
@@ -168,13 +168,13 @@ class RepositorySyncTest extends SharedSpringTest {
     }
 
     private List<String> activePaths() {
-        return db.sql("select path from documents where deleted_at is null order by path")
+        return db.sql("SELECT path FROM documents WHERE deleted_at IS NULL ORDER BY path")
                 .query(String.class)
                 .list();
     }
 
     private String checkpoint() {
-        return db.sql("select last_synced_commit_sha from repository_connections where id = :id")
+        return db.sql("SELECT last_synced_commit_sha FROM repository_connections WHERE id = :id")
                 .param("id", connection)
                 .query(String.class)
                 .optional()
@@ -198,12 +198,12 @@ class RepositorySyncTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.commitSha").value(COMMIT_A))
                 .andExpect(jsonPath("$.documentCount").value(2));
         var ids =
-                db.sql("select id from documents order by id").query(Long.class).list();
+                db.sql("SELECT id FROM documents ORDER BY id").query(Long.class).list();
         var rowVersions = rowVersions();
         sync(alice, connection).andExpect(status().isOk());
         assertEquals(
                 ids,
-                db.sql("select id from documents order by id").query(Long.class).list());
+                db.sql("SELECT id FROM documents ORDER BY id").query(Long.class).list());
         assertEquals(rowVersions, rowVersions(), "a refresh that finds nothing changed rewrites no document row");
         assertEquals(List.of("algorithms/Graphs.MD", "intro.md"), activePaths());
         listed(alice)
@@ -231,7 +231,7 @@ class RepositorySyncTest extends SharedSpringTest {
         sync(alice, connection).andExpect(status().isOk());
         assertEquals(
                 List.of("attachments/Pasted image.png", "diagram.SVG"),
-                db.sql("select path from repository_images order by path")
+                db.sql("SELECT path FROM repository_images ORDER BY path")
                         .query(String.class)
                         .list());
         next();
@@ -247,7 +247,7 @@ class RepositorySyncTest extends SharedSpringTest {
         sync(alice, connection).andExpect(status().isOk());
         assertEquals(
                 List.of("img/new.webp"),
-                db.sql("select path from repository_images").query(String.class).list());
+                db.sql("SELECT path FROM repository_images").query(String.class).list());
     }
 
     @Test
@@ -286,7 +286,7 @@ class RepositorySyncTest extends SharedSpringTest {
         String both = tree(false, entry("a.md", "100644", "blob", BLOB_1), entry("b.md", "100644", "blob", BLOB_2));
         expectSync(COMMIT_A, TREE_A, withSuccess(both, MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isOk());
-        long b = db.sql("select id from documents where path = 'b.md'")
+        long b = db.sql("SELECT id FROM documents WHERE path = 'b.md'")
                 .query(Long.class)
                 .single();
 
@@ -300,7 +300,7 @@ class RepositorySyncTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.documentCount").value(1));
         assertEquals(List.of("a.md"), activePaths());
         assertEquals(
-                2, db.sql("select count(*) from documents").query(Integer.class).single());
+                2, db.sql("SELECT count(*) FROM documents").query(Integer.class).single());
         // Still listed, so the app can name a note whose reading state, bookmark or highlights are kept.
         listed(alice)
                 .andExpect(jsonPath("$.repositories[0].documents.length()").value(2))
@@ -310,7 +310,7 @@ class RepositorySyncTest extends SharedSpringTest {
                         .value(contains(true)));
         assertEquals(
                 BLOB_2,
-                db.sql("select current_blob_sha from documents where path = 'a.md'")
+                db.sql("SELECT current_blob_sha FROM documents WHERE path = 'a.md'")
                         .query(String.class)
                         .single());
 
@@ -319,7 +319,7 @@ class RepositorySyncTest extends SharedSpringTest {
         sync(alice, connection).andExpect(status().isOk());
         assertEquals(
                 b,
-                db.sql("select id from documents where path = 'b.md' and deleted_at is null")
+                db.sql("SELECT id FROM documents WHERE path = 'b.md' AND deleted_at IS NULL")
                         .query(Long.class)
                         .single());
         listed(alice)
@@ -328,14 +328,14 @@ class RepositorySyncTest extends SharedSpringTest {
     }
 
     private long documentId(String path) {
-        return db.sql("select id from documents where path = :path")
+        return db.sql("SELECT id FROM documents WHERE path = :path")
                 .param("path", path)
                 .query(Long.class)
                 .single();
     }
 
     private Instant changedAt(String path) {
-        var at = db.sql("select content_changed_at from documents where path = :path")
+        var at = db.sql("SELECT content_changed_at FROM documents WHERE path = :path")
                 .param("path", path)
                 .query((row, n) -> java.util.Optional.ofNullable(row.getTimestamp(1)))
                 .single();
@@ -344,14 +344,14 @@ class RepositorySyncTest extends SharedSpringTest {
 
     /** PostgreSQL's row version (xmin): it changes whenever a row is rewritten, even with identical values. */
     private String rowVersion(String path) {
-        return db.sql("select xmin::text from documents where path = :path")
+        return db.sql("SELECT xmin::text FROM documents WHERE path = :path")
                 .param("path", path)
                 .query(String.class)
                 .single();
     }
 
     private List<String> rowVersions() {
-        return db.sql("select xmin::text from documents order by id")
+        return db.sql("SELECT xmin::text FROM documents ORDER BY id")
                 .query(String.class)
                 .list();
     }
@@ -449,8 +449,8 @@ class RepositorySyncTest extends SharedSpringTest {
         sync(alice, connection).andExpect(status().isOk());
         long spring = documentId("backend/spring.md");
         db.sql("""
-                insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
-                values (1, :id, :sha, 40, '{"headingPath":[],"textPrefix":null,"blockIndex":3}', now())""").param("id", spring).param("sha", BLOB_1).update();
+                INSERT INTO reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
+                VALUES (1, :id, :sha, 40, '{"headingPath":[],"textPrefix":null,"blockIndex":3}', now())""").param("id", spring).param("sha", BLOB_1).update();
 
         String moved = tree(
                 false,
@@ -464,19 +464,19 @@ class RepositorySyncTest extends SharedSpringTest {
             assertEquals(List.of("java/spring/transactions.md", "other.md"), activePaths());
             assertEquals(
                     2,
-                    db.sql("select count(*) from documents")
+                    db.sql("SELECT count(*) FROM documents")
                             .query(Integer.class)
                             .single());
         }
         assertEquals(
                 "transactions",
-                db.sql("select title from documents where id = :id")
+                db.sql("SELECT title FROM documents WHERE id = :id")
                         .param("id", spring)
                         .query(String.class)
                         .single());
         assertEquals(
                 spring,
-                db.sql("select document_id from reading_states")
+                db.sql("SELECT document_id FROM reading_states")
                         .query(Long.class)
                         .single());
         var moveLogs = log.getOut()
@@ -521,11 +521,11 @@ class RepositorySyncTest extends SharedSpringTest {
         assertEquals(List.of("c.md", "d.md", "y.md", "z.md"), activePaths());
         assertEquals(
                 before,
-                db.sql("select id from documents where deleted_at is not null order by path")
+                db.sql("SELECT id FROM documents WHERE deleted_at IS NOT NULL ORDER BY path")
                         .query(Long.class)
                         .list());
         assertEquals(
-                7, db.sql("select count(*) from documents").query(Integer.class).single());
+                7, db.sql("SELECT count(*) FROM documents").query(Integer.class).single());
     }
 
     @Test
@@ -558,7 +558,7 @@ class RepositorySyncTest extends SharedSpringTest {
         assertNotEquals(old, documentId("new.md"));
         assertEquals(
                 old,
-                db.sql("select id from documents where deleted_at is not null")
+                db.sql("SELECT id FROM documents WHERE deleted_at IS NOT NULL")
                         .query(Long.class)
                         .single());
     }
@@ -589,12 +589,12 @@ class RepositorySyncTest extends SharedSpringTest {
         sync(alice, connection).andExpect(status().isOk());
         assertEquals(
                 List.of(b),
-                db.sql("select id from documents where deleted_at is null")
+                db.sql("SELECT id FROM documents WHERE deleted_at IS NULL")
                         .query(Long.class)
                         .list());
         assertEquals(
                 List.of(a),
-                db.sql("select id from documents where deleted_at is not null")
+                db.sql("SELECT id FROM documents WHERE deleted_at IS NOT NULL")
                         .query(Long.class)
                         .list());
     }
@@ -648,7 +648,7 @@ class RepositorySyncTest extends SharedSpringTest {
         assertEquals(List.of("b.md", "e.md", "f.md", "x.md", "y.md"), activePaths());
         assertEquals(
                 List.of(c, g, h),
-                db.sql("select id from documents where deleted_at is not null order by id")
+                db.sql("SELECT id FROM documents WHERE deleted_at IS NOT NULL ORDER BY id")
                         .query(Long.class)
                         .list());
     }
@@ -691,8 +691,8 @@ class RepositorySyncTest extends SharedSpringTest {
 
     private void readSomething(long documentId) {
         db.sql("""
-                insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
-                values (1, :id, :sha, 10, '{"headingPath":[],"textPrefix":null,"blockIndex":0}', now())""").param("id", documentId).param("sha", BLOB_1).update();
+                INSERT INTO reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
+                VALUES (1, :id, :sha, 10, '{"headingPath":[],"textPrefix":null,"blockIndex":0}', now())""").param("id", documentId).param("sha", BLOB_1).update();
     }
 
     private long syncedNote(String path, byte[] bytes) throws Exception {
@@ -731,13 +731,13 @@ class RepositorySyncTest extends SharedSpringTest {
         assertEquals(id, documentId("pipelines/ingest-worker.md"));
         assertEquals(
                 sha(after),
-                db.sql("select current_blob_sha from documents where id = :id")
+                db.sql("SELECT current_blob_sha FROM documents WHERE id = :id")
                         .param("id", id)
                         .query(String.class)
                         .single());
         assertEquals(List.of("other.md", "pipelines/ingest-worker.md"), activePaths());
         assertEquals(
-                2, db.sql("select count(*) from documents").query(Integer.class).single());
+                2, db.sql("SELECT count(*) FROM documents").query(Integer.class).single());
     }
 
     @Test
@@ -759,7 +759,7 @@ class RepositorySyncTest extends SharedSpringTest {
         expectBlob(unrelated);
         sync(alice, connection).andExpect(status().isOk());
         assertNotEquals(id, documentId("billing.md"));
-        assertNotNull(db.sql("select deleted_at from documents where id = :id")
+        assertNotNull(db.sql("SELECT deleted_at FROM documents WHERE id = :id")
                 .param("id", id)
                 .query(java.sql.Timestamp.class)
                 .single());
@@ -822,7 +822,7 @@ class RepositorySyncTest extends SharedSpringTest {
         expectSync(
                 COMMIT_B, TREE_B, withSuccess(tree(false, entries.toArray(String[]::new)), MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isOk());
-        assertNotNull(db.sql("select deleted_at from documents where id = :id")
+        assertNotNull(db.sql("SELECT deleted_at FROM documents WHERE id = :id")
                 .param("id", id)
                 .query(java.sql.Timestamp.class)
                 .single());
@@ -1008,7 +1008,7 @@ class RepositorySyncTest extends SharedSpringTest {
 
     @Test
     void branchNamesAreEncodedAsOnePathSegment() throws Exception {
-        db.sql("update repository_connections set default_branch = 'release/notes v2' where id = :id")
+        db.sql("UPDATE repository_connections SET default_branch = 'release/notes v2' WHERE id = :id")
                 .param("id", connection)
                 .update();
         user.expect(requestTo("https://api.github.com/repos/test-only/notes/branches/release%2Fnotes%20v2"))
@@ -1100,7 +1100,7 @@ class RepositorySyncTest extends SharedSpringTest {
             for (var run : runs) run.get(10, TimeUnit.SECONDS);
         }
         assertEquals(
-                2, db.sql("select count(*) from documents").query(Integer.class).single());
+                2, db.sql("SELECT count(*) FROM documents").query(Integer.class).single());
         assertEquals(COMMIT_A, checkpoint());
     }
 }

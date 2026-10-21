@@ -40,11 +40,11 @@ class DatabaseRuntimeTest extends SharedSpringTest {
     @ValueSource(booleans = {false, true})
     void timedOutQueriesAndLockWaitsRollBackAndTheNextTransactionWorks(boolean lockWait) throws Exception {
         TestEnvironment.reset(db);
-        long id = db.sql("insert into users (github_user_id, login) values (42, 'test-only-before') returning id")
+        long id = db.sql("INSERT INTO users (github_user_id, login) VALUES (42, 'test-only-before') RETURNING id")
                 .query(Long.class)
                 .single();
         long partialId = db.sql(
-                        "insert into users (github_user_id, login) values (43, 'test-only-before') returning id")
+                        "INSERT INTO users (github_user_id, login) VALUES (43, 'test-only-before') RETURNING id")
                 .query(Long.class)
                 .single();
         assertEquals(15, configured.getQueryTimeout());
@@ -53,7 +53,7 @@ class DatabaseRuntimeTest extends SharedSpringTest {
             try {
                 if (lockWait) {
                     try (var statement =
-                            holder.prepareStatement("update users set login = 'test-only-holder' where id = ?")) {
+                            holder.prepareStatement("UPDATE users SET login = 'test-only-holder' WHERE id = ?")) {
                         statement.setLong(1, id);
                         assertEquals(1, statement.executeUpdate());
                     }
@@ -64,16 +64,16 @@ class DatabaseRuntimeTest extends SharedSpringTest {
                         () -> assertThrows(
                                 QueryTimeoutException.class,
                                 () -> transaction.execute(status -> {
-                                    db.sql("update users set login = 'test-only-partial' where id = :id")
+                                    db.sql("UPDATE users SET login = 'test-only-partial' WHERE id = :id")
                                             .param("id", partialId)
                                             .update();
                                     return lockWait
                                             ? db.sql(
-                                                            "update users set login = 'test-only-blocked' where id = :id returning login")
+                                                            "UPDATE users SET login = 'test-only-blocked' WHERE id = :id RETURNING login")
                                                     .param("id", id)
                                                     .query(String.class)
                                                     .single()
-                                            : db.sql("select 'test-only-finished' from pg_sleep(30)")
+                                            : db.sql("SELECT 'test-only-finished' FROM pg_sleep(30)")
                                                     .query(String.class)
                                                     .single();
                                 })));
@@ -88,22 +88,22 @@ class DatabaseRuntimeTest extends SharedSpringTest {
         }
         assertEquals(
                 "test-only-before",
-                db.sql("select login from users where id = :id")
+                db.sql("SELECT login FROM users WHERE id = :id")
                         .param("id", partialId)
                         .query(String.class)
                         .single());
         assertEquals(
                 "test-only-before",
-                db.sql("select login from users where id = :id")
+                db.sql("SELECT login FROM users WHERE id = :id")
                         .param("id", id)
                         .query(String.class)
                         .single());
-        transaction.executeWithoutResult(status -> db.sql("update users set login = 'test-only-after' where id = :id")
+        transaction.executeWithoutResult(status -> db.sql("UPDATE users SET login = 'test-only-after' WHERE id = :id")
                 .param("id", id)
                 .update());
         assertEquals(
                 "test-only-after",
-                db.sql("select login from users where id = :id")
+                db.sql("SELECT login FROM users WHERE id = :id")
                         .param("id", id)
                         .query(String.class)
                         .single());
@@ -119,11 +119,11 @@ class DatabaseRuntimeTest extends SharedSpringTest {
             assertEquals(0, statement.getQueryTimeout());
             var failure = assertTimeoutPreemptively(
                     Duration.ofSeconds(25),
-                    () -> assertThrows(SQLException.class, () -> statement.execute("select pg_sleep(30)")));
+                    () -> assertThrows(SQLException.class, () -> statement.execute("SELECT pg_sleep(30)")));
             assertEquals("08006", failure.getSQLState());
             assertInstanceOf(SocketTimeoutException.class, failure.getCause());
             assertFalse(connection.isValid(1));
         }
-        assertEquals(1, db.sql("select 1").query(Integer.class).single());
+        assertEquals(1, db.sql("SELECT 1").query(Integer.class).single());
     }
 }

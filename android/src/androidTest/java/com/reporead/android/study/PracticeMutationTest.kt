@@ -77,8 +77,8 @@ class PracticeMutationTest {
     fun aFailedFirstGradeInsertLeavesNeitherCardNorGradeAndTheNextAttemptSavesBoth() = runBlocking {
         val dao = store.dao()
         store.openHelper.writableDatabase.execSQL(
-            """create trigger test_only_refuse_first_grade before insert on review_log
-               begin select raise(ABORT, 'Test-only first-grade failure'); end"""
+            """CREATE TRIGGER test_only_refuse_first_grade BEFORE INSERT ON review_log
+               BEGIN SELECT RAISE(ABORT, 'Test-only first-grade failure'); END"""
         )
         try {
             gradeNewQuestion(sync, question, 4)
@@ -89,7 +89,7 @@ class PracticeMutationTest {
         assertTrue("A failed grade must roll back its card", dao.annotations(1).first().isEmpty())
         assertTrue(dao.reviews().first().isEmpty())
         assertEquals(0, notifications.get())
-        store.openHelper.writableDatabase.execSQL("drop trigger test_only_refuse_first_grade")
+        store.openHelper.writableDatabase.execSQL("DROP TRIGGER test_only_refuse_first_grade")
         assertNull(gradeNewQuestion(sync, question, 4))
         val card = dao.annotations(1).first().single()
         assertEquals(listOf(card.mutationId), dao.reviews().first().map { it.cardMutationId })

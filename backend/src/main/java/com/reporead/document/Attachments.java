@@ -41,7 +41,7 @@ public class Attachments {
 
     /** Read together with the document/checkpoint in the content owner's short database snapshot. */
     public List<String> paths(long connectionId) {
-        return db.sql("select path from repository_images where repository_connection_id = :connectionId")
+        return db.sql("SELECT path FROM repository_images WHERE repository_connection_id = :connectionId")
                 .param("connectionId", connectionId)
                 .query(String.class)
                 .list();
@@ -76,11 +76,11 @@ public class Attachments {
      * Replaces the connection's image list with a snapshot's; callers hold the sync lock in the publishing transaction.
      */
     public void replace(long connectionId, List<String> paths) {
-        db.sql("delete from repository_images where repository_connection_id = :connectionId")
+        db.sql("DELETE FROM repository_images WHERE repository_connection_id = :connectionId")
                 .param("connectionId", connectionId)
                 .update();
         db.sql(
-                        "insert into repository_images (repository_connection_id, path) select :connectionId, unnest(:paths::text[])")
+                        "INSERT INTO repository_images (repository_connection_id, path) SELECT :connectionId, unnest(:paths::text[])")
                 .param("connectionId", connectionId)
                 .param("paths", paths.toArray(String[]::new))
                 .update();

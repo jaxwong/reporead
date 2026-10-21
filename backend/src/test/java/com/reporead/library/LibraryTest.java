@@ -64,8 +64,8 @@ class LibraryTest extends SharedSpringTest {
 
     private long connection(long userId, long githubRepositoryId, String name) {
         return db.sql("""
-                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
-                values (:userId, :githubRepositoryId, 'test-only', :name, 'main', :sha) returning id""")
+                INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
+                VALUES (:userId, :githubRepositoryId, 'test-only', :name, 'main', :sha) RETURNING id""")
                 .param("userId", userId)
                 .param("githubRepositoryId", githubRepositoryId)
                 .param("name", name)
@@ -76,8 +76,8 @@ class LibraryTest extends SharedSpringTest {
 
     private long document(long connection, String path, boolean deleted) {
         return db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
-                values (:connection, :path, :path, :sha, case when :deleted then now() end) returning id""")
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
+                VALUES (:connection, :path, :path, :sha, CASE WHEN :deleted THEN now() END) RETURNING id""")
                 .param("connection", connection)
                 .param("path", path)
                 .param("sha", SHA)
@@ -179,7 +179,7 @@ class LibraryTest extends SharedSpringTest {
     }
 
     private void retitle(long document, String title) {
-        db.sql("update documents set title = :title where id = :id")
+        db.sql("UPDATE documents SET title = :title WHERE id = :id")
                 .param("title", title)
                 .param("id", document)
                 .update();
@@ -200,13 +200,13 @@ class LibraryTest extends SharedSpringTest {
             var writing = executor.submit(() -> transaction.execute(status -> {
                 long id = document(1, "c.md", false);
                 db.sql("""
-                        insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
-                        values (1, :id, :sha, 10, cast(:anchor as jsonb), now())""")
+                        INSERT INTO reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
+                        VALUES (1, :id, :sha, 10, CAST(:anchor AS jsonb), now())""")
                         .param("id", id)
                         .param("sha", SHA)
                         .param("anchor", ANCHOR)
                         .update();
-                db.sql("lock table reading_states in access exclusive mode").update();
+                db.sql("LOCK TABLE reading_states IN access exclusive mode").update();
                 locked.countDown();
                 try {
                     assertTrue(release.await(10, TimeUnit.SECONDS));
