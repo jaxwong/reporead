@@ -2,7 +2,7 @@
 
 Kotlin/Compose client: GitHub sign-in through the backend, connected repositories, folder/note browsing, the isolated technical-Markdown reader (outline, footnotes, code tools, note links with previews and backlinks), every note saved for offline use, reading progress with Continue Reading, bookmarks, highlights with notes, recently updated notes, local search, interview-question Practice, spaced Review of cards, and the Notebook. It talks to the backend only through the HTTP/JSON contract in [backend/README.md](../backend/README.md); it never holds GitHub credentials.
 
-This README owns the app's commands and behaviour. Why things are this way is in the [ADRs](../docs/adrs.md), the rules every change keeps in [invariants](../docs/invariants.md), and how the app fits with the backend in the [architecture](../docs/architecture.md).
+This README owns the app's commands and behaviour. Why things are this way is in the [ADRs](../docs/adrs.md), the rules every change keeps in [invariants](../docs/invariants.md), naming and decomposition are in [code style](../docs/code-style.md), and how the app fits with the backend is in the [architecture](../docs/architecture.md).
 
 ## Run on the phone
 
