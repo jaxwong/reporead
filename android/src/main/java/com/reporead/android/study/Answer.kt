@@ -32,8 +32,8 @@ import androidx.compose.ui.unit.dp
 import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.RepoReadDao
 import com.reporead.android.reader.resolveNoteLink
 import com.reporead.android.ui.AppIcon
 
@@ -44,7 +44,7 @@ private const val PROMPT_HEIGHT = 0.4f
 private sealed interface LinkedNote {
     data class Problem(val text: String) : LinkedNote
 
-    data class Found(val document: DocumentRow) : LinkedNote
+    data class Found(val document: DocumentEntity) : LinkedNote
 }
 
 /** A bank question as asked: its heading with any follow-ups, then the prompt material the bank shows with it. */
@@ -88,7 +88,7 @@ internal fun BankAnswer(
     visible: Boolean,
     bankDocumentId: Long,
     bankPath: String,
-    dao: LibraryDao,
+    dao: RepoReadDao,
     modifier: Modifier,
     push: (Screen) -> Unit,
     onPrepared: () -> Unit,
@@ -169,7 +169,7 @@ private suspend fun linkedNotes(
     links: List<AnswerLink>,
     bankDocumentId: Long,
     bankPath: String,
-    dao: LibraryDao,
+    dao: RepoReadDao,
 ): List<LinkedNote> {
     val bank =
         dao.document(bankDocumentId)

@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -87,7 +87,7 @@ class FeatureRemovalMigrationTest {
                     db.execSQL("insert into review_limits values (1, 40)")
                 },
             ) { dao ->
-                assertEquals(listOf(RepositoryRow(7, "test/notes", 6, snapshot)), dao.repositories().first())
+                assertEquals(listOf(RepositoryEntity(7, "test/notes", 6, snapshot)), dao.repositories().first())
                 assertEquals(6, dao.listedDocuments(7).size)
                 assertEquals(
                     "upgrade from v$version",
@@ -99,7 +99,7 @@ class FeatureRemovalMigrationTest {
                 assertNull(dao.note(5))
                 assertNull(dao.note(6))
                 assertEquals(
-                    NoteRow(
+                    SavedPageEntity(
                         1,
                         sha,
                         "a.md",
@@ -114,17 +114,17 @@ class FeatureRemovalMigrationTest {
                 assertEquals("kept\nline", dao.searchNoteText("%kept%", 1).single().text)
                 assertEquals("b4", dao.searchNoteText("%near limit%", 1).single().blockId)
                 assertEquals(setOf(1L, 4L), dao.noteLinks(7).map { it.documentId }.toSet())
-                assertTrue(dao.noteLinks(7).contains(NoteLinkRow(1, 0, "path=b.md")))
-                assertEquals(ReadingRow(1, sha, 40, "{}", 5, pending = true), dao.reading(1))
-                assertEquals(ReadingRow(2, sha, 40, "{}", 5, pending = false), dao.reading(2))
-                assertEquals(BookmarkRow(1, true, true, 6), dao.bookmark(1).first())
-                assertEquals(BookmarkRow(2, true, false, 6), dao.bookmark(2).first())
+                assertTrue(dao.noteLinks(7).contains(NoteLinkEntity(1, 0, "path=b.md")))
+                assertEquals(ReadingStateEntity(1, sha, 40, "{}", 5, pending = true), dao.reading(1))
+                assertEquals(ReadingStateEntity(2, sha, 40, "{}", 5, pending = false), dao.reading(2))
+                assertEquals(BookmarkEntity(1, true, true, 6), dao.bookmark(1).first())
+                assertEquals(BookmarkEntity(2, true, false, 6), dao.bookmark(2).first())
                 assertEquals("mine", dao.annotation("card")!!.note)
                 assertEquals(2L, dao.annotation("card")!!.documentId)
                 assertEquals(AnnotationType.CARD, dao.annotation("card")!!.type)
                 assertEquals(AnnotationState.UNSENT, dao.annotation("card")!!.state)
                 assertEquals(AnnotationState.ACKNOWLEDGED, dao.annotation("highlight")!!.state)
-                assertEquals(listOf(ReviewRow("grade", "card", 2, 8, sha, pending = true)), dao.reviews().first())
+                assertEquals(listOf(ReviewEntity("grade", "card", 2, 8, sha, pending = true)), dao.reviews().first())
                 assertEquals(40, dao.reviewLimit().first())
                 SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
                     assertEquals(18, db.version)

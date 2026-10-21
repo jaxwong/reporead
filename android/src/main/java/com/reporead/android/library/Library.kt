@@ -42,9 +42,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.data.ChangedNote
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.RepositoryRow
+import com.reporead.android.database.ChangedNote
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.RepositoryEntity
 import com.reporead.android.logging.AppLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
@@ -163,7 +163,7 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
 @Composable
 fun LibraryScreen(
     sync: Sync,
-    dao: LibraryDao,
+    dao: RepoReadDao,
     signedIn: Boolean,
     entryId: String,
     push: (Screen) -> Unit,
@@ -304,7 +304,7 @@ private fun SignOutDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
 }
 
 @Composable
-private fun ReadingTab(dao: LibraryDao, push: (Screen) -> Unit) {
+private fun ReadingTab(dao: RepoReadDao, push: (Screen) -> Unit) {
     val recent by dao.recentReading(5).collectAsStateWithLifecycle(emptyList())
     val updated by dao.updatedSinceRead().collectAsStateWithLifecycle(emptyList())
     val changed by dao.recentlyChanged(5).collectAsStateWithLifecycle(emptyList())
@@ -353,7 +353,7 @@ private fun ReadingTab(dao: LibraryDao, push: (Screen) -> Unit) {
 }
 
 @Composable
-private fun BookmarksTab(dao: LibraryDao, push: (Screen) -> Unit) {
+private fun BookmarksTab(dao: RepoReadDao, push: (Screen) -> Unit) {
     val bookmarks by dao.bookmarks().collectAsStateWithLifecycle(emptyList())
     if (bookmarks.isEmpty()) {
         EmptyState("No bookmarks yet. Tap the bookmark icon in a note to keep it here.")
@@ -375,7 +375,7 @@ private fun BookmarksTab(dao: LibraryDao, push: (Screen) -> Unit) {
 
 @Composable
 private fun RepositoriesTab(
-    repositories: List<RepositoryRow>,
+    repositories: List<RepositoryEntity>,
     signedIn: Boolean,
     push: (Screen) -> Unit,
 ) {

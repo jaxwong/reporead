@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
@@ -40,9 +40,9 @@ class NoteFactsMigrationTest {
             },
         ) { dao ->
             assertEquals(false, dao.document(1)!!.deleted)
-            assertEquals(listOf(ReadingRow(1, sha, 40, "{}", 5, pending = true)), dao.pendingReading())
+            assertEquals(listOf(ReadingStateEntity(1, sha, 40, "{}", 5, pending = true)), dao.pendingReading())
             assertEquals(
-                listOf(BookmarkRow(1, bookmarked = true, pending = true, changedAt = 6)),
+                listOf(BookmarkEntity(1, bookmarked = true, pending = true, changedAt = 6)),
                 dao.pendingBookmarks(),
             )
             assertEquals("mine", dao.annotation("unsent")!!.note)

@@ -24,9 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.NoteRow
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.folderOf
 import org.json.JSONObject
@@ -37,7 +37,7 @@ private sealed interface Saved {
 
     data object Missing : Saved
 
-    data class Copy(val note: NoteRow) : Saved
+    data class Copy(val note: SavedPageEntity) : Saved
 }
 
 /**
@@ -48,10 +48,10 @@ private sealed interface Saved {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LinkPreviewSheet(
-    target: DocumentRow,
+    target: DocumentEntity,
     heading: String?,
     sync: Sync,
-    dao: LibraryDao,
+    dao: RepoReadDao,
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -112,7 +112,7 @@ internal fun LinkPreviewSheet(
 private fun previewView(
     context: Context,
     sync: Sync,
-    note: NoteRow,
+    note: SavedPageEntity,
     heading: String?,
     onNotice: (String) -> Unit,
     onFailed: () -> Unit,

@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
@@ -31,9 +31,9 @@ class NoteLinksMigrationTest {
         ) { dao ->
             assertEquals(
                 listOf(
-                    NoteLinkRow(1, 0, "target=b"),
-                    NoteLinkRow(1, 1, "heading=Top"),
-                    NoteLinkRow(1, 2, "path=c.md&heading=x"),
+                    NoteLinkEntity(1, 0, "target=b"),
+                    NoteLinkEntity(1, 1, "heading=Top"),
+                    NoteLinkEntity(1, 2, "path=c.md&heading=x"),
                 ),
                 dao.noteLinks(7),
             )

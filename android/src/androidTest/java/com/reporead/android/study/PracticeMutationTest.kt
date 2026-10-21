@@ -4,11 +4,11 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LocalStore
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.saveNoteWithoutSearch
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.RepoReadDatabase
+import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.network.Api
 import com.reporead.android.sync.Sync
 import java.io.File
@@ -28,7 +28,7 @@ import org.junit.runner.RunWith
 /** The real Practice grading entry, Sync and Room; explicitly test-only notes and no network access. */
 @RunWith(AndroidJUnit4::class)
 class PracticeMutationTest {
-    private lateinit var store: LocalStore
+    private lateinit var store: RepoReadDatabase
     private lateinit var files: File
     private lateinit var sync: Sync
     private val notifications = AtomicInteger()
@@ -52,11 +52,11 @@ class PracticeMutationTest {
     @Before
     fun open() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
+        store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
         files = File(context.cacheDir, "test-only-practice-mutation-${UUID.randomUUID()}").also { check(it.mkdirs()) }
-        val dao = store.library()
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, question.path, question.title, sha)))
-        dao.saveNoteWithoutSearch(NoteRow(1, sha, question.path, question.title, "<main id=note></main>", 0))
+        val dao = store.dao()
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, question.path, question.title, sha)))
+        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, question.path, question.title, "<main id=note></main>", 0))
         sync =
             Sync(
                 Api("http://127.0.0.1:1", { error("Practice mutation test must not call the network") }) {},
@@ -75,7 +75,7 @@ class PracticeMutationTest {
 
     @Test
     fun aFailedFirstGradeInsertLeavesNeitherCardNorGradeAndTheNextAttemptSavesBoth() = runBlocking {
-        val dao = store.library()
+        val dao = store.dao()
         store.openHelper.writableDatabase.execSQL(
             """create trigger test_only_refuse_first_grade before insert on review_log
                begin select raise(ABORT, 'Test-only first-grade failure'); end"""
@@ -98,7 +98,7 @@ class PracticeMutationTest {
 
     @Test
     fun concurrentGradesAndARestoredPromptEditWriteOnePair() = runBlocking {
-        val dao = store.library()
+        val dao = store.dao()
         (1..2).map { async(Dispatchers.Default) { gradeNewQuestion(sync, question, 4) } }.awaitAll()
         val edited = question.copy(question = question.question.copy(text = "Test-only edited prompt?"))
         assertNull(gradeNewQuestion(sync, edited, 5))
@@ -111,14 +111,14 @@ class PracticeMutationTest {
 
     @Test
     fun aChangedOrMissingBankWritesNothing() = runBlocking {
-        val dao = store.library()
-        dao.insertDocuments(listOf(DocumentRow(1, 7, question.path, question.title, "b".repeat(40))))
+        val dao = store.dao()
+        dao.insertDocuments(listOf(DocumentEntity(1, 7, question.path, question.title, "b".repeat(40))))
         assertTrue(checkNotNull(gradeNewQuestion(sync, question, 4)).contains("changed since it was asked"))
-        dao.insertDocuments(listOf(DocumentRow(1, 7, question.path, question.title, sha, deleted = true)))
+        dao.insertDocuments(listOf(DocumentEntity(1, 7, question.path, question.title, sha, deleted = true)))
         assertNotNull(gradeNewQuestion(sync, question, 4))
         dao.clearDocuments(7)
         assertNotNull(gradeNewQuestion(sync, question, 4))
-        dao.insertDocuments(listOf(DocumentRow(1, 7, question.path, question.title, sha)))
+        dao.insertDocuments(listOf(DocumentEntity(1, 7, question.path, question.title, sha)))
         dao.deleteNotes(listOf(1))
         assertNotNull(gradeNewQuestion(sync, question, 4))
         assertTrue(dao.annotations(1).first().isEmpty())
@@ -128,7 +128,7 @@ class PracticeMutationTest {
 
     @Test
     fun aRefusedCardDoesNotPreventANewAttempt() = runBlocking {
-        val dao = store.library()
+        val dao = store.dao()
         gradeNewQuestion(sync, question, 4)
         val refused = dao.annotations(1).first().single()
         dao.rejectAnnotation(refused.mutationId, "Test-only refusal")

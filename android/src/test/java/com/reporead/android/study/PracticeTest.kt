@@ -1,10 +1,10 @@
 package com.reporead.android.study
 
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.AnnotationType
-import com.reporead.android.data.NotebookItem
-import com.reporead.android.data.PracticePage
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.NotebookItem
+import com.reporead.android.database.PracticePage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -50,7 +50,7 @@ class PracticeTest {
         state: AnnotationState = AnnotationState.ACKNOWLEDGED,
     ) =
         NotebookItem(
-            AnnotationRow(
+            AnnotationEntity(
                 "m$document$question$answer",
                 1,
                 document,

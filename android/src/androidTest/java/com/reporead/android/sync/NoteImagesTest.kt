@@ -3,9 +3,9 @@ package com.reporead.android.sync
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.data.LoopbackServer
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.SavedVersion
+import com.reporead.android.database.LoopbackServer
+import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.SavedVersion
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import java.io.File
@@ -72,7 +72,7 @@ class NoteImagesTest {
             File(directory, "old-key").writeText("OLD_IMAGE")
             val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             assertNull(images.image(1, null, "a.png"))
-            images.save(NoteRow(1, sha, "a.md", "a", """<main><img src="/repo-image/a.png"></main>""", 0))
+            images.save(SavedPageEntity(1, sha, "a.md", "a", """<main><img src="/repo-image/a.png"></main>""", 0))
             images.sweep(listOf(SavedVersion(1, sha, "a.md", 3, null)))
             assertTrue(!directory.exists())
             assertTrue(server.requests.isEmpty())
@@ -87,7 +87,7 @@ class NoteImagesTest {
                 val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
                 assertNull(images.image(1, sha, "a.png"))
                 val note =
-                    NoteRow(
+                    SavedPageEntity(
                         1,
                         sha,
                         "a.md",

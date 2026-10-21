@@ -34,11 +34,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.CardBlock
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.NotebookItem
-import com.reporead.android.data.ReviewRow
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.CardBlock
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.NotebookItem
+import com.reporead.android.database.ReviewEntity
 import com.reporead.android.logging.AppLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
@@ -74,7 +74,7 @@ internal fun reviewQuestion(card: NotebookItem, questions: List<PracticeQuestion
 
 /** What review holds now, from this phone's cards and grades; null while they are read. */
 @Composable
-internal fun rememberReviewOutlook(dao: LibraryDao): ReviewOutlook? {
+internal fun rememberReviewOutlook(dao: RepoReadDao): ReviewOutlook? {
     val cards = dao.notebook().collectAsStateWithLifecycle(null).value
     val reviewLog = dao.reviews().collectAsStateWithLifecycle(null).value
     val today = rememberStartOfToday()
@@ -201,7 +201,7 @@ internal class ReviewViewModel(
     }
 
     /** Chooses the session once, from the cards due now. */
-    fun start(cards: List<NotebookItem>, reviewLog: List<ReviewRow>, sessionLimit: Int) {
+    fun start(cards: List<NotebookItem>, reviewLog: List<ReviewEntity>, sessionLimit: Int) {
         if (_state.value.session != null) return
         val startedAt = System.currentTimeMillis()
         savedState[STARTED_AT] = startedAt
@@ -231,7 +231,7 @@ internal class ReviewViewModel(
      * version the question and answer were read from, so a grade is saved only while that version is current. A card
      * [wasAskedAgain] only decides whether it comes back in this session.
      */
-    fun grade(annotation: AnnotationRow, answeredBlobSha: String, wasAskedAgain: Boolean, grade: Int) {
+    fun grade(annotation: AnnotationEntity, answeredBlobSha: String, wasAskedAgain: Boolean, grade: Int) {
         val stateSnapshot = _state.value
         val session = stateSnapshot.session ?: return
         if (session.current != annotation.mutationId) return
@@ -245,7 +245,7 @@ internal class ReviewViewModel(
         }
         AppLog.info("Review grade started; entry=$entryId mutationId=${annotation.mutationId}")
         val review =
-            ReviewRow(
+            ReviewEntity(
                 mutationId = UUID.randomUUID().toString(),
                 cardMutationId = annotation.mutationId,
                 grade = grade,
@@ -274,7 +274,7 @@ internal class ReviewViewModel(
  * is no time for all of them. A topic with nothing due is left out.
  */
 @Composable
-internal fun ReviewTopicsScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
+internal fun ReviewTopicsScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack: () -> Unit) {
     val outlook = rememberReviewOutlook(dao)
     val cards = dao.notebook().collectAsStateWithLifecycle(null).value
     val reviewLog = dao.reviews().collectAsStateWithLifecycle(null).value
@@ -314,7 +314,7 @@ internal fun ReviewTopicsScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack:
  */
 @Composable
 internal fun ReviewScreen(
-    dao: LibraryDao,
+    dao: RepoReadDao,
     sync: Sync,
     topic: String?,
     entryId: String,

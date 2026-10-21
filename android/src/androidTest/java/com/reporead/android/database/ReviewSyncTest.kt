@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -29,13 +29,13 @@ class ReviewSyncTest {
         val directory = File(context.cacheDir, "test-only-review-sync-${UUID.randomUUID()}")
         check(directory.mkdirs())
         try {
-            val store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
+            val store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
             try {
                 ServerSocket(0, 10, InetAddress.getByName("127.0.0.1")).use { server ->
                     server.soTimeout = 5_000
-                    val dao = store.library()
+                    val dao = store.dao()
                     val card =
-                        AnnotationRow(
+                        AnnotationEntity(
                             "card",
                             1,
                             7,
@@ -55,7 +55,7 @@ class ReviewSyncTest {
                     dao.saveAnnotation(card)
                     val grades =
                         (1..10).map {
-                            ReviewRow(UUID.randomUUID().toString(), "card", 4, it.toLong(), "a".repeat(40), true)
+                            ReviewEntity(UUID.randomUUID().toString(), "card", 4, it.toLong(), "a".repeat(40), true)
                         }
                     grades.forEach { dao.saveReview(it) }
                     val sync =

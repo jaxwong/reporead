@@ -1,6 +1,6 @@
 // Owns: Sync/Room/background integration coverage and its test-only loopback server; never the real data store.
 
-package com.reporead.android.data
+package com.reporead.android.database
 
 import android.net.Uri
 import android.util.Log
@@ -69,15 +69,15 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class LocalSyncTest {
     private val sha = "a".repeat(40)
-    private lateinit var store: LocalStore
-    private lateinit var dao: LibraryDao
+    private lateinit var store: RepoReadDatabase
+    private lateinit var dao: RepoReadDao
     private lateinit var directory: File
 
     @Before
     fun open() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
-        dao = store.library()
+        store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
+        dao = store.dao()
         directory = File(context.cacheDir, "test-only-local-sync-${UUID.randomUUID()}").also { check(it.mkdirs()) }
     }
 
@@ -124,7 +124,7 @@ class LocalSyncTest {
     private val emptyLibrary = mapOf("GET /api/library" to library())
 
     private fun reading(documentId: Long) =
-        ReadingRow(
+        ReadingStateEntity(
             documentId,
             sha,
             50,
@@ -147,8 +147,8 @@ class LocalSyncTest {
     @Test
     fun aFormatThreeCurrentPageIsFetchedOnlyOnceOnline() = runBlocking {
         savedRepository()
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
-        dao.saveNoteWithoutSearch(NoteRow(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, 3, "b".repeat(40)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n1.md", "n1", sha)))
+        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, 3, "b".repeat(40)))
         LoopbackServer(mapOf("GET /api/documents/1/content" to content(1))).use { server ->
             val sync = sync(server.url)
             val first = sync.openNote(1)
@@ -162,7 +162,7 @@ class LocalSyncTest {
     @Test
     fun aCurrentPageInAnOlderFormatOpensOfflineWithoutAWarning() = runBlocking {
         savedRepository()
-        val old = NoteRow(1, sha, "a.md", "a", "<main>kept</main>", 0, 3, sha)
+        val old = SavedPageEntity(1, sha, "a.md", "a", "<main>kept</main>", 0, 3, sha)
         dao.saveNoteWithoutSearch(old)
         val opened = sync("http://127.0.0.1:${closedPort()}").openNote(1)
         assertEquals(old, opened.note)
@@ -173,7 +173,7 @@ class LocalSyncTest {
     @Test
     fun anOversizedNewVersionKeepsShowingTheSavedPageWithItsReason() = runBlocking {
         savedRepository()
-        val old = NoteRow(1, "b".repeat(40), "a.md", "a", "<main>kept</main>", 0, 3, sha)
+        val old = SavedPageEntity(1, "b".repeat(40), "a.md", "a", "<main>kept</main>", 0, 3, sha)
         dao.saveNoteWithoutSearch(old)
         LoopbackServer(mapOf("GET /api/documents/1/content" to failure(422, "UNSUPPORTED_CONTENT"))).use { server ->
             val opened = sync(server.url).openNote(1)
@@ -188,7 +188,7 @@ class LocalSyncTest {
     fun aMalformedReadingSaveFailsLoudlyWithoutSendingUnrelatedWork() = runBlocking {
         val pending = reading(1)
         dao.saveReading(pending)
-        dao.saveBookmark(BookmarkRow(2, bookmarked = true, pending = true, changedAt = 5))
+        dao.saveBookmark(BookmarkEntity(2, bookmarked = true, pending = true, changedAt = 5))
         LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to failure(400, "INVALID_REQUEST"))).use { server ->
             val error = runCatching { sync(server.url).syncWaitingChanges() }.exceptionOrNull()
             assertTrue("Expected a loud 400, got $error", error is ApiException && error.status == 400)
@@ -200,12 +200,12 @@ class LocalSyncTest {
 
     @Test
     fun aPositionOverTheOldLimitsIsSentOnceAndAcknowledgedWhileOtherWorkProceeds() = runBlocking {
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Long heading note", sha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n.md", "Long heading note", sha)))
         val now = System.currentTimeMillis()
         val anchor =
             """{"headingPath":[${List(7) { "\"${"h".repeat(501)}\"" }.joinToString(",")}],"textPrefix":"${"p".repeat(201)}","blockIndex":4096}"""
         dao.saveReading(reading(1).copy(lastReadAt = now + 600_000, anchorJson = anchor))
-        dao.saveBookmark(BookmarkRow(2, bookmarked = true, pending = true, changedAt = 5))
+        dao.saveBookmark(BookmarkEntity(2, bookmarked = true, pending = true, changedAt = 5))
         val accepted =
             JSONObject(serverReading)
                 .put("lastReadAt", Instant.ofEpochMilli(now).toString())
@@ -243,7 +243,7 @@ class LocalSyncTest {
     @Test
     fun aReadingPositionNoLongerOwnedIsAcknowledgedAndDoesNotStopBookmarks() = runBlocking {
         dao.saveReading(reading(1))
-        dao.saveBookmark(BookmarkRow(2, bookmarked = true, pending = true, changedAt = 5))
+        dao.saveBookmark(BookmarkEntity(2, bookmarked = true, pending = true, changedAt = 5))
         LoopbackServer(
                 mapOf(
                     "PUT /api/documents/1/reading-state" to failure(404, "NOT_FOUND"),
@@ -266,8 +266,8 @@ class LocalSyncTest {
 
     @Test
     fun aRefusedBookmarkIsUndoneAndReportedWithItsDocumentAndReason() = runBlocking {
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "Bookmarked note", sha)))
-        dao.saveBookmark(BookmarkRow(1, bookmarked = true, pending = true, changedAt = 5))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "Bookmarked note", sha)))
+        dao.saveBookmark(BookmarkEntity(1, bookmarked = true, pending = true, changedAt = 5))
         LoopbackServer(mapOf("PUT /api/documents/1/bookmark" to failure(404, "NOT_FOUND"))).use { server ->
             val sync = sync(server.url)
             val result = sync.syncWaitingChanges()!!
@@ -286,10 +286,10 @@ class LocalSyncTest {
     @Test
     fun creationsWaitWhenGitHubAccessFailsWhileDatabaseOnlyWorkStillSyncs() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
         dao.saveAnnotation(
-            AnnotationRow(
+            AnnotationEntity(
                 "unsent-card",
                 null,
                 1,
@@ -306,7 +306,7 @@ class LocalSyncTest {
                 question = "Test-only question?",
             )
         )
-        dao.saveReview(ReviewRow("grade-of-unsent-card", "unsent-card", 4, 2, sha, pending = true))
+        dao.saveReview(ReviewEntity("grade-of-unsent-card", "unsent-card", 4, 2, sha, pending = true))
         dao.saveReading(reading(1))
         LoopbackServer(
                 emptyLibrary +
@@ -341,7 +341,7 @@ class LocalSyncTest {
     @Test
     fun aCreationAnswerThatBreaksTheContractWaitsWhileDatabaseOnlyWorkStillSyncs() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("unparsed", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("unparsed", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
         dao.saveReading(reading(1))
         LoopbackServer(
@@ -372,7 +372,7 @@ class LocalSyncTest {
     @Test
     fun aDeletedCreationIsReplayedThenDeletedOnTheServer() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("deleted", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
         sync("http://127.0.0.1:9").deleteAnnotation(dao.annotation("deleted")!!)
         assertTrue(dao.annotations(1).first().isEmpty())
@@ -431,7 +431,7 @@ class LocalSyncTest {
     @Test
     fun anUnreachableServerEndsTheSyncWithEverythingPending() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
         dao.saveReading(reading(1))
         try {
@@ -446,8 +446,8 @@ class LocalSyncTest {
 
     @Test
     fun everyLocalChangeAsksForABackgroundSync() = runBlocking {
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "a", sha)))
+        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0))
         var requested = 0
         // Nothing listens on the port: saving a change never waits for the network.
         val sync =
@@ -471,12 +471,12 @@ class LocalSyncTest {
         assertEquals(NewCardGrade.SAVED, sync.gradeNewCard(passage, 1, "Test-only question?", 4))
         assertEquals(5, requested)
         val card = dao.annotations(1).first().single { it.type == AnnotationType.CARD }.mutationId
-        assertTrue(sync.recordReview(ReviewRow("grade", card, 4, 1, sha, pending = true)))
+        assertTrue(sync.recordReview(ReviewEntity("grade", card, 4, 1, sha, pending = true)))
         assertEquals(6, requested)
         sync.deleteAnnotation(dao.annotation(card)!!)
         assertEquals(7, requested)
         // A grade the card no longer accepts saves nothing, so there is nothing to send.
-        assertFalse(sync.recordReview(ReviewRow("stale", card, 4, 2, sha, pending = true)))
+        assertFalse(sync.recordReview(ReviewEntity("stale", card, 4, 2, sha, pending = true)))
         assertEquals(7, requested)
     }
 
@@ -484,7 +484,7 @@ class LocalSyncTest {
     fun theBackgroundSyncMakesNoRequestWhenNothingWaits() = runBlocking {
         // A refused highlight is not waiting: sending it again cannot deliver it.
         dao.saveAnnotation(
-            AnnotationRow(
+            AnnotationEntity(
                 "refused",
                 null,
                 1,
@@ -510,7 +510,7 @@ class LocalSyncTest {
     fun annotationCapacityKeepsTheSameCreationPendingForAnotherSync() = runBlocking {
         val mutation = "test-only-capacity"
         val pending =
-            AnnotationRow(mutation, null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity(mutation, null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         dao.saveAnnotation(pending)
         val request = "POST /api/documents/1/annotations"
         LoopbackServer(mapOf(request to failure(422, "ANNOTATION_LIMIT"))).use { server ->
@@ -529,7 +529,7 @@ class LocalSyncTest {
      */
     @Test
     fun aBackgroundRunSendsWhatWaitsAndPullsNothing() = runBlocking {
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", sha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n.md", "Test-only note", sha)))
         dao.saveReading(reading(1))
         LoopbackServer(emptyLibrary + mapOf("PUT /api/documents/1/reading-state" to (200 to serverReading))).use {
             server ->
@@ -575,7 +575,7 @@ class LocalSyncTest {
     @Test
     fun gitHubUnavailableIsTriedAgainAfterTheRestIsSent() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
         dao.saveReading(reading(1))
         LoopbackServer(
@@ -600,7 +600,7 @@ class LocalSyncTest {
             assertEquals(1, dao.pendingReading().size)
         }
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
         LoopbackServer(
                 emptyLibrary +
@@ -618,13 +618,13 @@ class LocalSyncTest {
     @Test
     fun saveAllSweepsReplacedImagesOnlyAfterTheBatchSucceeds() = runBlocking {
         val old = "b".repeat(40)
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 2, sha)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha), DocumentRow(2, 7, "n2.md", "n2", sha)))
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/notes", 2, sha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n1.md", "n1", sha), DocumentEntity(2, 7, "n2.md", "n2", sha)))
         dao.saveNoteWithoutSearch(
-            NoteRow(1, old, "n1.md", "n1", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
+            SavedPageEntity(1, old, "n1.md", "n1", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
         )
         dao.saveNoteWithoutSearch(
-            NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
+            SavedPageEntity(2, old, "n2.md", "n2", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
         )
         val replaced = image(1, old)
         LoopbackServer(
@@ -650,13 +650,13 @@ class LocalSyncTest {
     fun saveAllFetchesOnlyTheNotesNotSavedAsListed() = runBlocking {
         val old = "b".repeat(40)
         dao.saveNoteWithoutSearch(
-            NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, sha)
+            SavedPageEntity(1, sha, "n1.md", "n1", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, sha)
         )
         dao.saveNoteWithoutSearch(
-            NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
+            SavedPageEntity(2, old, "n2.md", "n2", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
         )
         dao.saveNoteWithoutSearch(
-            NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT - 1, old)
+            SavedPageEntity(3, sha, "n3.md", "n3", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT - 1, old)
         )
         LoopbackServer(
                 mapOf(
@@ -751,7 +751,7 @@ class LocalSyncTest {
             """<main id="note"><img src="/repo-image/ok.png"><img src="/repo-image/missing.png">
             <img src="/repo-image/missing.png"><img src="https://test-only.invalid/remote.png">
             <span class="image-blocked">Image unavailable</span></main>"""
-        val current = NoteRow(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha)
+        val current = SavedPageEntity(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha)
         dao.saveNoteWithoutSearch(current)
         val listed =
             "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3, deleted = true)}"))
@@ -810,7 +810,7 @@ class LocalSyncTest {
     fun losingTheServerAfterACurrentPagesImagesStopsAtTheNextImageAndUsesTheWorkersRetryLimit() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/a.png"></main>"""
         for (id in 1L..3L) dao.saveNoteWithoutSearch(
-            NoteRow(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
+            SavedPageEntity(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
         )
         val first = "GET /api/documents/1/image?commitSha=$sha&path=a.png"
         for (attempt in listOf(0, 9)) {
@@ -865,7 +865,7 @@ class LocalSyncTest {
     fun anImage401EndsTheSessionAndStopsWithoutRequestingLaterImages() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/a.png"></main>"""
         for (id in 1L..3L) dao.saveNoteWithoutSearch(
-            NoteRow(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
+            SavedPageEntity(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
         )
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = "test-only-save-all-session-${UUID.randomUUID()}"
@@ -907,7 +907,7 @@ class LocalSyncTest {
     fun permanentImageRefusalsCountEachPageOnceAndKeepItsTextBeforeContinuingAtTheNextPage() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/refused.png"><img src="/repo-image/later.png"></main>"""
         for (id in 2L..3L) dao.saveNoteWithoutSearch(
-            NoteRow(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
+            SavedPageEntity(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
         )
         val requests = (1..3).map { "GET /api/documents/$it/image?commitSha=$sha&path=refused.png" }
         LoopbackServer(
@@ -944,7 +944,7 @@ class LocalSyncTest {
     @Test
     fun cancellingSaveAllDuringAnImageKeepsItAndTheNextRunFetchesOnlyTheRemainingImage() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/first.png"><img src="/repo-image/second.png"></main>"""
-        val current = NoteRow(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha)
+        val current = SavedPageEntity(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha)
         val old = "b".repeat(40)
         dao.saveNoteWithoutSearch(current.copy(snapshotCommitSha = old))
         val replaced = image(1, old)
@@ -968,7 +968,7 @@ class LocalSyncTest {
             }
             .use { server ->
                 val saving = launch(Dispatchers.IO) { sync(server.url).saveAllNotes(7) { _, _ -> } }
-                val saved: NoteRow
+                val saved: SavedPageEntity
                 try {
                     assertTrue("The image was never requested", arrived.await(10, SECONDS))
                     saved = checkNotNull(dao.note(1))
@@ -1011,7 +1011,7 @@ class LocalSyncTest {
     @Test
     fun disconnectDuringImagePrefetchWaitsForThePageThenRemovesItsImages() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/first.png"><img src="/repo-image/second.png"></main>"""
-        dao.saveNoteWithoutSearch(NoteRow(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha))
+        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha))
         val first = "GET /api/documents/1/image?commitSha=$sha&path=first.png"
         val second = "GET /api/documents/1/image?commitSha=$sha&path=second.png"
         val arrived = CountDownLatch(1)
@@ -1069,7 +1069,7 @@ class LocalSyncTest {
                 .put("renderFormat", BuildConfig.RENDER_FORMAT)
                 .put("snapshotCommitSha", sha)
                 .toString()
-        val old = NoteRow(1, "b".repeat(40), "n1.md", "n1", "<main>kept</main>", 0, BuildConfig.RENDER_FORMAT)
+        val old = SavedPageEntity(1, "b".repeat(40), "n1.md", "n1", "<main>kept</main>", 0, BuildConfig.RENDER_FORMAT)
         dao.saveNoteWithoutSearch(old)
         LoopbackServer(
                 mapOf(
@@ -1087,7 +1087,7 @@ class LocalSyncTest {
                     sync.saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
-                val expected = NoteRow(3, sha, path, title, html, 0, BuildConfig.RENDER_FORMAT, sha)
+                val expected = SavedPageEntity(3, sha, path, title, html, 0, BuildConfig.RENDER_FORMAT, sha)
                 repeat(2) {
                     assertEquals(old, dao.note(1))
                     assertNull(dao.note(2))
@@ -1249,7 +1249,7 @@ class LocalSyncTest {
         val newCommit = "d".repeat(40)
         for (savedCommit in listOf(sha, null)) {
             val saved =
-                NoteRow(
+                SavedPageEntity(
                     1,
                     sha,
                     "n1.md",
@@ -1280,7 +1280,7 @@ class LocalSyncTest {
     fun saveAllRebindsABlockedEmbedAfterASnapshotChange() = runBlocking {
         val newCommit = "d".repeat(40)
         val saved =
-            NoteRow(
+            SavedPageEntity(
                 1,
                 sha,
                 "n1.md",
@@ -1317,8 +1317,8 @@ class LocalSyncTest {
     @Test
     fun openRefreshesImageDependentPagesWithAnOldOrUnknownSnapshot() = runBlocking {
         val newCommit = "d".repeat(40)
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, newCommit)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/r7", 1, newCommit)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n1.md", "n1", sha)))
         for (html in
             listOf(
                 """<main><img src="/repo-image/chart.png"></main>""",
@@ -1326,7 +1326,7 @@ class LocalSyncTest {
             )) {
             for (savedCommit in listOf(sha, null)) {
                 dao.saveNoteWithoutSearch(
-                    NoteRow(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, savedCommit)
+                    SavedPageEntity(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, savedCommit)
                 )
                 val answer =
                     JSONObject(content(1).second).put("snapshotCommitSha", newCommit).put("html", html).toString()
@@ -1347,10 +1347,10 @@ class LocalSyncTest {
     fun anImageOnlySnapshotChangeRefreshesThePageAndRetiresOldImagesWithoutChangingTheDisplayedCopy() = runBlocking {
         val oldCommit = "b".repeat(40)
         val newCommit = "d".repeat(40)
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, oldCommit)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/r7", 1, oldCommit)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n1.md", "n1", sha)))
         val displayed =
-            NoteRow(
+            SavedPageEntity(
                 1,
                 sha,
                 "n1.md",
@@ -1410,7 +1410,7 @@ class LocalSyncTest {
     @Test
     fun missingOrMalformedImageSnapshotMetadataCannotReplaceALegacySavedPage() = runBlocking {
         val saved =
-            NoteRow(
+            SavedPageEntity(
                 1,
                 sha,
                 "n1.md",
@@ -1419,8 +1419,8 @@ class LocalSyncTest {
                 0,
                 BuildConfig.RENDER_FORMAT,
             )
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, sha)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/r7", 1, sha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n1.md", "n1", sha)))
         dao.saveNoteWithoutSearch(saved)
         for (value in listOf(null, JSONObject.NULL, "INVALID", "A".repeat(40))) {
             val answer =
@@ -1508,7 +1508,7 @@ class LocalSyncTest {
                 409 to "x".repeat(8 * 1024 * 1024 + 1),
                 200 to """{"documentId":2,"createdAt":"1970-01-01T00:00:00Z"}""",
             )) {
-            val pending = BookmarkRow(1, bookmarked = true, pending = true, changedAt = 5)
+            val pending = BookmarkEntity(1, bookmarked = true, pending = true, changedAt = 5)
             dao.saveBookmark(pending)
             LoopbackServer(mapOf("PUT /api/documents/1/bookmark" to (status to body))).use { server ->
                 val error = runCatching { sync(server.url).syncWaitingChanges() }.exceptionOrNull()
@@ -1522,7 +1522,7 @@ class LocalSyncTest {
     @Test
     fun aReviewAnswerMustMatchItsCardAndCanReplaceTheLocalTimestamp() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow(
+            AnnotationEntity(
                 "test-only-card",
                 9,
                 1,
@@ -1539,7 +1539,7 @@ class LocalSyncTest {
                 question = "Test-only question?",
             )
         )
-        val pending = ReviewRow("test-only-grade", "test-only-card", 4, 1_000, sha, true)
+        val pending = ReviewEntity("test-only-grade", "test-only-card", 4, 1_000, sha, true)
         dao.saveReview(pending)
         val body =
             """{"mutationId":"test-only-grade","cardMutationId":"test-only-other-card","grade":4,"reviewedAt":"1970-01-01T00:00:01Z","blobSha":"$sha"}"""
@@ -1566,7 +1566,7 @@ class LocalSyncTest {
     fun anUncertainDeletionStaysHiddenAndPendingUntilAConfirmedSecondRun() = runBlocking {
         val mutation = "test-only-deletion"
         dao.saveAnnotation(
-            AnnotationRow(mutation, null, 1, sha, "b1", 0, 4, "text", null, 1, 0, AnnotationState.UNSENT)
+            AnnotationEntity(mutation, null, 1, sha, "b1", 0, 4, "text", null, 1, 0, AnnotationState.UNSENT)
         )
         sync("http://127.0.0.1:1").deleteAnnotation(checkNotNull(dao.annotation(mutation)))
         LoopbackServer(mapOf("POST /api/documents/1/annotations" to failure(500, "ANNOTATION_DELETED"))).use { server ->
@@ -1599,13 +1599,13 @@ class LocalSyncTest {
     @Test
     fun aLibraryRequestThatFailsLeavesEverySavedListAndImageAsItWas() = runBlocking {
         dao.replaceRepositories(
-            listOf(RepositoryRow(7, "test-only/kept", 1, sha), RepositoryRow(9, "test-only/gone", 1, sha))
+            listOf(RepositoryEntity(7, "test-only/kept", 1, sha), RepositoryEntity(9, "test-only/gone", 1, sha))
         )
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.replaceDocuments(9, listOf(DocumentRow(3, 9, "c.md", "c", sha)))
-        dao.saveNoteWithoutSearch(NoteRow(3, sha, "c.md", "c", "<html/>", 0))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "a", sha)))
+        dao.replaceDocuments(9, listOf(DocumentEntity(3, 9, "c.md", "c", sha)))
+        dao.saveNoteWithoutSearch(SavedPageEntity(3, sha, "c.md", "c", "<html/>", 0))
         dao.saveReading(reading(1).copy(pending = false))
-        dao.saveBookmark(BookmarkRow(1, bookmarked = true, pending = false, changedAt = 5))
+        dao.saveBookmark(BookmarkEntity(1, bookmarked = true, pending = false, changedAt = 5))
         val image = File(directory, "images/3/$sha/test-only").apply { check(parentFile!!.mkdirs()) }
         image.writeText("test-only image")
         suspend fun saved() =
@@ -1671,9 +1671,9 @@ class LocalSyncTest {
 
     @Test
     fun aRepositoryTheServerAlreadyDisconnectedIsRemovedFromThePhoneInsteadOfFailing() = runBlocking {
-        dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "o/notes", 1, sha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "a", sha)))
+        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0))
         LoopbackServer(emptyLibrary + mapOf("GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"))).use {
             server ->
             assertNull(
@@ -1705,9 +1705,9 @@ class LocalSyncTest {
 
     /** Repository 7 listing note 1, saved on the phone. */
     private suspend fun savedRepository() {
-        dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", "<html/>", 0, snapshotCommitSha = sha))
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "o/notes", 1, sha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "a", sha)))
+        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0, snapshotCommitSha = sha))
     }
 
     @Test

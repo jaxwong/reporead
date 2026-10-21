@@ -3,20 +3,20 @@
 package com.reporead.android.sync
 
 import com.reporead.android.BuildConfig
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.AnnotationType
-import com.reporead.android.data.BookmarkRow
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.InvalidReviewGrade
-import com.reporead.android.data.LocalStore
-import com.reporead.android.data.NewCardGrade
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.NoteSearchBlockRow
-import com.reporead.android.data.Passage
-import com.reporead.android.data.ReadingRow
-import com.reporead.android.data.RepositoryRow
-import com.reporead.android.data.ReviewRow
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.BookmarkEntity
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.InvalidReviewGrade
+import com.reporead.android.database.RepoReadDatabase
+import com.reporead.android.database.NewCardGrade
+import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.NoteSearchBlockEntity
+import com.reporead.android.database.Passage
+import com.reporead.android.database.ReadingStateEntity
+import com.reporead.android.database.RepositoryEntity
+import com.reporead.android.database.ReviewEntity
 import com.reporead.android.logging.AppLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
@@ -81,11 +81,11 @@ data class RefusedChange(val documentId: Long, val title: String?, val error: Ap
  */
 class Sync(
     private val api: Api,
-    store: LocalStore,
+    store: RepoReadDatabase,
     filesDir: File,
     private val onPendingChange: () -> Unit,
 ) {
-    private val dao = store.library()
+    private val dao = store.dao()
 
     private val oneSyncAtATime = Mutex()
 
@@ -130,14 +130,14 @@ class Sync(
         val snapshot = api.fetchLibrarySnapshot()
         val repositoriesWithDocuments =
             snapshot.repositories.associate { repository ->
-                RepositoryRow(
+                RepositoryEntity(
                     repository.id,
                     repository.fullName,
                     repository.documentCount,
                     repository.lastSyncedCommitSha,
                 ) to
                     repository.documents.map { document ->
-                        DocumentRow(
+                        DocumentEntity(
                             document.id,
                             repository.id,
                             document.path,
@@ -149,7 +149,7 @@ class Sync(
                     }
             }
         val readingStates = snapshot.readingStates.map { it.toRow() }
-        val bookmarks = snapshot.bookmarks.map { BookmarkRow(it.documentId, true, false, it.createdAt.toEpochMilli()) }
+        val bookmarks = snapshot.bookmarks.map { BookmarkEntity(it.documentId, true, false, it.createdAt.toEpochMilli()) }
         val annotations = snapshot.notebook.annotations.map { it.toRow() }
         val reviews = snapshot.notebook.reviews.map { it.toRow() }
         try {
@@ -187,15 +187,15 @@ class Sync(
     }
 
     /** Owns an open operation's saved page and optional fetch failure; the reader words the stale-copy notice. */
-    data class Opened(val note: NoteRow, val staleReason: ApiException?)
+    data class Opened(val note: SavedPageEntity, val staleReason: ApiException?)
 
     /**
      * The saved copy matches a listed note's blob and path. Only repository images and blocked embeds also need the
      * same known snapshot: their contents or resolution may change without a Markdown edit.
      */
     private fun sameVersion(
-        savedPage: NoteRow,
-        listedDocument: DocumentRow?,
+        savedPage: SavedPageEntity,
+        listedDocument: DocumentEntity?,
         repositoryCommitSha: String?,
     ): Boolean {
         val needsSnapshot = savedPage.html.contains(IMAGE_PREFIX) || savedPage.html.contains("image-blocked")
@@ -208,7 +208,7 @@ class Sync(
     }
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
-    private fun upToDate(savedPage: NoteRow, listedDocument: DocumentRow?, repositoryCommitSha: String?) =
+    private fun upToDate(savedPage: SavedPageEntity, listedDocument: DocumentEntity?, repositoryCommitSha: String?) =
         sameVersion(savedPage, listedDocument, repositoryCommitSha) &&
             savedPage.renderFormat >= BuildConfig.RENDER_FORMAT
 
@@ -238,10 +238,10 @@ class Sync(
      * Fetches and saves the note's current version (one GitHub call on the server); the copy is saved whole or not at
      * all.
      */
-    private suspend fun fetchNote(documentId: Long): NoteRow {
+    private suspend fun fetchNote(documentId: Long): SavedPageEntity {
         val content = api.fetchDocumentContent(documentId)
         val savedPage =
-            NoteRow(
+            SavedPageEntity(
                 documentId,
                 content.sourceBlobSha,
                 content.path,
@@ -253,7 +253,7 @@ class Sync(
             )
         val searchBlocks =
             content.blocks.mapIndexed { position, block ->
-                NoteSearchBlockRow(documentId, block.id, position, block.text)
+                NoteSearchBlockEntity(documentId, block.id, position, block.text)
             }
         dao.saveNote(savedPage, searchBlocks)
         return savedPage
@@ -375,7 +375,7 @@ class Sync(
     }
 
     /** Only the reader calls this, with the version it actually displayed. False for a disconnected note. */
-    suspend fun saveReading(readingState: ReadingRow): Boolean = committed {
+    suspend fun saveReading(readingState: ReadingStateEntity): Boolean = committed {
         dao.saveDisplayedReading(readingState.copy(pending = true)).also { wasSaved ->
             if (wasSaved) onPendingChange()
             else AppLog.info("Reading position not saved; note gone; documentId=${readingState.documentId}")
@@ -384,7 +384,7 @@ class Sync(
 
     /** False when the phone no longer lists the note: nothing is saved. */
     suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = committed {
-        dao.saveLocalBookmark(BookmarkRow(documentId, bookmarked, pending = true, System.currentTimeMillis())).also {
+        dao.saveLocalBookmark(BookmarkEntity(documentId, bookmarked, pending = true, System.currentTimeMillis())).also {
             wasSaved ->
             if (wasSaved) onPendingChange() else AppLog.info("Bookmark not saved; note gone; documentId=$documentId")
         }
@@ -394,7 +394,7 @@ class Sync(
      * Saves a grade as a pending local mutation; false when its card changed meanwhile and nothing was saved (see
      * recordReview).
      */
-    suspend fun recordReview(review: ReviewRow): Boolean = committed {
+    suspend fun recordReview(review: ReviewEntity): Boolean = committed {
         dao.recordReview(review).also { if (it) onPendingChange() }
     }
 
@@ -498,7 +498,7 @@ class Sync(
         committed {
             val card = newAnnotation(passage, documentId, null, question)
             val review =
-                ReviewRow(
+                ReviewEntity(
                     mutationId = UUID.randomUUID().toString(),
                     cardMutationId = card.mutationId,
                     grade = grade,
@@ -517,8 +517,8 @@ class Sync(
         documentId: Long,
         note: String?,
         question: String?,
-    ): AnnotationRow =
-        AnnotationRow(
+    ): AnnotationEntity =
+        AnnotationEntity(
             mutationId = UUID.randomUUID().toString(),
             serverId = null,
             documentId = documentId,
@@ -558,7 +558,7 @@ class Sync(
      * item: it is then removed (deleted already, or being [isDeleting]) or kept as refused. Any other failure stops the
      * run.
      */
-    private suspend fun sendCreation(annotation: AnnotationRow, isDeleting: Boolean): AnnotationRow? {
+    private suspend fun sendCreation(annotation: AnnotationEntity, isDeleting: Boolean): AnnotationEntity? {
         val request =
             AnnotationControllerCreateRequest(
                 mutationId = annotation.mutationId,
@@ -603,7 +603,7 @@ class Sync(
      * Deletes on the server a creation the user deleted before it was acknowledged; throws a failure that is not this
      * item's.
      */
-    private suspend fun sendDeletion(annotation: AnnotationRow) {
+    private suspend fun sendDeletion(annotation: AnnotationEntity) {
         val annotationId = checkNotNull(annotation.serverId) { "Deleting ${annotation.mutationId} needs its server id" }
         try {
             api.deleteAnnotation(annotationId, annotation.version)
@@ -631,7 +631,7 @@ class Sync(
     }
 
     /** Online only. A 409 ANNOTATION_CONFLICT means another edit landed first; nothing local changes. */
-    suspend fun editAnnotation(annotation: AnnotationRow, note: String?, expectedVersion: Int): AnnotationRow =
+    suspend fun editAnnotation(annotation: AnnotationEntity, note: String?, expectedVersion: Int): AnnotationEntity =
         committed {
             val annotationId =
                 checkNotNull(annotation.serverId) {
@@ -651,7 +651,7 @@ class Sync(
      * Online only: places an acknowledged highlight on a [passage] the user selected. A 409 ANNOTATION_CONFLICT means
      * another change landed first; nothing local changes.
      */
-    suspend fun reattachAnnotation(annotation: AnnotationRow, passage: Passage): AnnotationRow = committed {
+    suspend fun reattachAnnotation(annotation: AnnotationEntity, passage: Passage): AnnotationEntity = committed {
         val annotationId =
             checkNotNull(annotation.serverId) {
                 "Only acknowledged highlights can be reattached; ${annotation.mutationId} is pending"
@@ -675,7 +675,7 @@ class Sync(
      * once and offline too; the next sync replays the creation (the server may have it after a lost acknowledgement)
      * and deletes it there. A refused creation the server never accepted is only local.
      */
-    suspend fun deleteAnnotation(annotation: AnnotationRow) = committed {
+    suspend fun deleteAnnotation(annotation: AnnotationEntity) = committed {
         when (annotation.state) {
             AnnotationState.ACKNOWLEDGED -> {
                 val annotationId =

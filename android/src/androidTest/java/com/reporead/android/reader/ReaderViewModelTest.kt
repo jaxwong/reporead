@@ -12,12 +12,12 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.BuildConfig
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LocalStore
-import com.reporead.android.data.LoopbackServer
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.RepositoryRow
-import com.reporead.android.data.saveNoteWithoutSearch
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.LoopbackServer
+import com.reporead.android.database.RepoReadDatabase
+import com.reporead.android.database.RepositoryEntity
+import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.network.Api
 import com.reporead.android.network.TEST_HIGHLIGHT_MUTATION
 import com.reporead.android.network.testHighlight
@@ -45,7 +45,7 @@ import org.junit.runner.RunWith
 /** A test-only note with one acknowledged highlight; production Sync, Api and Room against a loopback server. */
 @RunWith(AndroidJUnit4::class)
 class ReaderViewModelTest {
-    private lateinit var store: LocalStore
+    private lateinit var store: RepoReadDatabase
     private lateinit var directory: File
     /** The owner a back-stack entry would be; clearing it is the entry leaving. */
     private val owners = ViewModelStore()
@@ -53,13 +53,13 @@ class ReaderViewModelTest {
     @Before
     fun open() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
+        store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
         directory = File(context.cacheDir, "test-only-reader-model-${UUID.randomUUID()}").also { check(it.mkdirs()) }
-        val dao = store.library()
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 1, testSha)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", testSha)))
+        val dao = store.dao()
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/notes", 1, testSha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n.md", "Test-only note", testSha)))
         dao.saveNoteWithoutSearch(
-            NoteRow(
+            SavedPageEntity(
                 1,
                 testSha,
                 "n.md",
@@ -83,7 +83,7 @@ class ReaderViewModelTest {
     @Test
     fun aBookmarkOnADisconnectedNoteReportsThatItWasNotSaved() = runBlocking {
         LoopbackServer(emptyMap()).use { server ->
-            val dao = store.library()
+            val dao = store.dao()
             val sync = Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
             val model =
                 withContext(Dispatchers.Main) {
@@ -130,7 +130,7 @@ class ReaderViewModelTest {
             .use { server ->
                 val sync =
                     Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
-                val dao = store.library()
+                val dao = store.dao()
                 val row = checkNotNull(dao.annotation(TEST_HIGHLIGHT_MUTATION))
                 val model =
                     withContext(Dispatchers.Main) {

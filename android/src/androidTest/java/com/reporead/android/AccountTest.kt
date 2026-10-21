@@ -12,19 +12,19 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.AnnotationType
-import com.reporead.android.data.BookmarkRow
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.LocalStore
-import com.reporead.android.data.LoopbackServer
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.NoteSearchBlockRow
-import com.reporead.android.data.ReadingRow
-import com.reporead.android.data.RepositoryRow
-import com.reporead.android.data.ReviewRow
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.BookmarkEntity
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.LoopbackServer
+import com.reporead.android.database.NoteSearchBlockEntity
+import com.reporead.android.database.ReadingStateEntity
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.RepoReadDatabase
+import com.reporead.android.database.RepositoryEntity
+import com.reporead.android.database.ReviewEntity
+import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.library.LibraryScreen
 import com.reporead.android.network.Api
 import com.reporead.android.network.testSession
@@ -66,16 +66,16 @@ class AccountTest {
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
     private val prefsName = "test-only-session-${UUID.randomUUID()}"
     private lateinit var sessions: SessionStore
-    private lateinit var store: LocalStore
-    private lateinit var dao: LibraryDao
+    private lateinit var store: RepoReadDatabase
+    private lateinit var dao: RepoReadDao
     private lateinit var directory: File
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Before
     fun open() {
         sessions = SessionStore(context, prefsName)
-        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
-        dao = store.library()
+        store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
+        dao = store.dao()
         directory = File(context.cacheDir, "test-only-account-${UUID.randomUUID()}").also { check(it.mkdirs()) }
     }
 
@@ -102,18 +102,18 @@ class AccountTest {
     /** Signed in as test-only user 5, with repository 7's note 1 saved, read, and a highlight not yet sent. */
     private suspend fun signedInWithSavedNotes() {
         sessions.save("TEST_ONLY_SESSION")
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 1, sha)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/notes", 1, sha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "a", sha)))
         dao.saveNote(
-            NoteRow(1, sha, "a.md", "a", "<html/>", 0, snapshotCommitSha = sha),
-            listOf(NoteSearchBlockRow(1, "b0", 0, "private text")),
+            SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0, snapshotCommitSha = sha),
+            listOf(NoteSearchBlockEntity(1, "b0", 0, "private text")),
         )
         assertTrue(dao.saveDisplayedReading(reading()))
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
         )
         dao.saveAnnotation(
-            AnnotationRow(
+            AnnotationEntity(
                 "card",
                 null,
                 1,
@@ -130,13 +130,13 @@ class AccountTest {
                 state = AnnotationState.UNSENT,
             )
         )
-        dao.saveReview(ReviewRow("grade", "card", 4, 1_000, sha, pending = true))
-        dao.saveBookmark(BookmarkRow(1, true, true, 1_000))
+        dao.saveReview(ReviewEntity("grade", "card", 4, 1_000, sha, pending = true))
+        dao.saveBookmark(BookmarkEntity(1, true, true, 1_000))
         image()
     }
 
     private fun reading() =
-        ReadingRow(1, sha, 50, """{"headingPath":[],"textPrefix":null,"blockIndex":0}""", 1_000, pending = true)
+        ReadingStateEntity(1, sha, 50, """{"headingPath":[],"textPrefix":null,"blockIndex":0}""", 1_000, pending = true)
 
     private fun image() =
         File(directory, "images/1/commit-$sha/key").also {
@@ -306,8 +306,8 @@ class AccountTest {
         signedInWithSavedNotes()
         dao.removeAnnotation("unsent")
         dao.saveAnnotation(checkNotNull(dao.annotation("card")).copy(state = AnnotationState.ACKNOWLEDGED))
-        dao.saveReview(ReviewRow("grade", "card", 4, 1_000, sha, pending = false))
-        dao.saveBookmark(BookmarkRow(1, true, false, 1_000))
+        dao.saveReview(ReviewEntity("grade", "card", 4, 1_000, sha, pending = false))
+        dao.saveBookmark(BookmarkEntity(1, true, false, 1_000))
         dao.saveReading(reading().copy(pending = false))
         val releaseRefresh = CountDownLatch(1)
         LoopbackServer(

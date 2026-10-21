@@ -22,12 +22,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.AnnotationType
-import com.reporead.android.data.CardBlock
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.CardBlock
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.RepoReadDao
 import com.reporead.android.logging.AppLog
 import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.folderOf
@@ -38,9 +38,9 @@ import kotlinx.coroutines.withContext
  * Saved notes that link to the open note, out of [saved] of the repository's [listed] notes saved on this phone (fewer
  * means the list may be missing some). [listed] is 0 when the note is in no saved list.
  */
-private data class Backlinks(val notes: List<DocumentRow>, val saved: Int, val listed: Int)
+private data class Backlinks(val notes: List<DocumentEntity>, val saved: Int, val listed: Int)
 
-private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<String>): String? =
+private fun status(row: AnnotationEntity, displayedBlobSha: String, notShown: Set<String>): String? =
     when {
         row.state == AnnotationState.REFUSED -> "Not saved to the server: ${row.rejection}"
         row.state == AnnotationState.UNSENT -> "Saved on this phone; waiting to sync"
@@ -55,16 +55,16 @@ private fun status(row: AnnotationRow, displayedBlobSha: String, notShown: Set<S
 @Composable
 internal fun NotesPanel(
     documentId: Long,
-    annotations: List<AnnotationRow>,
+    annotations: List<AnnotationEntity>,
     displayedBlobSha: String,
     notShown: Set<String>,
     pageReady: Boolean,
-    dao: LibraryDao,
-    onReveal: (AnnotationRow) -> Unit,
-    onReattach: (AnnotationRow) -> Unit,
-    onEdit: (AnnotationRow) -> Unit,
-    onDelete: (AnnotationRow) -> Unit,
-    onOpenNote: (DocumentRow) -> Unit,
+    dao: RepoReadDao,
+    onReveal: (AnnotationEntity) -> Unit,
+    onReattach: (AnnotationEntity) -> Unit,
+    onEdit: (AnnotationEntity) -> Unit,
+    onDelete: (AnnotationEntity) -> Unit,
+    onOpenNote: (DocumentEntity) -> Unit,
     modifier: Modifier,
 ) {
     // Whether this note left its repository, which a card's status names.
@@ -142,7 +142,7 @@ internal fun NotesPanel(
  */
 @Composable
 private fun AnnotationItem(
-    row: AnnotationRow,
+    row: AnnotationEntity,
     shown: Boolean,
     pageReady: Boolean,
     status: String?,
@@ -192,7 +192,7 @@ private fun linkedFromSummary(found: Backlinks?): String? =
 
 /** An edit the server refused because another edit landed first: the user keeps the [current] note or [mine]. */
 @Composable
-internal fun ConflictDialog(current: AnnotationRow, mine: String?, onKeepMine: () -> Unit, onDismiss: () -> Unit) {
+internal fun ConflictDialog(current: AnnotationEntity, mine: String?, onKeepMine: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Changed elsewhere") },
@@ -209,7 +209,7 @@ internal fun ConflictDialog(current: AnnotationRow, mine: String?, onKeepMine: (
 
 /** Asks before deleting [row], saying what goes with it. */
 @Composable
-internal fun DeleteDialog(row: AnnotationRow, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+internal fun DeleteDialog(row: AnnotationEntity, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     val goesWithIt =
         when {
             row.type == AnnotationType.CARD -> "Its question and its review history are deleted too. "

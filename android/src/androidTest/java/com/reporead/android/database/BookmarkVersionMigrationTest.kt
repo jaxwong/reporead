@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
@@ -22,7 +22,7 @@ class BookmarkVersionMigrationTest {
             },
         ) { dao ->
             assertEquals(
-                listOf(BookmarkRow(1, bookmarked = true, pending = true, changedAt = 5)),
+                listOf(BookmarkEntity(1, bookmarked = true, pending = true, changedAt = 5)),
                 dao.pendingBookmarks(),
             )
         }

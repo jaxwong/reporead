@@ -14,14 +14,14 @@ import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
 import com.reporead.android.control
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LocalStore
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.Passage
-import com.reporead.android.data.RepositoryRow
-import com.reporead.android.data.saveNoteWithoutSearch
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.Passage
+import com.reporead.android.database.RepoReadDatabase
+import com.reporead.android.database.RepositoryEntity
+import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.findText
 import com.reporead.android.findWebView
 import com.reporead.android.network.Api
@@ -57,7 +57,7 @@ import org.junit.runner.RunWith
 class ReaderLifecycleTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val sha = "a".repeat(40)
-    private lateinit var store: LocalStore
+    private lateinit var store: RepoReadDatabase
     private lateinit var files: File
     private lateinit var sync: Sync
     private lateinit var scenario: ActivityScenario<TestHostActivity>
@@ -71,11 +71,11 @@ class ReaderLifecycleTest {
     @Before
     fun open() = runBlocking {
         val context = instrumentation.targetContext
-        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
+        store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
         files = File(context.cacheDir, "reader-lifecycle-test")
         check(files.mkdirs() || files.isDirectory) { "Cannot create test-only directory $files" }
-        val dao = store.library()
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/lifecycle", 1, sha)))
+        val dao = store.dao()
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/lifecycle", 1, sha)))
         val path = "test-only/lifecycle.md"
         fun block(id: Int, tag: String, text: String) =
             """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
@@ -96,9 +96,18 @@ class ReaderLifecycleTest {
                 """<p data-block-id="b81" data-anchor-text="See the footnote[^n].">See the footnote<sup class="fn-ref" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]</span></sup>.</p>""" +
                 """<p data-block-id="b82" data-anchor-text="[^n]: Back to the answer"><span class="fn-def" data-footnote="n" data-label="1"><span class="wl-hidden">[^n]:</span></span> <a href="#answer">Back to the answer</a></p>"""
         val html = testPage(sha, body)
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, path, title, sha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, path, title, sha)))
         dao.saveNoteWithoutSearch(
-            NoteRow(1, sha, path, title, html, 0, renderFormat = BuildConfig.RENDER_FORMAT, snapshotCommitSha = sha)
+            SavedPageEntity(
+                1,
+                sha,
+                path,
+                title,
+                html,
+                0,
+                renderFormat = BuildConfig.RENDER_FORMAT,
+                snapshotCommitSha = sha,
+            )
         )
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
         sync = Sync(api, store, files) {}
@@ -128,17 +137,17 @@ class ReaderLifecycleTest {
     @After
     fun close() = runBlocking {
         if (readerReady) {
-            val lastSavedAt = checkNotNull(store.library().reading(1)).lastReadAt
+            val lastSavedAt = checkNotNull(store.dao().reading(1)).lastReadAt
             // ActivityScenario.close does not await WebView callbacks or Room writes. Dispose the reader first and
             // observe its final save before closing the database.
             scenario.onActivity { entries.shown.value = false }
             try {
                 withTimeout(5_000) {
-                    while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(10)
+                    while (checkNotNull(store.dao().reading(1)).lastReadAt <= lastSavedAt) delay(10)
                 }
             } catch (error: TimeoutCancellationException) {
                 throw AssertionError(
-                    "Reader teardown did not save after $lastSavedAt; current=${store.library().reading(1)}",
+                    "Reader teardown did not save after $lastSavedAt; current=${store.dao().reading(1)}",
                     error,
                 )
             }
@@ -157,13 +166,13 @@ class ReaderLifecycleTest {
         scenario.onActivity { page = findWebView(it.window.decorView) }
         val view = checkNotNull(page)
         withContext(Dispatchers.Main) { assertNotNull(view.webViewRenderProcess) }
-        val lastSavedAt = checkNotNull(store.library().reading(1)).lastReadAt
+        val lastSavedAt = checkNotNull(store.dao().reading(1)).lastReadAt
         scenario.onActivity { entries.shown.value = false }
         withTimeout(5_000) {
             while (withContext(Dispatchers.Main) { view.webViewRenderProcess != null }) delay(20)
         }
         withTimeout(5_000) {
-            while (checkNotNull(store.library().reading(1)).lastReadAt <= lastSavedAt) delay(20)
+            while (checkNotNull(store.dao().reading(1)).lastReadAt <= lastSavedAt) delay(20)
         }
         readerReady = false
     }
@@ -265,9 +274,9 @@ class ReaderLifecycleTest {
         val passage = "Test-only paragraph 50."
         runBlocking {
             store
-                .library()
+                .dao()
                 .saveAnnotation(
-                    AnnotationRow(
+                    AnnotationEntity(
                         mutationId = "test-only-highlight",
                         serverId = null,
                         documentId = 1,
@@ -358,9 +367,9 @@ class ReaderLifecycleTest {
             // Past the reader's first draws, so only the writes below count.
             delay(500)
             evaluate("window.drawn = 0; return {};")
-            val dao = store.library()
+            val dao = store.dao()
             fun highlight(key: String, documentId: Long, block: String) =
-                AnnotationRow(
+                AnnotationEntity(
                     key,
                     null,
                     documentId,
@@ -433,9 +442,9 @@ class ReaderLifecycleTest {
     fun aNoteBeingEditedAndAHighlightBeingReattachedSurviveRecreation() {
         runBlocking {
             store
-                .library()
+                .dao()
                 .saveAnnotation(
-                    AnnotationRow(
+                    AnnotationEntity(
                         mutationId = "test-only-acknowledged",
                         serverId = 5,
                         documentId = 1,
@@ -475,20 +484,20 @@ class ReaderLifecycleTest {
     @Test
     fun anUnreadyPageIsHiddenUntilFailureOrTimeoutAndOffersNoShow() {
         runBlocking {
-            val dao = store.library()
+            val dao = store.dao()
             val path = "test-only/unready.md"
             dao.replaceDocuments(
                 7,
                 listOf(
-                    DocumentRow(1, 7, "test-only/lifecycle.md", title, sha),
-                    DocumentRow(2, 7, path, "Test-only unready", sha),
+                    DocumentEntity(1, 7, "test-only/lifecycle.md", title, sha),
+                    DocumentEntity(2, 7, path, "Test-only unready", sha),
                 ),
             )
             // No reader script, so the page never says it is ready.
             val html =
                 """<main id="note"><p data-block-id="b0" data-anchor-text="Never ready.">Never ready.</p></main>"""
             dao.saveNoteWithoutSearch(
-                NoteRow(
+                SavedPageEntity(
                     2,
                     sha,
                     path,
@@ -500,7 +509,7 @@ class ReaderLifecycleTest {
                 )
             )
             dao.saveAnnotation(
-                AnnotationRow(
+                AnnotationEntity(
                     "test-only-unready",
                     null,
                     2,
@@ -547,7 +556,7 @@ class ReaderLifecycleTest {
                     withTimeout(20_000) {
                         while (withContext(Dispatchers.Main) { page.alpha != 1f }) delay(50)
                     }
-                    assertNull("An unrendered page saves no position", store.library().reading(2))
+                    assertNull("An unrendered page saves no position", store.dao().reading(2))
                 }
                 if (!failed)
                     awaitText(
@@ -579,7 +588,7 @@ class ReaderLifecycleTest {
     private fun awaitSaved(block: Int) = runBlocking {
         withTimeout(5_000) {
             while (true) {
-                val row = store.library().reading(1)
+                val row = store.dao().reading(1)
                 if (row != null && JSONObject(row.anchorJson).getInt("blockIndex") == block) {
                     assertEquals(sha, row.lastReadBlobSha)
                     assertTrue(row.pending)
@@ -596,7 +605,7 @@ class ReaderLifecycleTest {
      */
     private fun assertSavedStays(block: Int) = runBlocking {
         repeat(20) {
-            val row = checkNotNull(store.library().reading(1))
+            val row = checkNotNull(store.dao().reading(1))
             assertEquals("Saved position changed: $row", block, JSONObject(row.anchorJson).getInt("blockIndex"))
             delay(50)
         }

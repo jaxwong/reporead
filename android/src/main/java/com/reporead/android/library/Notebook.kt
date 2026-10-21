@@ -24,10 +24,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
-import com.reporead.android.data.AnchorStatus
-import com.reporead.android.data.AnnotationType
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.NotebookItem
+import com.reporead.android.database.AnchorStatus
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.NotebookItem
+import com.reporead.android.database.RepoReadDao
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.StatusLine
@@ -53,7 +53,7 @@ private fun Filter(label: String, choices: List<Pair<String, String>>, selected:
 
 @Composable
 internal fun NotebookScreen(
-    dao: LibraryDao,
+    dao: RepoReadDao,
     push: (Screen) -> Unit,
     onBack: () -> Unit,
 ) {

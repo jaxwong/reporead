@@ -7,7 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.ListenableWorker.Result
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.data.LoopbackServer
+import com.reporead.android.database.LoopbackServer
 import com.reporead.android.logging.AppLog
 import com.reporead.android.logging.appLogDirectory
 import com.reporead.android.network.Api

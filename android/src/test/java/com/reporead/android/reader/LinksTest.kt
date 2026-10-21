@@ -1,6 +1,6 @@
 package com.reporead.android.reader
 
-import com.reporead.android.data.DocumentRow
+import com.reporead.android.database.DocumentEntity
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -15,7 +15,13 @@ class LinksTest {
                 "a b/c d.md",
             )
             .mapIndexed { index, path ->
-                DocumentRow(index.toLong(), 7, path, path.substringAfterLast('/').removeSuffix(".md"), "a".repeat(40))
+                DocumentEntity(
+                    index.toLong(),
+                    7,
+                    path,
+                    path.substringAfterLast('/').removeSuffix(".md"),
+                    "a".repeat(40),
+                )
             }
 
     private fun paths(target: String?, path: String? = null, from: String = "notes/x.md") =

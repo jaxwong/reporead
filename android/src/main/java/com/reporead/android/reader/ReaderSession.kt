@@ -20,11 +20,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.OpenAt
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.Passage
-import com.reporead.android.data.ReadingRow
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.Passage
+import com.reporead.android.database.ReadingStateEntity
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.logging.AppLog
 import com.reporead.android.sync.Sync
 import kotlinx.coroutines.CoroutineScope
@@ -64,9 +64,9 @@ internal sealed interface Selection {
  * no network, file, or content access; native code reads and restores the position through evaluateJavascript only.
  */
 internal class ReaderSession(
-    private val note: NoteRow,
+    private val note: SavedPageEntity,
     private val sync: Sync,
-    private val dao: LibraryDao,
+    private val dao: RepoReadDao,
     /** Survives the view so final local saves can finish. */
     private val appScope: CoroutineScope,
     /** Where the page opens; null is where the note was last read. */
@@ -396,7 +396,7 @@ internal class ReaderSession(
         val block = anchor.getInt("blockIndex")
         topBlock = block
         val row =
-            ReadingRow(
+            ReadingStateEntity(
                 note.documentId,
                 note.blobSha,
                 position.getInt("progressPercent"),
@@ -441,7 +441,7 @@ internal class ReaderSession(
     }
 
     /** Saved highlights in this displayed version; equality prevents redraws for writes concerning another note. */
-    private fun visibleHighlights(rows: List<AnnotationRow>) =
+    private fun visibleHighlights(rows: List<AnnotationEntity>) =
         rows.filter { it.drawn.blobSha == note.blobSha }.map { DrawnHighlight(it.mutationId, it.drawn) }
 
     /** The sole payload sent to the page highlighter: saved highlights plus the current search occurrence. */

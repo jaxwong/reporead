@@ -2,7 +2,7 @@ package com.reporead.android
 
 import android.app.Application
 import com.reporead.android.auth.SessionStore
-import com.reporead.android.data.LocalStore
+import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.logging.AppLog
 import com.reporead.android.logging.appLogDirectory
 import com.reporead.android.network.Api
@@ -32,7 +32,7 @@ class RepoReadApplication : Application() {
     /** Sends the stored session with every request; the session ends when the server refuses it (any 401). */
     val api by lazy { Api(BuildConfig.API_BASE_URL, sessionStore::read, sessionStore::endRefused) }
 
-    val localStore by lazy { LocalStore.open(this, "reporead.db") }
+    val database by lazy { RepoReadDatabase.open(this, "reporead.db") }
 
     /**
      * For work that must finish after the screen that started it is gone, such as saving the reading position when a
@@ -42,7 +42,7 @@ class RepoReadApplication : Application() {
 
     /** One local copy per process; the image sweep is independent of sessions and also runs for worker-only starts. */
     val sync by lazy {
-        Sync(api, localStore, filesDir) { requestSync(this) }.also { sync -> scope.launch { sync.startUp() } }
+        Sync(api, database, filesDir) { requestSync(this) }.also { sync -> scope.launch { sync.startUp() } }
     }
 
     /** Sign-in, sign-out and account deletion, and where they stand. */

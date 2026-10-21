@@ -1,7 +1,7 @@
 package com.reporead.android.reader
 
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.noteLinkQueries
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.noteLinkQueries
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -10,7 +10,7 @@ class BacklinksTest {
         listOf("a/target.md", "b/target.md", "a/from.md", "b/other.md", "c/plain.md", "c/self.md").mapIndexed {
             index,
             path ->
-            DocumentRow(index.toLong(), 7, path, path.substringAfterLast('/').removeSuffix(".md"), "a".repeat(40))
+            DocumentEntity(index.toLong(), 7, path, path.substringAfterLast('/').removeSuffix(".md"), "a".repeat(40))
         }
 
     private fun note(path: String) = notes.single { it.path == path }

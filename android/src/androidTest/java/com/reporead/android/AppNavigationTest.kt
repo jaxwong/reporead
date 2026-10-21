@@ -21,17 +21,17 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.SessionStore
-import com.reporead.android.data.AnchorStatus
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.LocalStore
-import com.reporead.android.data.LoopbackServer
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.NoteSearchBlockRow
-import com.reporead.android.data.Passage
-import com.reporead.android.data.RepositoryRow
+import com.reporead.android.database.AnchorStatus
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.LoopbackServer
+import com.reporead.android.database.NoteSearchBlockEntity
+import com.reporead.android.database.Passage
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.RepoReadDatabase
+import com.reporead.android.database.RepositoryEntity
+import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.network.Api
 import com.reporead.android.network.TEST_HIGHLIGHT_MUTATION
 import com.reporead.android.network.testAvailable
@@ -88,8 +88,8 @@ class AppNavigationTest {
     private val context = instrumentation.targetContext
     private val prefsName = "test-only-session-${UUID.randomUUID()}"
     private lateinit var sessions: SessionStore
-    private lateinit var store: LocalStore
-    private lateinit var dao: LibraryDao
+    private lateinit var store: RepoReadDatabase
+    private lateinit var dao: RepoReadDao
     private lateinit var directory: File
     private var scenario: ActivityScenario<TestHostActivity>? = null
     /** Like RepoReadApplication.scope, it outlives the activity. */
@@ -105,11 +105,11 @@ class AppNavigationTest {
     @Before
     fun open() = runBlocking {
         sessions = SessionStore(context, prefsName)
-        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
-        dao = store.library()
+        store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
+        dao = store.dao()
         directory = File(context.cacheDir, "test-only-navigation-${UUID.randomUUID()}").also { check(it.mkdirs()) }
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", notes.size, testSha)))
-        dao.replaceDocuments(7, notes.map { DocumentRow(it.id, 7, it.path, it.title, testSha) })
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/notes", notes.size, testSha)))
+        dao.replaceDocuments(7, notes.map { DocumentEntity(it.id, 7, it.path, it.title, testSha) })
         for (note in notes) {
             val searchable = if (note.id == 1L) "Exact search destination for Note A." else "Other saved text."
             val blocks =
@@ -128,7 +128,7 @@ class AppNavigationTest {
                     else """<p data-block-id="$id" data-anchor-text="$text">$text</p>"""
                 }
             dao.saveNote(
-                NoteRow(
+                SavedPageEntity(
                     note.id,
                     testSha,
                     note.path,
@@ -138,7 +138,7 @@ class AppNavigationTest {
                     renderFormat = BuildConfig.RENDER_FORMAT,
                     snapshotCommitSha = testSha,
                 ),
-                blocks.mapIndexed { position, (id, text) -> NoteSearchBlockRow(note.id, id, position, text) },
+                blocks.mapIndexed { position, (id, text) -> NoteSearchBlockEntity(note.id, id, position, text) },
             )
         }
     }
@@ -394,7 +394,7 @@ class AppNavigationTest {
     fun tappingAHighlightNoteSearchResultRevealsItsExactPassage() = runBlocking {
         val passage = Passage(testSha, "b31", 0, 5, "Exact")
         dao.saveAnnotation(
-            AnnotationRow(
+            AnnotationEntity(
                 mutationId = "test-only-search-highlight",
                 serverId = 9,
                 documentId = 1,
@@ -480,7 +480,7 @@ class AppNavigationTest {
     @Test
     fun aLegacyActivityStateStartsAtTheRootWithoutChangingSavedData() = runBlocking {
         dao.saveAnnotation(
-            AnnotationRow(
+            AnnotationEntity(
                 "test-only-pending",
                 null,
                 1,
@@ -662,7 +662,7 @@ class AppNavigationTest {
     fun signOutConfirmationSaysSavedDataStaysAndCancelChangesNothing() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, testSha, "b0", 0, 4, "Test", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("unsent", null, 1, testSha, "b0", 0, 4, "Test", null, 1, 0, state = AnnotationState.UNSENT)
         )
         LoopbackServer(
                 mapOf(
@@ -822,7 +822,7 @@ class AppNavigationTest {
     fun aDoubleTappedSyncNowSyncsOnceAndALaterTapAgain() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")
         dao.saveAnnotation(
-            AnnotationRow("unsent", null, 1, testSha, "b0", 0, 4, "Test", null, 1, 0, state = AnnotationState.UNSENT)
+            AnnotationEntity("unsent", null, 1, testSha, "b0", 0, 4, "Test", null, 1, 0, state = AnnotationState.UNSENT)
         )
         LoopbackServer(
                 mapOf(
@@ -982,7 +982,7 @@ class AppNavigationTest {
                     hold.release.countDown()
                 }
                 withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
-                assertEquals(emptyList<DocumentRow>(), dao.documents(7).first())
+                assertEquals(emptyList<DocumentEntity>(), dao.documents(7).first())
                 // The Library left for the Notebook syncs on its return, after the disconnect's commit.
                 awaitLibrarySynced(server, 4)
                 assertNothingMoreSent(server, server.requests.toList())
@@ -1414,7 +1414,7 @@ class AppNavigationTest {
                 click("Disconnect")
                 awaitScreen("Library", hidden = listOf("test-only/notes", "Disconnect test-only/notes?"))
                 assertTrue(selected("Repositories"))
-                assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
+                assertEquals(emptyList<RepositoryEntity>(), dao.repositories().first())
                 awaitBackLeavesTheApp()
             }
     }

@@ -2,13 +2,13 @@
 
 package com.reporead.android.sync
 
-import com.reporead.android.data.AnchorStatus
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.AnnotationType
-import com.reporead.android.data.Passage
-import com.reporead.android.data.ReadingRow
-import com.reporead.android.data.ReviewRow
+import com.reporead.android.database.AnchorStatus
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.Passage
+import com.reporead.android.database.ReadingStateEntity
+import com.reporead.android.database.ReviewEntity
 import com.reporead.android.network.wire.AnnotationServiceSelection
 import com.reporead.android.network.wire.AnnotationsAnnotation
 import com.reporead.android.network.wire.AnnotationsPassage
@@ -29,7 +29,7 @@ internal fun Passage.anchor() =
 private fun AnnotationsPassage.passage() = Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
 internal fun AnnotationsAnnotation.toRow() =
-    AnnotationRow(
+    AnnotationEntity(
         mutationId,
         id,
         documentId,
@@ -62,10 +62,10 @@ internal fun AnnotationsAnnotation.toRow() =
     )
 
 internal fun ReviewsReview.toRow() =
-    ReviewRow(mutationId, cardMutationId, grade, reviewedAt.toEpochMilli(), blobSha, pending = false)
+    ReviewEntity(mutationId, cardMutationId, grade, reviewedAt.toEpochMilli(), blobSha, pending = false)
 
 internal fun ReadingStatesState.toRow() =
-    ReadingRow(
+    ReadingStateEntity(
         documentId,
         lastReadBlobSha,
         progressPercent,

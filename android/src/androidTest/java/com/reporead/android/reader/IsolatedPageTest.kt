@@ -7,7 +7,7 @@ import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.BuildConfig
-import com.reporead.android.data.NoteRow
+import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.network.Api
 import com.reporead.android.sync.NoteImages
 import java.io.File
@@ -28,7 +28,7 @@ class IsolatedPageTest {
         val context = instrumentation.targetContext
         val sha = "a".repeat(40)
         val note =
-            NoteRow(
+            SavedPageEntity(
                 1,
                 sha,
                 "test-only/page.md",
@@ -123,7 +123,15 @@ class IsolatedPageTest {
         val sha = "a".repeat(40)
         val html = testPage(sha, body)
         val note =
-            NoteRow(1, sha, "test-only/page.md", "Test-only page", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
+            SavedPageEntity(
+                1,
+                sha,
+                "test-only/page.md",
+                "Test-only page",
+                html,
+                0,
+                renderFormat = BuildConfig.RENDER_FORMAT,
+            )
         val images =
             NoteImages(
                 Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {},
@@ -177,7 +185,15 @@ class IsolatedPageTest {
         val sha = "a".repeat(40)
         val html = testPage(sha, """<p data-block-id="b0" data-anchor-text="Test-only page">Test-only page</p>""")
         val note =
-            NoteRow(1, sha, "test-only/page.md", "Test-only page", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
+            SavedPageEntity(
+                1,
+                sha,
+                "test-only/page.md",
+                "Test-only page",
+                html,
+                0,
+                renderFormat = BuildConfig.RENDER_FORMAT,
+            )
         val api = Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {}
         val images = NoteImages(api, File(context.cacheDir, "isolated-page-test"))
         val shown = CountDownLatch(1)

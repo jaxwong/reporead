@@ -1,9 +1,9 @@
 package com.reporead.android.study
 
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.NotebookItem
-import com.reporead.android.data.ReviewRow
-import com.reporead.android.data.reviewable
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.NotebookItem
+import com.reporead.android.database.ReviewEntity
+import com.reporead.android.database.reviewable
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -50,7 +50,7 @@ internal fun gaps(step: Int): Map<Int, Long> = GRADES.associate { (grade) -> gra
  * A card is due from the start of the local day in [zone] that its step's gap ends on, so an evening review is due the
  * next morning.
  */
-internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: ZoneId): ReviewSchedule =
+internal fun scheduleReviews(card: AnnotationEntity, log: List<ReviewEntity>, zone: ZoneId): ReviewSchedule =
     log.filter { it.cardMutationId == card.mutationId && it.rejection == null }
         .sortedWith(compareBy({ it.reviewedAt }, { it.mutationId }))
         .fold(ReviewSchedule(card.createdAt, FIRST_STEP)) { state, review ->
@@ -64,7 +64,7 @@ internal fun scheduleReviews(card: AnnotationRow, log: List<ReviewRow>, zone: Zo
  */
 private fun dueTimes(
     items: List<NotebookItem>,
-    reviews: List<ReviewRow>,
+    reviews: List<ReviewEntity>,
     zone: ZoneId,
 ): List<Pair<NotebookItem, Long>> {
     val byCard = reviews.groupBy { it.cardMutationId }
@@ -76,7 +76,7 @@ private fun dueTimes(
 /** Due cards, interleaving shuffled note groups; the cap comes only from the server's notebook response. */
 internal fun dueSession(
     items: List<NotebookItem>,
-    reviews: List<ReviewRow>,
+    reviews: List<ReviewEntity>,
     now: Long,
     limit: Int,
     seed: Int,
@@ -93,7 +93,7 @@ internal fun dueSession(
  */
 internal fun dueByTopic(
     cards: List<NotebookItem>,
-    reviewLog: List<ReviewRow>,
+    reviewLog: List<ReviewEntity>,
     now: Long,
     zone: ZoneId,
 ): Map<String, Int> =
@@ -119,7 +119,7 @@ internal data class ReviewOutlook(
 
 internal fun reviewOutlook(
     items: List<NotebookItem>,
-    reviews: List<ReviewRow>,
+    reviews: List<ReviewEntity>,
     now: Long,
     zone: ZoneId,
 ): ReviewOutlook {

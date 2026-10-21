@@ -1,6 +1,6 @@
 package com.reporead.android.library
 
-import com.reporead.android.data.DocumentRow
+import com.reporead.android.database.DocumentEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,7 +8,7 @@ import org.junit.Test
 
 class FolderTest {
     private fun note(id: Long, path: String) =
-        DocumentRow(id, 1, path, path.substringAfterLast('/').removeSuffix(".md"), "a".repeat(40))
+        DocumentEntity(id, 1, path, path.substringAfterLast('/').removeSuffix(".md"), "a".repeat(40))
 
     private val documents =
         listOf(
@@ -42,8 +42,8 @@ class FolderTest {
 
     @Test
     fun emptyLibraryAndMissingFolderAreEmpty() {
-        assertEquals(emptyList<String>() to emptyList<DocumentRow>(), children(emptyList(), ""))
-        assertEquals(emptyList<String>() to emptyList<DocumentRow>(), children(documents, "missing"))
+        assertEquals(emptyList<String>() to emptyList<DocumentEntity>(), children(emptyList(), ""))
+        assertEquals(emptyList<String>() to emptyList<DocumentEntity>(), children(documents, "missing"))
     }
 
     @Test

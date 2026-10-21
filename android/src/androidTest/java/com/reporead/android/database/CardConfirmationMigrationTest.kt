@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
@@ -29,7 +29,7 @@ class CardConfirmationMigrationTest {
             },
         ) { dao ->
             assertEquals(
-                AnnotationRow(
+                AnnotationEntity(
                     "card",
                     3,
                     1,
@@ -47,7 +47,7 @@ class CardConfirmationMigrationTest {
                 ),
                 dao.annotation("card"),
             )
-            assertEquals(listOf(ReviewRow("grade", "card", 4, 6, sha, pending = true)), dao.reviews().first())
+            assertEquals(listOf(ReviewEntity("grade", "card", 4, 6, sha, pending = true)), dao.reviews().first())
         }
     }
 }

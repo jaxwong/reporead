@@ -1,6 +1,6 @@
 package com.reporead.android.reader
 
-import com.reporead.android.data.DocumentRow
+import com.reporead.android.database.DocumentEntity
 
 /**
  * Where a saved page's note link points, as (target, path), decoded as the reader decodes a tapped link
@@ -19,10 +19,10 @@ internal fun noteLinkTarget(query: String): Pair<String?, String?>? {
  * one of them. Sorted by path; [note] itself is left out.
  */
 internal fun linkedFrom(
-    note: DocumentRow,
-    documents: List<DocumentRow>,
+    note: DocumentEntity,
+    documents: List<DocumentEntity>,
     links: Map<Long, List<Pair<String?, String?>>>,
-): List<DocumentRow> {
+): List<DocumentEntity> {
     val byId = documents.associateBy { it.id }
     return links
         .mapNotNull { (documentId, pageLinks) ->
