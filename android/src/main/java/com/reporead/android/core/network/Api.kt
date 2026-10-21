@@ -40,9 +40,16 @@ import kotlinx.serialization.encodeToString
 /**
  * Owns a failed request's status, code and underlying cause. [status] is the response status, or 0 when no complete
  * transport answer was available or nothing was sent. [code] is the backend's code or a local failure classification.
+ * [requestId] is the server's name for the request (X-Request-Id), which its log lines carry; null when no answer
+ * arrived.
  */
-class ApiException(val status: Int, val code: String, override val message: String, cause: Throwable? = null) :
-    Exception(message, cause) {
+class ApiException(
+    val status: Int,
+    val code: String,
+    override val message: String,
+    cause: Throwable? = null,
+    val requestId: String? = null,
+) : Exception(message, cause) {
     /** The server did not answer, so no other request can reach it now either; a later try may. */
     val unreachable: Boolean
         get() = code == "BACKEND_UNAVAILABLE"
@@ -180,6 +187,7 @@ class Api(
     ): Pair<Int, ByteArray> {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         var status = 0
+        var requestId: String? = null
         val route = path.substringBefore('?')
         try {
             connection.requestMethod = method
@@ -196,6 +204,7 @@ class Api(
                 connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             }
             status = connection.responseCode
+            requestId = connection.getHeaderField("X-Request-Id")
             if (status in 200..299) {
                 if (status !in statuses) throw invalidResponse(status)
                 return status to
@@ -212,26 +221,36 @@ class Api(
                         } catch (unreadable: IllegalArgumentException) {
                             Log.w(
                                 "RepoRead",
-                                "Error response is not RepoRead's JSON; method=$method path=$route status=$status",
+                                "Error response is not RepoRead's JSON; method=$method path=$route status=$status " +
+                                    "requestId=$requestId",
                             )
                             null
                         }
                     }
-            throw ApiException(
-                status,
-                error?.code ?: "HTTP_$status",
-                error?.message ?: "RepoRead's server returned HTTP $status.",
+            val failure =
+                ApiException(
+                    status,
+                    error?.code ?: "HTTP_$status",
+                    error?.message ?: "RepoRead's server returned HTTP $status.",
+                    requestId = requestId,
+                )
+            Log.w(
+                "RepoRead",
+                "Backend refused; method=$method path=$route status=$status code=${failure.code} requestId=$requestId",
             )
+            throw failure
         } catch (error: IOException) {
             Log.w(
                 "RepoRead",
-                "Backend I/O failed; method=$method path=$route status=$status error=${error.javaClass.simpleName}",
+                "Backend I/O failed; method=$method path=$route status=$status requestId=$requestId " +
+                    "error=${error.javaClass.simpleName}",
             )
             throw ApiException(
                 0,
                 "BACKEND_UNAVAILABLE",
                 "RepoRead's server could not be reached (${error.javaClass.simpleName}).",
                 error,
+                requestId,
             )
         } finally {
             connection.disconnect()
