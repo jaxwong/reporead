@@ -8,6 +8,7 @@ import com.reporead.android.BuildConfig
 import com.reporead.android.network.wire.DeviceLogLine
 import com.reporead.android.network.wireJson
 import java.io.File
+import java.util.concurrent.TimeoutException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -25,13 +26,12 @@ class DeviceLogTest {
     @Before
     fun start() {
         store.deleteRecursively()
-        DeviceLog.start(store)
+        DeviceLog.start(store) {}
     }
 
     @After
     fun restore() {
-        DeviceLog.requestUploadOnWarning {}
-        DeviceLog.start(deviceLogDirectory(context))
+        DeviceLog.start(deviceLogDirectory(context)) {}
         store.deleteRecursively()
     }
 
@@ -56,18 +56,27 @@ class DeviceLogTest {
         assertTrue(lines.all { it.appVersion == BuildConfig.VERSION_NAME })
     }
 
-    /** A warning is what a crash is diagnosed from, so it asks for an upload; other lines wait for the next one. */
+    /** A warning requests one upload unless an upload owns a claimed batch; other lines never request one. */
     @Test
-    fun onlyAWarningRequestsAnUpload() {
+    fun onlyAWarningWithoutAClaimedBatchRequestsAnUpload() {
         var requests = 0
-        DeviceLog.requestUploadOnWarning { requests++ }
+        DeviceLog.start(store) { requests++ }
 
         DeviceLog.debug("Reading position saved; documentId=7 percent=18 block=20 viewHeight=2048")
         DeviceLog.info("Reader ready; documentId=7")
+        DeviceLog.crashUploadNotRecorded(TimeoutException("test-only timeout"))
         assertEquals(0, requests)
 
         DeviceLog.warn("Bookmark refused; documentId=7 code=NOT_FOUND")
         assertEquals(1, requests)
+
+        DeviceLog.claimPendingBatch()
+        DeviceLog.warn("Device log upload failed; lines=3 status=0 code=BACKEND_UNAVAILABLE")
+        assertEquals("a warning from an upload cannot request another run", 1, requests)
+
+        DeviceLog.finishClaimedBatch()
+        DeviceLog.warn("Save all stopped; repositoryId=3")
+        assertEquals(2, requests)
     }
 
     @Test

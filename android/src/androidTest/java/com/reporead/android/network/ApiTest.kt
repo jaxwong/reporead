@@ -430,7 +430,7 @@ class ApiTest {
     fun aFailedRequestNamesTheServersRequestIdWhenTheServerAnswered() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = File(context.cacheDir, "api-test-app-log").apply { deleteRecursively() }
-        DeviceLog.start(store)
+        DeviceLog.start(store) {}
         try {
             val refused = coroutineScope {
                 ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
@@ -485,7 +485,7 @@ class ApiTest {
             assertEquals("BACKEND_UNAVAILABLE", unanswered.code)
             assertNull(unanswered.requestId)
         } finally {
-            DeviceLog.start(deviceLogDirectory(context))
+            DeviceLog.start(deviceLogDirectory(context)) {}
             store.deleteRecursively()
         }
     }

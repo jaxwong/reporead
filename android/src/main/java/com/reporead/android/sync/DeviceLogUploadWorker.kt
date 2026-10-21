@@ -32,19 +32,13 @@ private const val DEVICE_LOG_WORK = "upload-app-log"
 private const val EXITS_SEEN = "app-exits-seen"
 
 /**
- * How long a warning's upload waits, so the lines logged with it (a caller's own warning after Api's) go in its batch:
- * a line logged while an upload runs waits for the next request.
- */
-internal val WARNING_UPLOAD_DELAY: Duration = Duration.ofSeconds(2)
-
-/**
  * Asks for one upload of the phone's stored log lines after [delay], once there is a network. While one is waiting or
  * running, asking again changes nothing: it sends whatever is stored when it runs. The returned operation completes
  * once WorkManager has recorded the request, which then outlives this process.
  *
  * A failed upload is never retried on a backoff, which would hold every later request (a crash's too) for up to hours:
- * the next request sends its lines. The warnings a failing upload logs ask while it still runs, so they change nothing
- * and cannot start a loop: WorkManager handles requests and the end of a run in order, on one serial executor.
+ * the next request sends its lines. DeviceLog does not request another run for warnings stored while a batch is
+ * claimed.
  */
 internal fun requestDeviceLogUpload(context: Context, delay: Duration = Duration.ZERO): Operation {
     val request =
