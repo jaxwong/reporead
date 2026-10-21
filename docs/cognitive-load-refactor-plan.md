@@ -1,6 +1,6 @@
 # Cognitive-load refactor plan
 
-Status: approved implementation plan; not yet implemented.  
+Status: PR 1 implemented on `establish-language-remove-ambiguous-local-names`; PRs 2 and 3 remain planned.
 Audit baseline: `main` at `92ca61b8830d71e855ecfc5fb8ea64d4d4ccbbcd` on 2026-10-21.
 
 ## Goal
@@ -17,7 +17,8 @@ adds vocabulary and decomposition rules rather than another formatter.
 ## Rules for all three PRs
 
 - Each PR is behaviour-preserving. If implementation exposes a pre-existing defect, stop and handle it as a separately
-  approved behaviour change.
+  approved behaviour change. PR 1 has one such approved exception: `RequestLog` now retains raw request queries because
+  this single-user system prioritizes diagnostic context over log privacy.
 - A replacement updates every production caller, test, document and generated contract in the same PR. Do not leave
   aliases, forwarding wrappers, duplicate files or the old package in parallel.
 - Keep HTTP paths and JSON field names stable. When a backend Java type rename changes an OpenAPI schema name, update
