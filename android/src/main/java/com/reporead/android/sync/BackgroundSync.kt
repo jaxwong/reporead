@@ -70,32 +70,33 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
  * denied) waits for the next change or library open, which show it. [attempt] counts from 0.
  */
 internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
-    val synced =
+    val syncResult =
         try {
             sync.syncWaitingChanges()
-        } catch (error: ApiException) {
-            return if (triesAgain("Background sync", error, attempt)) Result.retry() else Result.failure()
+        } catch (failure: ApiException) {
+            return if (shouldRetry("Background sync", failure, attempt)) Result.retry() else Result.failure()
         }
-    if (synced == null) {
+    if (syncResult == null) {
         AppLog.info("Background sync: nothing waiting; attempt=$attempt")
         return Result.success()
     }
-    synced.notSent?.let {
-        return if (triesAgain("Background sync", it, attempt)) Result.retry() else Result.failure()
+    syncResult.notSent?.let {
+        return if (shouldRetry("Background sync", it, attempt)) Result.retry() else Result.failure()
     }
-    AppLog.info("Background sync done; attempt=$attempt refused=${synced.refused.size}")
+    AppLog.info("Background sync done; attempt=$attempt refused=${syncResult.refused.size}")
     return Result.success()
 }
 
 /**
- * Whether WorkManager tries [run] again after [error]: only a passing failure (unreachable, a 5xx, GitHub unavailable),
- * and only within [MAX_ATTEMPTS]. WorkManager counts every start as an attempt, also one after Android stopped the run.
+ * Whether WorkManager tries [operation] again after [failure]: only a retryable failure (unreachable, a 5xx, GitHub
+ * unavailable), and only within [MAX_ATTEMPTS]. WorkManager counts every start as an attempt, also one after Android
+ * stopped the run.
  */
-private fun triesAgain(run: String, error: ApiException, attempt: Int): Boolean {
-    val passing = error.unreachable || error.status >= 500
-    val retry = passing && attempt + 1 < MAX_ATTEMPTS
-    AppLog.warn("$run failed; attempt=$attempt status=${error.status} code=${error.code} retry=$retry")
-    return retry
+private fun shouldRetry(operation: String, failure: ApiException, attempt: Int): Boolean {
+    val retryable = failure.unreachable || failure.status >= 500
+    val willRetry = retryable && attempt + 1 < MAX_ATTEMPTS
+    AppLog.warn("$operation failed; attempt=$attempt status=${failure.status} code=${failure.code} retry=$willRetry")
+    return willRetry
 }
 
 private const val APP_LOG_WORK = "upload-app-log"
@@ -136,10 +137,10 @@ internal suspend fun uploadAppLog(api: Api, signedIn: Boolean, attempt: Int): Re
             api.uploadAppLog(
                 AppLogControllerUploadRequest(lines.map { wireJson.decodeFromString<AppLogControllerLine>(it) })
             )
-        } catch (error: ApiException) {
-            if (!(error.status == 400 && error.code == "INVALID_REQUEST"))
-                return if (triesAgain("App log upload", error, attempt)) Result.retry() else Result.failure()
-            AppLog.warn("App log lines refused; lines=${lines.size} code=${error.code}")
+        } catch (failure: ApiException) {
+            if (!(failure.status == 400 && failure.code == "INVALID_REQUEST"))
+                return if (shouldRetry("App log upload", failure, attempt)) Result.retry() else Result.failure()
+            AppLog.warn("App log lines refused; lines=${lines.size} code=${failure.code}")
         }
     }
     AppLog.sent()
@@ -150,16 +151,16 @@ internal suspend fun uploadAppLog(api: Api, signedIn: Boolean, attempt: Int): Re
  * Android's record of why this app's processes ended (the app's and its page renderers'), as app lines: ANRs, native
  * crashes and system kills, which no handler in the app sees. ApplicationExitInfo names the process, the reason, the
  * status, the importance, the memory and the description itself; [at] is its time to the millisecond. Each exit is
- * logged once; [seen] holds the newest logged exit's time.
+ * logged once; [lastLoggedExitFile] holds the newest logged exit's time.
  */
-internal fun logProcessExits(activities: ActivityManager, seen: File) {
-    val after = if (seen.isFile) seen.readText().toLong() else 0L
-    val exits = activities.getHistoricalProcessExitReasons(null, 0, 0).filter { it.timestamp > after }
-    for (exit in exits.sortedBy { it.timestamp }) {
-        val line = "Process exited; at=${Instant.ofEpochMilli(exit.timestamp)} $exit"
-        if (exit.reason in FAILED_EXITS) AppLog.warn(line) else AppLog.info(line)
+internal fun logProcessExits(activityManager: ActivityManager, lastLoggedExitFile: File) {
+    val lastLoggedAt = if (lastLoggedExitFile.isFile) lastLoggedExitFile.readText().toLong() else 0L
+    val newExits = activityManager.getHistoricalProcessExitReasons(null, 0, 0).filter { it.timestamp > lastLoggedAt }
+    for (exit in newExits.sortedBy { it.timestamp }) {
+        val message = "Process exited; at=${Instant.ofEpochMilli(exit.timestamp)} $exit"
+        if (exit.reason in FAILED_EXITS) AppLog.warn(message) else AppLog.info(message)
     }
-    exits.maxOfOrNull { it.timestamp }?.let { seen.writeText(it.toString()) }
+    newExits.maxOfOrNull { it.timestamp }?.let { lastLoggedExitFile.writeText(it.toString()) }
 }
 
 private val FAILED_EXITS =
@@ -169,7 +170,7 @@ private fun saveAllName(repositoryId: Long) = "save-all-notes-$repositoryId"
 
 private const val REPOSITORY = "repositoryId"
 private const val DONE = "done"
-private const val TO_FETCH = "toFetch"
+private const val TOTAL_NOTES = "toFetch"
 private const val FETCHED = "fetched"
 private const val ALREADY_SAVED = "alreadySaved"
 private const val CANNOT_SHOW = "cannotShow"
@@ -219,22 +220,26 @@ internal suspend fun saveAllInBackground(
     report: suspend (Data) -> Unit,
 ): Result {
     var done = 0
-    var toFetch = 0
-    val saved =
+    var totalNotes = 0
+    val saveResult =
         try {
-            sync.saveAllNotes(repositoryId) { doneNow, toFetchNow ->
+            sync.saveAllNotes(repositoryId) { doneNow, totalNotesNow ->
                 done = doneNow
-                toFetch = toFetchNow
-                report(workDataOf(DONE to done, TO_FETCH to toFetch))
+                totalNotes = totalNotesNow
+                report(workDataOf(DONE to done, TOTAL_NOTES to totalNotes))
             }
-        } catch (error: ApiException) {
-            if (triesAgain("Saving all notes", error, attempt)) return Result.retry()
-            val reason = error.describe()
+        } catch (failure: ApiException) {
+            if (shouldRetry("Saving all notes", failure, attempt)) return Result.retry()
+            val reason = failure.describe()
             val boundedReason = if (reason.length > MAX_REASON_UNITS) reason.take(MAX_REASON_UNITS) + "…" else reason
-            return Result.failure(workDataOf(DONE to done, TO_FETCH to toFetch, REASON to boundedReason))
+            return Result.failure(workDataOf(DONE to done, TOTAL_NOTES to totalNotes, REASON to boundedReason))
         }
     return Result.success(
-        workDataOf(FETCHED to saved.fetched, ALREADY_SAVED to saved.alreadySaved, CANNOT_SHOW to saved.cannotShow)
+        workDataOf(
+            FETCHED to saveResult.fetched,
+            ALREADY_SAVED to saveResult.alreadySaved,
+            CANNOT_SHOW to saveResult.cannotShow,
+        )
     )
 }
 
@@ -243,17 +248,17 @@ sealed interface SavingNotes {
     /** Waiting for a network, for a retry, or for Android to run it. */
     data object Waiting : SavingNotes
 
-    /** [done] of the [toFetch] listed notes checked for pages and images; [toFetch] is 0 until they are known. */
-    data class Running(val done: Int, val toFetch: Int) : SavingNotes
+    /** [done] of the [totalNotes] listed notes checked for pages and images; [totalNotes] is 0 until they are known. */
+    data class Running(val done: Int, val totalNotes: Int) : SavingNotes
 
     /** [Sync.SavedAll]. */
     data class Saved(val fetched: Int, val alreadySaved: Int, val cannotShow: Int) : SavingNotes
 
     /**
-     * Ended after [done] of [toFetch], those kept; [reason] is null when the run failed in RepoRead itself (a bug, or a
-     * full disk), not in a call to its server.
+     * Ended after [done] of [totalNotes], those kept; [reason] is null when the run failed in RepoRead itself (a bug,
+     * or a full disk), not in a call to its server.
      */
-    data class Stopped(val done: Int, val toFetch: Int, val reason: String?) : SavingNotes
+    data class Stopped(val done: Int, val totalNotes: Int, val reason: String?) : SavingNotes
 }
 
 /** Save all of [repositoryId], as WorkManager runs it; null before the first or after Stop. */
@@ -268,14 +273,15 @@ internal fun savingNotes(info: WorkInfo): SavingNotes? =
     when (info.state) {
         WorkInfo.State.ENQUEUED,
         WorkInfo.State.BLOCKED -> SavingNotes.Waiting
-        WorkInfo.State.RUNNING -> SavingNotes.Running(info.progress.getInt(DONE, 0), info.progress.getInt(TO_FETCH, 0))
+        WorkInfo.State.RUNNING ->
+            SavingNotes.Running(info.progress.getInt(DONE, 0), info.progress.getInt(TOTAL_NOTES, 0))
         WorkInfo.State.SUCCEEDED ->
             info.outputData.let {
                 SavingNotes.Saved(it.getInt(FETCHED, 0), it.getInt(ALREADY_SAVED, 0), it.getInt(CANNOT_SHOW, 0))
             }
         WorkInfo.State.FAILED ->
             info.outputData.let {
-                SavingNotes.Stopped(it.getInt(DONE, 0), it.getInt(TO_FETCH, 0), it.getString(REASON))
+                SavingNotes.Stopped(it.getInt(DONE, 0), it.getInt(TOTAL_NOTES, 0), it.getString(REASON))
             }
         WorkInfo.State.CANCELLED -> null
     }

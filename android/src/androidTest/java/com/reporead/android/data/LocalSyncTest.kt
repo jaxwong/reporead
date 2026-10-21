@@ -545,13 +545,16 @@ class LocalSyncTest {
         val oversized = """{"repositories":[],"padding":"${"x".repeat(8 * 1024 * 1024)}"}"""
         val answered =
             LoopbackServer(mapOf("GET /api/library" to (200 to oversized))).use { server ->
-                runCatching { Api(server.url, { StoredSession.Absent }) {}.library() }.exceptionOrNull() as ApiException
+                runCatching { Api(server.url, { StoredSession.Absent }) {}.fetchLibrarySnapshot() }.exceptionOrNull()
+                    as ApiException
             }
         assertEquals("INVALID_RESPONSE", answered.code)
         assertEquals(200, answered.status)
         assertFalse(answered.unreachable)
         val silent =
-            runCatching { Api("http://127.0.0.1:${closedPort()}", { StoredSession.Absent }) {}.library() }
+            runCatching {
+                Api("http://127.0.0.1:${closedPort()}", { StoredSession.Absent }) {}.fetchLibrarySnapshot()
+            }
                 .exceptionOrNull() as ApiException
         assertEquals(0, silent.status)
         assertTrue(silent.unreachable)
@@ -1137,8 +1140,8 @@ class LocalSyncTest {
     }
 
     /**
-     * A run that ends part-way — a passing failure here; Android stopping it after about 10 minutes is the same — keeps
-     * what it saved, and the next run fetches only the rest.
+     * A run that ends part-way — a retryable failure here; Android stopping it after about 10 minutes is the same —
+     * keeps what it saved, and the next run fetches only the rest.
      */
     @Test
     fun aBackgroundSaveAllTriedAgainFetchesOnlyTheNotesNotYetSaved() = runBlocking {
@@ -1193,7 +1196,7 @@ class LocalSyncTest {
                 val result = saveAllInBackground(sync(server.url), 7, 0) {} as Result.Failure
                 val stopped = shown(WorkInfo.State.FAILED, output = result.outputData) as SavingNotes.Stopped
                 assertEquals(1, stopped.done)
-                assertEquals(3, stopped.toFetch)
+                assertEquals(3, stopped.totalNotes)
                 val reason = stopped.reason!!
                 assertTrue(reason.endsWith("…"))
                 assertTrue(error.describe().startsWith(reason.removeSuffix("…")))
@@ -1204,7 +1207,8 @@ class LocalSyncTest {
     }
 
     /**
-     * A failure that trying again cannot fix, or a passing one on the last attempt, ends Save all with how far it got.
+     * A failure that trying again cannot fix, or a retryable one on the last attempt, ends Save all with how far it
+     * got.
      */
     @Test
     fun aBackgroundSaveAllThatCannotGoOnSaysHowFarItGotAndWhy() = runBlocking {
@@ -1230,7 +1234,7 @@ class LocalSyncTest {
         val unreachable = sync("http://127.0.0.1:${closedPort()}")
         assertEquals(Result.retry(), saveAllInBackground(unreachable, 7, 8) {})
         val last = saveAllInBackground(unreachable, 7, 9) {} as Result.Failure
-        assertEquals(0, (shown(WorkInfo.State.FAILED, output = last.outputData) as SavingNotes.Stopped).toFetch)
+        assertEquals(0, (shown(WorkInfo.State.FAILED, output = last.outputData) as SavingNotes.Stopped).totalNotes)
         // A run that failed in RepoRead itself (WorkManager records no output) is shown without a server reason.
         assertEquals(SavingNotes.Stopped(0, 0, null), shown(WorkInfo.State.FAILED))
         assertEquals(SavingNotes.Waiting, shown(WorkInfo.State.ENQUEUED))

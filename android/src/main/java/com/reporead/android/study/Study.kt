@@ -104,43 +104,43 @@ internal fun isInterviewBank(path: String): Boolean = interviewTopic(path) != nu
  * is a question when it follows the question shape, its heading without a leading "N. "; one that does not, a Canonical
  * line under no H3, and a repeated Canonical line are warnings.
  */
-internal fun interviewBank(html: String, path: String): InterviewBank {
+internal fun parseInterviewBank(html: String, path: String): InterviewBank {
     if (!isInterviewBank(path)) return InterviewBank(emptyList(), emptyList())
-    val note = Jsoup.parse(html).getElementById("note") ?: return InterviewBank(emptyList(), emptyList())
+    val bankDocument = Jsoup.parse(html).getElementById("note") ?: return InterviewBank(emptyList(), emptyList())
     val questions = mutableListOf<StudyQuestion>()
     val unrecognized = mutableListOf<BankProblem>()
-    val canonicalLines = mutableSetOf<String>()
+    val seenCanonicalAnswers = mutableSetOf<String>()
     var level: String? = null
-    var group: Element? = null
-    val section = mutableListOf<Element>()
-    fun finishGroup() {
-        group?.let { heading ->
-            when (val read = bankQuestion(heading, section, level)) {
-                is Read.Broken ->
-                    unrecognized += BankProblem(heading.attr("data-block-id"), "${shownText(heading)} — ${read.rule}")
-                is Read.Asked ->
-                    if (canonicalLines.add(read.question.answer.text)) questions += read.question
+    var questionHeading: Element? = null
+    val questionBlocks = mutableListOf<Element>()
+    fun finishQuestion() {
+        questionHeading?.let { heading ->
+            when (val parsed = parseQuestion(heading, questionBlocks, level)) {
+                is QuestionParseResult.Invalid ->
+                    unrecognized += BankProblem(heading.attr("data-block-id"), "${shownText(heading)} — ${parsed.rule}")
+                is QuestionParseResult.Parsed ->
+                    if (seenCanonicalAnswers.add(parsed.question.answer.text)) questions += parsed.question
                     else
                         unrecognized +=
-                            BankProblem(read.question.blockId, "${read.question.text} — repeats a Canonical line")
+                            BankProblem(parsed.question.blockId, "${parsed.question.text} — repeats a Canonical line")
             }
         }
-        group = null
-        section.clear()
+        questionHeading = null
+        questionBlocks.clear()
     }
-    for (block in note.children()) {
+    for (block in bankDocument.children()) {
         val depth = headingDepth(block)
         if (depth != null && depth <= 3) {
-            finishGroup()
+            finishQuestion()
             if (depth == 1) level = null
             if (depth == 2) level = shownText(block).replaceFirst(NUMBERED, "")
-            if (depth == 3) group = block
+            if (depth == 3) questionHeading = block
             continue
         }
-        if (group != null) section.add(block)
+        if (questionHeading != null) questionBlocks.add(block)
         else if (label(block) in CANONICAL) unrecognized += BankProblem(block.attr("data-block-id"), shownText(block))
     }
-    finishGroup()
+    finishQuestion()
     return InterviewBank(questions, unrecognized)
 }
 
@@ -161,10 +161,10 @@ private fun label(block: Element): String? =
 /** What follows a labelled paragraph's [label]. */
 private fun labelled(block: Element, label: String): String = shownText(block).removePrefix(label).trim()
 
-private sealed interface Read {
-    data class Asked(val question: StudyQuestion) : Read
+private sealed interface QuestionParseResult {
+    data class Parsed(val question: StudyQuestion) : QuestionParseResult
 
-    data class Broken(val rule: String) : Read
+    data class Invalid(val rule: String) : QuestionParseResult
 }
 
 /** How a warning names a block that does not belong where it is. */
@@ -184,70 +184,76 @@ private fun describe(block: Element): String =
  * The question of one bank H3 from its [blocks] (up to the next H1–H3): prompt material, then exactly the labels in
  * order, the checklist's bullets right after its label and the Canonical line last; otherwise the first rule it breaks.
  */
-private fun bankQuestion(heading: Element, blocks: List<Element>, level: String?): Read {
-    val canonical = blocks.filter { label(it) in CANONICAL }
-    if (canonical.isEmpty()) return Read.Broken("no Canonical line")
-    if (canonical.size > 1) return Read.Broken("more than one Canonical line")
-    val start = blocks.indexOfFirst { label(it) != null }
-    val material = blocks.subList(0, start)
-    material
+private fun parseQuestion(heading: Element, blocks: List<Element>, level: String?): QuestionParseResult {
+    val canonicalBlocks = blocks.filter { label(it) in CANONICAL }
+    if (canonicalBlocks.isEmpty()) return QuestionParseResult.Invalid("no Canonical line")
+    if (canonicalBlocks.size > 1) return QuestionParseResult.Invalid("more than one Canonical line")
+    val firstLabelIndex = blocks.indexOfFirst { label(it) != null }
+    val promptBlocks = blocks.subList(0, firstLabelIndex)
+    promptBlocks
         .firstOrNull { it.tagName() !in PROMPT_TAGS }
         ?.let {
-            return Read.Broken("a ${describe(it)} in the prompt")
+            return QuestionParseResult.Invalid("a ${describe(it)} in the prompt")
         }
     // Insertion order is block order, which the label order is checked against.
     val labels = linkedMapOf<String, Element>()
     var checklist: Element? = null
-    for (index in start until blocks.size) {
+    for (index in firstLabelIndex until blocks.size) {
         val block = blocks[index]
-        val name = label(block)
+        val labelName = label(block)
         when {
-            name == null && block.tagName() == "ul" && label(blocks[index - 1]) == CHECKLIST -> checklist = block
-            name == null -> return Read.Broken("a ${describe(block)} after the labels")
-            name !in LABELS -> return Read.Broken("unknown label “$name”")
-            labels.put(name, block) != null -> return Read.Broken("“$name” twice")
+            labelName == null && block.tagName() == "ul" && label(blocks[index - 1]) == CHECKLIST -> checklist = block
+            labelName == null -> return QuestionParseResult.Invalid("a ${describe(block)} after the labels")
+            labelName !in LABELS -> return QuestionParseResult.Invalid("unknown label “$labelName”")
+            labels.put(labelName, block) != null -> return QuestionParseResult.Invalid("“$labelName” twice")
         }
     }
-    val line = canonical.single()
-    val kind = checkNotNull(label(line))
-    val order = listOfNotNull(TESTING, CHECKLIST, WORKED.takeIf { it in labels }, SHORT, kind)
-    order
+    val canonicalBlock = canonicalBlocks.single()
+    val canonicalLabel = checkNotNull(label(canonicalBlock))
+    val requiredLabelOrder = listOfNotNull(TESTING, CHECKLIST, WORKED.takeIf { it in labels }, SHORT, canonicalLabel)
+    requiredLabelOrder
         .firstOrNull { it !in labels }
         ?.let {
-            return Read.Broken("no “$it”")
+            return QuestionParseResult.Invalid("no “$it”")
         }
-    if (labels.keys.toList() != order) return Read.Broken("labels out of order")
+    if (labels.keys.toList() != requiredLabelOrder) return QuestionParseResult.Invalid("labels out of order")
     val testing =
         labelled(labels.getValue(TESTING), TESTING).ifEmpty {
-            return Read.Broken("“$TESTING” has no text")
+            return QuestionParseResult.Invalid("“$TESTING” has no text")
         }
     val shortAnswer =
         labelled(labels.getValue(SHORT), SHORT).ifEmpty {
-            return Read.Broken("“$SHORT” has no text")
+            return QuestionParseResult.Invalid("“$SHORT” has no text")
         }
     if (labelled(labels.getValue(CHECKLIST), CHECKLIST).isNotEmpty() || checklist == null)
-        return Read.Broken("the checklist is not a bullet list under its label")
-    if (checklist.select("li ul, li ol").isNotEmpty()) return Read.Broken("the checklist nests bullets")
+        return QuestionParseResult.Invalid("the checklist is not a bullet list under its label")
+    if (checklist.select("li ul, li ol").isNotEmpty()) return QuestionParseResult.Invalid("the checklist nests bullets")
     val worked =
         labels[WORKED]?.let { block ->
             val links =
                 block.select("a[href^='https://'], a[href^='http://']").map { WebLink(shownText(it), it.attr("href")) }
-            if (links.isEmpty()) return Read.Broken("“$WORKED” links nothing")
+            if (links.isEmpty()) return QuestionParseResult.Invalid("“$WORKED” links nothing")
             LinkedText(labelled(block, WORKED), links)
         }
-    val answer = StudyAnswer(line.attr("data-block-id"), line.attr("data-anchor-text"), answerLinks(line))
-    if (answer.links.isEmpty()) return Read.Broken("the Canonical line links no note")
-    val lists = if (kind == CANONICAL_PATH) material.filter { it.tagName() in setOf("ul", "ol") } else emptyList()
-    return Read.Asked(
+    val canonicalAnswer =
+        StudyAnswer(
+            canonicalBlock.attr("data-block-id"),
+            canonicalBlock.attr("data-anchor-text"),
+            answerLinks(canonicalBlock),
+        )
+    if (canonicalAnswer.links.isEmpty()) return QuestionParseResult.Invalid("the Canonical line links no note")
+    val followUpLists =
+        if (canonicalLabel == CANONICAL_PATH) promptBlocks.filter { it.tagName() in setOf("ul", "ol") } else emptyList()
+    return QuestionParseResult.Parsed(
         StudyQuestion(
             heading.attr("data-block-id"),
             shownText(heading).replaceFirst(NUMBERED, ""),
-            answer,
+            canonicalAnswer,
             shortAnswer,
             testing,
             checklist.children().map { shownText(it) },
-            material.filter { it !in lists }.map(::promptBlock),
-            lists.flatMap { list -> list.children().map { shownText(it, skipNestedLists = true) } },
+            promptBlocks.filter { it !in followUpLists }.map(::promptBlock),
+            followUpLists.flatMap { list -> list.children().map { shownText(it, skipNestedLists = true) } },
             worked,
             level,
         )

@@ -110,7 +110,7 @@ class ApiTest {
                     }
                 }
             val error = runCatching {
-                Api("http://127.0.0.1:${server.localPort}", { StoredSession.Absent }) {}.library()
+                Api("http://127.0.0.1:${server.localPort}", { StoredSession.Absent }) {}.fetchLibrarySnapshot()
             }
                 .exceptionOrNull()
             writer.await()
@@ -177,13 +177,13 @@ class ApiTest {
                         ),
                         api.revokeSession(),
                         api.deleteAccount(),
-                        api.library(),
+                        api.fetchLibrarySnapshot(),
                         api.availableRepositories(),
                         api.connectRepository(11, connect),
                         api.syncRepository(7),
-                        api.storedData(7),
+                        api.repositoryDeletionCounts(7),
                         api.disconnectRepository(7),
-                        api.noteContent(1),
+                        api.fetchDocumentContent(1),
                         api.noteImage(1, testCommit, "img/a b.png").also {
                             assertEquals("TEST_ONLY_BYTES", it.toString(Charsets.UTF_8))
                         },
@@ -297,8 +297,8 @@ class ApiTest {
             )) {
             LoopbackServer(mapOf("GET /api/documents/1/content" to (status to body))).use { server ->
                 val error =
-                    runCatching { Api(server.url, { StoredSession.Absent }) {}.noteContent(1) }.exceptionOrNull()
-                        as ApiException
+                    runCatching { Api(server.url, { StoredSession.Absent }) {}.fetchDocumentContent(1) }
+                        .exceptionOrNull() as ApiException
                 assertEquals("INVALID_RESPONSE", error.code)
                 assertEquals(status, error.status)
                 assertEquals(1, server.requests.size)
@@ -411,9 +411,9 @@ class ApiTest {
                 for (call in
                     listOf<suspend () -> Any>(
                         { api.annotations(1) },
-                        { api.library() },
+                        { api.fetchLibrarySnapshot() },
                         { api.availableRepositories() },
-                        { api.noteContent(1) },
+                        { api.fetchDocumentContent(1) },
                     )) {
                     try {
                         call()
@@ -461,7 +461,7 @@ class ApiTest {
                             }
                         }
                     val error = runCatching {
-                        Api("http://127.0.0.1:${server.localPort}", { StoredSession.Absent }) {}.noteContent(1)
+                        Api("http://127.0.0.1:${server.localPort}", { StoredSession.Absent }) {}.fetchDocumentContent(1)
                     }
                         .exceptionOrNull()
                     writer.await()
@@ -482,7 +482,7 @@ class ApiTest {
 
             val closed = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
             val unanswered =
-                runCatching { Api("http://127.0.0.1:$closed", { StoredSession.Absent }) {}.noteContent(1) }
+                runCatching { Api("http://127.0.0.1:$closed", { StoredSession.Absent }) {}.fetchDocumentContent(1) }
                     .exceptionOrNull() as ApiException
             assertEquals("BACKEND_UNAVAILABLE", unanswered.code)
             assertNull(unanswered.requestId)
