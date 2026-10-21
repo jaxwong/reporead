@@ -1,20 +1,20 @@
 // Owns: JVM coverage of decoding strictness and value rules for the generated wire models.
 
-package com.reporead.android.core.network
+package com.reporead.android.network
 
-import com.reporead.android.core.network.wire.AnnotationsAnnotation
-import com.reporead.android.core.network.wire.AppSessionsIssuedSession
-import com.reporead.android.core.network.wire.AppUser
-import com.reporead.android.core.network.wire.ConnectionDeletionDisconnected
-import com.reporead.android.core.network.wire.DocumentControllerContent
-import com.reporead.android.core.network.wire.DocumentsSummary
-import com.reporead.android.core.network.wire.LibraryRepository
-import com.reporead.android.core.network.wire.LibrarySnapshot
-import com.reporead.android.core.network.wire.ReadingStatesAnchor
-import com.reporead.android.core.network.wire.ReadingStatesState
-import com.reporead.android.core.network.wire.RepositoryConnectionsAvailable
-import com.reporead.android.core.network.wire.ReviewsNotebook
-import com.reporead.android.core.network.wire.ReviewsReview
+import com.reporead.android.network.wire.AnnotationsAnnotation
+import com.reporead.android.network.wire.AppSessionsIssuedSession
+import com.reporead.android.network.wire.AppUser
+import com.reporead.android.network.wire.ConnectionDeletionDisconnected
+import com.reporead.android.network.wire.DocumentControllerContent
+import com.reporead.android.network.wire.DocumentsSummary
+import com.reporead.android.network.wire.LibraryRepository
+import com.reporead.android.network.wire.LibrarySnapshot
+import com.reporead.android.network.wire.ReadingStatesAnchor
+import com.reporead.android.network.wire.ReadingStatesState
+import com.reporead.android.network.wire.RepositoryConnectionsAvailable
+import com.reporead.android.network.wire.ReviewsNotebook
+import com.reporead.android.network.wire.ReviewsReview
 import java.time.Instant
 import java.time.format.DateTimeParseException
 import kotlinx.serialization.json.JsonObject

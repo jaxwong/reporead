@@ -2,8 +2,8 @@
 
 package com.reporead.android.sync
 
-import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.wireJson
+import com.reporead.android.network.ApiException
+import com.reporead.android.network.wireJson
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject

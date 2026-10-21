@@ -1,17 +1,17 @@
 // Owns: The value rules decoded answers must meet that their generated shapes cannot state.
 
-package com.reporead.android.core.network
+package com.reporead.android.network
 
-import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
-import com.reporead.android.core.network.wire.AnnotationsAnnotation
-import com.reporead.android.core.network.wire.AnnotationsPassage
-import com.reporead.android.core.network.wire.AppSessionsIssuedSession
-import com.reporead.android.core.network.wire.AppUser
-import com.reporead.android.core.network.wire.DocumentControllerContent
-import com.reporead.android.core.network.wire.LibrarySnapshot
-import com.reporead.android.core.network.wire.ReadingStatesAnchor
-import com.reporead.android.core.network.wire.ReadingStatesState
-import com.reporead.android.core.network.wire.ReviewsNotebook
+import com.reporead.android.network.wire.AnnotationControllerAnnotationList
+import com.reporead.android.network.wire.AnnotationsAnnotation
+import com.reporead.android.network.wire.AnnotationsPassage
+import com.reporead.android.network.wire.AppSessionsIssuedSession
+import com.reporead.android.network.wire.AppUser
+import com.reporead.android.network.wire.DocumentControllerContent
+import com.reporead.android.network.wire.LibrarySnapshot
+import com.reporead.android.network.wire.ReadingStatesAnchor
+import com.reporead.android.network.wire.ReadingStatesState
+import com.reporead.android.network.wire.ReviewsNotebook
 
 private val LOWERCASE_SHA = Regex("[0-9a-f]{40}")
 

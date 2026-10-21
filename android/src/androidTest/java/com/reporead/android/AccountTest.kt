@@ -12,9 +12,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.testSession
-import com.reporead.android.core.network.wire
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
@@ -29,6 +26,9 @@ import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
 import com.reporead.android.library.LibraryScreen
+import com.reporead.android.network.Api
+import com.reporead.android.network.testSession
+import com.reporead.android.network.wire
 import com.reporead.android.sync.Sync
 import java.io.File
 import java.net.InetAddress

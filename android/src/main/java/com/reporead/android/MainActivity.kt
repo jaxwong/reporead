@@ -14,7 +14,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import com.reporead.android.core.log.AppLog
+import com.reporead.android.logging.AppLog
 import com.reporead.android.sync.requestAppLogUpload
 
 internal const val NAVIGATION_STATE_FORMAT_KEY = "navigationStateFormat"

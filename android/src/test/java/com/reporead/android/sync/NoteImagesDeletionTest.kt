@@ -1,8 +1,8 @@
 package com.reporead.android.sync
 
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.core.network.Api
 import com.reporead.android.data.SavedVersion
+import com.reporead.android.network.Api
 import com.sun.net.httpserver.HttpServer
 import java.io.File
 import java.net.InetSocketAddress

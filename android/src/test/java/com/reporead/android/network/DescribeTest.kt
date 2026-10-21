@@ -1,4 +1,4 @@
-package com.reporead.android.core.network
+package com.reporead.android.network
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

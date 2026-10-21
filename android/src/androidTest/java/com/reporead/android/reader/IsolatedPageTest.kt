@@ -7,8 +7,8 @@ import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.BuildConfig
-import com.reporead.android.core.network.Api
 import com.reporead.android.data.NoteRow
+import com.reporead.android.network.Api
 import com.reporead.android.sync.NoteImages
 import java.io.File
 import java.util.concurrent.CountDownLatch

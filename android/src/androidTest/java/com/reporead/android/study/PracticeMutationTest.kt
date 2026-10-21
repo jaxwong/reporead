@@ -4,12 +4,12 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.saveNoteWithoutSearch
+import com.reporead.android.network.Api
 import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.UUID

@@ -1,28 +1,28 @@
 // Owns: Test-only answers built from the generated wire models, shared by the JVM and device tests.
 
-package com.reporead.android.core.network
+package com.reporead.android.network
 
 import com.reporead.android.BuildConfig
-import com.reporead.android.core.network.wire.AccountDeletionDeleted
-import com.reporead.android.core.network.wire.AnnotationsAnnotation
-import com.reporead.android.core.network.wire.AnnotationsPassage
-import com.reporead.android.core.network.wire.AppSessionsIssuedSession
-import com.reporead.android.core.network.wire.AppUser
-import com.reporead.android.core.network.wire.BookmarksBookmark
-import com.reporead.android.core.network.wire.ConnectionDeletionCounts
-import com.reporead.android.core.network.wire.ConnectionDeletionDisconnected
-import com.reporead.android.core.network.wire.DocumentControllerContent
-import com.reporead.android.core.network.wire.DocumentControllerSearchBlock
-import com.reporead.android.core.network.wire.DocumentsSummary
-import com.reporead.android.core.network.wire.LibraryRepository
-import com.reporead.android.core.network.wire.LibrarySnapshot
-import com.reporead.android.core.network.wire.ReadingStatesAnchor
-import com.reporead.android.core.network.wire.ReadingStatesState
-import com.reporead.android.core.network.wire.RepositoryConnectionsAvailable
-import com.reporead.android.core.network.wire.RepositoryConnectionsConnection
-import com.reporead.android.core.network.wire.RepositorySyncResult
-import com.reporead.android.core.network.wire.ReviewsNotebook
-import com.reporead.android.core.network.wire.ReviewsReview
+import com.reporead.android.network.wire.AccountDeletionDeleted
+import com.reporead.android.network.wire.AnnotationsAnnotation
+import com.reporead.android.network.wire.AnnotationsPassage
+import com.reporead.android.network.wire.AppSessionsIssuedSession
+import com.reporead.android.network.wire.AppUser
+import com.reporead.android.network.wire.BookmarksBookmark
+import com.reporead.android.network.wire.ConnectionDeletionCounts
+import com.reporead.android.network.wire.ConnectionDeletionDisconnected
+import com.reporead.android.network.wire.DocumentControllerContent
+import com.reporead.android.network.wire.DocumentControllerSearchBlock
+import com.reporead.android.network.wire.DocumentsSummary
+import com.reporead.android.network.wire.LibraryRepository
+import com.reporead.android.network.wire.LibrarySnapshot
+import com.reporead.android.network.wire.ReadingStatesAnchor
+import com.reporead.android.network.wire.ReadingStatesState
+import com.reporead.android.network.wire.RepositoryConnectionsAvailable
+import com.reporead.android.network.wire.RepositoryConnectionsConnection
+import com.reporead.android.network.wire.RepositorySyncResult
+import com.reporead.android.network.wire.ReviewsNotebook
+import com.reporead.android.network.wire.ReviewsReview
 import java.time.Instant
 import kotlinx.serialization.encodeToString
 

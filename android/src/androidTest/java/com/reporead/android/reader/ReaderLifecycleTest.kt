@@ -14,7 +14,6 @@ import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
 import com.reporead.android.control
-import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
@@ -25,6 +24,7 @@ import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.findText
 import com.reporead.android.findWebView
+import com.reporead.android.network.Api
 import com.reporead.android.root
 import com.reporead.android.sync.Sync
 import com.reporead.android.type

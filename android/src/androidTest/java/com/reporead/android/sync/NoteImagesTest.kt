@@ -3,11 +3,11 @@ package com.reporead.android.sync
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.ApiException
 import com.reporead.android.data.LoopbackServer
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.SavedVersion
+import com.reporead.android.network.Api
+import com.reporead.android.network.ApiException
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.CompletableFuture

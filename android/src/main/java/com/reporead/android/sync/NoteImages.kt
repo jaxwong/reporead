@@ -3,11 +3,11 @@
 package com.reporead.android.sync
 
 import androidx.core.net.toUri
-import com.reporead.android.core.log.AppLog
-import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.ApiException
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.SavedVersion
+import com.reporead.android.logging.AppLog
+import com.reporead.android.network.Api
+import com.reporead.android.network.ApiException
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest

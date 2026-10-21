@@ -12,8 +12,8 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
-import com.reporead.android.core.log.AppLog
 import com.reporead.android.data.NoteRow
+import com.reporead.android.logging.AppLog
 import com.reporead.android.sync.IMAGE_PREFIX
 import com.reporead.android.sync.NoteImages
 import java.io.ByteArrayInputStream

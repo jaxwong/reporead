@@ -2,7 +2,7 @@
 
 package com.reporead.android.library
 
-import com.reporead.android.core.network.ApiException
+import com.reporead.android.network.ApiException
 import com.reporead.android.sync.RefusedChange
 import org.junit.Assert.assertEquals
 import org.junit.Test

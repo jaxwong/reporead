@@ -1,26 +1,27 @@
 // Owns: Device HTTP-boundary coverage using loopback responses, including actual framing and read timeouts.
 
-package com.reporead.android.core.network
+package com.reporead.android.network
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.core.log.AppLog
-import com.reporead.android.core.log.appLogDirectory
-import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
-import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
-import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
-import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
-import com.reporead.android.core.network.wire.AnnotationServiceSelection
-import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
-import com.reporead.android.core.network.wire.AppLogControllerLine
-import com.reporead.android.core.network.wire.AppLogControllerUploadRequest
-import com.reporead.android.core.network.wire.ReadingControllerAnchorRequest
-import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
-import com.reporead.android.core.network.wire.RepositoryControllerAvailableList
-import com.reporead.android.core.network.wire.RepositoryControllerConnectRequest
-import com.reporead.android.core.network.wire.ReviewControllerGradeRequest
 import com.reporead.android.data.LoopbackServer
+import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.appLogDirectory
+import com.reporead.android.network.wire.AnnotationControllerAnnotationList
+import com.reporead.android.network.wire.AnnotationControllerCheckRequest
+import com.reporead.android.network.wire.AnnotationControllerCreateRequest
+import com.reporead.android.network.wire.AnnotationControllerEditRequest
+import com.reporead.android.network.wire.AnnotationControllerReattachRequest
+import com.reporead.android.network.wire.AnnotationServiceSelection
+import com.reporead.android.network.wire.AppAuthControllerTokenRequest
+import com.reporead.android.network.wire.AppLogControllerLine
+import com.reporead.android.network.wire.AppLogControllerUploadRequest
+import com.reporead.android.network.wire.ReadingControllerAnchorRequest
+import com.reporead.android.network.wire.ReadingControllerSaveRequest
+import com.reporead.android.network.wire.RepositoryControllerAvailableList
+import com.reporead.android.network.wire.RepositoryControllerConnectRequest
+import com.reporead.android.network.wire.ReviewControllerGradeRequest
 import java.io.File
 import java.io.IOException
 import java.net.InetAddress

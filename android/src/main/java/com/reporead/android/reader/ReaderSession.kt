@@ -20,12 +20,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.OpenAt
-import com.reporead.android.core.log.AppLog
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
+import com.reporead.android.logging.AppLog
 import com.reporead.android.sync.Sync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
