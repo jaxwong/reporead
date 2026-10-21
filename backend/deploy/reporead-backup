@@ -20,7 +20,9 @@ backup_path="$BACKUP_DIR/$BACKUP_KIND-$(date -u +%Y-%m-%dT%H%M%SZ).dump"
 partial_path="$backup_path.partial"
 trap 'rm -f "$partial_path"' EXIT
 podman exec reporead-postgres pg_dump --username=reporead --dbname=reporead --format=custom > "$partial_path"
-podman exec -i reporead-postgres pg_restore --list < "$partial_path" > /dev/null
+# pg_restore stops reading after the table of contents; the drain keeps conmon from logging one "Broken pipe" warning
+# per chunk of the rest of the dump (about 300 journal lines for a 113 KB dump). The exit status stays pg_restore's.
+podman exec -i reporead-postgres sh -c 'pg_restore --list; status=$?; cat > /dev/null; exit $status' < "$partial_path" > /dev/null
 mv "$partial_path" "$backup_path"
 echo "reporead-backup: wrote $(basename "$backup_path"), $(stat -c %s "$backup_path") bytes"
 ls -1 "$BACKUP_DIR"/"$BACKUP_KIND"-*.dump | sort -r | tail -n +$((RETENTION_COUNT + 1)) | xargs -r rm --
