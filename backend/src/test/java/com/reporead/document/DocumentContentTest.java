@@ -87,8 +87,8 @@ class DocumentContentTest extends SharedSpringTest {
                 .build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, TOKEN);
         db.sql("""
-                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
-                values (1, 11, 'test-only', 'notes', 'main', :commit)""").param("commit", "c".repeat(40)).update();
+                INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch, last_synced_commit_sha)
+                VALUES (1, 11, 'test-only', 'notes', 'main', :commit)""").param("commit", "c".repeat(40)).update();
     }
 
     @AfterEach
@@ -101,8 +101,8 @@ class DocumentContentTest extends SharedSpringTest {
 
     private long document(String path, String blobSha, boolean deleted) {
         return db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
-                values (1, :path, 'title', :blob, case when :deleted then now() end) returning id""")
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha, deleted_at)
+                VALUES (1, :path, 'title', :blob, CASE WHEN :deleted THEN now() END) RETURNING id""")
                 .param("path", path)
                 .param("blob", blobSha)
                 .param("deleted", deleted)
@@ -245,7 +245,7 @@ class DocumentContentTest extends SharedSpringTest {
         String title = "T".repeat(1 + available % repeatedBytes);
         String sha = Hashes.gitBlobSha(bytes);
         long id = document(path, sha, false);
-        db.sql("update documents set title = :title where id = :id")
+        db.sql("UPDATE documents SET title = :title WHERE id = :id")
                 .param("title", title)
                 .param("id", id)
                 .update();
@@ -268,7 +268,7 @@ class DocumentContentTest extends SharedSpringTest {
             }
             assertEquals(MarkdownRenderer.MAX_PAGE_BYTES, storedBytes);
         }
-        db.sql("update documents set title = :title where id = :id")
+        db.sql("UPDATE documents SET title = :title WHERE id = :id")
                 .param("title", title + "x")
                 .param("id", id)
                 .update();
@@ -390,7 +390,7 @@ class DocumentContentTest extends SharedSpringTest {
 
     private void images(String... paths) {
         for (String path : paths)
-            db.sql("insert into repository_images (repository_connection_id, path) values (1, :path)")
+            db.sql("INSERT INTO repository_images (repository_connection_id, path) VALUES (1, :path)")
                     .param("path", path)
                     .update();
     }
@@ -441,10 +441,10 @@ class DocumentContentTest extends SharedSpringTest {
         images("old/chart.png");
         expectBlob(sha, request -> {
             // Simulate another request publishing an image-only edit after content captured its source.
-            db.sql("delete from repository_images where repository_connection_id = 1")
+            db.sql("DELETE FROM repository_images WHERE repository_connection_id = 1")
                     .update();
             images("new/chart.png");
-            db.sql("update repository_connections set last_synced_commit_sha = :sha where id = 1")
+            db.sql("UPDATE repository_connections SET last_synced_commit_sha = :sha WHERE id = 1")
                     .param("sha", "d".repeat(40))
                     .update();
             return withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM).createResponse(request);

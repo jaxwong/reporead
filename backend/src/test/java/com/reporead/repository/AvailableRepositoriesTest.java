@@ -373,7 +373,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         assertEquals(first, second);
         assertEquals(
                 1,
-                db.sql("select count(*) from repository_connections")
+                db.sql("SELECT count(*) FROM repository_connections")
                         .query(Integer.class)
                         .single());
         as(alice, get("/api/library"))
@@ -390,7 +390,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
         connect(alice, 11, "{\"installationId\":7}").andExpect(jsonPath("$.id").value(1));
         db.sql(
-                        "insert into documents (repository_connection_id, path, title, current_blob_sha) values (1, 'a.md', 'a', '"
+                        "INSERT INTO documents (repository_connection_id, path, title, current_blob_sha) VALUES (1, 'a.md', 'a', '"
                                 + "a".repeat(40) + "')")
                 .update();
         next();
@@ -404,7 +404,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.documentCount").value(1));
         assertEquals(
                 1,
-                db.sql("select count(*) from repository_connections")
+                db.sql("SELECT count(*) FROM repository_connections")
                         .query(Integer.class)
                         .single());
     }
@@ -419,7 +419,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         connect(alice, 0, "{\"installationId\":7}").andExpect(status().isBadRequest());
         assertEquals(
                 0,
-                db.sql("select count(*) from repository_connections")
+                db.sql("SELECT count(*) FROM repository_connections")
                         .query(Integer.class)
                         .single());
     }
@@ -433,11 +433,11 @@ class AvailableRepositoriesTest extends SharedSpringTest {
             // What account deletion does to the user row (DeletionController.delete), held open while the connect
             // arrives.
             var deleting = executor.submit(() -> transaction.execute(status -> {
-                db.sql("select id from users where id = 1 for update")
+                db.sql("SELECT id FROM users WHERE id = 1 FOR UPDATE")
                         .query(Long.class)
                         .single();
-                db.sql("delete from app_sessions where user_id = 1").update();
-                db.sql("delete from users where id = 1").update();
+                db.sql("DELETE FROM app_sessions WHERE user_id = 1").update();
+                db.sql("DELETE FROM users WHERE id = 1").update();
                 deleted.countDown();
                 try {
                     return release.await(10, TimeUnit.SECONDS);
@@ -457,7 +457,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         }
         assertEquals(
                 0,
-                db.sql("select count(*) from repository_connections")
+                db.sql("SELECT count(*) FROM repository_connections")
                         .query(Integer.class)
                         .single());
     }

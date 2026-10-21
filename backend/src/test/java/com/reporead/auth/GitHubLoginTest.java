@@ -353,7 +353,7 @@ class GitHubLoginTest extends SharedSpringTest {
     }
 
     private int count(String tableAndCondition) {
-        return db.sql("select count(*) from " + tableAndCondition)
+        return db.sql("SELECT count(*) FROM " + tableAndCondition)
                 .query(Integer.class)
                 .single();
     }

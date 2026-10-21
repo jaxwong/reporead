@@ -20,21 +20,21 @@ class NoteFactsMigrationTest {
             12,
             fill = { db ->
                 db.execSQL(
-                    "insert into documents(id, repositoryId, path, title, blobSha, changedAt) values (1, 7, 'a.md', 'a', ?, null)",
+                    "INSERT INTO documents(id, repositoryId, path, title, blobSha, changedAt) VALUES (1, 7, 'a.md', 'a', ?, NULL)",
                     arrayOf<Any>(sha),
                 )
                 db.execSQL(
-                    """insert into reading_states(documentId, title, path, lastReadBlobSha, progressPercent, anchorJson, lastReadAt,
-                    pending, deleted) values (1, 'copy', 'copy.md', ?, 40, '{}', 5, 1, 0)""",
+                    """INSERT INTO reading_states(documentId, title, path, lastReadBlobSha, progressPercent, anchorJson, lastReadAt,
+                    pending, deleted) VALUES (1, 'copy', 'copy.md', ?, 40, '{}', 5, 1, 0)""",
                     arrayOf<Any>(sha),
                 )
                 db.execSQL(
-                    "insert into bookmarks(documentId, title, path, bookmarked, pending, changedAt, deleted) values (1, 'copy', 'copy.md', 1, 1, 6, 0)"
+                    "INSERT INTO bookmarks(documentId, title, path, bookmarked, pending, changedAt, deleted) VALUES (1, 'copy', 'copy.md', 1, 1, 6, 0)"
                 )
                 db.execSQL(
-                    """insert into annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
-                    exactText, note, version, createdAt, state, cachedTitle, cachedPath, cachedDeleted) values
-                    ('unsent', null, 1, ?, 'b1', 0, 4, 'text', 'mine', 1, 7, 'UNSENT', 'copy', 'copy.md', 0)""",
+                    """INSERT INTO annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
+                    exactText, note, version, createdAt, state, cachedTitle, cachedPath, cachedDeleted) VALUES
+                    ('unsent', NULL, 1, ?, 'b1', 0, 4, 'text', 'mine', 1, 7, 'UNSENT', 'copy', 'copy.md', 0)""",
                     arrayOf<Any>(sha),
                 )
             },

@@ -53,13 +53,13 @@ class GitHubTokensTest extends SharedSpringTest {
     }
 
     private int rows() {
-        return db.sql("select count(*) from github_tokens").query(Integer.class).single();
+        return db.sql("SELECT count(*) FROM github_tokens").query(Integer.class).single();
     }
 
     @Test
     void tokensAreStoredEncryptedAndSurviveARestart() throws IOException {
         byte[] stored = db.sql(
-                        "select access_token || coalesce(refresh_token, ''::bytea) from github_tokens where github_user_id = 42")
+                        "SELECT access_token || coalesce(refresh_token, ''::bytea) FROM github_tokens WHERE github_user_id = 42")
                 .query(byte[].class)
                 .single();
         String raw = new String(stored, StandardCharsets.ISO_8859_1);
@@ -104,7 +104,7 @@ class GitHubTokensTest extends SharedSpringTest {
 
     @Test
     void aRowMovedToAnotherUserDoesNotDecrypt() {
-        db.sql("update github_tokens set github_user_id = 84 where github_user_id = 42")
+        db.sql("UPDATE github_tokens SET github_user_id = 84 WHERE github_user_id = 42")
                 .update();
         assertNull(clients.loadAuthorizedClient("github", "84"));
     }

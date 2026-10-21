@@ -63,7 +63,7 @@ public final class TestEnvironment {
         try (var connection = DriverManager.getConnection(
                         POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
                 var statement = connection.createStatement()) {
-            statement.execute("create database " + name);
+            statement.execute("CREATE DATABASE " + name);
         } catch (SQLException error) {
             throw new IllegalStateException("Cannot create the test-only database " + name, error);
         }
@@ -80,7 +80,7 @@ public final class TestEnvironment {
     public static void awaitLockWait(JdbcClient db) throws InterruptedException {
         long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         while (db.sql(
-                                "select count(*) from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()")
+                                "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()")
                         .query(Integer.class)
                         .single()
                 == 0) {
@@ -91,7 +91,7 @@ public final class TestEnvironment {
 
     public static void reset(JdbcClient db) {
         db.sql(
-                        "truncate github_tokens, review_log, repository_images, annotation_mutations, annotation_locations, annotation_anchors, annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users restart identity")
+                        "TRUNCATE github_tokens, review_log, repository_images, annotation_mutations, annotation_locations, annotation_anchors, annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users RESTART IDENTITY")
                 .update();
     }
 }

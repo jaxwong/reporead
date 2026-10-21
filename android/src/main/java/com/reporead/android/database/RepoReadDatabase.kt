@@ -50,7 +50,7 @@ class DocumentsOwnNoteFacts : AutoMigrationSpec
 class KeepNoteLinks : AutoMigrationSpec {
     override fun onPostMigrate(db: SupportSQLiteDatabase) {
         val links = mutableListOf<NoteLinkEntity>()
-        db.query("select documentId, html from notes where html like '%/note-link?%'").use { pages ->
+        db.query("SELECT documentId, html FROM notes WHERE html LIKE '%/note-link?%'").use { pages ->
             while (pages.moveToNext()) {
                 noteLinkQueries(pages.getString(1)).forEachIndexed { position, query ->
                     links += NoteLinkEntity(pages.getLong(0), position, query)
@@ -59,7 +59,7 @@ class KeepNoteLinks : AutoMigrationSpec {
         }
         for (link in links) {
             db.execSQL(
-                "insert into note_links (documentId, position, query) values (?, ?, ?)",
+                "INSERT INTO note_links (documentId, position, query) VALUES (?, ?, ?)",
                 arrayOf<Any>(link.documentId, link.position, link.query),
             )
         }
@@ -73,13 +73,13 @@ class KeepNoteLinks : AutoMigrationSpec {
 val ANNOTATION_STATE_10_11 =
     object : Migration(10, 11) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("alter table annotations add column state TEXT NOT NULL DEFAULT 'ACKNOWLEDGED'")
+            db.execSQL("ALTER TABLE annotations ADD COLUMN state TEXT NOT NULL DEFAULT 'ACKNOWLEDGED'")
             db.execSQL(
-                """update annotations set state = case when deleting then 'DELETING' when rejection is not null then 'REFUSED'
-                      when pending then 'UNSENT' else 'ACKNOWLEDGED' end"""
+                """UPDATE annotations SET state = CASE WHEN deleting THEN 'DELETING' WHEN rejection IS NOT NULL THEN 'REFUSED'
+                      WHEN pending THEN 'UNSENT' ELSE 'ACKNOWLEDGED' END"""
             )
-            db.execSQL("alter table annotations drop column pending")
-            db.execSQL("alter table annotations drop column deleting")
+            db.execSQL("ALTER TABLE annotations DROP COLUMN pending")
+            db.execSQL("ALTER TABLE annotations DROP COLUMN deleting")
         }
     }
 
@@ -90,10 +90,10 @@ val ANNOTATION_STATE_10_11 =
 class RetireUnreadablePages : AutoMigrationSpec {
     override fun onPostMigrate(db: SupportSQLiteDatabase) {
         db.execSQL(
-            "delete from notes where length(cast(html as blob)) + coalesce(length(cast(searchText as blob)), 0) >= 2097152"
+            "DELETE FROM notes WHERE length(CAST(html AS blob)) + coalesce(length(CAST(searchText AS blob)), 0) >= 2097152"
         )
         // Room enables foreign keys after migration, so the page deletion cannot cascade here.
-        db.execSQL("delete from note_links where documentId not in (select documentId from notes)")
+        db.execSQL("DELETE FROM note_links WHERE documentId NOT IN (SELECT documentId FROM notes)")
     }
 }
 
@@ -102,7 +102,7 @@ class RetireUnreadablePages : AutoMigrationSpec {
 class StructureSearchBlocks : AutoMigrationSpec {
     override fun onPostMigrate(db: SupportSQLiteDatabase) {
         val pages = mutableListOf<Pair<Long, Int>>()
-        db.query("select documentId, length(html) from notes").use { rows ->
+        db.query("SELECT documentId, length(html) FROM notes").use { rows ->
             while (rows.moveToNext()) pages += rows.getLong(0) to rows.getInt(1)
         }
         for ((documentId, length) in pages) {
@@ -113,7 +113,7 @@ class StructureSearchBlocks : AutoMigrationSpec {
                     var start = 1
                     while (start <= length) {
                         db.query(
-                                "select substr(html, ?, ?) from notes where documentId = ?",
+                                "SELECT substr(html, ?, ?) FROM notes WHERE documentId = ?",
                                 arrayOf<Any>(start, MIGRATION_HTML_CHUNK_CHARS, documentId),
                             )
                             .use { chunk ->
@@ -127,7 +127,7 @@ class StructureSearchBlocks : AutoMigrationSpec {
                 }
             Jsoup.parse(html).select("[data-block-id][data-anchor-text]").forEachIndexed { position, block ->
                 db.execSQL(
-                    "insert into note_search_blocks (documentId, blockId, position, text) values (?, ?, ?, ?)",
+                    "INSERT INTO note_search_blocks (documentId, blockId, position, text) VALUES (?, ?, ?, ?)",
                     arrayOf<Any>(
                         documentId,
                         block.attr("data-block-id"),

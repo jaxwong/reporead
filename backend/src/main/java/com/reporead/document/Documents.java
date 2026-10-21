@@ -81,9 +81,9 @@ public class Documents {
         }
         // One statement for every move, as for the paths below; a move's target is a path no document holds.
         db.sql("""
-                update documents set path = move.path, title = move.title
-                from unnest(:ids::bigint[], :paths::text[], :titles::text[]) as move (id, path, title)
-                where documents.id = move.id""")
+                UPDATE documents SET path = move.path, title = move.title
+                FROM unnest(:ids::bigint[], :paths::text[], :titles::text[]) AS move (id, path, title)
+                WHERE documents.id = move.id""")
                 .param("ids", moves.stream().mapToLong(Move::documentId).boxed().toArray(Long[]::new))
                 .param("paths", moves.stream().map(Move::toPath).toArray(String[]::new))
                 .param(
@@ -95,12 +95,12 @@ public class Documents {
         String[] blobs = files.stream().map(SourceFile::blobSha).toArray(String[]::new);
         var now = Timestamp.from(syncedAt);
         db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, content_changed_at)
-                select :connectionId, source.path, source.title, source.blob, cast(:firstSeenChange as timestamptz)
-                from unnest(:paths::text[], :titles::text[], :blobs::text[]) as source (path, title, blob)
-                on conflict (repository_connection_id, path) do update
-                set current_blob_sha = excluded.current_blob_sha, deleted_at = null, content_changed_at = :now
-                where documents.current_blob_sha <> excluded.current_blob_sha or documents.deleted_at is not null""")
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha, content_changed_at)
+                SELECT :connectionId, source.path, source.title, source.blob, CAST(:firstSeenChange AS timestamptz)
+                FROM unnest(:paths::text[], :titles::text[], :blobs::text[]) AS source (path, title, blob)
+                ON CONFLICT (repository_connection_id, path) DO UPDATE
+                SET current_blob_sha = excluded.current_blob_sha, deleted_at = NULL, content_changed_at = :now
+                WHERE documents.current_blob_sha <> excluded.current_blob_sha OR documents.deleted_at IS NOT NULL""")
                 .param("connectionId", connectionId)
                 .param("now", now)
                 .param("firstSeenChange", previouslySynced ? now : null)
@@ -109,8 +109,8 @@ public class Documents {
                 .param("blobs", blobs)
                 .update();
         db.sql("""
-                update documents set deleted_at = :now
-                where repository_connection_id = :connectionId and deleted_at is null and not (path = any(:paths::text[]))""")
+                UPDATE documents SET deleted_at = :now
+                WHERE repository_connection_id = :connectionId AND deleted_at IS NULL AND NOT (path = any(:paths::text[]))""")
                 .param("now", now)
                 .param("connectionId", connectionId)
                 .param("paths", paths)
@@ -164,7 +164,7 @@ public class Documents {
      */
     public List<Long> deleteConnection(long connectionId) {
         return db
-                .sql("delete from documents where repository_connection_id = :connectionId returning id")
+                .sql("DELETE FROM documents WHERE repository_connection_id = :connectionId RETURNING id")
                 .param("connectionId", connectionId)
                 .query(Long.class)
                 .list()
@@ -175,8 +175,8 @@ public class Documents {
 
     public List<Existing> existing(long connectionId) {
         return db.sql("""
-                select id, path, current_blob_sha as blob_sha, deleted_at is not null as deleted from documents
-                where repository_connection_id = :connectionId""")
+                SELECT id, path, current_blob_sha AS blob_sha, deleted_at IS NOT NULL AS deleted FROM documents
+                WHERE repository_connection_id = :connectionId""")
                 .param("connectionId", connectionId)
                 .query(Existing.class)
                 .list();
@@ -189,9 +189,9 @@ public class Documents {
      */
     public Set<Long> withUserState(long connectionId) {
         return new HashSet<>(db.sql("""
-                select d.id from documents d where d.repository_connection_id = :connectionId
-                and (exists (select 1 from reading_states r where r.document_id = d.id)
-                     or exists (select 1 from annotations a where a.document_id = d.id))""")
+                SELECT d.id FROM documents d WHERE d.repository_connection_id = :connectionId
+                AND (EXISTS (SELECT 1 FROM reading_states r WHERE r.document_id = d.id)
+                     OR EXISTS (SELECT 1 FROM annotations a WHERE a.document_id = d.id))""")
                 .param("connectionId", connectionId)
                 .query(Long.class)
                 .list());
@@ -204,10 +204,10 @@ public class Documents {
     public Map<Long, List<Summary>> listForUser(long userId) {
         return db
                 .sql("""
-                        select d.repository_connection_id, d.id, d.path, d.title, d.current_blob_sha, d.content_changed_at,
-                               d.deleted_at is not null as deleted
-                        from documents d join repository_connections c on c.id = d.repository_connection_id
-                        where c.user_id = :userId order by d.path""")
+                        SELECT d.repository_connection_id, d.id, d.path, d.title, d.current_blob_sha, d.content_changed_at,
+                               d.deleted_at IS NOT NULL AS deleted
+                        FROM documents d JOIN repository_connections c ON c.id = d.repository_connection_id
+                        WHERE c.user_id = :userId ORDER BY d.path""")
                 .param("userId", userId)
                 .query((row, n) -> Map.entry(
                         row.getLong("repository_connection_id"),
@@ -229,10 +229,10 @@ public class Documents {
     /** Finds a document only if it belongs to one of this user's connections. */
     public Optional<Located> find(long userId, long documentId) {
         return db.sql("""
-                select d.id, d.path, d.title, d.current_blob_sha as blob_sha, c.last_synced_commit_sha as commit_sha,
-                       d.deleted_at is not null as deleted, c.owner, c.name as repository_name, c.id as connection_id
-                from documents d join repository_connections c on c.id = d.repository_connection_id
-                where d.id = :id and c.user_id = :userId""")
+                SELECT d.id, d.path, d.title, d.current_blob_sha AS blob_sha, c.last_synced_commit_sha AS commit_sha,
+                       d.deleted_at IS NOT NULL AS deleted, c.owner, c.name AS repository_name, c.id AS connection_id
+                FROM documents d JOIN repository_connections c ON c.id = d.repository_connection_id
+                WHERE d.id = :id AND c.user_id = :userId""")
                 .param("id", documentId)
                 .param("userId", userId)
                 .query(Located.class)

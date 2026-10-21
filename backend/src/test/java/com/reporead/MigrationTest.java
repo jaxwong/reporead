@@ -23,16 +23,16 @@ class MigrationTest {
 
     /** Test-only V8 data: one user's note with a bookmark, and a highlight and a card created by mutations. */
     private static long noteAtV8(JdbcClient db) {
-        db.sql("insert into users (github_user_id, login) values (42, 'test-only')")
+        db.sql("INSERT INTO users (github_user_id, login) VALUES (42, 'test-only')")
                 .update();
         db.sql("""
-                insert into repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch, last_synced_commit_sha)
-                values (1, 11, 7, 'test-only', 'notes', 'main', :sha)""").param("sha", SHA).update();
+                INSERT INTO repository_connections (user_id, github_repository_id, installation_id, owner, name, default_branch, last_synced_commit_sha)
+                VALUES (1, 11, 7, 'test-only', 'notes', 'main', :sha)""").param("sha", SHA).update();
         long note = db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at)
-                values (1, 'note.md', 'note', :sha, :sha, now()) returning id""").param("sha", SHA).query(Long.class).single();
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha, current_commit_sha, last_synced_at)
+                VALUES (1, 'note.md', 'note', :sha, :sha, now()) RETURNING id""").param("sha", SHA).query(Long.class).single();
         db.sql(
-                        "insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at) values (1, :note, :sha, 'BOOKMARK', now(), now())")
+                        "INSERT INTO annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at) VALUES (1, :note, :sha, 'BOOKMARK', now(), now())")
                 .param("note", note)
                 .param("sha", SHA)
                 .update();
@@ -41,8 +41,8 @@ class MigrationTest {
 
     private static long annotationAtV8(JdbcClient db, long note, String type) {
         return db.sql("""
-                insert into annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at, resolved_blob_sha, question)
-                values (1, :note, :sha, :type, now(), now(), :sha, case when :type = 'CARD' then 'Test-only question?' end) returning id""")
+                INSERT INTO annotations (user_id, document_id, source_blob_sha, type, created_at, updated_at, resolved_blob_sha, question)
+                VALUES (1, :note, :sha, :type, now(), now(), :sha, CASE WHEN :type = 'CARD' THEN 'Test-only question?' END) RETURNING id""")
                 .param("note", note)
                 .param("sha", SHA)
                 .param("type", type)
@@ -52,7 +52,7 @@ class MigrationTest {
 
     private static void mutationAtV8(JdbcClient db, String mutationId, Long annotationId) {
         db.sql(
-                        "insert into annotation_mutations (user_id, mutation_id, request_hash, annotation_id, created_at) values (1, cast(:mutation as uuid), '\\x00', :id, now())")
+                        "INSERT INTO annotation_mutations (user_id, mutation_id, request_hash, annotation_id, created_at) VALUES (1, CAST(:mutation AS uuid), '\\x00', :id, now())")
                 .param("mutation", mutationId)
                 .param("id", annotationId)
                 .update();
@@ -60,7 +60,7 @@ class MigrationTest {
 
     private static boolean hasColumn(JdbcClient db, String table, String column) {
         return db.sql(
-                                "select count(*) from information_schema.columns where table_name = :table and column_name = :column")
+                                "SELECT count(*) FROM information_schema.columns WHERE table_name = :table AND column_name = :column")
                         .param("table", table)
                         .param("column", column)
                         .query(Integer.class)
@@ -83,12 +83,12 @@ class MigrationTest {
 
         assertEquals(
                 Arrays.asList(null, HIGHLIGHT_MUTATION, CARD_MUTATION),
-                db.sql("select mutation_id::text from annotations order by id")
+                db.sql("SELECT mutation_id::text FROM annotations ORDER BY id")
                         .query(String.class)
                         .list());
         assertEquals(
                 List.of(HIGHLIGHT_MUTATION, CARD_MUTATION, DELETED_MUTATION),
-                db.sql("select mutation_id::text from annotation_mutations order by mutation_id")
+                db.sql("SELECT mutation_id::text FROM annotation_mutations ORDER BY mutation_id")
                         .query(String.class)
                         .list());
         assertFalse(hasColumn(db, "annotation_mutations", "annotation_id"));
@@ -100,7 +100,7 @@ class MigrationTest {
         var db = JdbcClient.create(database);
         flyway(database, "8").migrate();
         noteAtV8(db);
-        db.sql("update repository_connections set last_synced_at = now()").update();
+        db.sql("UPDATE repository_connections SET last_synced_at = now()").update();
 
         flyway(database, "latest").migrate();
 
@@ -109,10 +109,10 @@ class MigrationTest {
         assertFalse(hasColumn(db, "annotations", "source_blob_sha"));
         assertEquals(
                 "BOOKMARK",
-                db.sql("select type from annotations").query(String.class).single());
+                db.sql("SELECT type FROM annotations").query(String.class).single());
         assertEquals(
                 SHA,
-                db.sql("select last_synced_commit_sha from repository_connections")
+                db.sql("SELECT last_synced_commit_sha FROM repository_connections")
                         .query(String.class)
                         .single());
     }
@@ -126,8 +126,8 @@ class MigrationTest {
         mutationAtV8(db, CARD_MUTATION, card);
         flyway(database, "14").migrate();
         String oldInsert = """
-                insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha)
-                values (1, cast(:mutation as uuid), :card, 4, '2026-10-19T00:00:00Z', :sha)""";
+                INSERT INTO review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha)
+                VALUES (1, CAST(:mutation AS uuid), :card, 4, '2026-10-19T00:00:00Z', :sha)""";
         db.sql(oldInsert)
                 .param("mutation", HIGHLIGHT_MUTATION)
                 .param("card", card)
@@ -138,7 +138,7 @@ class MigrationTest {
         assertEquals(
                 1,
                 db.sql(
-                                "select count(*) from review_log where client_reviewed_at is null and reviewed_at = '2026-10-19T00:00:00Z'")
+                                "SELECT count(*) FROM review_log WHERE client_reviewed_at IS NULL AND reviewed_at = '2026-10-19T00:00:00Z'")
                         .query(Integer.class)
                         .single());
         db.sql(oldInsert)
@@ -148,13 +148,13 @@ class MigrationTest {
                 .update();
         assertEquals(
                 2,
-                db.sql("select count(*) from review_log where client_reviewed_at is null")
+                db.sql("SELECT count(*) FROM review_log WHERE client_reviewed_at IS NULL")
                         .query(Integer.class)
                         .single());
         flyway(database, "latest").migrate();
         assertEquals(
                 2,
-                db.sql("select count(*) from review_log").query(Integer.class).single());
+                db.sql("SELECT count(*) FROM review_log").query(Integer.class).single());
     }
 
     @Test

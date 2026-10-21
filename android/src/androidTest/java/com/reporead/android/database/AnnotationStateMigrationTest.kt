@@ -23,8 +23,8 @@ class AnnotationStateMigrationTest {
                         Flags("acknowledged", 8L, 0, null, 0),
                     )) {
                     db.execSQL(
-                        """insert into annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
-                    exactText, note, version, createdAt, pending, rejection, deleting) values (?, ?, 1, 'sha', 'b1', 0, 4, 'text', null, 1, 0, ?, ?, ?)""",
+                        """INSERT INTO annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
+                    exactText, note, version, createdAt, pending, rejection, deleting) VALUES (?, ?, 1, 'sha', 'b1', 0, 4, 'text', NULL, 1, 0, ?, ?, ?)""",
                         arrayOf<Any?>(mutationId, serverId, pending, rejection, deleting),
                     )
                 }

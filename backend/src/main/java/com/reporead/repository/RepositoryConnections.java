@@ -59,19 +59,19 @@ public class RepositoryConnections {
     }
 
     private static final String SELECT = """
-        select c.id, c.github_repository_id, c.owner, c.name, c.default_branch, c.last_synced_commit_sha,
-               (select count(*) from documents d where d.repository_connection_id = c.id and d.deleted_at is null) as document_count
-        from repository_connections c""";
+        SELECT c.id, c.github_repository_id, c.owner, c.name, c.default_branch, c.last_synced_commit_sha,
+               (SELECT count(*) FROM documents d WHERE d.repository_connection_id = c.id AND d.deleted_at IS NULL) AS document_count
+        FROM repository_connections c""";
 
     public List<Connection> list(long userId) {
-        return db.sql(SELECT + " where c.user_id = :userId order by c.owner, c.name")
+        return db.sql(SELECT + " WHERE c.user_id = :userId ORDER BY c.owner, c.name")
                 .param("userId", userId)
                 .query(Connection.class)
                 .list();
     }
 
     public Optional<Connection> find(long userId, long connectionId) {
-        return db.sql(SELECT + " where c.user_id = :userId and c.id = :id")
+        return db.sql(SELECT + " WHERE c.user_id = :userId AND c.id = :id")
                 .param("userId", userId)
                 .param("id", connectionId)
                 .query(Connection.class)
@@ -119,7 +119,7 @@ public class RepositoryConnections {
     /** GitHub repository id → connection id, for marking which available repositories are already connected. */
     private Map<Long, Long> connectedIds(long userId) {
         return db
-                .sql("select github_repository_id, id from repository_connections where user_id = :userId")
+                .sql("SELECT github_repository_id, id FROM repository_connections WHERE user_id = :userId")
                 .param("userId", userId)
                 .query((row, n) -> Map.entry(row.getLong("github_repository_id"), row.getLong("id")))
                 .list()
@@ -149,11 +149,11 @@ public class RepositoryConnections {
                 throw new ApiFailure(Code.SIGN_IN_REQUIRED, "This RepoRead account was deleted; sign in again.");
             }
             long id = db.sql("""
-                    insert into repository_connections (user_id, github_repository_id, owner, name, default_branch)
-                    values (:userId, :githubRepositoryId, :owner, :name, :defaultBranch)
-                    on conflict (user_id, github_repository_id) do update
-                    set owner = excluded.owner, name = excluded.name, default_branch = excluded.default_branch
-                    returning id""")
+                    INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch)
+                    VALUES (:userId, :githubRepositoryId, :owner, :name, :defaultBranch)
+                    ON CONFLICT (user_id, github_repository_id) DO UPDATE
+                    SET owner = excluded.owner, name = excluded.name, default_branch = excluded.default_branch
+                    RETURNING id""")
                     .param("userId", userId)
                     .param("githubRepositoryId", repository.id())
                     .param("owner", repository.owner())
@@ -182,8 +182,8 @@ public class RepositoryConnections {
                     + ") ran outside a transaction, where its row lock is released as soon as it is taken");
         }
         return db.sql("""
-                        select last_synced_commit_sha as commit_sha, default_branch from repository_connections
-                        where id = :id and user_id = :userId for update""")
+                        SELECT last_synced_commit_sha AS commit_sha, default_branch FROM repository_connections
+                        WHERE id = :id AND user_id = :userId FOR UPDATE""")
                 .param("id", connectionId)
                 .param("userId", userId)
                 .query(Checkpoint.class)
@@ -203,8 +203,8 @@ public class RepositoryConnections {
                     + ") ran outside a transaction, where its row lock is released as soon as it is taken");
         }
         db.sql("""
-                select c.id from repository_connections c join documents d on d.repository_connection_id = c.id
-                where d.id = :documentId and c.user_id = :userId for share of c""")
+                SELECT c.id FROM repository_connections c JOIN documents d ON d.repository_connection_id = c.id
+                WHERE d.id = :documentId AND c.user_id = :userId FOR SHARE OF c""")
                 .param("documentId", documentId)
                 .param("userId", userId)
                 .query(Long.class)
@@ -214,13 +214,13 @@ public class RepositoryConnections {
 
     /** Deletes the connection row; its documents and their reading and annotation rows must already be deleted. */
     public void delete(long connectionId) {
-        db.sql("delete from repository_connections where id = :id")
+        db.sql("DELETE FROM repository_connections WHERE id = :id")
                 .param("id", connectionId)
                 .update();
     }
 
     public void markSynced(long connectionId, String commitSha) {
-        db.sql("update repository_connections set last_synced_commit_sha = :commitSha where id = :id")
+        db.sql("UPDATE repository_connections SET last_synced_commit_sha = :commitSha WHERE id = :id")
                 .param("commitSha", commitSha)
                 .param("id", connectionId)
                 .update();

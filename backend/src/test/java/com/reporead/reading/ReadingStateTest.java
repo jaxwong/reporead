@@ -69,11 +69,11 @@ class ReadingStateTest extends SharedSpringTest {
         TestEnvironment.reset(db);
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
         db.sql(
-                        "insert into repository_connections (user_id, github_repository_id, owner, name, default_branch) values (1, 11, 'test-only', 'notes', 'main')")
+                        "INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch) VALUES (1, 11, 'test-only', 'notes', 'main')")
                 .update();
         note = db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha)
-                values (1, 'backend/spring.md', 'spring', :sha) returning id""").param("sha", SHA_A).query(Long.class).single();
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha)
+                VALUES (1, 'backend/spring.md', 'spring', :sha) RETURNING id""").param("sha", SHA_A).query(Long.class).single();
     }
 
     private static String body(String sha, int progress, Instant at, String anchor) {
@@ -188,7 +188,7 @@ class ReadingStateTest extends SharedSpringTest {
         }
         assertEquals(
                 0,
-                db.sql("select count(*) from reading_states")
+                db.sql("SELECT count(*) FROM reading_states")
                         .query(Integer.class)
                         .single());
     }
@@ -197,7 +197,7 @@ class ReadingStateTest extends SharedSpringTest {
     void aClockTenMinutesAheadIsStoredAtServerNow() throws Exception {
         Instant before = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         save(alice, note, body(SHA_A, 50, before.plusSeconds(600), ANCHOR)).andExpect(status().isOk());
-        Instant stored = db.sql("select last_read_at from reading_states where document_id = :id")
+        Instant stored = db.sql("SELECT last_read_at FROM reading_states WHERE document_id = :id")
                 .param("id", note)
                 .query(java.sql.Timestamp.class)
                 .single()
@@ -218,7 +218,7 @@ class ReadingStateTest extends SharedSpringTest {
         }
         assertEquals(
                 0,
-                db.sql("select count(*) from reading_states")
+                db.sql("SELECT count(*) FROM reading_states")
                         .query(Integer.class)
                         .single());
     }

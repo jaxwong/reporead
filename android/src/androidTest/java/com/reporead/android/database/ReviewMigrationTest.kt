@@ -19,11 +19,11 @@ class ReviewMigrationTest {
             6,
             fill = { db ->
                 db.execSQL(
-                    "insert into notes(documentId, blobSha, commitSha, path, title, html, fetchedAt, renderFormat) values (1, 'sha', 'commit', 'a.md', 'a', '<html/>', 0, 3)"
+                    "INSERT INTO notes(documentId, blobSha, commitSha, path, title, html, fetchedAt, renderFormat) VALUES (1, 'sha', 'commit', 'a.md', 'a', '<html/>', 0, 3)"
                 )
                 db.execSQL(
-                    """insert into annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
-                exactText, note, version, createdAt, pending, rejection) values ('offline', null, 1, 'sha', 'b1', 0, 4, 'text', 'mine', 1, 0, 1, null)"""
+                    """INSERT INTO annotations(mutationId, serverId, documentId, sourceBlobSha, blockId, startOffset, endOffset,
+                exactText, note, version, createdAt, pending, rejection) VALUES ('offline', NULL, 1, 'sha', 'b1', 0, 4, 'text', 'mine', 1, 0, 1, NULL)"""
                 )
             },
         ) { dao ->

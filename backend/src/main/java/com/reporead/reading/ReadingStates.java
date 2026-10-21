@@ -36,8 +36,8 @@ public class ReadingStates {
             long documentId, String lastReadBlobSha, int progressPercent, Anchor anchor, Instant lastReadAt) {}
 
     private static final String SELECT = """
-        select r.document_id, r.last_read_blob_sha, r.progress_percent, r.anchor_json::text as anchor_json, r.last_read_at
-        from reading_states r""";
+        SELECT r.document_id, r.last_read_blob_sha, r.progress_percent, r.anchor_json::text AS anchor_json, r.last_read_at
+        FROM reading_states r""";
 
     /**
      * Applies the write only if it is newer than the stored one; returns the state that is now current. Holds the
@@ -54,12 +54,12 @@ public class ReadingStates {
         return transaction.execute(status -> {
             connections.lockForDocumentWrite(userId, documentId);
             db.sql("""
-                    insert into reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
-                    values (:userId, :documentId, :sha, :progress, cast(:anchor as jsonb), :lastReadAt)
-                    on conflict (user_id, document_id) do update
-                    set last_read_blob_sha = excluded.last_read_blob_sha, progress_percent = excluded.progress_percent,
+                    INSERT INTO reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
+                    VALUES (:userId, :documentId, :sha, :progress, CAST(:anchor AS jsonb), :lastReadAt)
+                    ON CONFLICT (user_id, document_id) DO UPDATE
+                    SET last_read_blob_sha = excluded.last_read_blob_sha, progress_percent = excluded.progress_percent,
                         anchor_json = excluded.anchor_json, last_read_at = excluded.last_read_at
-                    where reading_states.last_read_at < excluded.last_read_at""")
+                    WHERE reading_states.last_read_at < excluded.last_read_at""")
                     .param("userId", userId)
                     .param("documentId", documentId)
                     .param("sha", lastReadBlobSha)
@@ -67,7 +67,7 @@ public class ReadingStates {
                     .param("anchor", json.writeValueAsString(anchor))
                     .param("lastReadAt", Timestamp.from(lastReadAt))
                     .update();
-            return db.sql(SELECT + " where r.user_id = :userId and r.document_id = :documentId")
+            return db.sql(SELECT + " WHERE r.user_id = :userId AND r.document_id = :documentId")
                     .param("userId", userId)
                     .param("documentId", documentId)
                     .query(this::state)
@@ -78,14 +78,14 @@ public class ReadingStates {
     /** Deletes reading progress on a connection's documents; returns how many states were deleted. */
     public int deleteOnConnection(long connectionId) {
         return db.sql(
-                        "delete from reading_states where document_id in (select id from documents where repository_connection_id = :connectionId)")
+                        "DELETE FROM reading_states WHERE document_id IN (SELECT id FROM documents WHERE repository_connection_id = :connectionId)")
                 .param("connectionId", connectionId)
                 .update();
     }
 
     /** Most recently read first. Bounded by the user's documents. */
     public List<State> list(long userId) {
-        return db.sql(SELECT + " where r.user_id = :userId order by r.last_read_at desc")
+        return db.sql(SELECT + " WHERE r.user_id = :userId ORDER BY r.last_read_at DESC")
                 .param("userId", userId)
                 .query(this::state)
                 .list();

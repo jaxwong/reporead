@@ -51,15 +51,15 @@ public class ConnectionDeletion {
     Counts count(long userId, long connectionId) {
         connections.find(userId, connectionId).orElseThrow(ApiFailure::notFound);
         return db.sql("""
-                select (select count(*) from documents d where d.repository_connection_id = :id) as documents,
-                       (select count(*) from reading_states r join documents d on d.id = r.document_id where d.repository_connection_id = :id)
-                           as reading_states,
-                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'BOOKMARK')
-                           as bookmarks,
-                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'HIGHLIGHT')
-                           as highlights,
-                       (select count(*) from annotations a join documents d on d.id = a.document_id where d.repository_connection_id = :id and a.type = 'CARD')
-                           as cards""").param("id", connectionId).query(Counts.class).single();
+                SELECT (SELECT count(*) FROM documents d WHERE d.repository_connection_id = :id) AS documents,
+                       (SELECT count(*) FROM reading_states r JOIN documents d ON d.id = r.document_id WHERE d.repository_connection_id = :id)
+                           AS reading_states,
+                       (SELECT count(*) FROM annotations a JOIN documents d ON d.id = a.document_id WHERE d.repository_connection_id = :id AND a.type = 'BOOKMARK')
+                           AS bookmarks,
+                       (SELECT count(*) FROM annotations a JOIN documents d ON d.id = a.document_id WHERE d.repository_connection_id = :id AND a.type = 'HIGHLIGHT')
+                           AS highlights,
+                       (SELECT count(*) FROM annotations a JOIN documents d ON d.id = a.document_id WHERE d.repository_connection_id = :id AND a.type = 'CARD')
+                           AS cards""").param("id", connectionId).query(Counts.class).single();
     }
 
     /**

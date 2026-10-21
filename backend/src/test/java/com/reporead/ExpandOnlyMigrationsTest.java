@@ -57,27 +57,27 @@ class ExpandOnlyMigrationsTest {
     @Test
     void stepsThatBreakThePreviousReleaseAreRecognized() {
         for (String step : List.of(
-                "drop table t",
-                "drop table if exists t",
-                "alter table t drop column c",
-                "alter table t drop column if exists c",
-                "alter table t rename column c to d",
-                "alter table t rename to u",
-                "alter table t alter column c type bigint",
-                "alter table t alter c set data type text using c::text",
-                "alter table t alter column c set not null",
-                "alter table t add column c text not null",
-                "alter table t add column c numeric(10, 2) not null check (c > 0)")) {
+                "DROP TABLE t",
+                "DROP TABLE IF EXISTS t",
+                "ALTER TABLE t DROP COLUMN c",
+                "ALTER TABLE t DROP COLUMN IF EXISTS c",
+                "ALTER TABLE t RENAME COLUMN c TO d",
+                "ALTER TABLE t RENAME TO u",
+                "ALTER TABLE t ALTER COLUMN c TYPE bigint",
+                "ALTER TABLE t ALTER c SET DATA TYPE text USING c::text",
+                "ALTER TABLE t ALTER COLUMN c SET NOT NULL",
+                "ALTER TABLE t ADD COLUMN c text NOT NULL",
+                "ALTER TABLE t ADD COLUMN c numeric(10, 2) NOT NULL CHECK (c > 0)")) {
             assertEquals(1, contractSteps(step + ";").size(), step);
         }
         for (String step : List.of(
-                "create table t (id bigint primary key, name text not null, price numeric(10, 2) not null)",
-                "alter table t add column c text",
-                "alter table t add column c text not null default ''",
-                "alter table t add column c int, add column d int not null default 0",
-                "create index t_c on t (c)",
-                "alter table t drop constraint t_check",
-                "alter table t alter column c drop not null",
+                "CREATE TABLE t (id bigint PRIMARY KEY, name text NOT NULL, price numeric(10, 2) NOT NULL)",
+                "ALTER TABLE t ADD COLUMN c text",
+                "ALTER TABLE t ADD COLUMN c text NOT NULL DEFAULT ''",
+                "ALTER TABLE t ADD COLUMN c int, ADD COLUMN d int NOT NULL DEFAULT 0",
+                "CREATE INDEX t_c ON t (c)",
+                "ALTER TABLE t DROP CONSTRAINT t_check",
+                "ALTER TABLE t ALTER COLUMN c DROP NOT NULL",
                 "-- drop table t is only a comment here")) {
             assertEquals(List.of(), contractSteps(step + ";"), step);
         }

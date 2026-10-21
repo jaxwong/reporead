@@ -118,12 +118,12 @@ class AnnotationTest extends SharedSpringTest {
                 .build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
         db.sql(
-                        "insert into repository_connections (user_id, github_repository_id, owner, name, default_branch) values (1, 11, 'test-only', 'notes', 'main')")
+                        "INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch) VALUES (1, 11, 'test-only', 'notes', 'main')")
                 .update();
         // The note has moved on to CURRENT; annotations are created against the older version the user was reading.
         note = db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha)
-                values (1, 'backend/spring.md', 'spring', :sha) returning id""").param("sha", CURRENT_SHA).query(Long.class).single();
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha)
+                VALUES (1, 'backend/spring.md', 'spring', :sha) RETURNING id""").param("sha", CURRENT_SHA).query(Long.class).single();
     }
 
     @AfterEach
@@ -179,7 +179,7 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     private int count(String table) {
-        return db.sql("select count(*) from " + table).query(Integer.class).single();
+        return db.sql("SELECT count(*) FROM " + table).query(Integer.class).single();
     }
 
     @Test
@@ -205,10 +205,10 @@ class AnnotationTest extends SharedSpringTest {
     /** Test-only count fixtures, alternating highlights/cards; no API listing reads their omitted anchor rows. */
     private void seedCountedAnnotations(long documentId, int count) {
         db.sql("""
-                insert into annotations (user_id, document_id, type, question, resolved_blob_sha, created_at, updated_at, mutation_id)
-                select 1, :documentId, case when n % 2 = 0 then 'CARD' else 'HIGHLIGHT' end,
-                       case when n % 2 = 0 then 'Test-only count fixture?' end, :sha, now(), now(), gen_random_uuid()
-                from generate_series(1, :count) n""")
+                INSERT INTO annotations (user_id, document_id, type, question, resolved_blob_sha, created_at, updated_at, mutation_id)
+                SELECT 1, :documentId, CASE WHEN n % 2 = 0 THEN 'CARD' ELSE 'HIGHLIGHT' END,
+                       CASE WHEN n % 2 = 0 THEN 'Test-only count fixture?' END, :sha, now(), now(), gen_random_uuid()
+                FROM generate_series(1, :count) n""")
                 .param("documentId", documentId)
                 .param("count", count)
                 .param("sha", OLD_SHA)
@@ -219,8 +219,8 @@ class AnnotationTest extends SharedSpringTest {
     void concurrentCreationsAcrossRepositoriesCannotExceedUserCapacity() throws Exception {
         for (int n = 0; n < 10; n++) {
             long fixture = db.sql("""
-                    insert into documents (repository_connection_id, path, title, current_blob_sha)
-                    values (1, :path, 'Test-only capacity fixture', :sha) returning id""")
+                    INSERT INTO documents (repository_connection_id, path, title, current_blob_sha)
+                    VALUES (1, :path, 'Test-only capacity fixture', :sha) RETURNING id""")
                     .param("path", "capacity-" + n + ".md")
                     .param("sha", OLD_SHA)
                     .query(Long.class)
@@ -228,11 +228,11 @@ class AnnotationTest extends SharedSpringTest {
             seedCountedAnnotations(fixture, n == 0 ? 499 : 500);
         }
         long connection = db.sql("""
-                insert into repository_connections (user_id, github_repository_id, owner, name, default_branch)
-                values (1, 12, 'test-only', 'other', 'main') returning id""").query(Long.class).single();
+                INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch)
+                VALUES (1, 12, 'test-only', 'other', 'main') RETURNING id""").query(Long.class).single();
         long other = db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha)
-                values (:connection, 'other.md', 'Test-only other repository', :sha) returning id""")
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha)
+                VALUES (:connection, 'other.md', 'Test-only other repository', :sha) RETURNING id""")
                 .param("connection", connection)
                 .param("sha", OLD_SHA)
                 .query(Long.class)
@@ -410,7 +410,7 @@ class AnnotationTest extends SharedSpringTest {
         }
         assertEquals(
                 List.of("kept"),
-                db.sql("select note from annotations where id = :id")
+                db.sql("SELECT note FROM annotations WHERE id = :id")
                         .param("id", id)
                         .query(String.class)
                         .list());
@@ -489,7 +489,7 @@ class AnnotationTest extends SharedSpringTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceBlobSha\":\"" + CURRENT_SHA + "\"}"))
                 .andExpect(status().isOk());
-        long bookmark = db.sql("select id from annotations where type = 'BOOKMARK'")
+        long bookmark = db.sql("SELECT id FROM annotations WHERE type = 'BOOKMARK'")
                 .query(Long.class)
                 .single();
         edit(alice, bookmark, "x", 1).andExpect(status().isNotFound());
@@ -518,7 +518,7 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     private void moveNoteTo(String sha) {
-        db.sql("update documents set current_blob_sha = :sha where id = :id")
+        db.sql("UPDATE documents SET current_blob_sha = :sha WHERE id = :id")
                 .param("sha", sha)
                 .param("id", note)
                 .update();
@@ -628,7 +628,7 @@ class AnnotationTest extends SharedSpringTest {
         expectSource(ExpectedCount.once());
         createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, "still here"));
         next();
-        db.sql("update documents set deleted_at = now() where id = :id")
+        db.sql("UPDATE documents SET deleted_at = now() WHERE id = :id")
                 .param("id", note)
                 .update();
         list(alice)
@@ -653,7 +653,7 @@ class AnnotationTest extends SharedSpringTest {
         assertEquals(resolutions + 1, total(AnnotationService.REANCHOR), "only the applied resolution is counted");
         assertEquals(
                 List.of("REANCHORED", CURRENT_SHA),
-                db.sql("select status, resolved_blob_sha from annotations")
+                db.sql("SELECT status, resolved_blob_sha FROM annotations")
                         .query((row, n) -> List.of(row.getString(1), row.getString(2)))
                         .single());
     }
@@ -768,7 +768,7 @@ class AnnotationTest extends SharedSpringTest {
             }
             assertEquals(1, created);
         }
-        long id = db.sql("select id from annotations").query(Long.class).single();
+        long id = db.sql("SELECT id FROM annotations").query(Long.class).single();
         String mutation = UUID.randomUUID().toString();
         Callable<Integer> grading = () ->
                 grade(alice, id, mutation, 4, OLD_SHA).andReturn().getResponse().getStatus();
@@ -918,7 +918,7 @@ class AnnotationTest extends SharedSpringTest {
                     .getResponse()
                     .getContentAsString();
             Instant stored = db.sql(
-                            "select reviewed_at from review_log where user_id=1 and mutation_id=cast(:id as uuid)")
+                            "SELECT reviewed_at FROM review_log WHERE user_id=1 AND mutation_id=CAST(:id AS uuid)")
                     .param("id", mutation)
                     .query((row, n) -> row.getTimestamp(1).toInstant())
                     .single();
@@ -953,7 +953,7 @@ class AnnotationTest extends SharedSpringTest {
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
-        db.sql("update review_log set client_reviewed_at = null").update();
+        db.sql("UPDATE review_log SET client_reviewed_at = NULL").update();
         grade(alice, id, mutation, 4, OLD_SHA)
                 .andExpect(status().isOk())
                 .andExpect(content().string(first));

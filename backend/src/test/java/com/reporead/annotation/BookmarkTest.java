@@ -44,11 +44,11 @@ class BookmarkTest extends SharedSpringTest {
         TestEnvironment.reset(db);
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");
         db.sql(
-                        "insert into repository_connections (user_id, github_repository_id, owner, name, default_branch) values (1, 11, 'test-only', 'notes', 'main')")
+                        "INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch) VALUES (1, 11, 'test-only', 'notes', 'main')")
                 .update();
         note = db.sql("""
-                insert into documents (repository_connection_id, path, title, current_blob_sha)
-                values (1, 'a.md', 'a', :sha) returning id""").param("sha", SHA).query(Long.class).single();
+                INSERT INTO documents (repository_connection_id, path, title, current_blob_sha)
+                VALUES (1, 'a.md', 'a', :sha) RETURNING id""").param("sha", SHA).query(Long.class).single();
     }
 
     private ResultActions set(String bearer, long id) throws Exception {
@@ -83,7 +83,7 @@ class BookmarkTest extends SharedSpringTest {
                         .getContentAsString());
         assertEquals(
                 "BOOKMARK",
-                db.sql("select type from annotations").query(String.class).single());
+                db.sql("SELECT type FROM annotations").query(String.class).single());
         list(alice)
                 .andExpect(jsonPath("$.bookmarks.length()").value(1))
                 .andExpect(jsonPath("$.bookmarks[0].documentId").value(note));
@@ -103,6 +103,6 @@ class BookmarkTest extends SharedSpringTest {
         mvc.perform(put("/api/documents/" + note + "/bookmark")).andExpect(status().isUnauthorized());
         assertEquals(
                 1,
-                db.sql("select count(*) from annotations").query(Integer.class).single());
+                db.sql("SELECT count(*) FROM annotations").query(Integer.class).single());
     }
 }

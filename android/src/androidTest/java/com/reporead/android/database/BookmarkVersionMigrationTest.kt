@@ -15,8 +15,8 @@ class BookmarkVersionMigrationTest {
             11,
             fill = { db ->
                 db.execSQL(
-                    """insert into bookmarks(documentId, title, path, sourceBlobSha, bookmarked, pending, changedAt, deleted)
-                    values (1, 'Test-only note', 'a.md', ?, 1, 1, 5, 0)""",
+                    """INSERT INTO bookmarks(documentId, title, path, sourceBlobSha, bookmarked, pending, changedAt, deleted)
+                    VALUES (1, 'Test-only note', 'a.md', ?, 1, 1, 5, 0)""",
                     arrayOf<Any>("a".repeat(40)),
                 )
             },
