@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.first
 
 /** Ids bound in one statement, so it stays under SQLite's limit on bound variables. */
 private const val IDS_PER_STATEMENT = 500
+private const val NOTE_TEXT_MATCHES_PER_NOTE = 3
 
 @Dao
 interface LibraryDao {
@@ -156,15 +157,6 @@ interface LibraryDao {
     /** Saves a page with its backend-issued search blocks and derived note links, replacing the complete older copy. */
     @Transaction
     suspend fun saveNote(row: NoteRow, blocks: List<NoteSearchBlockRow>) {
-        require(blocks.all { it.documentId == row.documentId }) {
-            "Search blocks must belong to saved documentId=${row.documentId}"
-        }
-        require(blocks.map { it.blockId }.distinct().size == blocks.size) {
-            "Search blocks must have unique ids for documentId=${row.documentId}"
-        }
-        require(blocks.map { it.position }.toSet() == blocks.indices.toSet()) {
-            "Search block positions must be contiguous for documentId=${row.documentId}"
-        }
         deleteNoteLinks(row.documentId)
         deleteNoteSearchBlocks(row.documentId)
         insertNote(row)
@@ -220,12 +212,20 @@ interface LibraryDao {
     )
     suspend fun searchNoteNames(pattern: String, limit: Int): List<NoteNameMatch>
 
-    /** One row per canonical block containing [pattern], carrying the saved version and exact reader block id. */
+    /**
+     * The first three canonical blocks per note containing [pattern], each with its saved version and reader block id.
+     */
     @Query(
-        """select d.id as documentId, d.title, d.path, n.blobSha, b.blockId, b.text
+        """select d.id as documentId, d.title, d.path, n.blobSha, b.blockId, b.text,
+              case when (select count(*) from note_search_blocks matching
+                where matching.documentId = b.documentId and matching.text like :pattern escape '\')
+                > $NOTE_TEXT_MATCHES_PER_NOTE then 1 else 0 end as noteTruncated
               from note_search_blocks b join notes n on n.documentId = b.documentId
               join documents d on d.id = b.documentId
-              where (not d.deleted or n.documentId is not null) and b.text like :pattern escape '\'
+              where b.text like :pattern escape '\'
+              and (select count(*) from note_search_blocks earlier
+                where earlier.documentId = b.documentId and earlier.position <= b.position
+                and earlier.text like :pattern escape '\') <= $NOTE_TEXT_MATCHES_PER_NOTE
               order by d.title, b.position limit :limit"""
     )
     suspend fun searchNoteText(pattern: String, limit: Int): List<NoteTextMatch>

@@ -308,7 +308,7 @@ internal class ReaderSession(
                             view.evaluate("window.reporead.showBlock(${JSONObject.quote(openAt.blockId)})") == true
                     Log.i(
                         "RepoRead",
-                        "Reader opened at a bank warning; documentId=${note.documentId} " +
+                        "Reader opened at an exact block; documentId=${note.documentId} " +
                             "blobSha=${openAt.blobSha} blockId=${openAt.blockId} found=$found",
                     )
                     if (found) null

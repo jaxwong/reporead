@@ -291,7 +291,36 @@ class LocalStoreTest {
     }
 
     @Test
-    fun searchListsEachMatchingNoteOnceUnderItsCurrentName() = runBlocking {
+    fun oneRepetitiveNoteContributesOnlyThreeBodyResultsWithoutHidingTheNextNote() = runBlocking {
+        val sha = "a".repeat(40)
+        dao.replaceDocuments(
+            7,
+            listOf(
+                DocumentRow(1, 7, "a.md", "A", sha),
+                DocumentRow(2, 7, "b.md", "B", sha),
+            ),
+        )
+        dao.saveNote(
+            NoteRow(1, sha, "a.md", "A", "<html/>", 0),
+            (0..5).map { position -> NoteSearchBlockRow(1, "b$position", position, "Needle $position") },
+        )
+        dao.saveNote(
+            NoteRow(2, sha, "b.md", "B", "<html/>", 0),
+            listOf(NoteSearchBlockRow(2, "b0", 0, "Needle in the next note")),
+        )
+
+        val rows = dao.searchNoteText("%needle%", 50)
+        assertEquals(listOf(1L, 1L, 1L, 2L), rows.map { it.documentId })
+        assertEquals(listOf("b0", "b1", "b2", "b0"), rows.map { it.blockId })
+        assertTrue(rows.filter { it.documentId == 1L }.all { it.noteTruncated })
+        assertTrue(rows.single { it.documentId == 2L }.noteTruncated.not())
+        val found = search(dao, "needle")
+        assertEquals(rows.map { OpenAt.Block(it.blobSha, it.blockId) }, found.matches.map { it.openAt })
+        assertTrue(found.truncated)
+    }
+
+    @Test
+    fun searchAppliesTheGlobalLimitAfterNamingMatchesByTheirCurrentDocuments() = runBlocking {
         val sha = "a".repeat(40)
         val listed = (1L..60L).map { DocumentRow(it, 7, "topics/Topic $it.md", "Topic $it", sha) }
         dao.replaceDocuments(7, listed + DocumentRow(61, 7, "now/Renamed.md", "Renamed", "b".repeat(40)))

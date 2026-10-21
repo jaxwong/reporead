@@ -37,6 +37,7 @@ import com.reporead.android.core.network.wire
 import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
 import com.reporead.android.core.network.wire.DocumentsSummary
 import com.reporead.android.core.network.wire.RepositoryControllerAvailableList
+import com.reporead.android.data.AnchorStatus
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
@@ -45,6 +46,7 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.LoopbackServer
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.NoteSearchBlockRow
+import com.reporead.android.data.Passage
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.reader.testPage
 import com.reporead.android.sync.Sync
@@ -355,6 +357,71 @@ class AppNavigationTest {
             click("Note A")
             withTimeout(10_000) {
                 while (dao.reading(1)?.anchorJson?.let { JSONObject(it).getInt("blockIndex") } != 31) delay(50)
+            }
+        }
+    }
+
+    @Test
+    fun tappingAHighlightNoteSearchResultRevealsItsExactPassage() = runBlocking {
+        val passage = Passage(testSha, "b31", 0, 5, "Exact")
+        dao.saveAnnotation(
+            AnnotationRow(
+                mutationId = "test-only-search-highlight",
+                serverId = 9,
+                documentId = 1,
+                sourceBlobSha = passage.blobSha,
+                blockId = passage.blockId,
+                startOffset = passage.startOffset,
+                endOffset = passage.endOffset,
+                exactText = passage.exactText,
+                note = "Personal navigation marker",
+                version = 1,
+                createdAt = 0,
+                state = AnnotationState.ACKNOWLEDGED,
+                status = AnchorStatus.ANCHORED,
+                resolvedBlobSha = testSha,
+                location = passage,
+            )
+        )
+        LoopbackServer(emptyMap()).use { server ->
+            val api = api(server)
+            launchApp(account(api), api)
+            awaitText("Library")
+            click("Search")
+            awaitText("Search saved notes")
+            setText("Search saved notes", "personal navigation marker")
+            awaitTextStarting("Your note: Personal navigation marker")
+            click("Note A")
+            withTimeout(10_000) {
+                var inView = false
+                while (!inView) {
+                    val evaluated = CountDownLatch(1)
+                    scenario!!.onActivity { activity ->
+                        val page = findWebView(activity.window.decorView)
+                        if (page == null) {
+                            evaluated.countDown()
+                            return@onActivity
+                        }
+                        page.evaluateJavascript(
+                            """
+                            (() => {
+                                const mark = document.querySelector(
+                                    '#note mark[data-key="test-only-search-highlight"]'
+                                );
+                                if (!mark) return false;
+                                const rect = mark.getBoundingClientRect();
+                                return rect.top >= 0 && rect.bottom <= window.innerHeight;
+                            })()
+                            """
+                                .trimIndent()
+                        ) { result ->
+                            inView = result == "true"
+                            evaluated.countDown()
+                        }
+                    }
+                    check(evaluated.await(5, SECONDS)) { "Reader JavaScript did not answer" }
+                    if (!inView) delay(50)
+                }
             }
         }
     }

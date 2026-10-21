@@ -55,7 +55,7 @@ internal data class SearchResult(
     val openAt: OpenAt?,
 )
 
-/** The matches listed for a query; [truncated] when any category reached [SEARCH_LIMIT], so more may exist. */
+/** The matches listed for a query; [truncated] when a query owner omitted matches under its structural cap. */
 internal data class SearchResults(val matches: List<SearchResult>, val truncated: Boolean)
 
 /**
@@ -99,11 +99,17 @@ internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
             }
     return SearchResults(
         results,
-        truncated = names.size == SEARCH_LIMIT || noteText.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT,
+        truncated =
+            names.size == SEARCH_LIMIT ||
+                noteText.size == SEARCH_LIMIT ||
+                noteText.any { it.noteTruncated } ||
+                highlights.size == SEARCH_LIMIT,
     )
 }
 
-/** What a search covers: the [texts] of the [listed] notes saved with their text are searched by it, all by name. */
+/**
+ * What search covers: [texts] saved pages among [listed] listed notes are searched by text, all listed notes by name.
+ */
 private fun searchScope(listed: Int, texts: Int): String =
     "Searching $texts of $listed notes by their text, all $listed by title and path, and your highlights." +
         if (texts < listed)
