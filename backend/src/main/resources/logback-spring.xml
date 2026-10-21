@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring Boot's own console logging (its defaults and console-appender.xml), with one change: each line starts with
+  journald's priority prefix when stdout is the journal (JournalPriority), so the VM's journal files warnings and errors
+  at their level. Patterns, levels and logging.* properties still come from Spring Boot.
+-->
+<configuration>
+	<include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+	<conversionRule conversionWord="journalPriority" class="com.reporead.JournalPriority"/>
+	<appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+		<filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+			<level>${CONSOLE_LOG_THRESHOLD}</level>
+		</filter>
+		<encoder>
+			<pattern>%journalPriority${CONSOLE_LOG_PATTERN}</pattern>
+			<charset>${CONSOLE_LOG_CHARSET}</charset>
+		</encoder>
+	</appender>
+	<root level="INFO">
+		<appender-ref ref="CONSOLE"/>
+	</root>
+</configuration>
