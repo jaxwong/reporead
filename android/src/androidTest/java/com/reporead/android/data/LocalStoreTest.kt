@@ -572,7 +572,6 @@ class LocalStoreTest {
                 .copy(
                     type = AnnotationType.CARD,
                     question = "Test-only question?",
-                    checkedBlobSha = sha,
                 )
         val review = ReviewRow("first-grade", card.mutationId, 4, 0, sha, true)
         dao.saveCardWithFirstReview(card, review)
@@ -604,7 +603,7 @@ class LocalStoreTest {
         dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "Test-only note", "<html/>", 0))
         val card =
             annotation("card", null, null, AnnotationState.UNSENT)
-                .copy(type = AnnotationType.CARD, question = "Test-only question?", checkedBlobSha = sha)
+                .copy(type = AnnotationType.CARD, question = "Test-only question?")
         for (grade in 0..5) {
             val graded = card.copy(mutationId = "card-$grade", exactText = "text-$grade", endOffset = 6)
             val review = ReviewRow("grade-$grade", graded.mutationId, grade, grade.toLong(), sha, true)
@@ -638,8 +637,7 @@ class LocalStoreTest {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
         dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
         val card =
-            annotation("card", null, null, AnnotationState.UNSENT)
-                .copy(type = AnnotationType.CARD, question = "Why?", checkedBlobSha = sha)
+            annotation("card", null, null, AnnotationState.UNSENT).copy(type = AnnotationType.CARD, question = "Why?")
         dao.saveAnnotation(card)
         val grades = (1..10).map { ReviewRow("g$it", "card", 4, it.toLong(), sha, true) }
         grades.forEach { assertTrue(dao.recordReview(it)) }
@@ -662,8 +660,8 @@ class LocalStoreTest {
             40,
         )
         assertEquals(10, dao.reviews().first().size)
-        dao.saveAnnotation(card.copy(checkedBlobSha = null))
-        assertEquals(false, dao.recordReview(grades[0].copy(mutationId = "stale")))
+        // Answered in a version that is no longer the note's current one.
+        assertEquals(false, dao.recordReview(grades[0].copy(mutationId = "stale", blobSha = "b".repeat(40))))
         dao.replaceRemoteNotebook(emptyList(), emptyList(), 40)
         // Pending offline creations stay; acknowledged deletions remove associated logs.
         assertEquals(AnnotationState.UNSENT, dao.annotation("card")!!.state)

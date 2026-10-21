@@ -53,7 +53,7 @@ internal data class StudySession(
     /** On past this item: skipped, or it cannot be asked as it is. */
     fun skip() = copy(queue = queue.drop(1), revealed = false)
 
-    /** This item goes to the back, still to be answered: missed, or just confirmed. */
+    /** This item goes to the back, still to be answered: it was missed. */
     fun requeue() = copy(queue = queue.drop(1) + queue.take(1), revealed = false)
 
     /**

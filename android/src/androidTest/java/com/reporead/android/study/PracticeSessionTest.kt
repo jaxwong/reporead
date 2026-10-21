@@ -257,7 +257,7 @@ class PracticeSessionTest {
                 assertEquals("An identical question?", missed.question)
                 assertEquals("Canonical answer: $first", missed.exactText)
                 assertEquals(if (first == "First answer") "a1" else "a2", missed.blockId)
-                assertEquals(bankSha, missed.checkedBlobSha)
+                assertEquals(bankSha, missed.sourceBlobSha)
                 assertEquals(listOf(0), dao.pendingReviews().map { it.grade })
 
                 // The miss went to the back; the other question is next, also after recreation. The grade is saved

@@ -14,7 +14,6 @@ internal enum class SelectionAction(val id: Int, val label: String) {
     HIGHLIGHT(0x5245_0001, "Highlight"),
     ADD_NOTE(0x5245_0002, "Add note"),
     REATTACH(0x5245_0003, "Reattach here"),
-    MAKE_QUESTION(0x5245_0004, "Make a question"),
 }
 
 /**
@@ -37,7 +36,7 @@ internal class ReaderWebView(
             val actions =
                 when {
                     reattaching() -> listOf(SelectionAction.REATTACH)
-                    else -> listOf(SelectionAction.HIGHLIGHT, SelectionAction.ADD_NOTE, SelectionAction.MAKE_QUESTION)
+                    else -> listOf(SelectionAction.HIGHLIGHT, SelectionAction.ADD_NOTE)
                 }
             actions.forEachIndexed { order, action -> menu.add(Menu.NONE, action.id, order, action.label) }
             return created

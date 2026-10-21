@@ -106,7 +106,7 @@ internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<N
     return questions.filter { (it.documentId to it.question.answer.text) in made }.map { it.key }.toSet()
 }
 
-private fun topicName(topic: String?) =
+internal fun topicName(topic: String?) =
     when (topic) {
         null -> "All topics"
         "" -> "Repository root"
@@ -154,7 +154,7 @@ internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
     val outlook = rememberReviewOutlook(dao)
     val cap by dao.reviewLimit().collectAsStateWithLifecycle(null)
     Column(Modifier.fillMaxSize()) {
-        outlook?.let { EntryRow("Review", outlookLine(it, cap), R.drawable.ic_refresh) { push(Screen.Review) } }
+        outlook?.let { EntryRow("Review", outlookLine(it, cap), R.drawable.ic_refresh) { push(Screen.ReviewTopics) } }
         StatusLine("New questions: each is asked once; your grade puts it on your review schedule.")
         val ready = banks
         val notebook = cards
@@ -384,7 +384,8 @@ internal fun PracticeScreen(
                         push,
                         onPrepared,
                     )
-                    GradeBar(enabled = visible && !state.saving, gaps = if (again) null else gaps(null)) { grade ->
+                    GradeBar(enabled = visible && !state.saving, gaps = if (again) null else gaps(FIRST_STEP)) { grade
+                        ->
                         model.grade(question, again, grade)
                     }
                 }

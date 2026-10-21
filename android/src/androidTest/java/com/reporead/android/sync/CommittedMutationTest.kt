@@ -208,21 +208,6 @@ class CommittedMutationTest {
         assertNull(dao.annotation(TEST_HIGHLIGHT_MUTATION))
     }
 
-    @Test
-    fun aCardTheServerConfirmedIsSavedAfterItsScreenLeft() = runBlocking {
-        val row = checkNotNull(dao.annotation(TEST_CARD_MUTATION))
-        val confirmed = testCard().copy(version = 2)
-        val requests =
-            leftWhileTheServerAnswers(
-                mapOf("POST /api/annotations/10/check" to (200 to wire(confirmed))),
-                "POST /api/annotations/10/check",
-            ) {
-                it.checkCard(row, testSha)
-            }
-        assertEquals(listOf("POST /api/annotations/10/check"), requests)
-        assertEquals(2, dao.annotation(TEST_CARD_MUTATION)?.version)
-    }
-
     /** The library the held load answers with: the same note and card, nothing else. */
     private val sameLibrary =
         "GET /api/library" to

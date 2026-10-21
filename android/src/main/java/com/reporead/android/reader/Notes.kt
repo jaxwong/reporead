@@ -61,9 +61,6 @@ internal fun NotesPanel(
     pageReady: Boolean,
     dao: LibraryDao,
     onReveal: (AnnotationRow) -> Unit,
-    /** Online only: the server checks the card's answer against the version on screen. */
-    onConfirmCard: (AnnotationRow) -> Unit,
-    onMakeQuestion: (AnnotationRow) -> Unit,
     onReattach: (AnnotationRow) -> Unit,
     onEdit: (AnnotationRow) -> Unit,
     onDelete: (AnnotationRow) -> Unit,
@@ -109,8 +106,6 @@ internal fun NotesPanel(
                         if (row.type == AnnotationType.CARD) row.cardBlock(removed, displayedBlobSha, displayedBlobSha)
                         else null,
                     onReveal = { onReveal(row) },
-                    onMakeQuestion = { onMakeQuestion(row) },
-                    onConfirmCard = { onConfirmCard(row) },
                     onReattach = { onReattach(row) },
                     onEdit = { onEdit(row) },
                     onDelete = { onDelete(row) },
@@ -153,8 +148,6 @@ private fun AnnotationItem(
     status: String?,
     block: CardBlock?,
     onReveal: () -> Unit,
-    onMakeQuestion: () -> Unit,
-    onConfirmCard: () -> Unit,
     onReattach: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -170,13 +163,7 @@ private fun AnnotationItem(
         block?.let { Text(it.reason, style = MaterialTheme.typography.labelLarge) }
         row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-        Row {
-            if (shown) TextButton(enabled = pageReady, onClick = onReveal) { Text("Show") }
-            if (shown && row.type == AnnotationType.HIGHLIGHT)
-                TextButton(onClick = onMakeQuestion) { Text("Make a question") }
-            if (shown && block == CardBlock.UNCONFIRMED)
-                TextButton(onClick = onConfirmCard) { Text("Answer is still right") }
-        }
+        if (shown) TextButton(enabled = pageReady, onClick = onReveal) { Text("Show") }
         Row {
             // Online: the server verifies the new selection against the version it was made on.
             if (row.serverId != null && !shown) TextButton(onClick = onReattach) { Text("Reattach") }
@@ -253,8 +240,6 @@ internal fun NoteDialog(
     initial: String,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
-    label: String = "Note",
-    allowBlank: Boolean = true,
     status: String? = null,
 ) {
     var text by rememberSaveable(title, quote, initial) { mutableStateOf(initial) }
@@ -275,12 +260,12 @@ internal fun NoteDialog(
                     text,
                     { text = it },
                     Modifier.fillMaxWidth().padding(top = 8.dp),
-                    label = { Text(label) },
+                    label = { Text("Note") },
                 )
             }
         },
         confirmButton = {
-            TextButton(enabled = allowBlank || text.isNotBlank(), onClick = { onSave(text) }) { Text("Save") }
+            TextButton(onClick = { onSave(text) }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

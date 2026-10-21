@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Highlights and cards with optional notes. External-call ceilings are AnnotationService's for list, create and
- * reattach; edit, delete, and card confirmation make none. Source Markdown is never written.
+ * reattach; edit and delete make none. Source Markdown is never written.
  */
 @RestController
 public class AnnotationController {
@@ -114,19 +114,6 @@ public class AnnotationController {
                             + MAX_TEXT_CHARS + " characters) that does not split a character.");
         }
         return service.reattach(user, id, body.expectedVersion(), body.anchor());
-    }
-
-    record CheckRequest(Integer expectedVersion, String blobSha) {}
-
-    @PostMapping("/api/annotations/{id}/check")
-    Annotations.Annotation checkCard(
-            @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CheckRequest body) {
-        if (body.expectedVersion() == null || body.expectedVersion() < 1 || !Hashes.isGitSha(body.blobSha())) {
-            throw new ApiFailure(Code.INVALID_ANNOTATION, "Card confirmation needs expectedVersion and a blob SHA.");
-        }
-        var checked = annotations.checkCard(user.id(), id, body.expectedVersion(), body.blobSha());
-        LOG.info("Card checked; userId={} annotationId={} blobSha={}", user.id(), id, body.blobSha());
-        return checked;
     }
 
     /** Owns edit input; omitting the optional note clears it just as explicit null does. */

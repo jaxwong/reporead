@@ -212,7 +212,7 @@ enum class AnnotationState {
     ACKNOWLEDGED,
 }
 
-/** A highlight marks a passage; a card also asks a question that the passage answers. */
+/** A highlight marks a passage; a card is an interview-bank question, anchored to its Canonical line. */
 enum class AnnotationType {
     HIGHLIGHT,
     CARD,
@@ -258,7 +258,6 @@ data class AnnotationRow(
     @Embedded(prefix = "location") val location: Passage? = null,
     @ColumnInfo(defaultValue = "'HIGHLIGHT'") val type: AnnotationType = AnnotationType.HIGHLIGHT,
     val question: String? = null,
-    val checkedBlobSha: String? = null,
 ) : Serializable {
     /** Where to draw it: the server's current location, or the original selection while the creation is pending. */
     val drawn: Passage
@@ -269,34 +268,30 @@ data class AnnotationRow(
 
     /**
      * Why this card cannot be graded when its note is [deleted] from the repository or at [currentBlobSha], with
-     * [savedBlobSha] saved; null when it can be. The phone's one rule (ADR-13), the server's Card.gradeableAt: the
-     * first reason that applies is the one to fix first, and Review offers one remedy per reason.
+     * [savedBlobSha] saved; null when it can be, once Review finds its Canonical line among that saved bank's questions
+     * ([CardBlock.NOT_ASKED]). The first reason that applies is the one to fix first, and Review offers one remedy per
+     * reason.
      */
     fun cardBlock(deleted: Boolean, currentBlobSha: String, savedBlobSha: String?): CardBlock? =
         when {
             state == AnnotationState.REFUSED -> CardBlock.REFUSED
             deleted -> CardBlock.REMOVED
-            status == AnchorStatus.ORPHANED -> CardBlock.ORPHANED
             savedBlobSha != currentBlobSha -> CardBlock.NOT_SAVED
-            drawn.blobSha != currentBlobSha -> if (serverId == null) CardBlock.UNSENT else CardBlock.UNPLACED
-            checkedBlobSha != currentBlobSha -> CardBlock.UNCONFIRMED
             else -> null
         }
 }
 
-/** Owns the first applicable phone-side review restriction, matching AnnotationRow.cardBlock's ordered decision. */
+/**
+ * Owns the phone-side review restrictions, in AnnotationRow.cardBlock's order. A card is a bank question, authored with
+ * its answer, so a new version of its bank never needs confirming: only whether that version still asks it.
+ */
 enum class CardBlock(val reason: String) {
     /** The server refused its creation, which is never sent again ([AnnotationRow.rejection] says why). */
     REFUSED("Refused by the server"),
     REMOVED("Note removed from the repository"),
-    ORPHANED("Check this card: reattach its answer"),
     NOT_SAVED("Save the current note before reviewing"),
-    /** Made in an older version and not sent yet, so the server has not placed it in the current one. */
-    UNSENT("Not synced yet, so not found in the new version"),
-    /** The server places a card in a new version only when its note's highlights are listed (ADR-06). */
-    UNPLACED("Check this card: open its note to find the answer in the new version"),
-    /** Placed in the current version (or reattached) and not confirmed there. */
-    UNCONFIRMED("Check this card: confirm its answer"),
+    /** Decided by Review, which reads the saved bank: no question there has the card's Canonical line. */
+    NOT_ASKED("Its bank no longer asks this question"),
 }
 
 /** A new Practice grade writes both rows or neither; an already scheduled question is a successful no-op. */

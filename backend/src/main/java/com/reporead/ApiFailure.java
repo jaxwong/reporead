@@ -23,7 +23,6 @@ public final class ApiFailure extends RuntimeException {
         IMAGE_NOT_FOUND(404),
         SOURCE_NOT_FOUND(404),
         ANNOTATION_CONFLICT(409),
-        CARD_CHANGED(409),
         MUTATION_ID_REUSED(409),
         SYNC_SUPERSEDED(409),
         REPOSITORY_RENAMED(409),

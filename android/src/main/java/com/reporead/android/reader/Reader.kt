@@ -84,9 +84,6 @@ internal data class StudyPage(val opened: Sync.Opened, val study: StudyNote)
  * it. Serializable so a screen can keep it in saved state.
  */
 internal sealed interface ReaderOverlay : Serializable {
-    /** A new question is being written for [passage]. */
-    data class Question(val passage: Passage) : ReaderOverlay
-
     /** A new note is being written for [passage]. */
     data class Note(val passage: Passage) : ReaderOverlay
 
@@ -225,25 +222,24 @@ internal class ReaderViewModel(
     }
 
     /**
-     * Saves a highlight (or, with a question, a card) on this phone, then sends it now when signed in. The message says
-     * where it stands: nothing when it reached the server.
+     * Saves a highlight on this phone, then sends it now when signed in. The message says where it stands: nothing when
+     * it reached the server.
      */
-    fun save(passage: Passage, note: String?, question: String?) {
-        AppLog.info("Reader highlight save started; entry=$entryId documentId=$documentId card=${question != null}")
+    fun save(passage: Passage, note: String?) {
+        AppLog.info("Reader highlight save started; entry=$entryId documentId=$documentId")
         viewModelScope.launch {
-            val id = sync.createAnnotation(passage, documentId, note, question)
-            val kind = if (question == null) "Highlight" else "Card"
+            val mutationId = sync.createAnnotation(passage, documentId, note)
             showMessage(
-                if (id == null) "$kind not saved: this note is no longer saved on this phone."
-                else if (signedIn != true) "$kind saved on this phone; it is sent after you sign in."
+                if (mutationId == null) "Highlight not saved: this note is no longer saved on this phone."
+                else if (signedIn != true) "Highlight saved on this phone; it is sent after you sign in."
                 else
                     try {
                         sync.pushAnnotations()
-                        dao.annotation(id)?.rejection?.let {
-                            "$kind kept on this phone only; the server refused it: $it"
+                        dao.annotation(mutationId)?.rejection?.let {
+                            "Highlight kept on this phone only; the server refused it: $it"
                         }
                     } catch (error: ApiException) {
-                        "$kind saved on this phone; it will sync later. ${error.describe()}"
+                        "Highlight saved on this phone; it will sync later. ${error.describe()}"
                     }
             )
         }
@@ -347,17 +343,6 @@ internal class ReaderViewModel(
             }
         }
 
-    /** Online only: the server checks the card's answer against the version on screen, [displayedBlobSha]. */
-    fun confirmCard(row: AnnotationRow, displayedBlobSha: String) =
-        change("card confirmation", row) {
-            try {
-                sync.checkCard(row, displayedBlobSha)
-                "Card confirmed for this version."
-            } catch (error: ApiException) {
-                "Card not confirmed. ${error.describe()}"
-            }
-        }
-
     fun setBookmark(bookmarked: Boolean) {
         viewModelScope.launch {
             if (!sync.setBookmark(documentId, bookmarked))
@@ -441,9 +426,8 @@ fun ReaderScreen(
                     SelectionAction.REATTACH ->
                         if (placing != null) model.reattach(placing, selection.passage)
                         else model.showMessage("Reattaching was cancelled; choose Reattach again in Notes.")
-                    SelectionAction.MAKE_QUESTION -> overlay = ReaderOverlay.Question(selection.passage)
                     SelectionAction.ADD_NOTE -> overlay = ReaderOverlay.Note(selection.passage)
-                    SelectionAction.HIGHLIGHT -> model.save(selection.passage, null, null)
+                    SelectionAction.HIGHLIGHT -> model.save(selection.passage, null)
                 }
         }
     }
@@ -611,8 +595,6 @@ fun ReaderScreen(
                     session.opened,
                     dao,
                     onReveal = { session.reveal(it.mutationId) },
-                    onConfirmCard = { model.confirmCard(it, opened.note.blobSha) },
-                    onMakeQuestion = { row -> overlay = ReaderOverlay.Question(row.drawn) },
                     onEdit = { row -> overlay = ReaderOverlay.EditNote(row) },
                     onDelete = { row -> overlay = ReaderOverlay.Delete(row) },
                     onReattach = { row ->
@@ -664,23 +646,13 @@ fun ReaderScreen(
                     if (close(shown)) push(Screen.Reader(choice.id, choice.title, shown.heading?.let(OpenAt::Heading)))
                 },
             )
-        is ReaderOverlay.Question ->
-            NoteDialog(
-                title = "Make a question",
-                quote = shown.passage.exactText,
-                initial = "",
-                label = "Question",
-                allowBlank = false,
-                onDismiss = { overlay = null },
-                onSave = { question -> if (close(shown)) model.save(shown.passage, null, question) },
-            )
         is ReaderOverlay.Note ->
             NoteDialog(
                 title = "Add a note",
                 quote = shown.passage.exactText,
                 initial = "",
                 onDismiss = { overlay = null },
-                onSave = { note -> if (close(shown)) model.save(shown.passage, note.ifBlank { null }, null) },
+                onSave = { note -> if (close(shown)) model.save(shown.passage, note.ifBlank { null }) },
             )
         is ReaderOverlay.EditNote ->
             NoteDialog(

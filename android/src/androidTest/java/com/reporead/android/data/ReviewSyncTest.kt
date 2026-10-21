@@ -51,7 +51,6 @@ class ReviewSyncTest {
                             null,
                             type = AnnotationType.CARD,
                             question = "Test-only question?",
-                            checkedBlobSha = "a".repeat(40),
                         )
                     dao.saveAnnotation(card)
                     val grades =

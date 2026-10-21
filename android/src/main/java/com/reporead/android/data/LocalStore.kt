@@ -140,6 +140,9 @@ class StructureSearchBlocks : AutoMigrationSpec {
     }
 }
 
+/** v18: a card is never confirmed in a version, so the version it was last confirmed in is gone (ADR-13). */
+@DeleteColumn(tableName = "annotations", columnName = "checkedBlobSha") class DropCardConfirmation : AutoMigrationSpec
+
 @Database(
     entities =
         [
@@ -154,7 +157,7 @@ class StructureSearchBlocks : AutoMigrationSpec {
             ReviewRow::class,
             ReviewLimitRow::class,
         ],
-    version = 17,
+    version = 18,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -172,6 +175,7 @@ class StructureSearchBlocks : AutoMigrationSpec {
             AutoMigration(from = 14, to = 15, spec = DropChangeBaselines::class),
             AutoMigration(from = 15, to = 16, spec = RetireUnreadablePages::class),
             AutoMigration(from = 16, to = 17, spec = StructureSearchBlocks::class),
+            AutoMigration(from = 17, to = 18, spec = DropCardConfirmation::class),
         ],
 )
 abstract class LocalStore : RoomDatabase() {

@@ -51,18 +51,18 @@ public class Reviews {
 
     /**
      * Records a grade of the card {@code cardId} once per client {@code mutation}: a replay returns the stored review,
-     * even if the note changed after it was committed; the same id with other content is 409 MUTATION_ID_REUSED. A new
-     * grade of an answer that is not the card's checked, current version is 409 CARD_CHANGED. Holds the card's
-     * connection lock while it writes, so a refresh or disconnect waits for it; a card that is not this user's, or was
-     * disconnected meanwhile, is 404.
+     * however the note changed since; the same id with other content is 409 MUTATION_ID_REUSED. The phone decides
+     * whether a card can be graded in a version, since only it reads the bank question its Canonical line asks
+     * (ADR-13); {@code blobSha} records the version answered. Holds the card's connection lock while it writes, so a
+     * refresh or disconnect waits for it; a card that is not this user's, or was disconnected meanwhile, is 404.
      */
     Review grade(long userId, long cardId, UUID mutation, int grade, Instant reviewedAt, String blobSha) {
         return transaction.execute(tx -> {
-            var card = annotations.lockCard(userId, cardId);
+            annotations.lockCard(userId, cardId);
             Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
             Instant storedAt =
                     reviewedAt.isBefore(Instant.EPOCH) ? Instant.EPOCH : reviewedAt.isAfter(now) ? now : reviewedAt;
-            int inserted = db.sql("""
+            db.sql("""
                     insert into review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at)
                     values (:userId, :mutation, :id, :grade, :at, :sha, :clientAt) on conflict do nothing""")
                     .param("userId", userId)
@@ -87,9 +87,6 @@ public class Reviews {
                     || !clientAt.equals(reviewedAt.toString())
                     || !stored.blobSha().equals(blobSha)) {
                 throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
-            }
-            if (inserted != 0 && !card.gradeableAt(blobSha)) {
-                throw new ApiFailure(Code.CARD_CHANGED, "Check this card in the current note before reviewing it.");
             }
             return db.sql(SELECT + " and r.mutation_id = :mutation")
                     .param("userId", userId)

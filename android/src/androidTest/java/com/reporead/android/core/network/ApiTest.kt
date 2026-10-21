@@ -8,7 +8,6 @@ import com.reporead.android.auth.StoredSession
 import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.log.appLogDirectory
 import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
-import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
 import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
@@ -70,7 +69,6 @@ class ApiTest {
         )
     private val edit = AnnotationControllerEditRequest(expectedVersion = 1, note = null)
     private val reattach = AnnotationControllerReattachRequest(anchor = selection, expectedVersion = 1)
-    private val check = AnnotationControllerCheckRequest(blobSha = testSha, expectedVersion = 1)
     private val grade =
         ReviewControllerGradeRequest(
             blobSha = testSha,
@@ -161,7 +159,6 @@ class ApiTest {
                 "PATCH /api/annotations/9" to (200 to wire(testHighlight())),
                 "DELETE /api/annotations/9?expectedVersion=1" to (204 to ""),
                 "POST /api/annotations/9/reattach" to (200 to wire(testHighlight())),
-                "POST /api/annotations/9/check" to (200 to wire(testHighlight())),
                 "POST /api/annotations/10/reviews" to (200 to wire(testReview())),
                 "POST /api/app-logs" to (204 to ""),
             )
@@ -195,7 +192,6 @@ class ApiTest {
                         api.editAnnotation(9, edit),
                         api.deleteAnnotation(9, 1),
                         api.reattachAnnotation(9, reattach),
-                        api.checkCard(9, check),
                         api.recordReview(10, grade),
                         api.uploadAppLog(
                             AppLogControllerUploadRequest(
@@ -374,7 +370,6 @@ class ApiTest {
                     wrongAnnotation,
                     { it.reattachAnnotation(9, reattach) },
                 ),
-                Triple("POST /api/annotations/9/check", wrongAnnotation, { it.checkCard(9, check) }),
                 Triple(
                     "POST /api/annotations/10/reviews",
                     wire(testReview().copy(grade = 3)),
