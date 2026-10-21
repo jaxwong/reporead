@@ -886,9 +886,12 @@
         }
       },
       "AppLogControllerLine" : {
-        "required" : [ "at", "level", "message" ],
+        "required" : [ "appVersion", "at", "level", "message" ],
         "type" : "object",
         "properties" : {
+          "appVersion" : {
+            "type" : "string"
+          },
           "at" : {
             "type" : "string",
             "format" : "date-time"
@@ -903,12 +906,9 @@
         }
       },
       "AppLogControllerUploadRequest" : {
-        "required" : [ "appVersion", "lines" ],
+        "required" : [ "lines" ],
         "type" : "object",
         "properties" : {
-          "appVersion" : {
-            "type" : "string"
-          },
           "lines" : {
             "type" : "array",
             "items" : {

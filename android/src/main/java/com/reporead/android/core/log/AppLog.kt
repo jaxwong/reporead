@@ -82,7 +82,7 @@ object AppLog {
         val lines = withContext(Dispatchers.IO) { complete(sending.readText()) }
         if (lines.isNotEmpty()) {
             try {
-                api.uploadAppLog(AppLogControllerUploadRequest(BuildConfig.VERSION_NAME, lines))
+                api.uploadAppLog(AppLogControllerUploadRequest(lines))
             } catch (error: ApiException) {
                 if (!(error.status == 400 && error.code == "INVALID_REQUEST")) throw error
                 warn("App log lines refused; lines=${lines.size} code=${error.code}")
@@ -97,7 +97,16 @@ object AppLog {
         val bounded =
             if (message.length <= MAX_LINE_CHARS) message
             else message.take(MAX_LINE_CHARS) + "… (${message.length - MAX_LINE_CHARS} characters cut)"
-        val line = wireJson.encodeToString(AppLogControllerLine(Instant.now(), level, bounded)) + "\n"
+        // Stored with this build's version: an updated app sends the lines the previous version left.
+        val line =
+            wireJson.encodeToString(
+                AppLogControllerLine(
+                    at = Instant.now(),
+                    appVersion = BuildConfig.VERSION_NAME,
+                    level = level,
+                    message = bounded,
+                )
+            ) + "\n"
         val pending = File(started(), PENDING)
         synchronized(lock) {
             try {
@@ -123,9 +132,10 @@ object AppLog {
         }
         val dropped =
             AppLogControllerLine(
-                Instant.now(),
-                AppLogControllerLine.Level.WARN,
-                "App log store full; dropped=${lines.size - kept.size} oldest lines",
+                at = Instant.now(),
+                appVersion = BuildConfig.VERSION_NAME,
+                level = AppLogControllerLine.Level.WARN,
+                message = "App log store full; dropped=${lines.size - kept.size} oldest lines",
             )
         val trimmed = File(pending.parentFile, "$PENDING.trimmed")
         trimmed.writeText(wireJson.encodeToString(dropped) + "\n" + kept.joinToString(""))

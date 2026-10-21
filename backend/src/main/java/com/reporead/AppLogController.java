@@ -34,9 +34,10 @@ public class AppLogController {
         ERROR
     }
 
-    record Line(Instant at, LineLevel level, String message) {}
+    /** The version is per line: lines a run left can be sent by the next, newer version. */
+    record Line(Instant at, String appVersion, LineLevel level, String message) {}
 
-    record UploadRequest(String appVersion, List<Line> lines) {}
+    record UploadRequest(List<Line> lines) {}
 
     @PostMapping("/api/app-logs")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -47,7 +48,7 @@ public class AppLogController {
                     .log(
                             "App line; userId={} version={} at={} {}",
                             user.id(),
-                            body.appVersion(),
+                            line.appVersion(),
                             line.at(),
                             readable(line.message()));
         }
@@ -65,17 +66,19 @@ public class AppLogController {
     }
 
     private static void validate(UploadRequest body) {
-        boolean valid = body.appVersion() != null
-                && APP_VERSION.matcher(body.appVersion()).matches()
-                && body.lines() != null
+        boolean valid = body.lines() != null
                 && !body.lines().isEmpty()
                 && body.lines().stream()
-                        .allMatch(line ->
-                                line != null && line.at() != null && line.level() != null && line.message() != null);
+                        .allMatch(line -> line != null
+                                && line.at() != null
+                                && line.appVersion() != null
+                                && APP_VERSION.matcher(line.appVersion()).matches()
+                                && line.level() != null
+                                && line.message() != null);
         if (!valid) {
             throw new ApiFailure(
                     Code.INVALID_REQUEST,
-                    "An app log upload requires an app version (1-64 letters, digits, '.', '+' or '-') and at least one line with a time, a level and a message.");
+                    "An app log upload requires at least one line, each with a time, an app version (1-64 letters, digits, '.', '+' or '-'), a level and a message.");
         }
     }
 }
