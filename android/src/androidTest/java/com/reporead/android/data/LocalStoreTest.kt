@@ -662,6 +662,8 @@ class LocalStoreTest {
         assertEquals(10, dao.reviews().first().size)
         // Answered in a version that is no longer the note's current one.
         assertEquals(false, dao.recordReview(grades[0].copy(mutationId = "stale", blobSha = "b".repeat(40))))
+        // The card as a pending offline creation again.
+        dao.saveAnnotation(card)
         dao.replaceRemoteNotebook(emptyList(), emptyList(), 40)
         // Pending offline creations stay; acknowledged deletions remove associated logs.
         assertEquals(AnnotationState.UNSENT, dao.annotation("card")!!.state)

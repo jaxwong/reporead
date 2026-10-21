@@ -127,7 +127,7 @@ class FeatureRemovalMigrationTest {
                 assertEquals(listOf(ReviewRow("grade", "card", 2, 8, sha, pending = true)), dao.reviews().first())
                 assertEquals(40, dao.reviewLimit().first())
                 SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                    assertEquals(17, db.version)
+                    assertEquals(18, db.version)
                     db.rawQuery("pragma foreign_key_check", null).use { assertFalse(it.moveToFirst()) }
                     db.rawQuery("select name from sqlite_master where name = 'change_baselines'", null).use {
                         assertFalse(it.moveToFirst())
