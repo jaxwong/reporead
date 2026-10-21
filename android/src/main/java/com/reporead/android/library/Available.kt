@@ -2,7 +2,6 @@
 
 package com.reporead.android.library
 
-import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,6 +21,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.R
 import com.reporead.android.Screen
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
@@ -66,17 +66,14 @@ internal class AvailableViewModel(private val api: Api, private val sync: Sync, 
     fun retry() {
         val now = current.value
         if (now.listing !is Load.Failed || !current.compareAndSet(now, now.copy(listing = Load.Loading))) {
-            Log.i(
-                "RepoRead",
-                "Available list not fetched again; entry=$entryId listing=${now.listing.javaClass.simpleName}",
-            )
+            AppLog.info("Available list not fetched again; entry=$entryId listing=${now.listing.javaClass.simpleName}")
             return
         }
         list("retry")
     }
 
     private fun list(reason: String) {
-        Log.i("RepoRead", "Available list started; entry=$entryId reason=$reason")
+        AppLog.info("Available list started; entry=$entryId reason=$reason")
         viewModelScope.launch {
             val listing =
                 try {
@@ -94,13 +91,12 @@ internal class AvailableViewModel(private val api: Api, private val sync: Sync, 
             now.connecting != null ||
                 !current.compareAndSet(now, now.copy(connecting = repository.githubRepositoryId, error = null))
         ) {
-            Log.i(
-                "RepoRead",
-                "Connect not started; entry=$entryId connecting=${now.connecting} requested=${repository.githubRepositoryId}",
+            AppLog.info(
+                "Connect not started; entry=$entryId connecting=${now.connecting} requested=${repository.githubRepositoryId}"
             )
             return
         }
-        Log.i("RepoRead", "Connect started; entry=$entryId githubRepositoryId=${repository.githubRepositoryId}")
+        AppLog.info("Connect started; entry=$entryId githubRepositoryId=${repository.githubRepositoryId}")
         viewModelScope.launch {
             try {
                 val connected = sync.connect(repository.githubRepositoryId, repository.installationId)

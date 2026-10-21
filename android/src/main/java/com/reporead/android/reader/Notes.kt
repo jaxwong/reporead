@@ -1,6 +1,5 @@
 package com.reporead.android.reader
 
-import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
@@ -87,9 +87,8 @@ internal fun NotesPanel(
                     queries.mapNotNull(::noteLinkTarget)
                 }
             val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, links) }
-            Log.i(
-                "RepoRead",
-                "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}",
+            AppLog.info(
+                "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}"
             )
             value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
         }

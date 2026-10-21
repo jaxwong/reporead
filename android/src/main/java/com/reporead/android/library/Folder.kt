@@ -4,7 +4,6 @@ package com.reporead.android.library
 
 import android.app.Application
 import android.database.sqlite.SQLiteException
-import android.util.Log
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +31,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.R
 import com.reporead.android.Screen
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.DocumentRow
@@ -155,7 +155,7 @@ internal class FolderViewModel(
         val now = current.value
         val started = allowed(now.operation) && current.compareAndSet(now, now.copy(operation = next, status = null))
         if (!started)
-            Log.i("RepoRead", "Folder operation not started; entry=$entryId running=${now.operation} requested=$next")
+            AppLog.info("Folder operation not started; entry=$entryId running=${now.operation} requested=$next")
         return started
     }
 
@@ -191,7 +191,7 @@ internal class FolderViewModel(
 
     private fun refresh(reason: String, failed: String, work: suspend () -> Unit) {
         if (!begin(FolderOperation.Refreshing)) return
-        Log.i("RepoRead", "Folder refresh started; entry=$entryId repositoryId=${screen.repositoryId} reason=$reason")
+        AppLog.info("Folder refresh started; entry=$entryId repositoryId=${screen.repositoryId} reason=$reason")
         viewModelScope.launch {
             val status =
                 try {
@@ -215,7 +215,7 @@ internal class FolderViewModel(
             now.stoppingSaveAll ||
                 !current.compareAndSet(now, now.copy(stoppingSaveAll = true, status = "Stopping saving notes…"))
         ) {
-            Log.i("RepoRead", "Stopping Save all not started again; entry=$entryId")
+            AppLog.info("Stopping Save all not started again; entry=$entryId")
             return
         }
         viewModelScope.launch {
@@ -224,7 +224,7 @@ internal class FolderViewModel(
                     stopSavingNotes(app, screen.repositoryId)
                     "Saving stopped; notes already saved are kept. Saving again fetches only what is missing."
                 } catch (error: SQLiteException) {
-                    Log.w("RepoRead", "Could not stop Save all; repositoryId=${screen.repositoryId}", error)
+                    AppLog.warn("Could not stop Save all; repositoryId=${screen.repositoryId}", error)
                     "Couldn't stop saving notes (${error.javaClass.simpleName}); try Stop saving notes again."
                 }
             current.update { it.copy(stoppingSaveAll = false, status = status) }
@@ -234,7 +234,7 @@ internal class FolderViewModel(
     /** Asks the server what disconnecting would delete, for the confirmation. */
     fun askToDisconnect() {
         if (!begin(FolderOperation.Previewing)) return
-        Log.i("RepoRead", "Disconnect preview started; entry=$entryId repositoryId=${screen.repositoryId}")
+        AppLog.info("Disconnect preview started; entry=$entryId repositoryId=${screen.repositoryId}")
         viewModelScope.launch {
             try {
                 // Null: the server had already disconnected it, and this phone's copies are now gone too.
@@ -255,7 +255,7 @@ internal class FolderViewModel(
 
     fun disconnect() {
         if (!begin(FolderOperation.Disconnecting) { it is FolderOperation.Confirming }) return
-        Log.i("RepoRead", "Disconnect started; entry=$entryId repositoryId=${screen.repositoryId}")
+        AppLog.info("Disconnect started; entry=$entryId repositoryId=${screen.repositoryId}")
         viewModelScope.launch {
             try {
                 sync.disconnect(screen.repositoryId)

@@ -4,13 +4,13 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.net.Uri
-import android.util.Log
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.data.NoteRow
 import com.reporead.android.sync.IMAGE_PREFIX
 import com.reporead.android.sync.NoteImages
@@ -183,7 +183,7 @@ internal open class IsolatedPage(context: Context) : WebView(context) {
                     rendering.launch {
                         val state = awaitRendered(view)
                         if (state != "ready") {
-                            Log.w("RepoRead", "$name did not render; documentId=${note.documentId} state=$state")
+                            AppLog.warn("$name did not render; documentId=${note.documentId} state=$state")
                             onFailed()
                         } else onReady(script == null || view.evaluate(script) == true)
                     }
@@ -191,7 +191,7 @@ internal open class IsolatedPage(context: Context) : WebView(context) {
 
                 // Returning false would end the app with the page's renderer (a crash, or system reclamation).
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                    Log.w("RepoRead", "$name stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
+                    AppLog.warn("$name stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
                     rendering.cancel()
                     onFailed()
                     return true

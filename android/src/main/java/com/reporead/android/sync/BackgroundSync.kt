@@ -1,7 +1,8 @@
 package com.reporead.android.sync
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.Context
-import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -16,9 +17,14 @@ import androidx.work.WorkerParameters
 import androidx.work.await
 import androidx.work.workDataOf
 import com.reporead.android.RepoReadApplication
+import com.reporead.android.auth.StoredSession
+import com.reporead.android.core.log.AppLog
+import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
+import java.io.File
 import java.time.Duration
+import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -66,13 +72,13 @@ internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
             return if (triesAgain("Background sync", error, attempt)) Result.retry() else Result.failure()
         }
     if (synced == null) {
-        Log.i("RepoRead", "Background sync: nothing waiting; attempt=$attempt")
+        AppLog.info("Background sync: nothing waiting; attempt=$attempt")
         return Result.success()
     }
     synced.notSent?.let {
         return if (triesAgain("Background sync", it, attempt)) Result.retry() else Result.failure()
     }
-    Log.i("RepoRead", "Background sync done; attempt=$attempt refused=${synced.refused.size}")
+    AppLog.info("Background sync done; attempt=$attempt refused=${synced.refused.size}")
     return Result.success()
 }
 
@@ -83,9 +89,88 @@ internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
 private fun triesAgain(run: String, error: ApiException, attempt: Int): Boolean {
     val passing = error.unreachable || error.status >= 500
     val retry = passing && attempt + 1 < MAX_ATTEMPTS
-    Log.w("RepoRead", "$run failed; attempt=$attempt status=${error.status} code=${error.code} retry=$retry")
+    AppLog.warn("$run failed; attempt=$attempt status=${error.status} code=${error.code} retry=$retry")
     return retry
 }
+
+private const val APP_LOG_WORK = "upload-app-log"
+private const val EXITS_SEEN = "app-exits-seen"
+
+/**
+ * Asks for one upload of the phone's stored log lines once there is a network. While one is waiting or running, asking
+ * again changes nothing: it sends whatever is stored when it runs.
+ */
+internal fun requestAppLogUpload(context: Context) {
+    val request =
+        OneTimeWorkRequestBuilder<AppLogUploadWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, FIRST_BACKOFF)
+            .build()
+    WorkManager.getInstance(context).enqueueUniqueWork(APP_LOG_WORK, ExistingWorkPolicy.KEEP, request)
+}
+
+class AppLogUploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val app = applicationContext as RepoReadApplication
+        logProcessExits(app.getSystemService(ActivityManager::class.java), File(app.filesDir, EXITS_SEEN))
+        return uploadAppLog(app.api, app.sessionStore.read() is StoredSession.Readable, runAttemptCount)
+    }
+}
+
+/**
+ * One upload of the stored lines ([AppLog.upload]). Signed out, the server would refuse them, so they wait for the next
+ * start after signing in. Failures are tried again as the background sync's are. [attempt] counts from 0.
+ */
+internal suspend fun uploadAppLog(api: Api, signedIn: Boolean, attempt: Int): Result {
+    if (!signedIn) return Result.success()
+    try {
+        AppLog.upload(api)
+    } catch (error: ApiException) {
+        return if (triesAgain("App log upload", error, attempt)) Result.retry() else Result.failure()
+    }
+    return Result.success()
+}
+
+/**
+ * Android's record of why this app's processes ended (the app's and its page renderers'), as app lines: ANRs, native
+ * crashes and system kills, which no handler in the app sees. Each exit is logged once; [seen] holds the newest logged
+ * exit's time.
+ */
+internal fun logProcessExits(activities: ActivityManager, seen: File) {
+    val after = if (seen.isFile) seen.readText().toLong() else 0L
+    val exits = activities.getHistoricalProcessExitReasons(null, 0, 0).filter { it.timestamp > after }
+    for (exit in exits.sortedBy { it.timestamp }) {
+        val line =
+            "Process exited; at=${Instant.ofEpochMilli(exit.timestamp)} process=${exit.processName} " +
+                "reason=${exitReason(exit.reason)} status=${exit.status} importance=${exit.importance} pssKb=${exit.pss}"
+        if (exit.reason in FAILED_EXITS) AppLog.warn(line) else AppLog.info(line)
+    }
+    exits.maxOfOrNull { it.timestamp }?.let { seen.writeText(it.toString()) }
+}
+
+private val FAILED_EXITS =
+    setOf(ApplicationExitInfo.REASON_CRASH, ApplicationExitInfo.REASON_CRASH_NATIVE, ApplicationExitInfo.REASON_ANR)
+
+private fun exitReason(reason: Int) =
+    when (reason) {
+        ApplicationExitInfo.REASON_EXIT_SELF -> "EXIT_SELF"
+        ApplicationExitInfo.REASON_SIGNALED -> "SIGNALED"
+        ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
+        ApplicationExitInfo.REASON_CRASH -> "CRASH"
+        ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE"
+        ApplicationExitInfo.REASON_ANR -> "ANR"
+        ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "INITIALIZATION_FAILURE"
+        ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "PERMISSION_CHANGE"
+        ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "EXCESSIVE_RESOURCE_USAGE"
+        ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
+        ApplicationExitInfo.REASON_USER_STOPPED -> "USER_STOPPED"
+        ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "DEPENDENCY_DIED"
+        ApplicationExitInfo.REASON_OTHER -> "OTHER"
+        ApplicationExitInfo.REASON_FREEZER -> "FREEZER"
+        ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE -> "PACKAGE_STATE_CHANGE"
+        ApplicationExitInfo.REASON_PACKAGE_UPDATED -> "PACKAGE_UPDATED"
+        else -> "UNKNOWN($reason)"
+    }
 
 private fun saveAllName(repositoryId: Long) = "save-all-notes-$repositoryId"
 

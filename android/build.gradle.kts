@@ -97,6 +97,16 @@ val renderFormat =
         }
         .get()
 
+// The server owns the request body cap (RequestBodyLimit.MAX_BYTES); the app's log store is sized from that line.
+val requestMaxBytes =
+    providers.fileContents(rootProject.layout.projectDirectory.file("backend/src/main/java/com/reporead/RequestBodyLimit.java"))
+        .asText
+        .map { source ->
+            Regex("""static final int MAX_BYTES = ([0-9_]+);""").find(source)?.groupValues?.get(1)
+                ?: error("RequestBodyLimit.java has no line `static final int MAX_BYTES = <digits>;`")
+        }
+        .get()
+
 val signingStore = providers.gradleProperty("reporead.signing.storeFile").orNull
 val signingPasswordFile = providers.gradleProperty("reporead.signing.passwordFile").orNull
 
@@ -119,6 +129,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("int", "LIBRARY_MAX_RESPONSE_BYTES", libraryMaxResponseBytes)
         buildConfigField("int", "RENDER_FORMAT", renderFormat)
+        buildConfigField("int", "REQUEST_MAX_BYTES", requestMaxBytes)
     }
 
     signingConfigs {

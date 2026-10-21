@@ -4,10 +4,10 @@ package com.reporead.android.auth
 
 import android.content.Context
 import android.util.Base64
-import android.util.Log
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.net.toUri
 import com.reporead.android.BuildConfig
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
 import java.security.MessageDigest
@@ -38,6 +38,6 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
 /** Exchanges the validated sign-in code and stores the session without changing saved notes. */
 internal suspend fun completeSignIn(code: String, verifier: String, api: Api, store: SessionStore) {
     val session = api.exchangeToken(AppAuthControllerTokenRequest(code = code, codeVerifier = verifier))
-    Log.i("RepoRead", "Signed in; userId=${session.user.id}")
+    AppLog.info("Signed in; userId=${session.user.id}")
     store.save(session.accessToken)
 }

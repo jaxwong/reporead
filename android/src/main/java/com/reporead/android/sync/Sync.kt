@@ -2,8 +2,8 @@
 
 package com.reporead.android.sync
 
-import android.util.Log
 import com.reporead.android.BuildConfig
+import com.reporead.android.core.log.AppLog
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.ApiException
 import com.reporead.android.core.network.describe
@@ -108,8 +108,7 @@ class Sync(
 
     /** The [paths] a deletion [after] something left, logged; a later sweep deletes them again. */
     private fun logged(after: String, paths: List<File>): List<File> {
-        if (paths.isNotEmpty())
-            Log.w("RepoRead", "Files left on the phone; after=$after count=${paths.size} paths=$paths")
+        if (paths.isNotEmpty()) AppLog.warn("Files left on the phone; after=$after count=${paths.size} paths=$paths")
         return paths
     }
 
@@ -217,7 +216,7 @@ class Sync(
         } catch (error: ApiException) {
             if (cached == null) throw error
             val cachedIsCurrent = sameVersion(cached, current, commitSha)
-            Log.i("RepoRead", "Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
+            AppLog.info("Showing cached note; documentId=$documentId code=${error.code} current=$cachedIsCurrent")
             Opened(cached, if (cachedIsCurrent) null else error)
         }
     }
@@ -266,7 +265,7 @@ class Sync(
         refreshLibrary()
         val documents = dao.listedDocuments(repositoryId)
         val commitSha = dao.repositoryCommitSha(repositoryId)
-        Log.i("RepoRead", "Saving all notes; repositoryId=$repositoryId documents=${documents.size}")
+        AppLog.info("Saving all notes; repositoryId=$repositoryId documents=${documents.size}")
         var fetched = 0
         var alreadySaved = 0
         var cannotShow = 0
@@ -293,21 +292,19 @@ class Sync(
                         else -> false
                     }
                 if (!skipped) {
-                    Log.w(
-                        "RepoRead",
-                        "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}",
+                    AppLog.warn(
+                        "Saving all notes stopped; repositoryId=$repositoryId fetched=$fetched documentId=${document.id} code=${error.code}"
                     )
                     throw error
                 }
-                Log.i("RepoRead", "Page skipped; documentId=${document.id} code=${error.code}")
+                AppLog.info("Page skipped; documentId=${document.id} code=${error.code}")
                 cannotShow++
             }
             onProgress(index + 1, documents.size)
         }
         locked { sweepImages() }
-        Log.i(
-            "RepoRead",
-            "Saved all notes; repositoryId=$repositoryId fetched=$fetched alreadySaved=$alreadySaved cannotShow=$cannotShow",
+        AppLog.info(
+            "Saved all notes; repositoryId=$repositoryId fetched=$fetched alreadySaved=$alreadySaved cannotShow=$cannotShow"
         )
         return SavedAll(fetched, alreadySaved, cannotShow)
     }
@@ -331,7 +328,7 @@ class Sync(
                 api.storedData(repositoryId)
             } catch (error: ApiException) {
                 if (error.status != 404 || error.code != "NOT_FOUND") throw error
-                Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
+                AppLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
                 loadLibrary()
                 return@locked null
             }
@@ -354,12 +351,12 @@ class Sync(
                 null
             }
         if (json == null) {
-            Log.i("RepoRead", "Repository already disconnected on the server; repositoryId=$repositoryId")
+            AppLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
             loadLibrary()
         } else {
             val documentIds = json.documentIds
             dao.forgetRepository(repositoryId, documentIds)
-            Log.i("RepoRead", "Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
+            AppLog.info("Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
             sweepImages()
         }
     }
@@ -368,7 +365,7 @@ class Sync(
     suspend fun saveReading(row: ReadingRow): Boolean = committed {
         dao.saveDisplayedReading(row.copy(pending = true)).also { saved ->
             if (saved) onPendingChange()
-            else Log.i("RepoRead", "Reading position not saved; note gone; documentId=${row.documentId}")
+            else AppLog.info("Reading position not saved; note gone; documentId=${row.documentId}")
         }
     }
 
@@ -376,7 +373,7 @@ class Sync(
     suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = committed {
         dao.saveLocalBookmark(BookmarkRow(documentId, bookmarked, pending = true, System.currentTimeMillis())).also {
             saved ->
-            if (saved) onPendingChange() else Log.i("RepoRead", "Bookmark not saved; note gone; documentId=$documentId")
+            if (saved) onPendingChange() else AppLog.info("Bookmark not saved; note gone; documentId=$documentId")
         }
     }
 
@@ -431,7 +428,7 @@ class Sync(
                     api.saveReading(row.documentId, body).toRow()
                 } catch (error: ApiException) {
                     if (error.status != 404 || error.code != "NOT_FOUND") throw error
-                    Log.i("RepoRead", "Reading state no longer owned; documentId=${row.documentId}")
+                    AppLog.info("Reading state no longer owned; documentId=${row.documentId}")
                     // Not this user's note on the server any more: the position goes with it when the lists are
                     // next replaced. Malformed saves are programmer errors, not item refusals.
                     dao.acknowledgeReading(row.documentId, row.lastReadAt)
@@ -451,7 +448,7 @@ class Sync(
                 }
             } catch (error: ApiException) {
                 if (!error.refusesItem()) throw error
-                Log.w("RepoRead", "Bookmark refused; documentId=${row.documentId} code=${error.code}")
+                AppLog.warn("Bookmark refused; documentId=${row.documentId} code=${error.code}")
                 dao.dropBookmark(row.documentId, row.changedAt)
                 refused +=
                     RefusedChange(
@@ -472,7 +469,7 @@ class Sync(
         committed {
             val row = newAnnotation(passage, documentId, note, question)
             if (!dao.saveLocalAnnotation(row)) {
-                Log.i("RepoRead", "Highlight not saved; page gone; documentId=$documentId")
+                AppLog.info("Highlight not saved; page gone; documentId=$documentId")
                 return@committed null
             }
             onPendingChange()
@@ -499,7 +496,7 @@ class Sync(
                 )
             val result = dao.saveCardWithFirstReview(card, review)
             if (result == NewCardGrade.SAVED) onPendingChange()
-            Log.i("RepoRead", "Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$result")
+            AppLog.info("Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$result")
             result
         }
 
@@ -567,16 +564,12 @@ class Sync(
                         dao.removeAnnotation(row.mutationId)
                     error.refusesItem() -> dao.rejectAnnotation(row.mutationId, error.describe())
                     else -> {
-                        Log.w(
-                            "RepoRead",
-                            "Highlight creations stopped; documentId=${row.documentId} code=${error.code}",
-                        )
+                        AppLog.warn("Highlight creations stopped; documentId=${row.documentId} code=${error.code}")
                         throw error
                     }
                 }
-                Log.w(
-                    "RepoRead",
-                    "Highlight creation refused; documentId=${row.documentId} code=${error.code} deleting=$deleting",
+                AppLog.warn(
+                    "Highlight creation refused; documentId=${row.documentId} code=${error.code} deleting=$deleting"
                 )
                 return null
             }
@@ -593,18 +586,18 @@ class Sync(
             api.deleteAnnotation(serverId, row.version)
         } catch (error: ApiException) {
             if (!error.refusesItem()) {
-                Log.w("RepoRead", "Highlight deletions stopped; annotationId=$serverId code=${error.code}")
+                AppLog.warn("Highlight deletions stopped; annotationId=$serverId code=${error.code}")
                 throw error
             }
             if (error.code != "NOT_FOUND") {
                 // Changed elsewhere first (409): shown again rather than deleted unseen.
-                Log.w("RepoRead", "Highlight deletion refused; annotationId=$serverId code=${error.code}")
+                AppLog.warn("Highlight deletion refused; annotationId=$serverId code=${error.code}")
                 dao.saveAnnotation(row.copy(state = AnnotationState.ACKNOWLEDGED))
                 return
             }
         }
         dao.removeAnnotation(row.mutationId)
-        Log.i("RepoRead", "Highlight deleted after its creation was acknowledged; annotationId=$serverId")
+        AppLog.info("Highlight deleted after its creation was acknowledged; annotationId=$serverId")
     }
 
     /** Pending creations are sent first, so the server's list already contains them where possible. */
@@ -701,7 +694,7 @@ class Sync(
                 } catch (error: ApiException) {
                     if (!error.refusesItem()) throw error
                     dao.rejectReview(row.mutationId, error.describe())
-                    Log.w("RepoRead", "Review refused; cardId=$id mutationId=${row.mutationId} code=${error.code}")
+                    AppLog.warn("Review refused; cardId=$id mutationId=${row.mutationId} code=${error.code}")
                     continue
                 }
             if (remote.cardMutationId != row.cardMutationId) throw invalidResponse(200)
