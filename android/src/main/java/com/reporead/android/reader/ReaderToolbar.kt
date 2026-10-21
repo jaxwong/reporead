@@ -26,6 +26,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.BookmarkEntity
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 
@@ -33,48 +35,46 @@ import com.reporead.android.ui.AppIcon
 @Composable
 internal fun ReaderToolbar(
     title: String,
-    sectionTitle: String?,
-    outlineAvailable: Boolean,
-    controlsVisible: Boolean,
-    pageActionsEnabled: Boolean,
-    studyAvailable: Boolean,
+    page: StudyPage?,
+    session: ReaderSession?,
+    annotations: List<AnnotationEntity>,
+    bookmark: BookmarkEntity?,
     studying: Boolean,
     notesOpen: Boolean,
-    annotationCount: Int,
-    bookmarked: Boolean,
     onBack: () -> Unit,
     onOutline: () -> Unit,
     onFind: () -> Unit,
     onToggleStudy: () -> Unit,
     onToggleNotes: () -> Unit,
-    onToggleBookmark: () -> Unit,
+    onSetBookmark: (Boolean) -> Unit,
 ) {
+    val bookmarked = bookmark?.bookmarked == true
     AppBar(
         title,
-        subtitle = sectionTitle,
+        subtitle = session?.let { it.outline?.sectionAt(it.topBlock) }?.text?.ifBlank { null },
         onBack = onBack,
         actions = {
-            if (outlineAvailable) {
+            if (!session?.outline.isNullOrEmpty()) {
                 IconButton(onClick = onOutline) { AppIcon(R.drawable.ic_toc, "Outline") }
             }
-            if (controlsVisible) {
-                IconButton(enabled = pageActionsEnabled, onClick = onFind) {
+            if (page?.opened != null) {
+                IconButton(enabled = session?.opened == true, onClick = onFind) {
                     AppIcon(R.drawable.ic_search, "Find in note")
                 }
-                if (studyAvailable) {
-                    TextButton(enabled = pageActionsEnabled, onClick = onToggleStudy) {
+                if (page.study.recognized) {
+                    TextButton(enabled = session?.opened == true, onClick = onToggleStudy) {
                         Text(if (studying) "Read" else "Study")
                     }
                 }
                 IconButton(onClick = onToggleNotes) {
-                    BadgedBox(badge = { if (annotationCount > 0) Badge { Text("$annotationCount") } }) {
+                    BadgedBox(badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }) {
                         AppIcon(
                             R.drawable.ic_notes,
                             if (notesOpen) "Hide highlights and notes" else "Highlights and notes",
                         )
                     }
                 }
-                IconButton(onClick = onToggleBookmark) {
+                IconButton(onClick = { onSetBookmark(!bookmarked) }) {
                     AppIcon(
                         if (bookmarked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border,
                         if (bookmarked) "Remove bookmark" else "Bookmark",

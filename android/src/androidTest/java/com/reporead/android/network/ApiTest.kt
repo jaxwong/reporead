@@ -466,7 +466,10 @@ class ApiTest {
             assertEquals(404, refused.status)
             assertEquals("NOT_FOUND", refused.code)
             assertEquals("test-only-request-id", refused.requestId)
-            val stored = DeviceLog.claimPendingBatch().orEmpty().joinToString("\n") { it.message }
+            val stored =
+                DeviceLog.claimPendingBatch().orEmpty().joinToString("\n") {
+                    wireJson.decodeFromString<DeviceLogLine>(it).message
+                }
             assertTrue(
                 stored,
                 stored.contains(

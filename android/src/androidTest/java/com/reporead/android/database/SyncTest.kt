@@ -67,7 +67,7 @@ import org.junit.runner.RunWith
  * database.
  */
 @RunWith(AndroidJUnit4::class)
-class LocalSyncTest {
+class SyncTest {
     private val sha = "a".repeat(40)
     private lateinit var store: RepoReadDatabase
     private lateinit var dao: RepoReadDao
@@ -1770,13 +1770,25 @@ class LocalSyncTest {
 
 /**
  * Test-only loopback HTTP server: answers each "METHOD /path" from [routes] (status and JSON body) and records every
- * request line and body. An unknown route is answered 500 and recorded, so it fails the test visibly. [beforeAnswer]
- * runs on the server thread after recording a request, so a test can hold one open.
+ * request line and body. [closeWithoutAnswering] records one route before its connection closes with no answer. An
+ * unknown route is answered 500 and recorded, so it fails the test visibly. [beforeAnswer] runs on the server thread
+ * after recording a request, so a test can hold one open.
  */
-internal class LoopbackServer(
+internal class LoopbackServer
+private constructor(
     private val routes: Map<String, Pair<Int, String>>,
-    private val beforeAnswer: (String) -> Unit = {},
+    private val unansweredRoutes: Set<String>,
+    private val beforeAnswer: (String) -> Unit,
 ) : AutoCloseable {
+    constructor(
+        routes: Map<String, Pair<Int, String>>,
+        beforeAnswer: (String) -> Unit = {},
+    ) : this(routes, emptySet(), beforeAnswer)
+
+    companion object {
+        fun closeWithoutAnswering(route: String) = LoopbackServer(emptyMap(), setOf(route), {})
+    }
+
     private val socket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
     val url = "http://127.0.0.1:${socket.localPort}"
     val requests: MutableList<String> = Collections.synchronizedList(mutableListOf())
@@ -1815,6 +1827,7 @@ internal class LoopbackServer(
         val key = line.substringBeforeLast(" HTTP/")
         requests += key
         bodies += String(body)
+        if (key in unansweredRoutes) return
         beforeAnswer(key)
         val (status, json) = routes[key] ?: (500 to """{"code":"TEST_UNEXPECTED_ROUTE","message":"$key"}""")
         val bytes = json.toByteArray(Charsets.UTF_8)

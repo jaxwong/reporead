@@ -33,7 +33,7 @@ These come from the original implementation spec's engineering invariants and th
 **Every list the phone saves from the server comes from one read of one database snapshot, and is written with the others in one Room transaction: all of one answer, or none of it.**
 
 - Enforced by: `GET /api/library` is the only route this app reads them from, one request per read and no GitHub call, and the server has no other route for them (ADR-08); `LibrarySnapshotReader` reads every list in one read-only `REPEATABLE READ` transaction; `Api` decodes and validates the whole answer, then `Sync` maps it before `RepoReadDao.replaceFromServer` writes it, and deletes images only after the commit.
-- Checked by: `LibraryTest` (a write committed during the read is wholly out of it and wholly in the next); `LocalSyncTest` on a device (a failed request or a broken answer leaves every saved list and image as it was).
+- Checked by: `LibraryTest` (a write committed during the read is wholly out of it and wholly in the next); `SyncTest` on a device (a failed request or a broken answer leaves every saved list and image as it was).
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
 
 ### Source traceability
@@ -115,7 +115,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **GitHub credentials never appear in logs, metrics, rendered pages, page JavaScript, or on the phone, and are never readable from the database alone.**
 
-- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; GitHub HTTP success/failure logs and oversize exception messages omit request paths, while metric tags never carry paths or content. `GitHubHttpConfigurationTest` checks success, transport failure and oversized responses; repository-sync candidate/move logs also omit note paths (`RepositorySyncTest`).
+- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; `RequestLoggingFilter` redacts the complete query on the GitHub OAuth callback and app-code landing page; GitHub HTTP success/failure logs and oversize exception messages omit request paths, while metric tags never carry paths or content. `RequestLoggingFilterTest` checks callback `code` and `state` values are absent from request summaries; `GitHubHttpConfigurationTest` checks success, transport failure and oversized responses; repository-sync candidate/move logs also omit note paths (`RepositorySyncTest`).
 - Why: [ADR-03](adrs.md#adr-03--github-user-tokens-stay-on-the-server-encrypted-at-rest), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
 
 ### Repository content is untrusted
@@ -130,7 +130,7 @@ These come from the original implementation spec's engineering invariants and th
 **Every repository image belongs to the displayed page's immutable repository commit and resolved path, even when only images changed.**
 
 - Enforced by: the content boundary captures document/checkpoint and image paths together, binds embeds once, and returns `snapshotCommitSha`; `SavedPageEntity` and shared reader resources preserve it; image requests require that commit, and `NoteImages` uses one commit-keyed layout for both reader loads and Save all. `Sync` requires a known matching snapshot for saved HTML containing `/repo-image/` or `image-blocked`; text-only pages need only the listed blob, path and current render format, so unrelated commits do not refetch them. Save all prefetch is ordered against page replacement/disconnect by the existing per-page Sync lock; reader image reads retain their independent file lock. An unknown legacy identity means unavailable images, never a latest-snapshot fallback.
-- Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `LocalSyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest` and `NavigationTest` (text-only commit reuse in Save all and open, blocked-embed rebinding, format upgrades, image-only refresh, Save all then offline reader access, current-page backfill, 503/unreachable/401 propagation through the worker, one-count permanent page skips, reader-only unavailable fallback, cancellation/repeat runs, disconnect during prefetch, cache/deletion interleavings including a fetch finishing after a sweep, preserved legacy data and saved navigation).
+- Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `SyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest` and `NavigationTest` (text-only commit reuse in Save all and open, blocked-embed rebinding, format upgrades, image-only refresh, Save all then offline reader access, current-page backfill, 503/unreachable/401 propagation through the worker, one-count permanent page skips, reader-only unavailable fallback, cancellation/repeat runs, disconnect during prefetch, cache/deletion interleavings including a fetch finishing after a sweep, preserved legacy data and saved navigation).
 - Why: [Images contract](../backend/README.md#images), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone).
 
 ### The user's data leaves only when the user sends it
@@ -153,7 +153,7 @@ These come from the original implementation spec's engineering invariants and th
 **A complete, valid, request-matching response is required before acknowledging a mutation. Only a known item-refusal status/code pair authorizes its permanent rejection.**
 
 - Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence (generated from `backend/openapi.json`), the value rules (`WireRules.kt`) and echoed identity checks; `Sync` owns a review's local card match. `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send accepts only 404 `NOT_FOUND` as final and raises every other failure, including a malformed-save 400. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
-- Checked by: `OpenApiSpecTest` (the committed spec is the backend's, and its mapper's actual output conforms), `ContractTest`, `ItemRefusalsTest` with `RefusalTest`, `ApiTest` (every route against the published spec), `LocalSyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot report success or explicitly clear the session (a 401 may independently end it).
+- Checked by: `OpenApiSpecTest` (the committed spec is the backend's, and its mapper's actual output conforms), `ContractTest`, `ItemRefusalsTest` with `RefusalTest`, `ApiTest` (every route against the published spec), `SyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot report success or explicitly clear the session (a 401 may independently end it).
 - Why: [ADR-26](adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
 
 ### Annotation capacity is admitted atomically
@@ -161,7 +161,7 @@ These come from the original implementation spec's engineering invariants and th
 **New highlights/cards cannot exceed 500 per document or 5,000 per user; bookmarks do not consume this capacity.**
 
 - Enforced by: `Annotations.create` locks the user before the connection and checks both counts inside its insertion transaction, after replay detection. Over-cap creation returns 422 `ANNOTATION_LIMIT` and rolls back its mutation claim. No migration deletes pre-existing data; edits, deletions and exact replays remain available at or above capacity.
-- Checked by: `AnnotationTest` covers exact document/user boundaries, mixed types, bookmarks, replay/edit/delete and concurrent creation across repositories. `RefusalTest` and `LocalSyncTest` keep capped offline creations pending for a later sync with the same mutation id.
+- Checked by: `AnnotationTest` covers exact document/user boundaries, mixed types, bookmarks, replay/edit/delete and concurrent creation across repositories. `RefusalTest` and `SyncTest` keep capped offline creations pending for a later sync with the same mutation id.
 - Counts do not guarantee the independent 8 MiB library answer; text size and the unbounded review log still matter. Limits are chosen policy, not measured capacity.
 
 ### Server-owned limits and no fallback

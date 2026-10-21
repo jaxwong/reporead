@@ -21,6 +21,7 @@ import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.wire.DeviceLogIngestControllerUploadRequest
 import com.reporead.android.network.wire.DeviceLogLine
+import com.reporead.android.network.wireJson
 import java.io.File
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -62,16 +63,7 @@ internal suspend fun uploadDeviceLogBatch(api: Api, signedIn: Boolean, attempt: 
     if (lines.isNotEmpty()) {
         try {
             api.uploadDeviceLogBatch(
-                DeviceLogIngestControllerUploadRequest(
-                    lines.map { stored ->
-                        DeviceLogLine(
-                            at = stored.at,
-                            appVersion = stored.appVersion,
-                            level = DeviceLogLine.Level.valueOf(stored.level.name),
-                            message = stored.message,
-                        )
-                    }
-                )
+                DeviceLogIngestControllerUploadRequest(lines.map { wireJson.decodeFromString<DeviceLogLine>(it) })
             )
         } catch (failure: ApiException) {
             if (!(failure.status == 400 && failure.code == "INVALID_REQUEST"))
