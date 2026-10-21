@@ -59,8 +59,8 @@ class DeviceLogUploadTest {
         DeviceLog.warn("Bookmark refused; documentId=7 code=NOT_FOUND")
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 0))
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 0))
+            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true))
+            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true))
 
             assertEquals(
                 "nothing stored, nothing sent the second time",
@@ -75,9 +75,10 @@ class DeviceLogUploadTest {
     fun aLostAcknowledgementLeavesTheReceivedBatchReplayableAndItIsSentFirstNextTime() = runBlocking {
         DeviceLog.info("Library sync started; entryId=1")
         LoopbackServer.closeWithoutAnswering("POST /api/app-logs").use { server ->
+            // Not retried on a backoff, which would hold later requests: the next request sends the lines.
             assertEquals(
-                Result.retry(),
-                uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 0),
+                Result.failure(),
+                uploadDeviceLogBatch(api(server.url), signedIn = true),
             )
             assertEquals(
                 listOf("Library sync started; entryId=1"),
@@ -87,17 +88,21 @@ class DeviceLogUploadTest {
         assertEquals(listOf("Library sync started; entryId=1"), claimedLines().map(DeviceLogLine::message))
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
-            uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 1)
+            uploadDeviceLogBatch(api(server.url), signedIn = true)
             assertEquals(
                 listOf(listOf("Library sync started; entryId=1")),
                 sentBatches(server).map { batch -> batch.map(DeviceLogLine::message) },
             )
         }
         // The failed attempt's own lines wait for the next upload.
+        val failedAttempt = claimedLines().map(DeviceLogLine::message)
         assertTrue(
-            claimedLines().any {
-                it.message.contains("Backend I/O failed; method=POST path=/api/app-logs")
-            }
+            failedAttempt.toString(),
+            failedAttempt.any { it.contains("Backend I/O failed; method=POST path=/api/app-logs") },
+        )
+        assertTrue(
+            failedAttempt.toString(),
+            failedAttempt.any { it.startsWith("Device log upload failed; lines=1 status=0") },
         )
     }
 
@@ -110,7 +115,7 @@ class DeviceLogUploadTest {
             )
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 0))
+            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true))
             assertEquals(
                 DeviceLogLine(
                     at = Instant.parse("2026-10-21T06:02:11.123Z"),
@@ -130,7 +135,7 @@ class DeviceLogUploadTest {
         val refusal = """{"code":"INVALID_REQUEST","message":"test-only refusal"}"""
 
         LoopbackServer(mapOf("POST /api/app-logs" to (400 to refusal))).use { server ->
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true, attempt = 0))
+            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true))
         }
 
         val left = claimedLines()
@@ -146,7 +151,7 @@ class DeviceLogUploadTest {
         DeviceLog.info("Reader ready; documentId=7")
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = false, attempt = 0))
+            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = false))
             assertTrue(server.requests.isEmpty())
         }
         assertEquals(1, DeviceLog.claimPendingBatch().orEmpty().size)

@@ -5,7 +5,6 @@ package com.reporead.android.sync
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.content.Context
-import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -42,13 +41,16 @@ internal val WARNING_UPLOAD_DELAY: Duration = Duration.ofSeconds(2)
  * Asks for one upload of the phone's stored log lines after [delay], once there is a network. While one is waiting or
  * running, asking again changes nothing: it sends whatever is stored when it runs. The returned operation completes
  * once WorkManager has recorded the request, which then outlives this process.
+ *
+ * A failed upload is never retried on a backoff, which would hold every later request (a crash's too) for up to hours:
+ * the next request sends its lines. The warnings a failing upload logs ask while it still runs, so they change nothing
+ * and cannot start a loop: WorkManager handles requests and the end of a run in order, on one serial executor.
  */
 internal fun requestDeviceLogUpload(context: Context, delay: Duration = Duration.ZERO): Operation {
     val request =
         OneTimeWorkRequestBuilder<DeviceLogUploadWorker>()
             .setInitialDelay(delay)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, FIRST_BACKOFF)
             .build()
     return WorkManager.getInstance(context).enqueueUniqueWork(DEVICE_LOG_WORK, ExistingWorkPolicy.KEEP, request)
 }
@@ -57,7 +59,7 @@ class DeviceLogUploadWorker(context: Context, params: WorkerParameters) : Corout
     override suspend fun doWork(): Result {
         val app = applicationContext as RepoReadApplication
         logProcessExits(app.getSystemService(ActivityManager::class.java), File(app.filesDir, EXITS_SEEN))
-        return uploadDeviceLogBatch(app.api, app.sessionStore.read() is StoredSession.Readable, runAttemptCount)
+        return uploadDeviceLogBatch(app.api, app.sessionStore.read() is StoredSession.Readable)
     }
 }
 
@@ -65,9 +67,9 @@ class DeviceLogUploadWorker(context: Context, params: WorkerParameters) : Corout
  * One upload of the stored lines ([DeviceLog.claimPendingBatch]), completed only once the server has logged them, so a
  * lost answer can at most repeat them. Signed out, the server would refuse them, so they wait for the next start after
  * signing in. A batch the route refuses (INVALID_REQUEST, its only refusal) would be refused again, so it is dropped;
- * other failures are tried again as the background sync's are. [attempt] counts from 0.
+ * after any other failure the batch waits for the next request ([requestDeviceLogUpload]).
  */
-internal suspend fun uploadDeviceLogBatch(api: Api, signedIn: Boolean, attempt: Int): Result {
+internal suspend fun uploadDeviceLogBatch(api: Api, signedIn: Boolean): Result {
     if (!signedIn) return Result.success()
     val lines = withContext(Dispatchers.IO) { DeviceLog.claimPendingBatch() } ?: return Result.success()
     if (lines.isNotEmpty()) {
@@ -76,8 +78,12 @@ internal suspend fun uploadDeviceLogBatch(api: Api, signedIn: Boolean, attempt: 
                 DeviceLogIngestControllerUploadRequest(lines.map { wireJson.decodeFromString<DeviceLogLine>(it) })
             )
         } catch (failure: ApiException) {
-            if (!(failure.status == 400 && failure.code == "INVALID_REQUEST"))
-                return if (shouldRetry("Device log upload", failure, attempt)) Result.retry() else Result.failure()
+            if (!(failure.status == 400 && failure.code == "INVALID_REQUEST")) {
+                DeviceLog.warn(
+                    "Device log upload failed; lines=${lines.size} status=${failure.status} code=${failure.code}"
+                )
+                return Result.failure()
+            }
             DeviceLog.warn("Device log lines refused; lines=${lines.size} code=${failure.code}")
         }
     }
