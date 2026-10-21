@@ -30,14 +30,14 @@ import androidx.navigation3.runtime.serialization.NavBackStackSerializer
 import androidx.navigation3.ui.NavDisplay
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.startSignIn
-import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.describe
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.Passage
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
 import com.reporead.android.library.NotebookScreen
+import com.reporead.android.network.Api
+import com.reporead.android.network.describe
 import com.reporead.android.reader.ReaderScreen
 import com.reporead.android.search.SearchScreen
 import com.reporead.android.study.PracticeScreen

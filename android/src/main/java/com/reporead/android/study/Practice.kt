@@ -34,13 +34,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.core.log.AppLog
 import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.NewCardGrade
 import com.reporead.android.data.NotebookItem
 import com.reporead.android.data.Passage
 import com.reporead.android.data.PracticePage
 import com.reporead.android.data.scheduledLines
+import com.reporead.android.logging.AppLog
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState

@@ -7,7 +7,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import androidx.core.content.edit
-import com.reporead.android.core.log.AppLog
+import com.reporead.android.logging.AppLog
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.UnrecoverableKeyException

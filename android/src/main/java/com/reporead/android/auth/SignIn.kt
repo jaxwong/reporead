@@ -7,9 +7,9 @@ import android.util.Base64
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.net.toUri
 import com.reporead.android.BuildConfig
-import com.reporead.android.core.log.AppLog
-import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
+import com.reporead.android.logging.AppLog
+import com.reporead.android.network.Api
+import com.reporead.android.network.wire.AppAuthControllerTokenRequest
 import java.security.MessageDigest
 import java.security.SecureRandom
 

@@ -4,9 +4,9 @@ package com.reporead.android
 
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.completeSignIn
-import com.reporead.android.core.log.AppLog
-import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.ApiException
+import com.reporead.android.logging.AppLog
+import com.reporead.android.network.Api
+import com.reporead.android.network.ApiException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

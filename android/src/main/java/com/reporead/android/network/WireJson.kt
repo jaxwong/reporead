@@ -1,7 +1,7 @@
 // Owns: The HTTP JSON policy, the generated models' strict scalar/time serializers and decoder-to-ApiException
 // translation.
 
-package com.reporead.android.core.network
+package com.reporead.android.network
 
 import java.time.Instant
 import java.time.format.DateTimeParseException

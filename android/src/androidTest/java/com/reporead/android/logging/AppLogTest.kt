@@ -1,12 +1,12 @@
 // Owns: Device coverage of the phone's log store: what is kept, within what cap, and how a batch is handed over.
 
-package com.reporead.android.core.log
+package com.reporead.android.logging
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.BuildConfig
-import com.reporead.android.core.network.wire.AppLogControllerLine
-import com.reporead.android.core.network.wireJson
+import com.reporead.android.network.wire.AppLogControllerLine
+import com.reporead.android.network.wireJson
 import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals

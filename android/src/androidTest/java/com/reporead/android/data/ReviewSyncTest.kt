@@ -4,8 +4,8 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.ApiException
+import com.reporead.android.network.Api
+import com.reporead.android.network.ApiException
 import com.reporead.android.sync.Sync
 import java.io.File
 import java.net.InetAddress

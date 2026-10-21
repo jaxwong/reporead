@@ -1,6 +1,6 @@
 // Owns: The app's log lines: logcat and the bounded store on the phone that the upload worker sends from.
 
-package com.reporead.android.core.log
+package com.reporead.android.logging
 
 import android.content.Context
 import android.util.Log

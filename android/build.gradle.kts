@@ -48,8 +48,8 @@ val wireModels = tasks.register<org.openapitools.generator.gradle.plugin.tasks.G
     inputSpec.set(publishedApi)
     outputDir.set(layout.buildDirectory.dir("generated/wire"))
     cleanupOutput.set(true)
-    packageName.set("com.reporead.android.core.network.wire")
-    modelPackage.set("com.reporead.android.core.network.wire")
+    packageName.set("com.reporead.android.network.wire")
+    modelPackage.set("com.reporead.android.network.wire")
     globalProperties.set(mapOf("models" to "", "modelDocs" to "false", "modelTests" to "false"))
     configOptions.set(
         mapOf(
@@ -59,7 +59,7 @@ val wireModels = tasks.register<org.openapitools.generator.gradle.plugin.tasks.G
             "sourceFolder" to "",
         )
     )
-    val strict = "com.reporead.android.core.network"
+    val strict = "com.reporead.android.network"
     typeMappings.set(
         mapOf("DateTime" to "java.time.Instant", "integer" to "WireInt", "long" to "WireLong", "boolean" to "WireBoolean")
     )

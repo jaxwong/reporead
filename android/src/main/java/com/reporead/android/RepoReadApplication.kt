@@ -2,10 +2,10 @@ package com.reporead.android
 
 import android.app.Application
 import com.reporead.android.auth.SessionStore
-import com.reporead.android.core.log.AppLog
-import com.reporead.android.core.log.appLogDirectory
-import com.reporead.android.core.network.Api
 import com.reporead.android.data.LocalStore
+import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.appLogDirectory
+import com.reporead.android.network.Api
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.requestSync
 import kotlinx.coroutines.MainScope

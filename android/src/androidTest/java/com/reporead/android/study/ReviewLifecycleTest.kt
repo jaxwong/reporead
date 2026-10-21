@@ -13,7 +13,6 @@ import com.reporead.android.auth.StoredSession
 import com.reporead.android.awaitText
 import com.reporead.android.awaitTextStarting
 import com.reporead.android.click
-import com.reporead.android.core.network.Api
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
@@ -23,6 +22,7 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.ReviewLimitRow
 import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.findText
+import com.reporead.android.network.Api
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.sync.Sync

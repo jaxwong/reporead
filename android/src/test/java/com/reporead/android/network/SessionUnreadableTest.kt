@@ -1,6 +1,6 @@
 // Owns: Coverage that temporarily unreadable sessions fail requests unsent without losing their cause.
 
-package com.reporead.android.core.network
+package com.reporead.android.network
 
 import com.reporead.android.auth.StoredSession
 import javax.crypto.IllegalBlockSizeException

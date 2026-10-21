@@ -22,13 +22,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.reporead.android.R
-import com.reporead.android.core.log.AppLog
 import com.reporead.android.data.AnnotationRow
 import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.AnnotationType
 import com.reporead.android.data.CardBlock
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LibraryDao
+import com.reporead.android.logging.AppLog
 import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.folderOf
 import kotlinx.coroutines.Dispatchers
