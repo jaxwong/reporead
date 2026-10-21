@@ -42,11 +42,21 @@ internal fun deviceLogDirectory(context: Context) = File(context.filesDir, "app-
 object DeviceLog {
     private val lock = Any()
     @Volatile private var directory: File? = null
+    @Volatile private var warned: () -> Unit = {}
 
     /** RepoReadApplication calls this before anything logs, with [deviceLogDirectory]. */
     fun start(directory: File) {
         check(directory.isDirectory || directory.mkdirs()) { "Cannot create the device log folder $directory" }
         this.directory = directory
+    }
+
+    /**
+     * MainActivity's request for an upload, run after every warning so it reaches the server within seconds while the
+     * app runs. Until it is set (a process started only for background work, or a device test), warnings wait for the
+     * next start or exit.
+     */
+    fun requestUploadOnWarning(request: () -> Unit) {
+        warned = request
     }
 
     /** A line too frequent to keep, such as one per scroll stop: logcat only, never stored or sent to the server. */
@@ -62,10 +72,12 @@ object DeviceLog {
     fun warn(message: String, error: Throwable? = null) {
         if (error == null) Log.w(TAG, message) else Log.w(TAG, message, error)
         store("WARN", if (error == null) message else "$message\n${trace(error)}")
+        warned()
     }
 
     /**
      * The uncaught-exception handler's line, stored before the process ends; Android logs the trace to logcat itself.
+     * The handler requests its upload.
      */
     fun crash(thread: Thread, error: Throwable) {
         store("ERROR", "Crash; thread=${thread.name}\n${trace(error)}")

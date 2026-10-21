@@ -7,23 +7,42 @@ import com.reporead.android.logging.DeviceLog
 import com.reporead.android.logging.deviceLogDirectory
 import com.reporead.android.network.Api
 import com.reporead.android.sync.Sync
+import com.reporead.android.sync.requestDeviceLogUpload
 import com.reporead.android.sync.requestSync
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+
+/** Long enough for WorkManager to record a request on a busy phone, short enough not to hold a crash noticeably. */
+private const val CRASH_UPLOAD_WAIT_SECONDS = 2L
 
 /**
  * The one owner of the app's long-lived objects, shared by the activity and the background sync. Each is created on
  * first use, so instrumented tests, which run in this process with their own databases, never open the app's.
  */
 class RepoReadApplication : Application() {
-    /** Before any screen, worker or test in this process logs; a crash's line is stored before Android ends it. */
+    /**
+     * Before any screen, worker or test in this process logs. A crash's line is stored and its upload recorded before
+     * Android ends the process, so Android starts the app in the background to send it, without the app being opened.
+     */
     override fun onCreate() {
         super.onCreate()
         DeviceLog.start(deviceLogDirectory(this))
         val ending = checkNotNull(Thread.getDefaultUncaughtExceptionHandler()) { "Android sets the crash handler" }
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             DeviceLog.crash(thread, error)
-            ending.uncaughtException(thread, error)
+            try {
+                // Bounded: a crash on WorkManager's own thread would otherwise wait for itself.
+                requestDeviceLogUpload(this).result.get(CRASH_UPLOAD_WAIT_SECONDS, TimeUnit.SECONDS)
+            } catch (notRecorded: TimeoutException) {
+                DeviceLog.warn("Crash upload not recorded; the next start sends it", notRecorded)
+            } catch (notRecorded: ExecutionException) {
+                DeviceLog.warn("Crash upload not recorded; the next start sends it", notRecorded)
+            } finally {
+                ending.uncaughtException(thread, error)
+            }
         }
     }
 
