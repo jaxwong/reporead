@@ -35,6 +35,7 @@ class NavigationTest {
                 Entry("linked", Screen.Reader(2, "Linked", OpenAt.Heading("Answer"))),
                 Entry("card", Screen.Reader(3, "Card", OpenAt.Highlight("mutation"))),
                 Entry("warning", Screen.Reader(4, "Warning", OpenAt.Block(sha, "b20"))),
+                Entry("search", Screen.Reader(5, "Search", OpenAt.Block(sha, "b1"))),
                 Entry("notebook", Screen.Notebook),
                 Entry("review", Screen.Review),
                 Entry("topic", Screen.Practice("topic")),

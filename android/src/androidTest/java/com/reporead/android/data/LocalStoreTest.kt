@@ -3,6 +3,7 @@ package com.reporead.android.data
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.reporead.android.OpenAt
 import com.reporead.android.search.SEARCH_LIMIT
 import com.reporead.android.search.SearchResult
 import com.reporead.android.search.search
@@ -135,9 +136,9 @@ class LocalStoreTest {
                 DocumentRow(5, 7, "core/interviews/a.md", "y", "a".repeat(40)),
             ),
         )
-        dao.saveNote(NoteRow(3, "a".repeat(40), "core/a.md", "core", "<main/>", 0))
-        dao.saveNote(NoteRow(1, "a".repeat(40), "old/a.md", "Old title", "<main/>", 0))
-        dao.saveNote(NoteRow(9, "a".repeat(40), "removed.md", "removed", "<main/>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(3, "a".repeat(40), "core/a.md", "core", "<main/>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(1, "a".repeat(40), "old/a.md", "Old title", "<main/>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(9, "a".repeat(40), "removed.md", "removed", "<main/>", 0))
         val partial = dao.bankPages().first()
         assertEquals(listOf(1L, 2L), partial.map { it.documentId })
         assertEquals("core/interview/a.md", partial.first().path)
@@ -146,10 +147,10 @@ class LocalStoreTest {
         assertNull(partial.last().blobSha)
         assertEquals(1, partial.count { it.html != null })
         // A copy older than the listed version reads as unsaved: grading its questions would be refused.
-        dao.saveNote(NoteRow(2, "c".repeat(40), "interview/b.md", "b", "<main>older</main>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(2, "c".repeat(40), "interview/b.md", "b", "<main>older</main>", 0))
         assertEquals(1, dao.bankPages().first().count { it.html != null })
         assertNull(dao.bankPages().first().last().blobSha)
-        dao.saveNote(NoteRow(2, "b".repeat(40), "interview/b.md", "b", "<main>complete</main>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(2, "b".repeat(40), "interview/b.md", "b", "<main>complete</main>", 0))
         assertEquals(2, dao.bankPages().first().count { it.html != null })
         dao.replaceDocuments(7, listOf(DocumentRow(2, 7, "interview/b.md", "b", "b".repeat(40))))
         assertEquals(listOf(2L), dao.bankPages().first().map { it.documentId })
@@ -171,12 +172,14 @@ class LocalStoreTest {
         dao.replaceDocuments(8, listOf(DocumentRow(4, 8, "d.md", "d", sha)))
         val linking =
             """<main><a href="/note-link?target=b">b</a><a href="/note-link?path=c.md&amp;heading=x">c</a></main>"""
-        dao.saveNote(NoteRow(1, sha, "a.md", "a", linking, 0))
-        dao.saveNote(NoteRow(2, sha, "b.md", "b", "<main>no links</main>", 0))
-        dao.saveNote(NoteRow(4, sha, "d.md", "d", linking, 0))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", linking, 0))
+        dao.saveNoteWithoutSearch(NoteRow(2, sha, "b.md", "b", "<main>no links</main>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(4, sha, "d.md", "d", linking, 0))
         // Note 3 is listed but not saved; note 4 links but belongs to another repository.
         assertEquals(listOf(NoteLinkRow(1, 0, "target=b"), NoteLinkRow(1, 1, "path=c.md&heading=x")), dao.noteLinks(7))
-        dao.saveNote(NoteRow(1, sha, "a.md", "a", """<main><a href="/note-link?target=c">c</a></main>""", 0))
+        dao.saveNoteWithoutSearch(
+            NoteRow(1, sha, "a.md", "a", """<main><a href="/note-link?target=c">c</a></main>""", 0)
+        )
         assertEquals(listOf(NoteLinkRow(1, 0, "target=c")), dao.noteLinks(7))
         dao.deleteNotes(listOf(1L))
         assertEquals(emptyList<NoteLinkRow>(), dao.noteLinks(7))
@@ -247,10 +250,13 @@ class LocalStoreTest {
                 "Postgres",
                 "<html/>",
                 0,
-                "MVCC\nUse 100% of the TRANSACTION log",
-            )
+            ),
+            listOf(
+                NoteSearchBlockRow(2, "b0", 0, "MVCC\nkeeps an internal newline"),
+                NoteSearchBlockRow(2, "b7", 1, "Use 100% of the TRANSACTION log"),
+            ),
         )
-        dao.saveNote(NoteRow(9, "d".repeat(40), "gone/Old.md", "Old", "<html/>", 0, null))
+        dao.saveNoteWithoutSearch(NoteRow(9, "d".repeat(40), "gone/Old.md", "Old", "<html/>", 0))
         dao.saveAnnotation(
             AnnotationRow(
                 "m1",
@@ -268,22 +274,20 @@ class LocalStoreTest {
             )
         )
 
-        // Title in a saved list, saved text (ASCII case-insensitive), and a highlight's note all match "transaction".
-        assertEquals(
-            listOf(2L),
-            dao.searchNotes("%transaction%", 50).filter { it.searchText != null }.map { it.documentId },
-        )
+        // Title in a saved list, an exact canonical block, and a highlight's note all match independently.
+        val textMatch = dao.searchNoteText("%transaction%", 50).single()
+        assertEquals(2L, textMatch.documentId)
+        assertEquals("b7", textMatch.blockId)
         assertEquals(listOf(1L), dao.searchHighlights("%transaction%", 50).map { it.documentId })
-        assertEquals(listOf(1L), dao.searchNotes("%spring%", 50).map { it.documentId })
-        // A note removed from its repository matches while its saved copy is kept (one saved before search has no
-        // text), and not without one.
-        assertEquals(listOf(9L), dao.searchNotes("%old%", 50).map { it.documentId })
-        assertNull(dao.searchNotes("%old%", 50).single().searchText)
+        assertEquals(listOf(1L), dao.searchNoteNames("%spring%", 50).map { it.documentId })
+        // A removed note still matches by name while its saved copy is kept, and not without one.
+        assertEquals(listOf(9L), dao.searchNoteNames("%old%", 50).map { it.documentId })
         // Escaped wildcards are literal: "0\_p" matches "100_percent" only, "0\%" only the text with "100%".
-        assertEquals(listOf(3L), dao.searchNotes("%0\\_p%", 50).map { it.documentId })
-        assertEquals(listOf(2L), dao.searchNotes("%0\\%%", 50).map { it.documentId })
-        assertEquals(emptyList<NoteMatch>(), dao.searchNotes("%nothing like this%", 50))
-        assertEquals(2, dao.searchNotes("%s%", 2).size)
+        assertEquals(listOf(3L), dao.searchNoteNames("%0\\_p%", 50).map { it.documentId })
+        assertEquals(listOf(2L), dao.searchNoteText("%0\\%%", 50).map { it.documentId })
+        assertTrue(dao.searchNoteNames("%nothing like this%", 50).isEmpty())
+        assertTrue(dao.searchNoteText("%nothing like this%", 50).isEmpty())
+        assertEquals(2, dao.searchNoteNames("%s%", 2).size)
     }
 
     @Test
@@ -291,17 +295,26 @@ class LocalStoreTest {
         val sha = "a".repeat(40)
         val listed = (1L..60L).map { DocumentRow(it, 7, "topics/Topic $it.md", "Topic $it", sha) }
         dao.replaceDocuments(7, listed + DocumentRow(61, 7, "now/Renamed.md", "Renamed", "b".repeat(40)))
-        // Each note matches by title and by its saved text: one note, not two results competing for the limit.
-        for (row in listed) dao.saveNote(NoteRow(row.id, sha, row.path, row.title, "<html/>", 0, "A topic in detail"))
+        // A body match supersedes the same note's name match, so each exact block appears once.
+        for (row in listed) dao.saveNote(
+            NoteRow(row.id, sha, row.path, row.title, "<html/>", 0),
+            listOf(NoteSearchBlockRow(row.id, "b0", 0, "A topic in detail")),
+        )
         // Saved before the note was renamed and moved: its documents row names it, not the older copy.
-        dao.saveNote(NoteRow(61, "c".repeat(40), "then/Original.md", "Original", "<html/>", 0, "Written about a topic"))
+        dao.saveNote(
+            NoteRow(61, "c".repeat(40), "then/Original.md", "Original", "<html/>", 0),
+            listOf(NoteSearchBlockRow(61, "b3", 0, "Written about a topic")),
+        )
 
         val found = search(dao, "topic")
         assertEquals(SEARCH_LIMIT, found.matches.map { it.documentId }.distinct().size)
         assertEquals(SEARCH_LIMIT, found.matches.size)
         assertTrue(found.truncated)
         assertEquals(emptyList<SearchResult>(), search(dao, "original").matches)
-        assertEquals(listOf("Renamed" to "now/Renamed.md"), search(dao, "written").matches.map { it.title to it.path })
+        val written = search(dao, "written").matches.single()
+        assertEquals("Renamed" to "now/Renamed.md", written.title to written.path)
+        assertEquals("Note text · Written about a topic", written.detail)
+        assertEquals(OpenAt.Block("c".repeat(40), "b3"), written.openAt)
     }
 
     @Test
@@ -312,7 +325,7 @@ class LocalStoreTest {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
         for (id in listOf(1L, 2L, 3L)) {
-            dao.saveNote(NoteRow(id, "a".repeat(40), "n.md", "n", "<html/>", 0, "text"))
+            dao.saveNoteWithoutSearch(NoteRow(id, "a".repeat(40), "n.md", "n", "<html/>", 0))
             dao.saveReading(readAt(id, "a".repeat(40), at = id).copy(pending = id == 2L))
             dao.saveBookmark(bookmark(id, bookmarked = true, pending = false, at = id))
             dao.saveAnnotation(annotation("m$id", null, null, AnnotationState.UNSENT).copy(documentId = id))
@@ -325,7 +338,7 @@ class LocalStoreTest {
         assertEquals(listOf(3L), dao.documents(8).first().map { it.id })
         assertNull(dao.note(1))
         assertNull(dao.note(2))
-        assertEquals("text", dao.note(3)!!.searchText)
+        assertTrue(dao.note(3) != null)
         assertNull(dao.reading(2))
         assertEquals(emptyList<ReadingRow>(), dao.pendingReading())
         assertEquals(listOf(3L), dao.bookmarks().first().map { it.documentId })
@@ -340,7 +353,7 @@ class LocalStoreTest {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", "a".repeat(40))))
         dao.replaceDocuments(8, listOf(DocumentRow(3, 8, "c.md", "c", "c".repeat(40))))
         for (id in listOf(1L, 3L)) {
-            dao.saveNote(NoteRow(id, "a".repeat(40), "n.md", "n", "<html/>", 0, "text"))
+            dao.saveNoteWithoutSearch(NoteRow(id, "a".repeat(40), "n.md", "n", "<html/>", 0))
             dao.saveReading(readAt(id, "a".repeat(40), at = id).copy(pending = true))
             dao.saveAnnotation(annotation("m$id", null, null, AnnotationState.UNSENT).copy(documentId = id))
         }
@@ -350,10 +363,10 @@ class LocalStoreTest {
         assertNull(dao.note(1))
         assertNull(dao.reading(1))
         assertNull(dao.annotation("m1"))
-        assertEquals("text", dao.note(3)!!.searchText)
+        assertTrue(dao.note(3) != null)
         assertEquals(listOf(3L), dao.pendingReading().map { it.documentId })
         dao.replaceRepositories(listOf(RepositoryRow(8, "o/other", 1, "c".repeat(40))))
-        assertEquals("text", dao.note(3)!!.searchText)
+        assertTrue(dao.note(3) != null)
     }
 
     @Test
@@ -378,7 +391,7 @@ class LocalStoreTest {
                 DocumentRow(6, 7, "removed.md", "removed", "a".repeat(40), deleted = true),
             ),
         )
-        for (id in 1L..6L) dao.saveNote(NoteRow(id, "a".repeat(40), "n$id.md", "n", "<html/>", 0))
+        for (id in 1L..6L) dao.saveNoteWithoutSearch(NoteRow(id, "a".repeat(40), "n$id.md", "n", "<html/>", 0))
         dao.saveReading(readAt(2, "a".repeat(40), at = 1))
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = false, at = 1))
         dao.saveAnnotation(annotation("m4", 4, null, AnnotationState.ACKNOWLEDGED).copy(documentId = 4))
@@ -420,7 +433,7 @@ class LocalStoreTest {
             ),
         )
         for (id in listOf(1L, 2L)) {
-            dao.saveNote(NoteRow(id, a, "interview/n$id.md", "n$id", links, 0, "text"))
+            dao.saveNoteWithoutSearch(NoteRow(id, a, "interview/n$id.md", "n$id", links, 0))
             dao.saveReading(readAt(id, b, at = id))
             dao.saveBookmark(bookmark(id, bookmarked = true, pending = false, at = id))
             dao.saveAnnotation(annotation("m$id", id, null, AnnotationState.ACKNOWLEDGED).copy(documentId = id))
@@ -434,7 +447,7 @@ class LocalStoreTest {
         assertEquals(1, dao.savedNoteCount(7))
         assertEquals(1, dao.savedListCount())
         assertEquals(1, dao.searchableNoteCount())
-        assertEquals(emptyList<NoteMatch>(), dao.searchNotes("%gone%", 10))
+        assertEquals(emptyList<NoteNameMatch>(), dao.searchNoteNames("%gone%", 10))
         assertEquals(listOf(1L), dao.updatedSinceRead().first().map { it.documentId })
         assertTrue(dao.recentlyChanged(5).first().isEmpty())
         // Named, and marked removed, wherever the user's own data on it is kept.
@@ -531,7 +544,7 @@ class LocalStoreTest {
         val review = ReviewRow("first-grade", card.mutationId, 4, 0, sha, true)
         dao.saveCardWithFirstReview(card, review)
         assertTrue("A missing bank must not admit a first grade", dao.annotations(1).first().isEmpty())
-        dao.saveNote(NoteRow(1, sha, "a.md", "Test-only bank", "<html/>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "Test-only bank", "<html/>", 0))
         dao.saveCardWithFirstReview(card, review)
         assertTrue(dao.reviews().first().isEmpty())
         val document = DocumentRow(1, 7, "a.md", "Test-only bank", sha)
@@ -555,7 +568,7 @@ class LocalStoreTest {
     fun theReviewWriteBoundaryAcceptsTheStoredScaleAndRollsBackInvalidFirstGrades() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "Test-only note", sha)))
-        dao.saveNote(NoteRow(1, sha, "a.md", "Test-only note", "<html/>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "Test-only note", "<html/>", 0))
         val card =
             annotation("card", null, null, AnnotationState.UNSENT)
                 .copy(type = AnnotationType.CARD, question = "Test-only question?", checkedBlobSha = sha)
@@ -590,7 +603,7 @@ class LocalStoreTest {
     fun gradesSurviveNotebookRefreshAndAcknowledgementAndOnlyCurrentAnswersCanBeGraded() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
         val card =
             annotation("card", null, null, AnnotationState.UNSENT)
                 .copy(type = AnnotationType.CARD, question = "Why?", checkedBlobSha = sha)

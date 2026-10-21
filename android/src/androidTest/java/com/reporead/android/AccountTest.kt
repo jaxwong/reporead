@@ -24,6 +24,7 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.LoopbackServer
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.NoteSearchBlockRow
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.ReviewRow
@@ -103,7 +104,10 @@ class AccountTest {
         sessions.save("TEST_ONLY_SESSION")
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text", snapshotCommitSha = sha))
+        dao.saveNote(
+            NoteRow(1, sha, "a.md", "a", "<html/>", 0, snapshotCommitSha = sha),
+            listOf(NoteSearchBlockRow(1, "b0", 0, "private text")),
+        )
         assertTrue(dao.saveDisplayedReading(reading()))
         dao.saveAnnotation(
             AnnotationRow("unsent", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
@@ -144,7 +148,7 @@ class AccountTest {
         withTimeout(10_000) { state.first { it is AccountState.Idle } as AccountState.Idle }
 
     private suspend fun assertPhoneKept() {
-        assertEquals("private text", dao.note(1)?.searchText)
+        assertEquals("private text", dao.searchNoteText("%private%", 1).single().text)
         assertEquals(AnnotationState.UNSENT, dao.annotation("unsent")?.state)
         assertEquals(AnnotationState.UNSENT, dao.annotation("card")?.state)
         assertTrue(dao.reading(1)!!.pending)

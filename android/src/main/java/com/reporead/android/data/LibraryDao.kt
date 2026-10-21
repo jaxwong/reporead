@@ -146,13 +146,29 @@ interface LibraryDao {
 
     @Insert suspend fun insertNoteLinks(rows: List<NoteLinkRow>)
 
+    @Insert suspend fun insertNoteSearchBlocks(rows: List<NoteSearchBlockRow>)
+
     @Query("delete from note_links where documentId = :documentId") suspend fun deleteNoteLinks(documentId: Long)
 
-    /** Saves a page with the note links it holds, replacing an older copy and its links. */
+    @Query("delete from note_search_blocks where documentId = :documentId")
+    suspend fun deleteNoteSearchBlocks(documentId: Long)
+
+    /** Saves a page with its backend-issued search blocks and derived note links, replacing the complete older copy. */
     @Transaction
-    suspend fun saveNote(row: NoteRow) {
+    suspend fun saveNote(row: NoteRow, blocks: List<NoteSearchBlockRow>) {
+        require(blocks.all { it.documentId == row.documentId }) {
+            "Search blocks must belong to saved documentId=${row.documentId}"
+        }
+        require(blocks.map { it.blockId }.distinct().size == blocks.size) {
+            "Search blocks must have unique ids for documentId=${row.documentId}"
+        }
+        require(blocks.map { it.position }.toSet() == blocks.indices.toSet()) {
+            "Search block positions must be contiguous for documentId=${row.documentId}"
+        }
         deleteNoteLinks(row.documentId)
+        deleteNoteSearchBlocks(row.documentId)
         insertNote(row)
+        insertNoteSearchBlocks(blocks)
         insertNoteLinks(
             noteLinkQueries(row.html).mapIndexed { position, query -> NoteLinkRow(row.documentId, position, query) }
         )
@@ -193,22 +209,29 @@ interface LibraryDao {
     )
     fun waitingCount(): Flow<Int>
 
-    /**
-     * One row per matching note, named by its documents row: notes in the saved lists, and notes removed from their
-     * repository whose saved copy is still kept, whose title, path, or saved text matches. [pattern] is a LIKE pattern
-     * with \ as the escape character (ASCII letters match case-insensitively).
-     */
+    /** Name-only matches; a note with a body match is omitted because its exact [NoteTextMatch] is more useful. */
     @Query(
-        """select d.id as documentId, d.title, d.path, case when n.searchText like :pattern escape '\' then n.searchText end as searchText
+        """select d.id as documentId, d.title, d.path, d.title like :pattern escape '\' as titleMatch
               from documents d left join notes n on n.documentId = d.id
               where (not d.deleted or n.documentId is not null)
-              and (d.title like :pattern escape '\' or d.path like :pattern escape '\' or n.searchText like :pattern escape '\')
+              and (d.title like :pattern escape '\' or d.path like :pattern escape '\')
+              and not exists (select 1 from note_search_blocks b where b.documentId = d.id and b.text like :pattern escape '\')
               order by d.title limit :limit"""
     )
-    suspend fun searchNotes(pattern: String, limit: Int): List<NoteMatch>
+    suspend fun searchNoteNames(pattern: String, limit: Int): List<NoteNameMatch>
+
+    /** One row per canonical block containing [pattern], carrying the saved version and exact reader block id. */
+    @Query(
+        """select d.id as documentId, d.title, d.path, n.blobSha, b.blockId, b.text
+              from note_search_blocks b join notes n on n.documentId = b.documentId
+              join documents d on d.id = b.documentId
+              where (not d.deleted or n.documentId is not null) and b.text like :pattern escape '\'
+              order by d.title, b.position limit :limit"""
+    )
+    suspend fun searchNoteText(pattern: String, limit: Int): List<NoteTextMatch>
 
     @Query(
-        """select a.documentId, d.title, d.path, a.exactText, a.note
+        """select a.mutationId, a.documentId, d.title, d.path, a.exactText, a.note
               from annotations a join documents d on d.id = a.documentId
               where a.state <> 'DELETING' and (a.exactText like :pattern escape '\' or a.note like :pattern escape '\')
               order by a.createdAt desc limit :limit"""
@@ -217,10 +240,8 @@ interface LibraryDao {
 
     @Query("select count(*) from documents where not deleted") suspend fun savedListCount(): Int
 
-    /** Notes in the saved lists whose saved copy has search text: the part of [savedListCount] searched by text. */
-    @Query(
-        "select count(*) from notes n join documents d on d.id = n.documentId where not d.deleted and n.searchText is not null"
-    )
+    /** Notes in the saved lists with a saved page: the part of [savedListCount] whose canonical blocks are searched. */
+    @Query("select count(*) from notes n join documents d on d.id = n.documentId where not d.deleted")
     suspend fun searchableNoteCount(): Int
 
     @Query(

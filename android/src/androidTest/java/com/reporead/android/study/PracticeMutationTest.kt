@@ -9,6 +9,7 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.sync.Sync
 import java.io.File
 import java.util.UUID
@@ -48,7 +49,7 @@ class PracticeMutationTest {
         files = File(context.cacheDir, "test-only-practice-mutation-${UUID.randomUUID()}").also { check(it.mkdirs()) }
         val dao = store.library()
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, question.path, question.title, sha)))
-        dao.saveNote(NoteRow(1, sha, question.path, question.title, "<main id=note></main>", 0))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, question.path, question.title, "<main id=note></main>", 0))
         sync =
             Sync(
                 Api("http://127.0.0.1:1", { error("Practice mutation test must not call the network") }) {},

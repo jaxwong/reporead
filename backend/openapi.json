@@ -967,9 +967,15 @@
         }
       },
       "DocumentControllerContent" : {
-        "required" : [ "documentId", "html", "path", "renderFormat", "snapshotCommitSha", "sourceBlobSha", "text", "title" ],
+        "required" : [ "blocks", "documentId", "html", "path", "renderFormat", "snapshotCommitSha", "sourceBlobSha", "title" ],
         "type" : "object",
         "properties" : {
+          "blocks" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/DocumentControllerSearchBlock"
+            }
+          },
           "documentId" : {
             "type" : "integer",
             "format" : "int64"
@@ -990,10 +996,19 @@
           "sourceBlobSha" : {
             "type" : "string"
           },
-          "text" : {
+          "title" : {
+            "type" : "string"
+          }
+        }
+      },
+      "DocumentControllerSearchBlock" : {
+        "required" : [ "id", "text" ],
+        "type" : "object",
+        "properties" : {
+          "id" : {
             "type" : "string"
           },
-          "title" : {
+          "text" : {
             "type" : "string"
           }
         }

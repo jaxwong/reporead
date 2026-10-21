@@ -22,6 +22,7 @@ import com.reporead.android.data.LocalStore
 import com.reporead.android.data.LoopbackServer
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.RepositoryRow
+import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.toRow
 import com.reporead.android.ui.Load
@@ -57,7 +58,7 @@ class ReaderViewModelTest {
         val dao = store.library()
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 1, testSha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", testSha)))
-        dao.saveNote(
+        dao.saveNoteWithoutSearch(
             NoteRow(
                 1,
                 testSha,

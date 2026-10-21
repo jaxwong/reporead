@@ -22,6 +22,7 @@ import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
 import com.reporead.android.data.Passage
+import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.findText
 import com.reporead.android.findWebView
 import com.reporead.android.pageBounds
@@ -110,7 +111,7 @@ class PracticeSessionTest {
                 DocumentRow(2, 7, "test-only/topic/core.md", "Test-only core", coreSha),
             ),
         )
-        dao.saveNote(
+        dao.saveNoteWithoutSearch(
             NoteRow(
                 1,
                 bankSha,
@@ -121,7 +122,7 @@ class PracticeSessionTest {
                 renderFormat = BuildConfig.RENDER_FORMAT,
             )
         )
-        dao.saveNote(
+        dao.saveNoteWithoutSearch(
             NoteRow(
                 2,
                 coreSha,
@@ -158,7 +159,9 @@ class PracticeSessionTest {
             val path = "test-only/topic/interview/bank.md"
             dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
             val html = testPage(bankSha, block("b0", "h3", "Other repository's warning"))
-            dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT))
+            dao.saveNoteWithoutSearch(
+                NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
+            )
             TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("1 heading is not a question")
@@ -185,7 +188,9 @@ class PracticeSessionTest {
                         answer("b2", "First answer", "first-answer") +
                         block("b3", "h3", "Repeated"),
                 )
-            dao.saveNote(NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT))
+            dao.saveNoteWithoutSearch(
+                NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
+            )
             TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
             ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText("2 headings are not questions")
@@ -367,7 +372,9 @@ class PracticeSessionTest {
             val dao = store.library()
             val core = checkNotNull(dao.note(2))
             // Test-only page with no renderer: preparation stays pending until the explicit failure below.
-            dao.saveNote(core.copy(html = core.html.replace("<script defer src=\"/assets/reader.js\"></script>", "")))
+            dao.saveNoteWithoutSearch(
+                core.copy(html = core.html.replace("<script defer src=\"/assets/reader.js\"></script>", ""))
+            )
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 repeat(2) {
                     awaitText("Show answer")
@@ -412,7 +419,7 @@ class PracticeSessionTest {
                         block("b1", "p", guide) +
                         """<p data-block-id="b2" data-anchor-text="Canonical answer: First answer and Second answer"><strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Ftopic%2Fcore.md&amp;heading=first-answer">First answer</a> and <a href="/note-link?path=test-only%2Ftopic%2Fcore.md&amp;heading=second-answer">Second answer</a></p>""",
                 )
-            dao.saveNote(note.copy(html = html))
+            dao.saveNoteWithoutSearch(note.copy(html = html))
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("Show answer")
                 preparedAnswer(scenario)

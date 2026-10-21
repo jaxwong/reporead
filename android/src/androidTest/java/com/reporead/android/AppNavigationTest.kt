@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getAllSemanticsNodes
+import androidx.compose.ui.text.AnnotatedString
 import androidx.lifecycle.Lifecycle
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
@@ -43,6 +44,7 @@ import com.reporead.android.data.LibraryDao
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.LoopbackServer
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.NoteSearchBlockRow
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.reader.testPage
 import com.reporead.android.sync.Sync
@@ -52,9 +54,10 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -105,9 +108,22 @@ class AppNavigationTest {
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", notes.size, testSha)))
         dao.replaceDocuments(7, notes.map { DocumentRow(it.id, 7, it.path, it.title, testSha) })
         for (note in notes) {
+            val searchable = if (note.id == 1L) "Exact search destination for Note A." else "Other saved text."
+            val blocks =
+                if (note.id == 1L)
+                    buildList {
+                        add("b0" to "Test-only text, then onward.")
+                        for (index in 1..30) add("b$index" to "Test-only before-search block $index.")
+                        add("b31" to searchable)
+                        for (index in 32..60) add("b$index" to "Test-only after-search block $index.")
+                    }
+                else listOf("b0" to "Test-only text, then onward.", "b1" to searchable)
             val body =
-                """<p data-block-id="b0" data-anchor-text="Test-only text">Test-only text, then """ +
-                    """<a href="/note-link?target=${note.linksTo}">onward</a>.</p>"""
+                blocks.joinToString("") { (id, text) ->
+                    if (id == "b0")
+                        """<p data-block-id="$id" data-anchor-text="$text">Test-only text, then <a href="/note-link?target=${note.linksTo}">onward</a>.</p>"""
+                    else """<p data-block-id="$id" data-anchor-text="$text">$text</p>"""
+                }
             dao.saveNote(
                 NoteRow(
                     note.id,
@@ -118,7 +134,8 @@ class AppNavigationTest {
                     0,
                     renderFormat = BuildConfig.RENDER_FORMAT,
                     snapshotCommitSha = testSha,
-                )
+                ),
+                blocks.mapIndexed { position, (id, text) -> NoteSearchBlockRow(note.id, id, position, text) },
             )
         }
     }
@@ -129,7 +146,7 @@ class AppNavigationTest {
         instrumentation.waitForIdleSync()
         TestHostActivity.content = null
         TestHostActivity.restoredState = null
-        scope.cancel()
+        runBlocking { checkNotNull(scope.coroutineContext[Job]).cancelAndJoin() }
         store.close()
         context.deleteSharedPreferences(prefsName)
         check(directory.deleteRecursively())
@@ -283,6 +300,14 @@ class AppNavigationTest {
         instrumentation.waitForIdleSync()
     }
 
+    /** Replaces the text of the shown field through Compose semantics. */
+    private fun setText(description: String, value: String) {
+        withControl(description) { control ->
+            checkNotNull(control.config[SemanticsActions.SetText].action)(AnnotatedString(value))
+        }
+        instrumentation.waitForIdleSync()
+    }
+
     /** Waits for in-flight screen work to finish, then checks nothing more was sent. */
     private fun assertNothingMoreSent(server: LoopbackServer, before: List<String>) = runBlocking {
         delay(1_000)
@@ -314,6 +339,23 @@ class AppNavigationTest {
             awaitText("test-only/notes")
             assertTrue(selected("Repositories"))
             assertEquals(emptyList<String>(), server.requests)
+        }
+    }
+
+    @Test
+    fun tappingANoteTextSearchResultOpensTheExactMatchingBlock() = runBlocking {
+        LoopbackServer(emptyMap()).use { server ->
+            val api = api(server)
+            launchApp(account(api), api)
+            awaitText("Library")
+            click("Search")
+            awaitText("Search saved notes")
+            setText("Search saved notes", "exact search destination")
+            awaitTextStarting("Note text · Exact search destination")
+            click("Note A")
+            withTimeout(10_000) {
+                while (dao.reading(1)?.anchorJson?.let { JSONObject(it).getInt("blockIndex") } != 31) delay(50)
+            }
         }
     }
 

@@ -28,6 +28,7 @@ import com.reporead.android.data.InvalidReviewGrade
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NewCardGrade
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.NoteSearchBlockRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.ReadingRow
 import com.reporead.android.data.RepositoryRow
@@ -203,8 +204,8 @@ class Sync(
     /**
      * An [upToDate] cached copy opens without a network call. Otherwise the current version is fetched; if that fails,
      * an older cached copy is shown with the reason, and a missing cache is the failure itself. A current copy saved in
-     * an older page format (without search text, note links, embeds, or later presentation fixes) is fetched once more;
-     * if that fails it is still the current version, so it opens without a warning.
+     * an older page format (without search blocks, note links, embeds, or later presentation fixes) is fetched once
+     * more; if that fails it is still the current version, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened = locked {
         val cached = dao.note(documentId)
@@ -235,11 +236,14 @@ class Sync(
                 answer.title,
                 answer.html,
                 System.currentTimeMillis(),
-                answer.text,
                 answer.renderFormat,
                 answer.snapshotCommitSha,
             )
-        dao.saveNote(note)
+        val blocks =
+            answer.blocks.mapIndexed { position, block ->
+                NoteSearchBlockRow(documentId, block.id, position, block.text)
+            }
+        dao.saveNote(note, blocks)
         return note
     }
 

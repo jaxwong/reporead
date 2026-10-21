@@ -139,8 +139,13 @@ class DocumentContentTest extends SharedSpringTest {
                     .andExpect(jsonPath("$.path").value("backend/spring.md"))
                     .andExpect(jsonPath("$.sourceBlobSha").value(sha))
                     .andExpect(jsonPath("$.snapshotCommitSha").value("c".repeat(40)))
-                    .andExpect(
-                            jsonPath("$.text").value("Spring\nA transaction groups work.\n<script>alert(1)</script>"))
+                    .andExpect(jsonPath("$.blocks[0].id").value("b0"))
+                    .andExpect(jsonPath("$.blocks[0].text").value("Spring"))
+                    .andExpect(jsonPath("$.blocks[1].id").value("b1"))
+                    .andExpect(jsonPath("$.blocks[1].text").value("A transaction groups work."))
+                    .andExpect(jsonPath("$.blocks[2].id").value("b2"))
+                    .andExpect(jsonPath("$.blocks[2].text").value("<script>alert(1)</script>"))
+                    .andExpect(jsonPath("$.text").doesNotExist())
                     .andExpect(jsonPath("$.renderFormat").value(MarkdownRenderer.FORMAT))
                     .andExpect(
                             content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("TOKEN"))))
@@ -196,7 +201,7 @@ class DocumentContentTest extends SharedSpringTest {
         expectBlob(sha, withSuccess(empty, MediaType.APPLICATION_OCTET_STREAM));
         read(alice, id)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.text").value(""))
+                .andExpect(jsonPath("$.blocks").isEmpty())
                 .andExpect(jsonPath("$.html").value(org.hamcrest.Matchers.containsString("This note is empty.")));
     }
 
@@ -231,8 +236,9 @@ class DocumentContentTest extends SharedSpringTest {
                                 .length
                         - 2
                         + path.getBytes(StandardCharsets.UTF_8).length
-                        + 80; // source blob and saved image snapshot
-        // Each source character occurs in HTML twice and in search text once; use the title for the remainder.
+                        + 80
+                        + 2; // source blob, saved image snapshot and block id b0
+        // Each source character occurs in HTML twice and in its search block once; use the title for the remainder.
         int available = MarkdownRenderer.MAX_PAGE_BYTES - fixedBytes - 1;
         int repeatedBytes = 3 * character.getBytes(StandardCharsets.UTF_8).length;
         byte[] bytes = character.repeat(available / repeatedBytes).getBytes(StandardCharsets.UTF_8);
@@ -253,8 +259,12 @@ class DocumentContentTest extends SharedSpringTest {
                     .getContentAsString();
             var content = json.readTree(body);
             long storedBytes = 0;
-            for (String field : List.of("path", "title", "sourceBlobSha", "snapshotCommitSha", "html", "text")) {
+            for (String field : List.of("path", "title", "sourceBlobSha", "snapshotCommitSha", "html")) {
                 storedBytes += content.get(field).stringValue().getBytes(StandardCharsets.UTF_8).length;
+            }
+            for (var block : content.get("blocks")) {
+                storedBytes += block.get("id").stringValue().getBytes(StandardCharsets.UTF_8).length;
+                storedBytes += block.get("text").stringValue().getBytes(StandardCharsets.UTF_8).length;
             }
             assertEquals(MarkdownRenderer.MAX_PAGE_BYTES, storedBytes);
         }
@@ -270,20 +280,21 @@ class DocumentContentTest extends SharedSpringTest {
     }
 
     @Test
-    void completePageLimitIncludesSearchTextAndEveryMetadataStringInUtf8() {
+    void completePageLimitIncludesSearchBlocksAndEveryMetadataStringInUtf8() {
         String path = "test-only/測定.md";
         String title = "測😀";
         String sha = "a".repeat(40);
         // Worst-case JSON escaping still fits the existing 8 MiB transport bound.
         String text = "\u0001".repeat(500_000);
-        int metadataBytes = (path + title + sha + sha + text).getBytes(StandardCharsets.UTF_8).length;
+        int metadataBytes = (path + title + sha + sha + "b0" + text).getBytes(StandardCharsets.UTF_8).length;
         String html = "h".repeat(MarkdownRenderer.MAX_PAGE_BYTES - metadataBytes);
-        var accepted = new DocumentController.Content(1, path, title, sha, sha, html, text, MarkdownRenderer.FORMAT);
+        var blocks = List.of(new DocumentController.SearchBlock("b0", text));
+        var accepted = new DocumentController.Content(1, path, title, sha, sha, html, blocks, MarkdownRenderer.FORMAT);
         assertTrue(json.writeValueAsBytes(accepted).length < 8 * 1_048_576);
         var failure = assertThrows(
                 ApiFailure.class,
                 () -> new DocumentController.Content(
-                        1, path, title + "x", sha, sha, html, text, MarkdownRenderer.FORMAT));
+                        1, path, title + "x", sha, sha, html, blocks, MarkdownRenderer.FORMAT));
         assertEquals(ApiFailure.Code.UNSUPPORTED_CONTENT, failure.code);
     }
 
@@ -415,7 +426,7 @@ class DocumentContentTest extends SharedSpringTest {
         assertTrue(page.select(".image-blocked").get(0).attr("data-label").contains("No image named missing.png"));
         assertTrue(page.select(".image-blocked").get(1).attr("data-label").contains("3 images are named deep.gif"));
         // Image availability must never change the quote/offset contract.
-        assertEquals(markdown, content.get("text").stringValue());
+        assertEquals(markdown, content.get("blocks").get(0).get("text").stringValue());
         assertEquals(markdown, page.selectFirst("[data-block-id=b0]").attr("data-anchor-text"));
         assertTrue(
                 page.select("[data-embed]").isEmpty(),

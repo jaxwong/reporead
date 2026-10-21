@@ -49,6 +49,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -112,7 +113,7 @@ class LocalSyncTest {
     /** The server's page of note [id] at version [sha]. */
     private fun content(id: Int) =
         200 to
-            """{"documentId":$id,"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","text":"",
+            """{"documentId":$id,"sourceBlobSha":"$sha","path":"n$id.md","title":"n$id","html":"<main id=note></main>","blocks":[],
             "renderFormat":${BuildConfig.RENDER_FORMAT},"snapshotCommitSha":"$sha"}"""
 
     /** What the folder screen shows for a Save all run in [state] with this [output] and [progress]. */
@@ -147,7 +148,7 @@ class LocalSyncTest {
     fun aFormatThreeCurrentPageIsFetchedOnlyOnceOnline() = runBlocking {
         savedRepository()
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
-        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, "saved", 3, "b".repeat(40)))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, 3, "b".repeat(40)))
         LoopbackServer(mapOf("GET /api/documents/1/content" to content(1))).use { server ->
             val sync = sync(server.url)
             val first = sync.openNote(1)
@@ -161,8 +162,8 @@ class LocalSyncTest {
     @Test
     fun aCurrentPageInAnOlderFormatOpensOfflineWithoutAWarning() = runBlocking {
         savedRepository()
-        val old = NoteRow(1, sha, "a.md", "a", "<main>kept</main>", 0, "kept", 3, sha)
-        dao.saveNote(old)
+        val old = NoteRow(1, sha, "a.md", "a", "<main>kept</main>", 0, 3, sha)
+        dao.saveNoteWithoutSearch(old)
         val opened = sync("http://127.0.0.1:${closedPort()}").openNote(1)
         assertEquals(old, opened.note)
         assertNull(opened.staleReason)
@@ -172,8 +173,8 @@ class LocalSyncTest {
     @Test
     fun anOversizedNewVersionKeepsShowingTheSavedPageWithItsReason() = runBlocking {
         savedRepository()
-        val old = NoteRow(1, "b".repeat(40), "a.md", "a", "<main>kept</main>", 0, "kept", 3, sha)
-        dao.saveNote(old)
+        val old = NoteRow(1, "b".repeat(40), "a.md", "a", "<main>kept</main>", 0, 3, sha)
+        dao.saveNoteWithoutSearch(old)
         LoopbackServer(mapOf("GET /api/documents/1/content" to failure(422, "UNSUPPORTED_CONTENT"))).use { server ->
             val opened = sync(server.url).openNote(1)
             assertEquals(old, opened.note)
@@ -447,7 +448,7 @@ class LocalSyncTest {
     @Test
     fun everyLocalChangeAsksForABackgroundSync() = runBlocking {
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "text"))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
         var requested = 0
         // Nothing listens on the port: saving a change never waits for the network.
         val sync =
@@ -614,8 +615,12 @@ class LocalSyncTest {
         val old = "b".repeat(40)
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 2, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha), DocumentRow(2, 7, "n2.md", "n2", sha)))
-        dao.saveNote(NoteRow(1, old, "n1.md", "n1", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
-        dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
+        dao.saveNoteWithoutSearch(
+            NoteRow(1, old, "n1.md", "n1", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
+        )
+        dao.saveNoteWithoutSearch(
+            NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
+        )
         val replaced = image(1, old)
         LoopbackServer(
                 mapOf(
@@ -639,9 +644,15 @@ class LocalSyncTest {
     @Test
     fun saveAllFetchesOnlyTheNotesNotSavedAsListed() = runBlocking {
         val old = "b".repeat(40)
-        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, sha))
-        dao.saveNote(NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT, old))
-        dao.saveNote(NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, "", BuildConfig.RENDER_FORMAT - 1, old))
+        dao.saveNoteWithoutSearch(
+            NoteRow(1, sha, "n1.md", "n1", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, sha)
+        )
+        dao.saveNoteWithoutSearch(
+            NoteRow(2, old, "n2.md", "n2", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
+        )
+        dao.saveNoteWithoutSearch(
+            NoteRow(3, sha, "n3.md", "n3", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT - 1, old)
+        )
         LoopbackServer(
                 mapOf(
                     "GET /api/library" to
@@ -735,8 +746,8 @@ class LocalSyncTest {
             """<main id="note"><img src="/repo-image/ok.png"><img src="/repo-image/missing.png">
             <img src="/repo-image/missing.png"><img src="https://test-only.invalid/remote.png">
             <span class="image-blocked">Image unavailable</span></main>"""
-        val current = NoteRow(1, sha, "n1.md", "n1", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
-        dao.saveNote(current)
+        val current = NoteRow(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha)
+        dao.saveNoteWithoutSearch(current)
         val listed =
             "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3, deleted = true)}"))
         val missing = "GET /api/documents/1/image?commitSha=$sha&path=missing.png"
@@ -793,8 +804,8 @@ class LocalSyncTest {
     @Test
     fun losingTheServerAfterACurrentPagesImagesStopsAtTheNextImageAndUsesTheWorkersRetryLimit() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/a.png"></main>"""
-        for (id in 1L..3L) dao.saveNote(
-            NoteRow(id, sha, "n$id.md", "n$id", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
+        for (id in 1L..3L) dao.saveNoteWithoutSearch(
+            NoteRow(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
         )
         val first = "GET /api/documents/1/image?commitSha=$sha&path=a.png"
         for (attempt in listOf(0, 9)) {
@@ -848,8 +859,8 @@ class LocalSyncTest {
     @Test
     fun anImage401EndsTheSessionAndStopsWithoutRequestingLaterImages() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/a.png"></main>"""
-        for (id in 1L..3L) dao.saveNote(
-            NoteRow(id, sha, "n$id.md", "n$id", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
+        for (id in 1L..3L) dao.saveNoteWithoutSearch(
+            NoteRow(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
         )
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = "test-only-save-all-session-${UUID.randomUUID()}"
@@ -890,8 +901,8 @@ class LocalSyncTest {
     @Test
     fun permanentImageRefusalsCountEachPageOnceAndKeepItsTextBeforeContinuingAtTheNextPage() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/refused.png"><img src="/repo-image/later.png"></main>"""
-        for (id in 2L..3L) dao.saveNote(
-            NoteRow(id, sha, "n$id.md", "n$id", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
+        for (id in 2L..3L) dao.saveNoteWithoutSearch(
+            NoteRow(id, sha, "n$id.md", "n$id", html, 0, BuildConfig.RENDER_FORMAT, sha)
         )
         val requests = (1..3).map { "GET /api/documents/$it/image?commitSha=$sha&path=refused.png" }
         LoopbackServer(
@@ -928,9 +939,9 @@ class LocalSyncTest {
     @Test
     fun cancellingSaveAllDuringAnImageKeepsItAndTheNextRunFetchesOnlyTheRemainingImage() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/first.png"><img src="/repo-image/second.png"></main>"""
-        val current = NoteRow(1, sha, "n1.md", "n1", html, 0, "", BuildConfig.RENDER_FORMAT, sha)
+        val current = NoteRow(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha)
         val old = "b".repeat(40)
-        dao.saveNote(current.copy(snapshotCommitSha = old))
+        dao.saveNoteWithoutSearch(current.copy(snapshotCommitSha = old))
         val replaced = image(1, old)
         val listed = "GET /api/library" to library(repository(7, document(1)))
         val contentRequest = "GET /api/documents/1/content"
@@ -995,7 +1006,7 @@ class LocalSyncTest {
     @Test
     fun disconnectDuringImagePrefetchWaitsForThePageThenRemovesItsImages() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/first.png"><img src="/repo-image/second.png"></main>"""
-        dao.saveNote(NoteRow(1, sha, "n1.md", "n1", html, 0, "", BuildConfig.RENDER_FORMAT, sha))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, sha))
         val first = "GET /api/documents/1/image?commitSha=$sha&path=first.png"
         val second = "GET /api/documents/1/image?commitSha=$sha&path=second.png"
         val arrived = CountDownLatch(1)
@@ -1034,7 +1045,7 @@ class LocalSyncTest {
 
     @Test
     fun saveAllSkipsUnsupportedPagesKeepsOlderCopiesAndReadsTheCompleteSizeLimitOnBothRuns() = runBlocking {
-        // Synthetic page at the server's 1 MiB complete-string limit: HTML, search text, SHA, path and title.
+        // Synthetic page at the server's 1 MiB complete-string limit: HTML, search blocks, SHA, path and title.
         val path = "n3.md"
         val title = "n3"
         val text = "測😀".repeat(10_000)
@@ -1049,12 +1060,12 @@ class LocalSyncTest {
                 .put("path", path)
                 .put("title", title)
                 .put("html", html)
-                .put("text", text)
+                .put("blocks", JSONArray().put(JSONObject().put("id", "b0").put("text", text)))
                 .put("renderFormat", BuildConfig.RENDER_FORMAT)
                 .put("snapshotCommitSha", sha)
                 .toString()
-        val old = NoteRow(1, "b".repeat(40), "n1.md", "n1", "<main>kept</main>", 0, "kept", BuildConfig.RENDER_FORMAT)
-        dao.saveNote(old)
+        val old = NoteRow(1, "b".repeat(40), "n1.md", "n1", "<main>kept</main>", 0, BuildConfig.RENDER_FORMAT)
+        dao.saveNoteWithoutSearch(old)
         LoopbackServer(
                 mapOf(
                     "GET /api/library" to library(repository(7, "${document(1)},${document(2)},${document(3)}")),
@@ -1071,7 +1082,7 @@ class LocalSyncTest {
                     sync.saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
-                val expected = NoteRow(3, sha, path, title, html, 0, text, BuildConfig.RENDER_FORMAT, sha)
+                val expected = NoteRow(3, sha, path, title, html, 0, BuildConfig.RENDER_FORMAT, sha)
                 repeat(2) {
                     assertEquals(old, dao.note(1))
                     assertNull(dao.note(2))
@@ -1239,11 +1250,10 @@ class LocalSyncTest {
                     "n1",
                     "<main>saved text</main>",
                     0,
-                    "saved text",
                     BuildConfig.RENDER_FORMAT,
                     savedCommit,
                 )
-            dao.saveNote(saved)
+            dao.saveNoteWithoutSearch(saved)
             LoopbackServer(mapOf("GET /api/library" to library(repository(7, document(1), newCommit)))).use { server ->
                 val sync = sync(server.url)
                 val progress = mutableListOf<Pair<Int, Int>>()
@@ -1271,11 +1281,10 @@ class LocalSyncTest {
                 "n1",
                 """<main><span class="image-blocked">Image unavailable</span></main>""",
                 0,
-                "saved text",
                 BuildConfig.RENDER_FORMAT,
                 sha,
             )
-        dao.saveNote(saved)
+        dao.saveNoteWithoutSearch(saved)
         val html = """<main><img src="/repo-image/added.png"></main>"""
         val answer = JSONObject(content(1).second).put("snapshotCommitSha", newCommit).put("html", html).toString()
         val imageRequest = "GET /api/documents/1/image?commitSha=$newCommit&path=added.png"
@@ -1310,7 +1319,9 @@ class LocalSyncTest {
                 """<main><span class="image-blocked">Image unavailable</span></main>""",
             )) {
             for (savedCommit in listOf(sha, null)) {
-                dao.saveNote(NoteRow(1, sha, "n1.md", "n1", html, 0, "", BuildConfig.RENDER_FORMAT, savedCommit))
+                dao.saveNoteWithoutSearch(
+                    NoteRow(1, sha, "n1.md", "n1", html, 0, BuildConfig.RENDER_FORMAT, savedCommit)
+                )
                 val answer =
                     JSONObject(content(1).second).put("snapshotCommitSha", newCommit).put("html", html).toString()
                 LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer))).use { server ->
@@ -1340,11 +1351,10 @@ class LocalSyncTest {
                 "n1",
                 "<main>saved text<img src=\"/repo-image/old/chart.png\"></main>",
                 0,
-                "saved text",
                 BuildConfig.RENDER_FORMAT,
                 oldCommit,
             )
-        dao.saveNote(displayed)
+        dao.saveNoteWithoutSearch(displayed)
         val oldImage = image(1, oldCommit)
         val html = "<main>saved text<img src=\"/repo-image/new/chart.png\"></main>"
         val answer =
@@ -1355,7 +1365,7 @@ class LocalSyncTest {
                 .put("path", "n1.md")
                 .put("title", "n1")
                 .put("html", html)
-                .put("text", "saved text")
+                .put("blocks", JSONArray().put(JSONObject().put("id", "b0").put("text", "saved text")))
                 .put("renderFormat", BuildConfig.RENDER_FORMAT)
                 .toString()
         LoopbackServer(
@@ -1401,12 +1411,11 @@ class LocalSyncTest {
                 "n1",
                 "<main>kept<img src=\"/repo-image/chart.png\"></main>",
                 0,
-                "kept",
                 BuildConfig.RENDER_FORMAT,
             )
         dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/r7", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n1.md", "n1", sha)))
-        dao.saveNote(saved)
+        dao.saveNoteWithoutSearch(saved)
         for (value in listOf(null, JSONObject.NULL, "INVALID", "A".repeat(40))) {
             val answer =
                 JSONObject()
@@ -1415,7 +1424,7 @@ class LocalSyncTest {
                     .put("path", "n1.md")
                     .put("title", "n1")
                     .put("html", "<main>new</main>")
-                    .put("text", "new")
+                    .put("blocks", JSONArray().put(JSONObject().put("id", "b0").put("text", "new")))
                     .put("renderFormat", BuildConfig.RENDER_FORMAT)
             if (value != null) answer.put("snapshotCommitSha", value)
             LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer.toString()))).use { server ->
@@ -1589,7 +1598,7 @@ class LocalSyncTest {
         )
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
         dao.replaceDocuments(9, listOf(DocumentRow(3, 9, "c.md", "c", sha)))
-        dao.saveNote(NoteRow(3, sha, "c.md", "c", "<html/>", 0, "text"))
+        dao.saveNoteWithoutSearch(NoteRow(3, sha, "c.md", "c", "<html/>", 0))
         dao.saveReading(reading(1).copy(pending = false))
         dao.saveBookmark(BookmarkRow(1, bookmarked = true, pending = false, changedAt = 5))
         val image = File(directory, "images/3/$sha/test-only").apply { check(parentFile!!.mkdirs()) }
@@ -1659,7 +1668,7 @@ class LocalSyncTest {
     fun aRepositoryTheServerAlreadyDisconnectedIsRemovedFromThePhoneInsteadOfFailing() = runBlocking {
         dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text"))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", "<html/>", 0))
         LoopbackServer(emptyLibrary + mapOf("GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"))).use {
             server ->
             assertNull(
@@ -1693,7 +1702,7 @@ class LocalSyncTest {
     private suspend fun savedRepository() {
         dao.replaceRepositories(listOf(RepositoryRow(7, "o/notes", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "a.md", "a", sha)))
-        dao.saveNote(NoteRow(1, sha, "a.md", "a", "<html/>", 0, "private text", snapshotCommitSha = sha))
+        dao.saveNoteWithoutSearch(NoteRow(1, sha, "a.md", "a", "<html/>", 0, snapshotCommitSha = sha))
     }
 
     @Test

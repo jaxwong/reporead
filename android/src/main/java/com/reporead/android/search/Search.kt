@@ -18,6 +18,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.data.LibraryDao
@@ -46,9 +47,15 @@ internal fun snippet(text: String, query: String): String {
     return (if (start > 0) "…" else "") + line + (if (end < text.length) "…" else "")
 }
 
-internal data class SearchResult(val documentId: Long, val title: String, val path: String, val detail: String)
+internal data class SearchResult(
+    val documentId: Long,
+    val title: String,
+    val path: String,
+    val detail: String,
+    val openAt: OpenAt?,
+)
 
-/** The matches listed for a query; [truncated] when either kind reached [SEARCH_LIMIT], so more exist. */
+/** The matches listed for a query; [truncated] when any category reached [SEARCH_LIMIT], so more may exist. */
 internal data class SearchResults(val matches: List<SearchResult>, val truncated: Boolean)
 
 /**
@@ -57,17 +64,28 @@ internal data class SearchResults(val matches: List<SearchResult>, val truncated
  */
 internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
     val pattern = likePattern(query)
-    val notes = dao.searchNotes(pattern, SEARCH_LIMIT)
+    val names = dao.searchNoteNames(pattern, SEARCH_LIMIT)
+    val noteText = dao.searchNoteText(pattern, SEARCH_LIMIT)
     val highlights = dao.searchHighlights(pattern, SEARCH_LIMIT)
     val results =
-        notes.map { note ->
+        names.map { note ->
             SearchResult(
                 note.documentId,
                 note.title,
                 note.path,
-                note.searchText?.let { snippet(it, query) } ?: "Title or path",
+                if (note.titleMatch) "Title" else "Path",
+                null,
             )
         } +
+            noteText.map { match ->
+                SearchResult(
+                    match.documentId,
+                    match.title,
+                    match.path,
+                    "Note text · ${snippet(match.text, query)}",
+                    OpenAt.Block(match.blobSha, match.blockId),
+                )
+            } +
             highlights.map { highlight ->
                 val inQuote = highlight.exactText.contains(query, ignoreCase = true)
                 SearchResult(
@@ -76,9 +94,13 @@ internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
                     highlight.path,
                     if (inQuote) "Your highlight: “${snippet(highlight.exactText, query)}”"
                     else "Your note: ${snippet(highlight.note!!, query)}",
+                    OpenAt.Highlight(highlight.mutationId),
                 )
             }
-    return SearchResults(results, truncated = notes.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT)
+    return SearchResults(
+        results,
+        truncated = names.size == SEARCH_LIMIT || noteText.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT,
+    )
 }
 
 /** What a search covers: the [texts] of the [listed] notes saved with their text are searched by it, all by name. */
@@ -131,7 +153,7 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
                         if (found.truncated)
                             item {
                                 Text(
-                                    "Showing the first $SEARCH_LIMIT matches; refine the search to see others.",
+                                    "Some matches are omitted; refine the search to see others.",
                                     Modifier.padding(16.dp),
                                 )
                             }
@@ -142,7 +164,7 @@ fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
                                 R.drawable.ic_description,
                                 listOfNotNull(folderOf(result.path).ifEmpty { null }),
                             ) {
-                                push(Screen.Reader(result.documentId, result.title))
+                                push(Screen.Reader(result.documentId, result.title, result.openAt))
                             }
                         }
                     }
