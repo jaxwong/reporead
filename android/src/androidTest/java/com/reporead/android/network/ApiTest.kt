@@ -6,16 +6,16 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.database.LoopbackServer
-import com.reporead.android.logging.AppLog
-import com.reporead.android.logging.appLogDirectory
+import com.reporead.android.logging.DeviceLog
+import com.reporead.android.logging.deviceLogDirectory
 import com.reporead.android.network.wire.AnnotationControllerAnnotationList
 import com.reporead.android.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.network.wire.AnnotationControllerReattachRequest
 import com.reporead.android.network.wire.AnnotationServiceSelection
 import com.reporead.android.network.wire.AppAuthControllerTokenRequest
-import com.reporead.android.network.wire.AppLogControllerLine
-import com.reporead.android.network.wire.AppLogControllerUploadRequest
+import com.reporead.android.network.wire.DeviceLogIngestControllerUploadRequest
+import com.reporead.android.network.wire.DeviceLogLine
 import com.reporead.android.network.wire.ReadingControllerAnchorRequest
 import com.reporead.android.network.wire.ReadingControllerSaveRequest
 import com.reporead.android.network.wire.RepositoryControllerAvailableList
@@ -193,14 +193,14 @@ class ApiTest {
                         api.deleteAnnotation(9, 1),
                         api.reattachAnnotation(9, reattach),
                         api.recordReview(10, grade),
-                        api.uploadAppLog(
-                            AppLogControllerUploadRequest(
+                        api.uploadDeviceLogBatch(
+                            DeviceLogIngestControllerUploadRequest(
                                 lines =
                                     listOf(
-                                        AppLogControllerLine(
+                                        DeviceLogLine(
                                             at = testAt,
                                             appVersion = "0.1.0",
-                                            level = AppLogControllerLine.Level.INFO,
+                                            level = DeviceLogLine.Level.INFO,
                                             message = "Test-only line",
                                         )
                                     )
@@ -430,7 +430,7 @@ class ApiTest {
     fun aFailedRequestNamesTheServersRequestIdWhenTheServerAnswered() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = File(context.cacheDir, "api-test-app-log").apply { deleteRecursively() }
-        AppLog.start(store)
+        DeviceLog.start(store)
         try {
             val refused = coroutineScope {
                 ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
@@ -466,7 +466,7 @@ class ApiTest {
             assertEquals(404, refused.status)
             assertEquals("NOT_FOUND", refused.code)
             assertEquals("test-only-request-id", refused.requestId)
-            val stored = AppLog.batch().orEmpty().joinToString("\n")
+            val stored = DeviceLog.claimPendingBatch().orEmpty().joinToString("\n") { it.message }
             assertTrue(
                 stored,
                 stored.contains(
@@ -482,7 +482,7 @@ class ApiTest {
             assertEquals("BACKEND_UNAVAILABLE", unanswered.code)
             assertNull(unanswered.requestId)
         } finally {
-            AppLog.start(appLogDirectory(context))
+            DeviceLog.start(deviceLogDirectory(context))
             store.deleteRecursively()
         }
     }

@@ -5,7 +5,7 @@ package com.reporead.android.sync
 import androidx.core.net.toUri
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.SavedVersion
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import java.io.File
@@ -64,7 +64,7 @@ class NoteImages(private val api: Api, filesDir: File) {
         try {
             fetch(documentId, snapshotCommitSha, path)
         } catch (error: ApiException) {
-            AppLog.info("Image unavailable; documentId=$documentId code=${error.code}")
+            DeviceLog.info("Image unavailable; documentId=$documentId code=${error.code}")
             null
         }
 
@@ -79,7 +79,7 @@ class NoteImages(private val api: Api, filesDir: File) {
                 try {
                     if (file.isFile) return file.readBytes()
                 } catch (error: IOException) {
-                    AppLog.warn(
+                    DeviceLog.warn(
                         "Cached image unreadable; documentId=$documentId snapshot=$snapshotCommitSha",
                         error,
                     )
@@ -103,7 +103,7 @@ class NoteImages(private val api: Api, filesDir: File) {
                     partial.delete()
                 }
             } catch (error: IOException) {
-                AppLog.warn("Image not cached; documentId=$documentId error=${error.javaClass.simpleName}")
+                DeviceLog.warn("Image not cached; documentId=$documentId error=${error.javaClass.simpleName}")
             }
         }
         return bytes

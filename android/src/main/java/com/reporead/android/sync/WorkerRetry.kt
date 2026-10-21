@@ -2,7 +2,7 @@
 
 package com.reporead.android.sync
 
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import java.time.Duration
 
@@ -21,6 +21,6 @@ private const val MAX_ATTEMPTS = 10
 internal fun shouldRetry(operation: String, failure: ApiException, attempt: Int): Boolean {
     val retryable = failure.unreachable || failure.status >= 500
     val willRetry = retryable && attempt + 1 < MAX_ATTEMPTS
-    AppLog.warn("$operation failed; attempt=$attempt status=${failure.status} code=${failure.code} retry=$willRetry")
+    DeviceLog.warn("$operation failed; attempt=$attempt status=${failure.status} code=${failure.code} retry=$willRetry")
     return willRetry
 }

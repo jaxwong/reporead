@@ -7,7 +7,7 @@ import android.util.Base64
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.net.toUri
 import com.reporead.android.BuildConfig
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.wire.AppAuthControllerTokenRequest
 import java.security.MessageDigest
@@ -38,6 +38,6 @@ fun startSignIn(context: Context, baseUrl: String, store: SessionStore) {
 /** Exchanges the validated sign-in code and stores the session without changing saved notes. */
 internal suspend fun completeSignIn(code: String, verifier: String, api: Api, store: SessionStore) {
     val session = api.exchangeToken(AppAuthControllerTokenRequest(code = code, codeVerifier = verifier))
-    AppLog.info("Signed in; userId=${session.user.id}")
+    DeviceLog.info("Signed in; userId=${session.user.id}")
     store.save(session.accessToken)
 }

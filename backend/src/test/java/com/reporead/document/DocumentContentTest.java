@@ -13,7 +13,7 @@ import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
-import com.reporead.github.GitHubHttp;
+import com.reporead.github.GitHubHttpConfiguration;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.jsoup.Jsoup;
@@ -50,12 +50,12 @@ class DocumentContentTest extends SharedSpringTest {
     MockMvc mvc;
 
     @Autowired
-    @Qualifier("githubUserApi")
-    RestTemplate githubUserApi;
+    @Qualifier("githubUserHttpClient")
+    RestTemplate githubUserHttpClient;
 
     @Autowired
-    @Qualifier("githubImageApi")
-    RestTemplate githubImageApi;
+    @Qualifier("githubImageHttpClient")
+    RestTemplate githubImageHttpClient;
 
     @Autowired
     OAuth2AuthorizedClientService clients;
@@ -79,10 +79,10 @@ class DocumentContentTest extends SharedSpringTest {
     @BeforeEach
     void setup() {
         TestEnvironment.reset(db);
-        server = MockRestServiceServer.bindTo(githubUserApi)
+        server = MockRestServiceServer.bindTo(githubUserHttpClient)
                 .ignoreExpectOrder(true)
                 .build();
-        images = MockRestServiceServer.bindTo(githubImageApi)
+        images = MockRestServiceServer.bindTo(githubImageHttpClient)
                 .ignoreExpectOrder(true)
                 .build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, TOKEN);
@@ -207,7 +207,7 @@ class DocumentContentTest extends SharedSpringTest {
 
     @Test
     void oversizedAndNonUtf8NotesAreVisiblyUnsupported() throws Exception {
-        byte[] large = new byte[GitHubHttp.MAX_RESPONSE_BYTES + 1];
+        byte[] large = new byte[GitHubHttpConfiguration.MAX_RESPONSE_BYTES + 1];
         java.util.Arrays.fill(large, (byte) 'x');
         String largeSha = Hashes.gitBlobSha(large);
         expectBlob(largeSha, withSuccess(large, MediaType.APPLICATION_OCTET_STREAM));
@@ -309,7 +309,7 @@ class DocumentContentTest extends SharedSpringTest {
                 }
                 source.append("paragraph\n\n".repeat(paragraphs));
                 byte[] bytes = source.toString().getBytes(StandardCharsets.UTF_8);
-                assertTrue(bytes.length < GitHubHttp.MAX_RESPONSE_BYTES);
+                assertTrue(bytes.length < GitHubHttpConfiguration.MAX_RESPONSE_BYTES);
                 String sha = Hashes.gitBlobSha(bytes);
                 next();
                 expectBlob(sha, withSuccess(bytes, MediaType.APPLICATION_OCTET_STREAM));
@@ -539,7 +539,8 @@ class DocumentContentTest extends SharedSpringTest {
                 .andRespond(withResourceNotFound());
         images.expect(requestTo("https://api.github.com/repos/test-only/notes/contents/huge.png?ref=" + "c".repeat(40)))
                 .andRespond(withSuccess(
-                        new byte[GitHubHttp.MAX_IMAGE_RESPONSE_BYTES + 1], MediaType.APPLICATION_OCTET_STREAM));
+                        new byte[GitHubHttpConfiguration.MAX_IMAGE_RESPONSE_BYTES + 1],
+                        MediaType.APPLICATION_OCTET_STREAM));
         image(alice, id, "missing.png", "c".repeat(40))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("IMAGE_NOT_FOUND"));

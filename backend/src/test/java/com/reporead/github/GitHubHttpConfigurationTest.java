@@ -17,12 +17,12 @@ import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.mock.http.client.MockClientHttpResponse;
 
 @ExtendWith(OutputCaptureExtension.class)
-class GitHubHttpTest {
+class GitHubHttpConfigurationTest {
     @Test
     void githubPathsAreAbsentFromSuccessFailureAndOversizeLogs(CapturedOutput log) throws IOException {
         var request = new MockClientHttpRequest(
                 HttpMethod.GET, URI.create("https://api.github.com/repos/PRIVATE_OWNER/PRIVATE_NOTE/image.png"));
-        var interceptor = GitHubHttp.boundedResponse(2, new SimpleMeterRegistry());
+        var interceptor = GitHubHttpConfiguration.boundedResponse(2, new SimpleMeterRegistry());
         interceptor
                 .intercept(request, new byte[0], (sent, body) -> new MockClientHttpResponse(new byte[0], HttpStatus.OK))
                 .close();
@@ -45,11 +45,12 @@ class GitHubHttpTest {
     void oauthResponseHasAHardByteCapAndNeverRetriesAfterFailure() throws IOException {
         var request = new MockClientHttpRequest(HttpMethod.GET, URI.create("https://api.github.com/user"));
         var calls = new AtomicInteger();
-        var oversized = new MockClientHttpResponse(new byte[GitHubHttp.MAX_RESPONSE_BYTES + 1], HttpStatus.OK);
+        var oversized =
+                new MockClientHttpResponse(new byte[GitHubHttpConfiguration.MAX_RESPONSE_BYTES + 1], HttpStatus.OK);
         var meters = new SimpleMeterRegistry();
         assertThrows(
                 IOException.class,
-                () -> GitHubHttp.boundedResponse(GitHubHttp.MAX_RESPONSE_BYTES, meters)
+                () -> GitHubHttpConfiguration.boundedResponse(GitHubHttpConfiguration.MAX_RESPONSE_BYTES, meters)
                         .intercept(request, new byte[0], (sent, body) -> {
                             calls.incrementAndGet();
                             return oversized;
@@ -57,7 +58,7 @@ class GitHubHttpTest {
         assertEquals(1, calls.get());
         assertEquals(
                 1,
-                meters.counter(GitHubHttp.GITHUB_REQUESTS, "outcome", "too_large")
+                meters.counter(GitHubHttpConfiguration.GITHUB_REQUESTS, "outcome", "too_large")
                         .count());
         assertEquals("RepoRead", request.getHeaders().getFirst("User-Agent"));
         assertEquals("2026-03-10", request.getHeaders().getFirst("X-GitHub-Api-Version"));
@@ -67,7 +68,7 @@ class GitHubHttpTest {
     void boundedResponsePreservesExpectedExternalFailureAndTheSecondCallWorks() throws IOException {
         var request = new MockClientHttpRequest(HttpMethod.GET, URI.create("https://api.github.com/user"));
         var meters = new SimpleMeterRegistry();
-        var interceptor = GitHubHttp.boundedResponse(GitHubHttp.MAX_RESPONSE_BYTES, meters);
+        var interceptor = GitHubHttpConfiguration.boundedResponse(GitHubHttpConfiguration.MAX_RESPONSE_BYTES, meters);
         var denied = interceptor.intercept(
                 request,
                 new byte[0],
@@ -83,9 +84,13 @@ class GitHubHttpTest {
         assertEquals(HttpStatus.OK, success.getStatusCode());
         success.close();
         assertEquals(
-                1, meters.counter(GitHubHttp.GITHUB_REQUESTS, "outcome", "4xx").count());
+                1,
+                meters.counter(GitHubHttpConfiguration.GITHUB_REQUESTS, "outcome", "4xx")
+                        .count());
         assertEquals(
-                1, meters.counter(GitHubHttp.GITHUB_REQUESTS, "outcome", "2xx").count());
+                1,
+                meters.counter(GitHubHttpConfiguration.GITHUB_REQUESTS, "outcome", "2xx")
+                        .count());
     }
 
     @Test
@@ -95,7 +100,7 @@ class GitHubHttpTest {
         var meters = new SimpleMeterRegistry();
         assertThrows(
                 java.net.SocketTimeoutException.class,
-                () -> GitHubHttp.boundedResponse(GitHubHttp.MAX_RESPONSE_BYTES, meters)
+                () -> GitHubHttpConfiguration.boundedResponse(GitHubHttpConfiguration.MAX_RESPONSE_BYTES, meters)
                         .intercept(request, new byte[0], (sent, body) -> {
                             calls.incrementAndGet();
                             throw new java.net.SocketTimeoutException("test-only timeout");
@@ -103,6 +108,7 @@ class GitHubHttpTest {
         assertEquals(1, calls.get());
         assertEquals(
                 1,
-                meters.counter(GitHubHttp.GITHUB_REQUESTS, "outcome", "failed").count());
+                meters.counter(GitHubHttpConfiguration.GITHUB_REQUESTS, "outcome", "failed")
+                        .count());
     }
 }

@@ -1,8 +1,8 @@
-package com.reporead;
+package com.reporead.observability;
 
+import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
-import java.time.Instant;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -22,35 +22,26 @@ import org.springframework.web.bind.annotation.RestController;
  * lines to. The lines arrive when the app next uploads, so each carries the phone's own time.
  */
 @RestController
-public class AppLogController {
-    private static final Logger LOG = LoggerFactory.getLogger(AppLogController.class);
+public class DeviceLogIngestController {
+    private static final Logger LOG = LoggerFactory.getLogger(DeviceLogIngestController.class);
     private static final Pattern APP_VERSION = Pattern.compile("[0-9A-Za-z.+-]{1,64}");
     /** Control characters other than tab and newline, which could rewrite a terminal showing the log. */
     private static final Pattern CONTROL = Pattern.compile("[\\p{Cntrl}&&[^\\t\\n]]");
 
-    enum LineLevel {
-        INFO,
-        WARN,
-        ERROR
-    }
-
-    /** The version is per line: lines a run left can be sent by the next, newer version. */
-    record Line(Instant at, String appVersion, LineLevel level, String message) {}
-
-    record UploadRequest(List<Line> lines) {}
+    record UploadRequest(List<DeviceLogLine> lines) {}
 
     @PostMapping("/api/app-logs")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void upload(@AuthenticationPrincipal AppUser user, @RequestBody UploadRequest body) {
         validate(body);
-        for (Line line : body.lines()) {
+        for (DeviceLogLine line : body.lines()) {
             LOG.atLevel(Level.valueOf(line.level().name()))
                     .log(
-                            "App line; userId={} version={} at={} {}",
+                            "Device log line; userId={} version={} at={} {}",
                             user.id(),
                             line.appVersion(),
                             line.at(),
-                            readable(line.message()));
+                            formatForJournal(line.message()));
         }
     }
 
@@ -58,7 +49,7 @@ public class AppLogController {
      * A line's continuation lines are indented, as a stack trace's frames are, so no app text can start a line that
      * reads as the server's own.
      */
-    private static String readable(String message) {
+    private static String formatForJournal(String message) {
         String visible = CONTROL.matcher(message.replace("\r\n", "\n"))
                 .replaceAll(
                         match -> String.format("\\\\u%04x", (int) match.group().charAt(0)));
@@ -78,7 +69,7 @@ public class AppLogController {
         if (!valid) {
             throw new ApiFailure(
                     Code.INVALID_REQUEST,
-                    "An app log upload requires at least one line, each with a time, an app version (1-64 letters, digits, '.', '+' or '-'), a level and a message.");
+                    "A device log upload requires at least one line, each with a time, an app version (1-64 letters, digits, '.', '+' or '-'), a level and a message.");
         }
     }
 }

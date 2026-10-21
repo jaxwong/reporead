@@ -6,7 +6,7 @@ import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 import static org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher.pathPattern;
 
 import com.reporead.RepoReadProperties;
-import com.reporead.github.GitHubHttp;
+import com.reporead.github.GitHubHttpConfiguration;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -228,7 +228,8 @@ public class GitHubBrowserSignIn {
     /** Reads the signed-in GitHub user, whose id allowedOnly checks before Spring stores the token. */
     @Bean
     DefaultOAuth2UserService githubUserInfo(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
-        var http = GitHubHttp.bounded(githubRequestFactory, GitHubHttp.MAX_RESPONSE_BYTES, meters);
+        var http = GitHubHttpConfiguration.bounded(
+                githubRequestFactory, GitHubHttpConfiguration.MAX_RESPONSE_BYTES, meters);
         http.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
         var users = new DefaultOAuth2UserService();
         users.setRestOperations(http);
@@ -256,7 +257,8 @@ public class GitHubBrowserSignIn {
                 throw new OAuth2AuthorizationException(new OAuth2Error(code));
             return standard.convert(answer);
         });
-        return builder.requestInterceptor(GitHubHttp.boundedResponse(GitHubHttp.MAX_RESPONSE_BYTES, meters))
+        return builder.requestInterceptor(
+                        GitHubHttpConfiguration.boundedResponse(GitHubHttpConfiguration.MAX_RESPONSE_BYTES, meters))
                 .configureMessageConverters(converters -> converters
                         .disableDefaults()
                         .addCustomConverter(new FormHttpMessageConverter())

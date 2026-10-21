@@ -20,12 +20,12 @@ import org.springframework.web.client.RestTemplate;
 
 /**
  * How RepoRead talks HTTP to GitHub: 15-second timeouts, no redirects, and a size ceiling on every response, which is
- * also where every GitHub request is counted. GitHubApi uses the three clients and GitHubTokenLifecycle the user API
+ * also where every GitHub request is counted. GitHubApi uses the three clients and GitHubTokenLifecycle the user HTTP
  * client; sign-in (GitHubBrowserSignIn) uses the same request factory and ceiling.
  */
 @Configuration
-public class GitHubHttp {
-    private static final Logger LOG = LoggerFactory.getLogger(GitHubHttp.class);
+public class GitHubHttpConfiguration {
+    private static final Logger LOG = LoggerFactory.getLogger(GitHubHttpConfiguration.class);
     public static final String GITHUB_REQUESTS = "reporead.github.requests";
     /** Ceiling for OAuth, metadata, and raw note responses. */
     public static final int MAX_RESPONSE_BYTES = 1_048_576;
@@ -50,17 +50,17 @@ public class GitHubHttp {
     }
 
     @Bean
-    RestTemplate githubUserApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
+    RestTemplate githubUserHttpClient(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         return bounded(githubRequestFactory, MAX_RESPONSE_BYTES, meters);
     }
 
     @Bean
-    RestTemplate githubTreeApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
+    RestTemplate githubTreeHttpClient(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         return bounded(githubRequestFactory, MAX_TREE_RESPONSE_BYTES, meters);
     }
 
     @Bean
-    RestTemplate githubImageApi(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
+    RestTemplate githubImageHttpClient(JdkClientHttpRequestFactory githubRequestFactory, MeterRegistry meters) {
         return bounded(githubRequestFactory, MAX_IMAGE_RESPONSE_BYTES, meters);
     }
 

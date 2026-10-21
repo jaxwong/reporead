@@ -1,7 +1,8 @@
-package com.reporead;
+package com.reporead.observability;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import java.net.URI;
@@ -33,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ExtendWith(OutputCaptureExtension.class)
-class RequestLogTest {
+class RequestLoggingFilterTest {
     private static final Pattern ID = Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     @DynamicPropertySource
@@ -90,7 +91,7 @@ class RequestLogTest {
     }
 
     private static String requestId(HttpResponse<String> response) {
-        String id = response.headers().firstValue(RequestLog.HEADER).orElseThrow();
+        String id = response.headers().firstValue(RequestLoggingFilter.HEADER).orElseThrow();
         assertTrue(ID.matcher(id).matches(), id);
         return id;
     }
@@ -133,7 +134,7 @@ class RequestLogTest {
 
         String lines = linesOf(log, requestId(image));
         String requestSummary = lines.lines()
-                .filter(line -> line.contains("com.reporead.RequestLog"))
+                .filter(line -> line.contains("RequestLoggingFilter "))
                 .filter(line -> line.contains("Request; method=GET target=/api/documents/999999/image?"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError(lines));

@@ -33,7 +33,7 @@ import com.reporead.android.database.CardBlock
 import com.reporead.android.database.NotebookItem
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.ReviewEntity
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
@@ -102,7 +102,7 @@ internal class ReviewViewModel(
     fun skip() {
         val stateSnapshot = _state.value
         val session = stateSnapshot.session ?: return
-        if (stateSnapshot.saving) AppLog.info("Review skip not taken; entry=$entryId saving=true")
+        if (stateSnapshot.saving) DeviceLog.info("Review skip not taken; entry=$entryId saving=true")
         else updateSession(session.skip())
     }
 
@@ -120,10 +120,10 @@ internal class ReviewViewModel(
             return
         }
         if (stateSnapshot.saving || !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(saving = true))) {
-            AppLog.info("Review grade not saved again; entry=$entryId mutationId=${annotation.mutationId}")
+            DeviceLog.info("Review grade not saved again; entry=$entryId mutationId=${annotation.mutationId}")
             return
         }
-        AppLog.info("Review grade started; entry=$entryId mutationId=${annotation.mutationId}")
+        DeviceLog.info("Review grade started; entry=$entryId mutationId=${annotation.mutationId}")
         val review =
             ReviewEntity(
                 mutationId = UUID.randomUUID().toString(),

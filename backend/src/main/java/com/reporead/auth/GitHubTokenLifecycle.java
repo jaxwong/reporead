@@ -48,7 +48,7 @@ public class GitHubTokenLifecycle {
     private final OAuth2AuthorizedClientService githubTokens;
     private final OAuth2AuthorizedClientManager manager;
     private final ClientRegistrationRepository registrations;
-    private final RestTemplate githubUserApi;
+    private final RestTemplate githubUserHttpClient;
     private final JsonMapper json;
     private final AppSessions sessions;
     // A callback's user is unknown before code exchange. One gate avoids a second identity/lock registry.
@@ -106,12 +106,12 @@ public class GitHubTokenLifecycle {
             OAuth2AuthorizedClientService githubTokens,
             ClientRegistrationRepository registrations,
             RestClientRefreshTokenTokenResponseClient githubRefreshTokens,
-            @Qualifier("githubUserApi") RestTemplate githubUserApi,
+            @Qualifier("githubUserHttpClient") RestTemplate githubUserHttpClient,
             JsonMapper json,
             AppSessions sessions) {
         this.githubTokens = githubTokens;
         this.registrations = registrations;
-        this.githubUserApi = githubUserApi;
+        this.githubUserHttpClient = githubUserHttpClient;
         this.json = json;
         this.sessions = sessions;
         var manager = new AuthorizedClientServiceOAuth2AuthorizedClientManager(registrations, githubTokens);
@@ -227,7 +227,7 @@ public class GitHubTokenLifecycle {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(json.writeValueAsBytes(Map.of("access_token", token)));
         try {
-            githubUserApi.exchange(request, byte[].class);
+            githubUserHttpClient.exchange(request, byte[].class);
             LOG.info("GitHub authorization revoked; githubUserId={}", githubUserId);
         } catch (RestClientResponseException error) {
             LOG.warn(

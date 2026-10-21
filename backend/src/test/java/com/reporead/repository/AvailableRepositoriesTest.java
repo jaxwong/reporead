@@ -18,7 +18,7 @@ import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
-import com.reporead.github.GitHubHttp;
+import com.reporead.github.GitHubHttpConfiguration;
 import java.net.SocketTimeoutException;
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
@@ -64,8 +64,8 @@ class AvailableRepositoriesTest extends SharedSpringTest {
     MockMvc mvc;
 
     @Autowired
-    @Qualifier("githubUserApi")
-    RestTemplate githubUserApi;
+    @Qualifier("githubUserHttpClient")
+    RestTemplate githubUserHttpClient;
 
     @Autowired
     OAuth2AuthorizedClientService clients;
@@ -88,7 +88,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
     @BeforeEach
     void setup() {
         TestEnvironment.reset(db);
-        server = MockRestServiceServer.bindTo(githubUserApi)
+        server = MockRestServiceServer.bindTo(githubUserHttpClient)
                 .ignoreExpectOrder(true)
                 .build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, TOKEN);
@@ -318,7 +318,9 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"));
         server.verify();
         server.reset();
-        expectListing(TOKEN, withSuccess(new byte[GitHubHttp.MAX_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
+        expectListing(
+                TOKEN,
+                withSuccess(new byte[GitHubHttpConfiguration.MAX_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
         available(alice)
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("GITHUB_RESPONSE_LIMIT"));

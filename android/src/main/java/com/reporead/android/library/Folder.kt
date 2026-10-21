@@ -33,7 +33,7 @@ import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.RepoReadDao
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
 import com.reporead.android.sync.SavingNotes
@@ -155,7 +155,7 @@ internal class FolderViewModel(
         val now = current.value
         val started = allowed(now.operation) && current.compareAndSet(now, now.copy(operation = next, status = null))
         if (!started)
-            AppLog.info("Folder operation not started; entry=$entryId running=${now.operation} requested=$next")
+            DeviceLog.info("Folder operation not started; entry=$entryId running=${now.operation} requested=$next")
         return started
     }
 
@@ -191,7 +191,7 @@ internal class FolderViewModel(
 
     private fun refresh(reason: String, failed: String, work: suspend () -> Unit) {
         if (!begin(FolderOperation.Refreshing)) return
-        AppLog.info("Folder refresh started; entry=$entryId repositoryId=${screen.repositoryId} reason=$reason")
+        DeviceLog.info("Folder refresh started; entry=$entryId repositoryId=${screen.repositoryId} reason=$reason")
         viewModelScope.launch {
             val status =
                 try {
@@ -215,7 +215,7 @@ internal class FolderViewModel(
             now.stoppingSaveAll ||
                 !current.compareAndSet(now, now.copy(stoppingSaveAll = true, status = "Stopping saving notes…"))
         ) {
-            AppLog.info("Stopping Save all not started again; entry=$entryId")
+            DeviceLog.info("Stopping Save all not started again; entry=$entryId")
             return
         }
         viewModelScope.launch {
@@ -224,7 +224,7 @@ internal class FolderViewModel(
                     stopSavingNotes(app, screen.repositoryId)
                     "Saving stopped; notes already saved are kept. Saving again fetches only what is missing."
                 } catch (error: SQLiteException) {
-                    AppLog.warn("Could not stop Save all; repositoryId=${screen.repositoryId}", error)
+                    DeviceLog.warn("Could not stop Save all; repositoryId=${screen.repositoryId}", error)
                     "Couldn't stop saving notes (${error.javaClass.simpleName}); try Stop saving notes again."
                 }
             current.update { it.copy(stoppingSaveAll = false, status = status) }
@@ -234,7 +234,7 @@ internal class FolderViewModel(
     /** Asks the server what disconnecting would delete, for the confirmation. */
     fun askToDisconnect() {
         if (!begin(FolderOperation.Previewing)) return
-        AppLog.info("Disconnect preview started; entry=$entryId repositoryId=${screen.repositoryId}")
+        DeviceLog.info("Disconnect preview started; entry=$entryId repositoryId=${screen.repositoryId}")
         viewModelScope.launch {
             try {
                 // Null: the server had already disconnected it, and this phone's copies are now gone too.
@@ -255,7 +255,7 @@ internal class FolderViewModel(
 
     fun disconnect() {
         if (!begin(FolderOperation.Disconnecting) { it is FolderOperation.Confirming }) return
-        AppLog.info("Disconnect started; entry=$entryId repositoryId=${screen.repositoryId}")
+        DeviceLog.info("Disconnect started; entry=$entryId repositoryId=${screen.repositoryId}")
         viewModelScope.launch {
             try {
                 sync.disconnect(screen.repositoryId)

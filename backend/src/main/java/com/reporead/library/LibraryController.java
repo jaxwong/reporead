@@ -13,16 +13,16 @@ import org.springframework.web.bind.annotation.RestController;
 /** External-call ceiling: 0 GitHub requests. The phone's one read of the server's lists (ADR-08). */
 @RestController
 public class LibraryController {
-    private final Library library;
+    private final LibrarySnapshotReader snapshots;
 
-    public LibraryController(Library library) {
-        this.library = library;
+    public LibraryController(LibrarySnapshotReader snapshots) {
+        this.snapshots = snapshots;
     }
 
-    /** The bytes Library measured against its cap, sent as they are; the published spec names the record they hold. */
+    /** The bytes the reader measured against its cap, sent as they are; the spec names the record they hold. */
     @GetMapping("/api/library")
-    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = Library.Snapshot.class)))
+    @ApiResponse(responseCode = "200", content = @Content(schema = @Schema(implementation = LibrarySnapshot.class)))
     ResponseEntity<byte[]> library(@AuthenticationPrincipal AppUser user) {
-        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(library.answer(user.id()));
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(snapshots.answer(user.id()));
     }
 }

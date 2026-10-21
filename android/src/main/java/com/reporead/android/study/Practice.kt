@@ -40,7 +40,7 @@ import com.reporead.android.database.Passage
 import com.reporead.android.database.PracticePage
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.scheduledLines
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
@@ -280,7 +280,7 @@ internal class PracticeViewModel(
     fun skip() {
         val now = current.value
         val session = now.session ?: return
-        if (now.saving) AppLog.info("Practice skip not taken; entry=$entryId saving=true") else move(session.skip())
+        if (now.saving) DeviceLog.info("Practice skip not taken; entry=$entryId saving=true") else move(session.skip())
     }
 
     /** [again]: graded earlier in this session, so this grade only decides whether it comes back; nothing is saved. */
@@ -288,10 +288,10 @@ internal class PracticeViewModel(
         val now = current.value
         val session = now.session ?: return
         if (now.saving || session.current != question.key || !current.compareAndSet(now, now.copy(saving = true))) {
-            AppLog.info("Practice grade not saved again; entry=$entryId saving=${now.saving} key=${question.key}")
+            DeviceLog.info("Practice grade not saved again; entry=$entryId saving=${now.saving} key=${question.key}")
             return
         }
-        AppLog.info("Practice grade started; entry=$entryId key=${question.key} again=$again")
+        DeviceLog.info("Practice grade started; entry=$entryId key=${question.key} again=$again")
         viewModelScope.launch {
             val problem = if (again) null else gradeNewQuestion(sync, question, grade)
             move(if (problem == null) session.graded(grade) else session.skip(), problem)

@@ -42,19 +42,19 @@ public class GitHubApi {
     private static final MediaType JSON = MediaType.parseMediaType("application/vnd.github+json");
     private static final MediaType RAW = MediaType.parseMediaType("application/vnd.github.raw+json");
 
-    private final RestTemplate githubUserApi;
-    private final RestTemplate githubTreeApi;
-    private final RestTemplate githubImageApi;
+    private final RestTemplate githubUserHttpClient;
+    private final RestTemplate githubTreeHttpClient;
+    private final RestTemplate githubImageHttpClient;
     private final JsonMapper json;
 
     public GitHubApi(
-            @Qualifier("githubUserApi") RestTemplate githubUserApi,
-            @Qualifier("githubTreeApi") RestTemplate githubTreeApi,
-            @Qualifier("githubImageApi") RestTemplate githubImageApi,
+            @Qualifier("githubUserHttpClient") RestTemplate githubUserHttpClient,
+            @Qualifier("githubTreeHttpClient") RestTemplate githubTreeHttpClient,
+            @Qualifier("githubImageHttpClient") RestTemplate githubImageHttpClient,
             JsonMapper json) {
-        this.githubUserApi = githubUserApi;
-        this.githubTreeApi = githubTreeApi;
-        this.githubImageApi = githubImageApi;
+        this.githubUserHttpClient = githubUserHttpClient;
+        this.githubTreeHttpClient = githubTreeHttpClient;
+        this.githubImageHttpClient = githubImageHttpClient;
         this.json = json;
     }
 
@@ -73,7 +73,7 @@ public class GitHubApi {
     public List<Long> installations(String token) {
         var response = parseObject(
                 get(
-                        githubUserApi,
+                        githubUserHttpClient,
                         uri("/user/installations?per_page=100"),
                         token,
                         JSON,
@@ -103,7 +103,7 @@ public class GitHubApi {
     public List<Repository> repositories(String token, long installationId) {
         var response = parseObject(
                 get(
-                        githubUserApi,
+                        githubUserHttpClient,
                         uri("/user/installations/" + installationId + "/repositories?per_page=" + MAX_REPOSITORIES),
                         token,
                         JSON,
@@ -148,7 +148,7 @@ public class GitHubApi {
     public Branch branch(String token, String owner, String name, String branchName) {
         var response = parseObject(
                 get(
-                        githubUserApi,
+                        githubUserHttpClient,
                         uri("/repos/{owner}/{name}/branches/{branch}", owner, name, branchName),
                         token,
                         JSON,
@@ -173,7 +173,7 @@ public class GitHubApi {
     public List<TreeEntry> completeTree(String token, String owner, String name, String treeSha) {
         var response = parseObject(
                 get(
-                        githubTreeApi,
+                        githubTreeHttpClient,
                         uri("/repos/{owner}/{name}/git/trees/{sha}?recursive=1", owner, name, treeSha),
                         token,
                         JSON,
@@ -208,7 +208,7 @@ public class GitHubApi {
     /** Raw blob bytes, bounded by the shared 1 MiB response ceiling, which equals the reader's note limit. */
     public byte[] blob(String token, String owner, String name, String sha) {
         byte[] bytes = get(
-                githubUserApi,
+                githubUserHttpClient,
                 uri("/repos/{owner}/{name}/git/blobs/{sha}", owner, name, sha),
                 token,
                 RAW,
@@ -216,7 +216,9 @@ public class GitHubApi {
                         Code.SOURCE_NOT_FOUND, "GitHub no longer has this note version; refresh the repository."),
                 () -> new ApiFailure(
                         Code.UNSUPPORTED_CONTENT,
-                        "This note exceeds the " + GitHubHttp.MAX_RESPONSE_BYTES / 1_048_576 + " MiB reader limit."),
+                        "This note exceeds the "
+                                + GitHubHttpConfiguration.MAX_RESPONSE_BYTES / 1_048_576
+                                + " MiB reader limit."),
                 GitHubApi::renamed);
         LOG.info("GitHub blob read; bytes={}", bytes.length);
         return bytes;
@@ -239,7 +241,7 @@ public class GitHubApi {
                 + UriUtils.encodePathSegment(name, StandardCharsets.UTF_8) + "/contents/" + String.join("/", segments)
                 + "?ref=" + UriUtils.encodeQueryParam(commitSha, StandardCharsets.UTF_8));
         byte[] bytes = get(
-                githubImageApi,
+                githubImageHttpClient,
                 uri,
                 token,
                 RAW,
@@ -296,7 +298,7 @@ public class GitHubApi {
             if (status == 403) throw accessDenied();
             throw invalid("GitHub returned an unexpected HTTP status.");
         } catch (ResourceAccessException failure) {
-            if (failure.getCause() instanceof GitHubHttp.ResponseTooLarge) throw tooLarge.get();
+            if (failure.getCause() instanceof GitHubHttpConfiguration.ResponseTooLarge) throw tooLarge.get();
             throw new ApiFailure(
                     Code.GITHUB_UNAVAILABLE, "The GitHub request failed or timed out; nothing was changed.");
         }

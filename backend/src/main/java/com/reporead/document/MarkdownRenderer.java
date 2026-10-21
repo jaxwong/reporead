@@ -334,98 +334,131 @@ public final class MarkdownRenderer {
      * note links and attachment images. The original text stays in the page — what is not shown is in hidden spans — so
      * canonical block text, and every anchor into it, is unchanged. Only links made here reach the app's own origin,
      * whose paths it acts on (NOTE_LINK, the reader's tools): any other authored link there, such as a path that is not
-     * a note, opens nothing. Returns the image count including embeds.
+     * a note, opens nothing. Markdown images and embeds share one image count.
      */
-    private static int linkNotes(Document clean, String documentPath, int images) {
+    private static void linkNotes(Document clean, String documentPath, int markdownImageCount) {
+        rewriteMarkdownLinks(clean, documentPath);
+        replaceWikilinks(wikilinkTextNodes(clean), markdownImageCount);
+    }
+
+    /** Relative Markdown links to notes become app-owned links; every other same-origin authored path opens nothing. */
+    private static void rewriteMarkdownLinks(Document clean, String documentPath) {
         for (var link : clean.select("a[href]")) {
             String href = link.attr("href");
             boolean absolute = href.startsWith("//") || SCHEME.matcher(href).matches();
             if (href.startsWith("#") || (absolute && leavesTheApp(href))) continue;
-            String[] parts = href.split("#", 2);
-            var path = !absolute && parts[0].toLowerCase(Locale.ROOT).endsWith(".md")
-                    ? repositoryPath(documentPath, parts[0])
-                    : Optional.<String>empty();
-            if (path.isEmpty()) {
+            String[] pathAndFragment = href.split("#", 2);
+            var repositoryTarget =
+                    !absolute && pathAndFragment[0].toLowerCase(Locale.ROOT).endsWith(".md")
+                            ? repositoryPath(documentPath, pathAndFragment[0])
+                            : Optional.<String>empty();
+            if (repositoryTarget.isEmpty()) {
                 link.removeAttr("href");
                 continue;
             }
             String heading = null;
-            if (parts.length == 2 && !parts[1].isEmpty()) {
+            if (pathAndFragment.length == 2 && !pathAndFragment[1].isEmpty()) {
                 try {
-                    heading = UriUtils.decode(parts[1], StandardCharsets.UTF_8);
+                    heading = UriUtils.decode(pathAndFragment[1], StandardCharsets.UTF_8);
                 } catch (IllegalArgumentException malformed) {
                     // A malformed fragment still opens the note, just not at a heading.
                     heading = null;
                 }
             }
-            link.attr("href", noteLink("path", path.get(), heading));
+            link.attr("href", noteLink("path", repositoryTarget.get(), heading));
         }
-        var texts = new ArrayList<TextNode>();
+    }
+
+    /** Text nodes where wikilinks can be transformed without entering a link or code block. */
+    private static List<TextNode> wikilinkTextNodes(Document clean) {
+        var candidates = new ArrayList<TextNode>();
         for (var element : clean.body().getAllElements()) {
             if (element.closest("a, code, pre") != null) continue;
-            for (var node : element.textNodes()) if (node.getWholeText().contains("[[")) texts.add(node);
+            for (var text : element.textNodes()) {
+                if (text.getWholeText().contains("[[")) candidates.add(text);
+            }
         }
-        for (var text : texts) {
-            String whole = text.getWholeText();
-            var matcher = WIKILINK.matcher(whole);
+        return candidates;
+    }
+
+    private record Wikilink(
+            String source, boolean embed, String target, String alias, String name, String heading, String extension) {}
+
+    /** The source roles of one matched wikilink, before any DOM node is constructed. */
+    private static Wikilink parseWikilink(MatchResult match) {
+        String wikilinkText = match.group(2);
+        int aliasSeparator = wikilinkText.indexOf('|');
+        String target = aliasSeparator < 0 ? wikilinkText : wikilinkText.substring(0, aliasSeparator);
+        String alias = aliasSeparator < 0 ? null : wikilinkText.substring(aliasSeparator + 1);
+        int headingSeparator = target.indexOf('#');
+        String name = (headingSeparator < 0 ? target : target.substring(0, headingSeparator)).trim();
+        String heading = headingSeparator < 0
+                ? null
+                : target.substring(target.lastIndexOf('#') + 1).trim();
+        if (heading != null && (heading.isEmpty() || heading.startsWith("^"))) heading = null;
+        String extension =
+                name.contains(".") ? name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT) : "";
+        return new Wikilink(match.group(), !match.group(1).isEmpty(), target, alias, name, heading, extension);
+    }
+
+    /** Replaces wikilinks in source order, carrying the Markdown-image count through the one shared image ceiling. */
+    private static void replaceWikilinks(List<TextNode> candidates, int markdownImageCount) {
+        int imageCount = markdownImageCount;
+        for (var text : candidates) {
+            String textWithLinks = text.getWholeText();
+            var matcher = WIKILINK.matcher(textWithLinks);
             var replacement = new ArrayList<Node>();
-            int last = 0;
+            int untouchedStart = 0;
             while (matcher.find()) {
-                if (matcher.start() > last) replacement.add(new TextNode(whole.substring(last, matcher.start())));
-                boolean embed = !matcher.group(1).isEmpty();
-                String inner = matcher.group(2);
-                int bar = inner.indexOf('|');
-                String target = bar < 0 ? inner : inner.substring(0, bar);
-                String alias = bar < 0 ? null : inner.substring(bar + 1);
-                int hash = target.indexOf('#');
-                String name = (hash < 0 ? target : target.substring(0, hash)).trim();
-                String heading = hash < 0
-                        ? null
-                        : target.substring(target.lastIndexOf('#') + 1).trim();
-                if (heading != null && (heading.isEmpty() || heading.startsWith("^"))) heading = null;
-                String extension = name.contains(".")
-                        ? name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT)
-                        : "";
-                if (embed && IMAGE_TYPES.containsKey(extension)) {
-                    var span = new Element("span").addClass("embed").appendChild(hidden(matcher.group()));
-                    if (++images > MAX_IMAGES) {
-                        span.appendChild(new Element("span")
-                                .addClass("image-blocked")
-                                .attr("data-label", "[Image limit reached: " + name + "]"));
-                    } else {
-                        var image = new Element("img")
-                                .attr("data-embed", name)
-                                .attr("alt", name)
-                                .attr("loading", "eager");
-                        if (alias != null && alias.trim().matches("\\d{1,4}(x\\d{1,4})?")) {
-                            String[] size = alias.trim().split("x");
-                            image.attr("width", size[0]);
-                            if (size.length == 2) image.attr("height", size[1]);
-                        }
-                        span.appendChild(image);
-                    }
-                    replacement.add(span);
-                } else if (name.isEmpty() && heading == null) {
-                    replacement.add(new TextNode(matcher.group()));
+                if (matcher.start() > untouchedStart)
+                    replacement.add(new TextNode(textWithLinks.substring(untouchedStart, matcher.start())));
+                var wikilink = parseWikilink(matcher.toMatchResult());
+                if (wikilink.embed() && IMAGE_TYPES.containsKey(wikilink.extension())) {
+                    replacement.add(buildEmbed(wikilink, ++imageCount <= MAX_IMAGES));
+                } else if (wikilink.name().isEmpty() && wikilink.heading() == null) {
+                    replacement.add(new TextNode(wikilink.source()));
                 } else {
                     var link = new Element("a")
                             .addClass("wikilink")
                             .attr(
                                     "href",
-                                    name.isEmpty() ? noteLink(null, null, heading) : noteLink("target", name, heading));
-                    link.appendChild(hidden(matcher.group(1) + "[["));
-                    if (alias != null) link.appendChild(hidden(target + "|")).appendChild(new TextNode(alias));
-                    else link.appendChild(new TextNode(target));
+                                    wikilink.name().isEmpty()
+                                            ? noteLink(null, null, wikilink.heading())
+                                            : noteLink("target", wikilink.name(), wikilink.heading()));
+                    link.appendChild(hidden((wikilink.embed() ? "!" : "") + "[["));
+                    if (wikilink.alias() != null)
+                        link.appendChild(hidden(wikilink.target() + "|")).appendChild(new TextNode(wikilink.alias()));
+                    else link.appendChild(new TextNode(wikilink.target()));
                     link.appendChild(hidden("]]"));
                     replacement.add(link);
                 }
-                last = matcher.end();
+                untouchedStart = matcher.end();
             }
             if (replacement.isEmpty()) continue;
-            if (last < whole.length()) replacement.add(new TextNode(whole.substring(last)));
+            if (untouchedStart < textWithLinks.length())
+                replacement.add(new TextNode(textWithLinks.substring(untouchedStart)));
             replace(text, replacement);
         }
-        return images;
+    }
+
+    /** An image embed plus its hidden source, or the visible over-limit placeholder in the same wrapper. */
+    private static Element buildEmbed(Wikilink wikilink, boolean isWithinImageLimit) {
+        var embed = new Element("span").addClass("embed").appendChild(hidden(wikilink.source()));
+        if (!isWithinImageLimit) {
+            return embed.appendChild(new Element("span")
+                    .addClass("image-blocked")
+                    .attr("data-label", "[Image limit reached: " + wikilink.name() + "]"));
+        }
+        var image = new Element("img")
+                .attr("data-embed", wikilink.name())
+                .attr("alt", wikilink.name())
+                .attr("loading", "eager");
+        if (wikilink.alias() != null && wikilink.alias().trim().matches("\\d{1,4}(x\\d{1,4})?")) {
+            String[] dimensions = wikilink.alias().trim().split("x");
+            image.attr("width", dimensions[0]);
+            if (dimensions.length == 2) image.attr("height", dimensions[1]);
+        }
+        return embed.appendChild(image);
     }
 
     /**

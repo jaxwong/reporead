@@ -69,8 +69,8 @@ class AnnotationTest extends SharedSpringTest {
     MockMvc mvc;
 
     @Autowired
-    @Qualifier("githubUserApi")
-    RestTemplate githubUserApi;
+    @Qualifier("githubUserHttpClient")
+    RestTemplate githubUserHttpClient;
 
     @Autowired
     OAuth2AuthorizedClientService clients;
@@ -113,7 +113,7 @@ class AnnotationTest extends SharedSpringTest {
     @BeforeEach
     void setup() {
         TestEnvironment.reset(db);
-        github = MockRestServiceServer.bindTo(githubUserApi)
+        github = MockRestServiceServer.bindTo(githubUserHttpClient)
                 .ignoreExpectOrder(true)
                 .build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, "TEST_ONLY_ALICE");

@@ -13,7 +13,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.reporead.android.RepoReadApplication
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import java.time.Duration
 
@@ -54,12 +54,12 @@ internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
             return if (shouldRetry("Background sync", failure, attempt)) Result.retry() else Result.failure()
         }
     if (syncResult == null) {
-        AppLog.info("Background sync: nothing waiting; attempt=$attempt")
+        DeviceLog.info("Background sync: nothing waiting; attempt=$attempt")
         return Result.success()
     }
     syncResult.notSent?.let {
         return if (shouldRetry("Background sync", it, attempt)) Result.retry() else Result.failure()
     }
-    AppLog.info("Background sync done; attempt=$attempt refused=${syncResult.refused.size}")
+    DeviceLog.info("Background sync done; attempt=$attempt refused=${syncResult.refused.size}")
     return Result.success()
 }

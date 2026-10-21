@@ -13,7 +13,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.database.SavedPageEntity
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.sync.IMAGE_PREFIX
 import com.reporead.android.sync.NoteImages
 import java.io.ByteArrayInputStream
@@ -73,7 +73,7 @@ private object PageConsole : WebChromeClient() {
     override fun onConsoleMessage(message: ConsoleMessage): Boolean {
         val level = message.messageLevel()
         if (level != ConsoleMessage.MessageLevel.ERROR && level != ConsoleMessage.MessageLevel.WARNING) return false
-        AppLog.warn(
+        DeviceLog.warn(
             "Page console; level=$level source=${message.sourceId()} line=${message.lineNumber()} " +
                 "message=${message.message()}"
         )
@@ -202,7 +202,7 @@ internal open class IsolatedPage(context: Context) : WebView(context) {
                     rendering.launch {
                         val state = awaitRendered(view)
                         if (state != "ready") {
-                            AppLog.warn("$name did not render; documentId=${note.documentId} state=$state")
+                            DeviceLog.warn("$name did not render; documentId=${note.documentId} state=$state")
                             onFailed()
                         } else onReady(script == null || view.evaluate(script) == true)
                     }
@@ -210,7 +210,7 @@ internal open class IsolatedPage(context: Context) : WebView(context) {
 
                 // Returning false would end the app with the page's renderer (a crash, or system reclamation).
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                    AppLog.warn("$name stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
+                    DeviceLog.warn("$name stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
                     rendering.cancel()
                     onFailed()
                     return true

@@ -68,8 +68,8 @@ class AppSignInTest extends SharedSpringTest {
     ClientRegistrationRepository registrations;
 
     @Autowired
-    @Qualifier("githubUserApi")
-    RestTemplate githubUserApi;
+    @Qualifier("githubUserHttpClient")
+    RestTemplate githubUserHttpClient;
 
     MockRestServiceServer github;
 
@@ -124,7 +124,7 @@ class AppSignInTest extends SharedSpringTest {
     @BeforeEach
     void reset() {
         TestEnvironment.reset(db);
-        github = MockRestServiceServer.bindTo(githubUserApi).build();
+        github = MockRestServiceServer.bindTo(githubUserHttpClient).build();
     }
 
     @AfterEach

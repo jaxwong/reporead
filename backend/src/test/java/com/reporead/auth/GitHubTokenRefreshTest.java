@@ -68,8 +68,8 @@ class GitHubTokenRefreshTest extends SharedSpringTest {
     MockMvc mvc;
 
     @Autowired
-    @Qualifier("githubUserApi")
-    RestTemplate githubUserApi;
+    @Qualifier("githubUserHttpClient")
+    RestTemplate githubUserHttpClient;
 
     @Autowired
     RestClientRefreshTokenTokenResponseClient githubRefreshTokens;
@@ -99,7 +99,7 @@ class GitHubTokenRefreshTest extends SharedSpringTest {
     @BeforeEach
     void setup() {
         TestEnvironment.reset(db);
-        api = MockRestServiceServer.bindTo(githubUserApi)
+        api = MockRestServiceServer.bindTo(githubUserHttpClient)
                 .ignoreExpectOrder(true)
                 .build();
         var tokenClient = RestClient.builder();

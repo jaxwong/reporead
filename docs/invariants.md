@@ -32,7 +32,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Every list the phone saves from the server comes from one read of one database snapshot, and is written with the others in one Room transaction: all of one answer, or none of it.**
 
-- Enforced by: `GET /api/library` is the only route this app reads them from, one request per read and no GitHub call, and the server has no other route for them (ADR-08); `Library` reads every list in one read-only `REPEATABLE READ` transaction; `Api` decodes and validates the whole answer, then `Sync` maps it before `RepoReadDao.replaceFromServer` writes it, and deletes images only after the commit.
+- Enforced by: `GET /api/library` is the only route this app reads them from, one request per read and no GitHub call, and the server has no other route for them (ADR-08); `LibrarySnapshotReader` reads every list in one read-only `REPEATABLE READ` transaction; `Api` decodes and validates the whole answer, then `Sync` maps it before `RepoReadDao.replaceFromServer` writes it, and deletes images only after the commit.
 - Checked by: `LibraryTest` (a write committed during the read is wholly out of it and wholly in the next); `LocalSyncTest` on a device (a failed request or a broken answer leaves every saved list and image as it was).
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
 
@@ -115,7 +115,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **GitHub credentials never appear in logs, metrics, rendered pages, page JavaScript, or on the phone, and are never readable from the database alone.**
 
-- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; GitHub HTTP success/failure logs and oversize exception messages omit request paths, while metric tags never carry paths or content. `GitHubHttpTest` checks success, transport failure and oversized responses; repository-sync candidate/move logs also omit note paths (`RepositorySyncTest`).
+- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; GitHub HTTP success/failure logs and oversize exception messages omit request paths, while metric tags never carry paths or content. `GitHubHttpConfigurationTest` checks success, transport failure and oversized responses; repository-sync candidate/move logs also omit note paths (`RepositorySyncTest`).
 - Why: [ADR-03](adrs.md#adr-03--github-user-tokens-stay-on-the-server-encrypted-at-rest), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
 
 ### Repository content is untrusted
@@ -137,7 +137,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Notes and annotations are not backed up off the phone or transferred, and are logged only where the app's crash messages and reader console output quote them, in the server's own log (ADR-21). Ending a session keeps the phone's notes; account deletion clears the live server, not the phone. Server backups keep their copies until replaced.**
 
-- Enforced by: Android backup/device transfer excluded; the server's own lines and every metric carry no content, and app lines carry it only in exception messages and page console output; disconnect removes its server and local copies; account deletion removes server data and explicitly clears the session only on confirmation (a 401 can independently end it). Sign-out attempts one revocation and clears only the session. Dialogs distinguish these effects and name existing backup copies (retention in backend/README.md). One process-lifetime Sync keeps local writes ordered independently of sessions. Image sweeps derive retained files from Room; Save all sweeps under cancellable `locked` only after a successful loop, not after each fetched page; failure/cancellation leave orphan cleanup to the next library refresh, Library open or startup; cached reads share the deletion lock and an older fetch cannot write after a deletion.
+- Enforced by: Android backup/device transfer excluded; the server's own lines and every metric carry no content, and device log lines carry it only in exception messages and page console output; disconnect removes its server and local copies; account deletion removes server data and explicitly clears the session only on confirmation (a 401 can independently end it). Sign-out attempts one revocation and clears only the session. Dialogs distinguish these effects and name existing backup copies (retention in backend/README.md). One process-lifetime Sync keeps local writes ordered independently of sessions. Image sweeps derive retained files from Room; Save all sweeps under cancellable `locked` only after a successful loop, not after each fetched page; failure/cancellation leave orphan cleanup to the next library refresh, Library open or startup; cached reads share the deletion lock and an older fetch cannot write after a deletion.
 - Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
 
 ## Failure behaviour
@@ -192,7 +192,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **`DocumentController.Content` checks HTML, canonical search blocks and metadata together before sending a page.**
 
-- GitHubHttp bounds incoming blobs; `MarkdownRenderer` bounds blocks/diagrams and serializes HTML once, without a second input/output-byte check. The complete saved-page limit remains 1 MiB; serialization builds the string before admission, so this is not a peak-heap guarantee.
+- GitHubHttpConfiguration bounds incoming blobs; `MarkdownRenderer` bounds blocks/diagrams and serializes HTML once, without a second input/output-byte check. The complete saved-page limit remains 1 MiB; serialization builds the string before admission, so this is not a peak-heap guarantee.
 - Checked by: `DocumentContentTest` covers the exact UTF-8 boundary and one extra byte, multi-byte characters, expanded HTML, search blocks/metadata, oversized input and the second read. Canonical extraction still needs no HTML serialization.
 
 ### Bounded memory on the phone

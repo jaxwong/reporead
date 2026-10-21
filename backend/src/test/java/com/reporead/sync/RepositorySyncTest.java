@@ -14,7 +14,7 @@ import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
-import com.reporead.github.GitHubHttp;
+import com.reporead.github.GitHubHttpConfiguration;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -58,12 +58,12 @@ class RepositorySyncTest extends SharedSpringTest {
     MockMvc mvc;
 
     @Autowired
-    @Qualifier("githubUserApi")
-    RestTemplate githubUserApi;
+    @Qualifier("githubUserHttpClient")
+    RestTemplate githubUserHttpClient;
 
     @Autowired
-    @Qualifier("githubTreeApi")
-    RestTemplate githubTreeApi;
+    @Qualifier("githubTreeHttpClient")
+    RestTemplate githubTreeHttpClient;
 
     @Autowired
     OAuth2AuthorizedClientService clients;
@@ -94,10 +94,10 @@ class RepositorySyncTest extends SharedSpringTest {
     @BeforeEach
     void setup() {
         TestEnvironment.reset(db);
-        user = MockRestServiceServer.bindTo(githubUserApi)
+        user = MockRestServiceServer.bindTo(githubUserHttpClient)
                 .ignoreExpectOrder(true)
                 .build();
-        trees = MockRestServiceServer.bindTo(githubTreeApi)
+        trees = MockRestServiceServer.bindTo(githubTreeHttpClient)
                 .ignoreExpectOrder(true)
                 .build();
         alice = TestSessions.signIn(sessions, clients, registrations, 42, TOKEN);
@@ -982,7 +982,7 @@ class RepositorySyncTest extends SharedSpringTest {
     @Test
     void treeCeilingIsAboveGitHubsSevenMegabyteMaximumButStillBounded() throws Exception {
         var entries = new StringBuilder();
-        for (int i = 0; entries.length() <= GitHubHttp.MAX_RESPONSE_BYTES; i++) {
+        for (int i = 0; entries.length() <= GitHubHttpConfiguration.MAX_RESPONSE_BYTES; i++) {
             if (i > 0) entries.append(',');
             entries.append(entry("assets/image-" + i + ".png", "100644", "blob", BLOB_1));
         }
@@ -999,7 +999,7 @@ class RepositorySyncTest extends SharedSpringTest {
         expectSync(
                 COMMIT_B,
                 TREE_B,
-                withSuccess(new byte[GitHubHttp.MAX_TREE_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
+                withSuccess(new byte[GitHubHttpConfiguration.MAX_TREE_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
         sync(alice, connection)
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("GITHUB_RESPONSE_LIMIT"));

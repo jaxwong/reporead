@@ -42,9 +42,9 @@ The release build is not debuggable (no WebView DevTools, no `run-as`) and not m
 
 ## Releases and Obtainium
 
-A push to `main` that changes the app or the build runs `.github/workflows/android.yml` (also when `Library.java` or
-`assetlinks.json` changes, which the build and release check read): formatting and Lint, unit tests, the reader's check
-and bundle (`:app:mergeDebugAssets`) and a compile of the device tests, then a release APK signed with the personal key
+A push to `main` that changes the app or the build runs `.github/workflows/android.yml` (also when
+`LibrarySnapshotReader.java` or `assetlinks.json` changes, which the build and release check read): formatting and Lint,
+unit tests, the reader's check and bundle (`:app:mergeDebugAssets`) and a compile of the device tests, then a release APK signed with the personal key
 (`ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`, secrets of the `production` environment, which only `main` may
 use), checked against the certificate SHA-256
 `2049299f…53293f`, and published as GitHub Release `v0.1.<n>` with `reporead-0.1.<n>.apk` and its `.sha256`. Pull requests
@@ -65,6 +65,12 @@ On the phone, [Obtainium](https://github.com/ImranR98/Obtainium) tracks `https:/
 ./gradlew :backend:test --tests '*OpenApiSpecTest' --no-daemon   # rewrites backend/openapi.json once and fails; commit it
 ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --no-daemon
 ```
+
+`logging/DeviceLog.kt` owns logcat and the bounded durable device-log store. Its `pending.jsonl` and `sending.jsonl`
+filenames and each line's `{at, appVersion, level, message}` JSON remain readable across app updates;
+`sync/DeviceLogUploadWorker.kt` claims one typed batch, maps it to the generated `DeviceLogLine` wire model, and makes at
+most one `POST /api/app-logs` call per run. It finishes a claim only after 204 or the route's permanent
+`INVALID_REQUEST` refusal; an unanswered call leaves that claim replayable, and signed-out work leaves it untouched.
 
 ## Device tests
 

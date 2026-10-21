@@ -21,7 +21,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
@@ -66,14 +66,16 @@ internal class AvailableViewModel(private val api: Api, private val sync: Sync, 
     fun retry() {
         val now = current.value
         if (now.listing !is Load.Failed || !current.compareAndSet(now, now.copy(listing = Load.Loading))) {
-            AppLog.info("Available list not fetched again; entry=$entryId listing=${now.listing.javaClass.simpleName}")
+            DeviceLog.info(
+                "Available list not fetched again; entry=$entryId listing=${now.listing.javaClass.simpleName}"
+            )
             return
         }
         list("retry")
     }
 
     private fun list(reason: String) {
-        AppLog.info("Available list started; entry=$entryId reason=$reason")
+        DeviceLog.info("Available list started; entry=$entryId reason=$reason")
         viewModelScope.launch {
             val listing =
                 try {
@@ -91,12 +93,12 @@ internal class AvailableViewModel(private val api: Api, private val sync: Sync, 
             now.connecting != null ||
                 !current.compareAndSet(now, now.copy(connecting = repository.githubRepositoryId, error = null))
         ) {
-            AppLog.info(
+            DeviceLog.info(
                 "Connect not started; entry=$entryId connecting=${now.connecting} requested=${repository.githubRepositoryId}"
             )
             return
         }
-        AppLog.info("Connect started; entry=$entryId githubRepositoryId=${repository.githubRepositoryId}")
+        DeviceLog.info("Connect started; entry=$entryId githubRepositoryId=${repository.githubRepositoryId}")
         viewModelScope.launch {
             try {
                 val connected = sync.connect(repository.githubRepositoryId, repository.installationId)

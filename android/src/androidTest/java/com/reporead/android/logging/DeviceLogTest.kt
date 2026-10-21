@@ -5,9 +5,8 @@ package com.reporead.android.logging
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.BuildConfig
-import com.reporead.android.network.wire.AppLogControllerLine
-import com.reporead.android.network.wireJson
 import java.io.File
+import java.time.Instant
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -18,37 +17,36 @@ import org.junit.runner.RunWith
 
 /** Each test has its own store; the app's own store is restored after it. */
 @RunWith(AndroidJUnit4::class)
-class AppLogTest {
+class DeviceLogTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val store = File(context.cacheDir, "app-log-test")
 
     @Before
     fun start() {
         store.deleteRecursively()
-        AppLog.start(store)
+        DeviceLog.start(store)
     }
 
     @After
     fun restore() {
-        AppLog.start(appLogDirectory(context))
+        DeviceLog.start(deviceLogDirectory(context))
         store.deleteRecursively()
     }
 
     /** The batch's lines, as the upload worker decodes them. */
-    private fun batch(): List<AppLogControllerLine> =
-        AppLog.batch().orEmpty().map { wireJson.decodeFromString<AppLogControllerLine>(it) }
+    private fun batch(): List<StoredDeviceLogLine> = DeviceLog.claimPendingBatch().orEmpty()
 
     @Test
     fun aLineIsStoredAsTheLineTheServerTakesWithThisBuildsVersion() {
-        AppLog.info("Reader ready; documentId=7")
-        AppLog.warn("Bookmark refused; documentId=7 code=NOT_FOUND")
+        DeviceLog.info("Reader ready; documentId=7")
+        DeviceLog.warn("Bookmark refused; documentId=7 code=NOT_FOUND")
 
         val lines = batch()
 
         assertEquals(
             listOf(
-                AppLogControllerLine.Level.INFO to "Reader ready; documentId=7",
-                AppLogControllerLine.Level.WARN to "Bookmark refused; documentId=7 code=NOT_FOUND",
+                DeviceLogLevel.INFO to "Reader ready; documentId=7",
+                DeviceLogLevel.WARN to "Bookmark refused; documentId=7 code=NOT_FOUND",
             ),
             lines.map { it.level to it.message },
         )
@@ -57,43 +55,62 @@ class AppLogTest {
 
     @Test
     fun aDebugLineIsNotStored() {
-        AppLog.debug("Reading position saved; documentId=7 percent=18 block=20 viewHeight=2048")
-        AppLog.info("Reader ready; documentId=7")
+        DeviceLog.debug("Reading position saved; documentId=7 percent=18 block=20 viewHeight=2048")
+        DeviceLog.info("Reader ready; documentId=7")
 
         assertEquals(listOf("Reader ready; documentId=7"), batch().map { it.message })
     }
 
     @Test
-    fun aBatchStaysUntilSentAndLaterLinesWaitForTheNext() {
-        assertNull(AppLog.batch())
-        AppLog.info("First")
+    fun aLostAcknowledgementLeavesOneReplayableClaimAndLaterLinesWaitForTheNext() {
+        assertNull(DeviceLog.claimPendingBatch())
+        DeviceLog.info("First")
         assertEquals(listOf("First"), batch().map { it.message })
 
-        AppLog.info("Second")
-        assertEquals("an unsent batch is offered again, unchanged", listOf("First"), batch().map { it.message })
+        DeviceLog.info("Second")
+        assertEquals("the unacknowledged claim is replayed unchanged", listOf("First"), batch().map { it.message })
 
-        AppLog.sent()
+        DeviceLog.finishClaimedBatch()
         assertEquals(listOf("Second"), batch().map { it.message })
-        AppLog.sent()
-        assertNull(AppLog.batch())
+        DeviceLog.finishClaimedBatch()
+        assertNull(DeviceLog.claimPendingBatch())
+    }
+
+    @Test
+    fun aPendingLineWrittenBeforeTheRenameLoadsAsATypedDurableRecord() {
+        File(store, "pending.jsonl")
+            .writeText(
+                """{"at":"2026-10-21T06:02:11.123Z","appVersion":"0.1.432","level":"WARN","message":"Older run"}""" +
+                    "\n"
+            )
+
+        assertEquals(
+            StoredDeviceLogLine(
+                Instant.parse("2026-10-21T06:02:11.123Z"),
+                "0.1.432",
+                DeviceLogLevel.WARN,
+                "Older run",
+            ),
+            batch().single(),
+        )
     }
 
     @Test
     fun aFullStoreKeepsItsNewestLinesWithinTheCapAndCountsTheRest() {
         val line = "Reader opened at a highlight; documentId=1 annotationId=2 found=true"
-        repeat(5_000) { AppLog.info("$line n=$it") }
+        repeat(5_000) { DeviceLog.info("$line n=$it") }
 
         assertTrue(File(store, "pending.jsonl").length() <= BuildConfig.REQUEST_MAX_BYTES / 2)
         val lines = batch()
         assertEquals("$line n=4999", lines.last().message)
-        assertTrue(lines.any { it.message.startsWith("App log store full; dropped=") })
+        assertTrue(lines.any { it.message.startsWith("Device log store full; dropped=") })
     }
 
     @Test
     fun theLongestLineSurvivesTrimmingEvenWhenEveryUnitIsEscaped() {
-        AppLog.info("\u0001".repeat(MAX_LINE_CHARS + 10))
-        repeat(3_000) { AppLog.info("Reader ready; documentId=$it") }
-        AppLog.warn("\u0001".repeat(MAX_LINE_CHARS))
+        DeviceLog.info("\u0001".repeat(MAX_LINE_CHARS + 10))
+        repeat(3_000) { DeviceLog.info("Reader ready; documentId=$it") }
+        DeviceLog.warn("\u0001".repeat(MAX_LINE_CHARS))
 
         assertEquals(MAX_LINE_CHARS, batch().last().message.length)
     }
@@ -107,8 +124,8 @@ class AppLogTest {
                 IllegalArgumentException("Expected a non-blank failure code"),
             )
 
-        AppLog.warn("Could not stop Save all; repositoryId=3", error)
-        AppLog.crash(Thread.currentThread(), error)
+        DeviceLog.warn("Could not stop Save all; repositoryId=3", error)
+        DeviceLog.crash(Thread.currentThread(), error)
 
         val (warned, crashed) = batch()
         for (line in listOf(warned, crashed)) {
@@ -125,16 +142,16 @@ class AppLogTest {
                     "\nCaused by: java.lang.IllegalArgumentException: Expected a non-blank failure code\n\tat "
                 ),
             )
-            assertTrue(line.message, line.message.contains("AppLogTest.aThrowablesStoredCopy"))
+            assertTrue(line.message, line.message.contains("DeviceLogTest.aThrowablesStoredCopy"))
         }
         assertTrue(warned.message.startsWith("Could not stop Save all; repositoryId=3\n"))
-        assertEquals(AppLogControllerLine.Level.ERROR, crashed.level)
+        assertEquals(DeviceLogLevel.ERROR, crashed.level)
         assertTrue(crashed.message.startsWith("Crash; thread=${Thread.currentThread().name}\n"))
     }
 
     @Test
     fun aLineTheProcessEndedWhileWritingIsNotInTheBatch() {
-        AppLog.info("Reader ready; documentId=7")
+        DeviceLog.info("Reader ready; documentId=7")
         File(store, "pending.jsonl").appendText("""{"at":"2026-10-21T06:02:11Z","appVersion":"0.1.1","lev""")
 
         assertEquals(listOf("Reader ready; documentId=7"), batch().map { it.message })

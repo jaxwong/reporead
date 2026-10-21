@@ -30,7 +30,7 @@ import com.reporead.android.Screen
 import com.reporead.android.database.AnnotationEntity
 import com.reporead.android.database.Passage
 import com.reporead.android.database.RepoReadDao
-import com.reporead.android.logging.AppLog
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
 import com.reporead.android.sync.Sync
@@ -91,7 +91,7 @@ internal class ReaderViewModel(
     init {
         open("created")
         saved.get<SubmittedEdit>(EDIT)?.let { draft ->
-            AppLog.info("Reader edit restored; entry=$entryId mutationId=${draft.mutationId}")
+            DeviceLog.info("Reader edit restored; entry=$entryId mutationId=${draft.mutationId}")
             current.update { it.copy(changing = true) }
             viewModelScope.launch {
                 val row = dao.annotation(draft.mutationId)
@@ -114,7 +114,7 @@ internal class ReaderViewModel(
     }
 
     private fun open(reason: String) {
-        AppLog.info("Reader open started; entry=$entryId documentId=$documentId reason=$reason")
+        DeviceLog.info("Reader open started; entry=$entryId documentId=$documentId reason=$reason")
         viewModelScope.launch {
             val page =
                 try {
@@ -143,7 +143,7 @@ internal class ReaderViewModel(
     }
 
     private fun refreshHighlights(reason: String) {
-        AppLog.info("Reader highlights refresh started; entry=$entryId documentId=$documentId reason=$reason")
+        DeviceLog.info("Reader highlights refresh started; entry=$entryId documentId=$documentId reason=$reason")
         viewModelScope.launch {
             try {
                 sync.refreshAnnotations(documentId)
@@ -161,7 +161,7 @@ internal class ReaderViewModel(
         val overlay = now.overlay ?: return null
         if (!current.compareAndSet(now, now.copy(overlay = null))) return null
         if (overlay is ReaderOverlay.EditNote) {
-            AppLog.info("Reader edit returned to editor; entry=$entryId mutationId=${overlay.annotation.mutationId}")
+            DeviceLog.info("Reader edit returned to editor; entry=$entryId mutationId=${overlay.annotation.mutationId}")
             saved[EDIT] = null
         }
         return overlay
@@ -172,7 +172,7 @@ internal class ReaderViewModel(
      * it reached the server.
      */
     fun save(passage: Passage, note: String?) {
-        AppLog.info("Reader highlight save started; entry=$entryId documentId=$documentId")
+        DeviceLog.info("Reader highlight save started; entry=$entryId documentId=$documentId")
         viewModelScope.launch {
             val mutationId = sync.createAnnotation(passage, documentId, note)
             showMessage(
@@ -209,11 +209,11 @@ internal class ReaderViewModel(
                 now.overlay is ReaderOverlay.EditNote ||
                 !current.compareAndSet(now, now.copy(changing = true, message = null))
         ) {
-            AppLog.info("Reader $what not started; entry=$entryId mutationId=${row.mutationId} changing=true")
+            DeviceLog.info("Reader $what not started; entry=$entryId mutationId=${row.mutationId} changing=true")
             showMessage("Finish the current highlight change before submitting another.")
             return false
         }
-        AppLog.info("Reader $what started; entry=$entryId mutationId=${row.mutationId}")
+        DeviceLog.info("Reader $what started; entry=$entryId mutationId=${row.mutationId}")
         viewModelScope.launch {
             val message = work()
             current.update { it.copy(changing = false, message = message) }
@@ -238,14 +238,16 @@ internal class ReaderViewModel(
     fun editNote(row: AnnotationEntity, note: String?, expectedVersion: Int) =
         change("edit", row) {
             saved[EDIT] = SubmittedEdit(row.mutationId, note)
-            AppLog.info("Reader edit input retained; entry=$entryId mutationId=${row.mutationId}")
+            DeviceLog.info("Reader edit input retained; entry=$entryId mutationId=${row.mutationId}")
             try {
                 sync.editAnnotation(row, note, expectedVersion)
-                AppLog.info("Reader edit committed; entry=$entryId mutationId=${row.mutationId}")
+                DeviceLog.info("Reader edit committed; entry=$entryId mutationId=${row.mutationId}")
                 saved[EDIT] = null
                 null
             } catch (error: ApiException) {
-                AppLog.info("Reader edit not committed; entry=$entryId mutationId=${row.mutationId} code=${error.code}")
+                DeviceLog.info(
+                    "Reader edit not committed; entry=$entryId mutationId=${row.mutationId} code=${error.code}"
+                )
                 if (error.code != "ANNOTATION_CONFLICT") {
                     current.update { it.copy(overlay = ReaderOverlay.EditNote(row, note.orEmpty())) }
                     "Edit not saved. ${error.describe()}"
@@ -268,7 +270,7 @@ internal class ReaderViewModel(
         }
 
     fun dismissConflict() {
-        AppLog.info("Reader conflict dismissed; entry=$entryId conflict=${current.value.conflict != null}")
+        DeviceLog.info("Reader conflict dismissed; entry=$entryId conflict=${current.value.conflict != null}")
         saved[EDIT] = null
         current.update { it.copy(conflict = null) }
     }
