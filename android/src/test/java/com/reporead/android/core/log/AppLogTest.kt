@@ -1,4 +1,4 @@
-// Owns: Coverage that the phone's log lines are stored within their cap and reach the server once, without note text.
+// Owns: Coverage that the phone's log lines are stored within their cap and reach the server once.
 
 package com.reporead.android.core.log
 
@@ -15,7 +15,6 @@ import java.net.InetSocketAddress
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -23,7 +22,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/** Owns the store, trimming, upload and throwable-redaction assertions, against a test-only loopback server. */
+/** Owns the store, trimming, upload and throwable-trace assertions, against a test-only loopback server. */
 class AppLogTest {
     @get:Rule val temporary = TemporaryFolder()
 
@@ -132,12 +131,13 @@ class AppLogTest {
         assertEquals(MAX_LINE_CHARS, newest.message.length)
     }
 
+    /** A crash's message is often the explanation; a reader script failure carries the page's JS stack in it. */
     @Test
-    fun aThrowablesStoredCopyHasItsTypesAndFramesButNotItsMessages() {
+    fun aThrowablesStoredCopyHasItsClassesMessagesAndFrames() {
         val error =
             IllegalStateException(
-                "Page script failed: highlight(\"a private quote\")",
-                IllegalArgumentException("private"),
+                "Page script failed: window.reporead.outline(): TypeError: x is undefined",
+                IllegalArgumentException("Expected a non-blank failure code"),
             )
 
         AppLog.warn("Could not stop Save all; repositoryId=3", error)
@@ -145,9 +145,19 @@ class AppLogTest {
 
         val (warned, crashed) = stored()
         for (line in listOf(warned, crashed)) {
-            assertFalse(line.message, line.message.contains("private"))
-            assertTrue(line.message, line.message.contains("java.lang.IllegalStateException\n\tat "))
-            assertTrue(line.message, line.message.contains("\nCaused by: java.lang.IllegalArgumentException\n\tat "))
+            assertTrue(
+                line.message,
+                line.message.contains(
+                    "java.lang.IllegalStateException: Page script failed: window.reporead.outline(): " +
+                        "TypeError: x is undefined\n\tat "
+                ),
+            )
+            assertTrue(
+                line.message,
+                line.message.contains(
+                    "\nCaused by: java.lang.IllegalArgumentException: Expected a non-blank failure code\n\tat "
+                ),
+            )
             assertTrue(line.message, line.message.contains("AppLogTest.aThrowablesStoredCopy"))
         }
         assertTrue(warned.message.startsWith("Could not stop Save all; repositoryId=3\n"))
