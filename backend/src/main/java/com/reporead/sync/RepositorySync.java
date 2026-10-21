@@ -97,11 +97,11 @@ public class RepositorySync {
         String githubToken = credentials.githubUserToken(user.githubUserId());
         var branchSnapshot =
                 github.branch(githubToken, connection.owner(), connection.name(), connection.defaultBranch());
-        var treeEntries =
+        var repositoryTreeEntries =
                 github.completeTree(githubToken, connection.owner(), connection.name(), branchSnapshot.treeSha());
-        var markdownFiles = markdownDocuments(treeEntries);
-        var imagePaths = imageFiles(treeEntries);
-        var detectedMoves = contentMoves(user, connection, markdownFiles);
+        var githubSnapshotFiles = markdownDocuments(repositoryTreeEntries);
+        var imagePaths = imageFiles(repositoryTreeEntries);
+        var detectedMoves = contentMoves(user, connection, githubSnapshotFiles);
         Instant syncedAt = Instant.now();
         var publishedMoves = transaction.execute(transactionStatus -> {
             var lockedConnection = connections.lockForSync(user.id(), connectionId);
@@ -132,7 +132,7 @@ public class RepositorySync {
                         "Another sync of this repository published first; nothing was published.");
             }
             var appliedMoves = documents.publishSnapshot(
-                    connectionId, markdownFiles, syncedAt, detectedMoves, publishedCommitSha != null);
+                    connectionId, githubSnapshotFiles, syncedAt, detectedMoves, publishedCommitSha != null);
             attachments.replace(connectionId, imagePaths);
             connections.markSynced(connectionId, branchSnapshot.commitSha());
             return appliedMoves;
@@ -145,9 +145,10 @@ public class RepositorySync {
                 user.id(),
                 connectionId,
                 branchSnapshot.commitSha(),
-                markdownFiles.size(),
+                githubSnapshotFiles.size(),
                 publishedMoves.size());
-        return new RepositorySyncResult(connectionId, branchSnapshot.commitSha(), markdownFiles.size(), syncedAt);
+        return new RepositorySyncResult(
+                connectionId, branchSnapshot.commitSha(), githubSnapshotFiles.size(), syncedAt);
     }
 
     /**
@@ -156,20 +157,22 @@ public class RepositorySync {
      * read as a note excludes only that candidate; any other failure fails the sync.
      */
     private List<Documents.Move> contentMoves(
-            AppUser user, RepositoryConnections.Connection connection, List<Documents.SourceFile> markdownFiles) {
-        var unmatchedFiles = Documents.unmatched(documents.existing(connection.id()), markdownFiles);
+            AppUser user,
+            RepositoryConnections.Connection connection,
+            List<Documents.SourceFile> githubSnapshotFiles) {
+        var unmatchedSnapshot = Documents.unmatched(documents.existing(connection.id()), githubSnapshotFiles);
         var documentIdsWithUserState = documents.withUserState(connection.id());
-        var vanishedDocuments = unmatchedFiles.vanished().stream()
+        var vanishedDocuments = unmatchedSnapshot.vanished().stream()
                 .filter(document -> documentIdsWithUserState.contains(document.id()))
                 .toList();
-        var newFiles = unmatchedFiles.fresh();
-        if (vanishedDocuments.isEmpty() || newFiles.isEmpty()) return List.of();
-        if (vanishedDocuments.size() + newFiles.size() > MAX_CONTENT_MOVE_CANDIDATES) {
+        var freshSnapshotFiles = unmatchedSnapshot.fresh();
+        if (vanishedDocuments.isEmpty() || freshSnapshotFiles.isEmpty()) return List.of();
+        if (vanishedDocuments.size() + freshSnapshotFiles.size() > MAX_CONTENT_MOVE_CANDIDATES) {
             LOG.info(
                     "Content moves not checked; connectionId={} vanishedWithUserData={} newPaths={} limit={}",
                     connection.id(),
                     vanishedDocuments.size(),
-                    newFiles.size(),
+                    freshSnapshotFiles.size(),
                     MAX_CONTENT_MOVE_CANDIDATES);
             return List.of();
         }
@@ -179,7 +182,7 @@ public class RepositorySync {
                     .ifPresent(shingles -> oldShinglesByDocumentId.put(document.id(), shingles));
         }
         var newShinglesByPath = new HashMap<String, Set<String>>();
-        for (var file : newFiles) {
+        for (var file : freshSnapshotFiles) {
             shingles(user, connection, file.path(), file.blobSha())
                     .ifPresent(shingles -> newShinglesByPath.put(file.path(), shingles));
         }
@@ -210,30 +213,30 @@ public class RepositorySync {
     }
 
     /** Regular-file blobs the reader displays as images, for resolving Obsidian embeds by name. */
-    static List<String> imageFiles(List<GitHubApi.TreeEntry> treeEntries) {
-        return treeEntries.stream()
+    static List<String> imageFiles(List<GitHubApi.TreeEntry> repositoryTreeEntries) {
+        return repositoryTreeEntries.stream()
                 .filter(entry -> regularFile(entry) && MarkdownRenderer.isImagePath(entry.path()))
                 .map(GitHubApi.TreeEntry::path)
                 .toList();
     }
 
     /** Regular-file blobs ending in .md (any case). Symlinks, submodules, and other files are not documents. */
-    static List<Documents.SourceFile> markdownDocuments(List<GitHubApi.TreeEntry> treeEntries) {
-        var markdownFiles = new ArrayList<Documents.SourceFile>();
+    static List<Documents.SourceFile> markdownDocuments(List<GitHubApi.TreeEntry> repositoryTreeEntries) {
+        var snapshotMarkdownFiles = new ArrayList<Documents.SourceFile>();
         var seenPaths = new HashSet<String>();
-        for (var entry : treeEntries) {
+        for (var entry : repositoryTreeEntries) {
             if (!regularFile(entry) || !entry.path().toLowerCase(Locale.ROOT).endsWith(".md")) continue;
             if (!seenPaths.add(entry.path())) {
                 throw new ApiFailure(Code.GITHUB_INVALID_RESPONSE, "GitHub tree listed one path twice.");
             }
-            if (markdownFiles.size() == MAX_DOCUMENTS) {
+            if (snapshotMarkdownFiles.size() == MAX_DOCUMENTS) {
                 throw new ApiFailure(
                         Code.DOCUMENT_LIMIT,
                         "This repository has more than 5000 Markdown files; no documents were changed.");
             }
-            markdownFiles.add(new Documents.SourceFile(entry.path(), entry.sha()));
+            snapshotMarkdownFiles.add(new Documents.SourceFile(entry.path(), entry.sha()));
         }
-        return List.copyOf(markdownFiles);
+        return List.copyOf(snapshotMarkdownFiles);
     }
 
     /** A plain or executable file: symlinks (120000) and submodules (commits) are neither notes nor images. */
