@@ -258,7 +258,7 @@ erDiagram
         timestamptz updated_at
         text resolved_blob_sha "highlights and cards"
         text question "cards only"
-        text checked_blob_sha "cards only"
+        text checked_blob_sha "unused since 2026-10-21; a contract migration drops it"
         uuid mutation_id "highlights and cards; unique per user"
     }
     annotation_anchors {
@@ -567,31 +567,24 @@ stateDiagram-v2
 
 ### Practice and review
 
-Cards are anchored annotations with a question. The server owns the immutable review log and the session limit; the phone owns scheduling ([ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling)).
+Cards are anchored annotations with a question: interview-bank questions, anchored to their Canonical line. The server owns the immutable review log and the session limit; the phone owns scheduling ([ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling)).
 
 ```mermaid
 flowchart LR
-    subgraph Sources["Where cards come from"]
-        Bank["Interview bank question<br/>first grade in a Practice session"]
-        Sel["Selected passage<br/>→ Make a question"]
-        HL["Existing highlight<br/>→ Make a question"]
-    end
-
+    Bank["Interview bank question<br/>first grade in a Practice session"]
     Card["Pending CARD<br/>(mutation id)"]
-    Sources --> Card
+    Bank --> Card
     Card -- "sync" --> SrvCard["Server: annotations<br/>type CARD"]
 
     Grade["Grade 0 / 3 / 4 / 5<br/>pending, client UUID"]
     Grade -- "sync" --> Log["Server: review_log<br/>immutable, idempotent"]
     Log -- "GET /api/library" --> Proj["Room: review_log projection"]
     Proj --> Ladder["study/ReviewSchedule.kt<br/>gap ladder over the log"]
-    Ladder --> Due["Due cards → Review session<br/>capped at 40 (server-owned)"]
-    Due --> Grade
-
-    Changed{"Note version changed<br/>since the answer was checked?"}
-    SrvCard --> Changed
-    Changed -- "yes" --> Check["Blocked until reattached if orphaned<br/>and confirmed online:<br/>POST /annotations/{id}/check"]
-    Changed -- "no" --> Due
+    Ladder --> Topics["Due cards by topic<br/>Review opens here"]
+    Topics --> Due["Review session: one topic or all<br/>capped at 40 (server-owned)"]
+    Due --> Asks{"Saved current bank<br/>still asks the card's<br/>Canonical line?"}
+    Asks -- "yes" --> Grade
+    Asks -- "no" --> Open["Offer the bank: the server re-anchors<br/>an edited line, or delete the card"]
 ```
 
 Practice questions are recognized on the phone from saved copies of notes under an `interview/` folder (`study/Study.kt`); a Practice session makes no network calls.
