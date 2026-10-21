@@ -12,21 +12,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -40,134 +34,20 @@ import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.NotebookItem
 import com.reporead.android.database.ReviewEntity
 import com.reporead.android.logging.AppLog
-import com.reporead.android.network.ApiException
-import com.reporead.android.network.describe
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.EntryRow
 import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
-import java.time.Duration
-import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import java.util.UUID
 import kotlin.random.Random
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-/**
- * The question a card's Canonical line asks in its bank's current saved version, so the card follows its current prompt
- * and answer; null when that version no longer asks it.
- */
-internal fun reviewQuestion(card: NotebookItem, questions: List<PracticeQuestion>): PracticeQuestion? =
-    questions.firstOrNull {
-        it.documentId == card.annotation.documentId && it.question.answer.text == card.annotation.drawn.exactText
-    }
-
-/** What review holds now, from this phone's cards and grades; null while they are read. */
-@Composable
-internal fun rememberReviewOutlook(dao: RepoReadDao): ReviewOutlook? {
-    val cards = dao.notebook().collectAsStateWithLifecycle(null).value
-    val reviewLog = dao.reviews().collectAsStateWithLifecycle(null).value
-    val today = rememberStartOfToday()
-    return remember(cards, reviewLog, today) {
-        if (cards == null || reviewLog == null) null
-        else reviewOutlook(cards, reviewLog, System.currentTimeMillis(), today.zone)
-    }
-}
-
-/**
- * The start of the phone's local day, in its time zone. Cards fall due at the start of a local day, so apart from cards
- * and grades only this changes an outlook: the date, and the zone that decides which day each grade fell on. It updates
- * at each local midnight while on screen, and whenever the screen starts, because the midnight timer does not run while
- * the phone sleeps and a zone change has no timer at all.
- */
-@Composable
-private fun rememberStartOfToday(): ZonedDateTime {
-    var today by remember { mutableStateOf(startOfToday()) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) today = startOfToday()
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
-    LaunchedEffect(Unit) {
-        while (true) {
-            val now = ZonedDateTime.now()
-            delay(Duration.between(now, now.toLocalDate().plusDays(1).atStartOfDay(now.zone)).toMillis())
-            today = startOfToday()
-        }
-    }
-    return today
-}
-
-private fun startOfToday(): ZonedDateTime =
-    ZoneId.systemDefault().let { zone -> LocalDate.now(zone).atStartOfDay(zone) }
-
-/**
- * One line on what review holds: the due count, then what falls due next — tomorrow or on the next day with cards — and
- * in the 7 days after the outlook's day. [sessionLimit] is the server's session size.
- */
-internal fun outlookLine(outlook: ReviewOutlook, sessionLimit: Int?): String {
-    val next =
-        outlook.next
-            ?: return if (outlook.due > 0) dueParts(outlook, sessionLimit).joinToString(" · ")
-            else "No cards yet: grade a question below."
-    val upcoming =
-        if (next == outlook.today.plusDays(1)) "${outlook.nextCount} tomorrow"
-        else
-            "next on ${next.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))}, ${counted(outlook.nextCount, "card")}"
-    return (dueParts(outlook, sessionLimit) +
-            upcoming +
-            listOfNotNull(outlook.week.takeIf { it > outlook.nextCount }?.let { "$it in the next 7 days" }))
-        .joinToString(" · ")
-}
-
-private fun dueParts(outlook: ReviewOutlook, sessionLimit: Int?): List<String> =
-    if (outlook.due == 0) listOf("Nothing due")
-    else
-        listOfNotNull(
-            "${outlook.due} due",
-            sessionLimit?.takeIf { outlook.due > it }?.let { "$it per session" },
-            outlook.blocked.takeIf { it > 0 }?.let { "$it to save first" },
-        )
-
-/**
- * A due card that cannot be graded, for [cardBlock], with what fixes it from here: opening its bank to save the current
- * version, to let the server find an edited Canonical line, or to delete the card.
- */
-@Composable
-private fun FixCard(card: NotebookItem, cardBlock: CardBlock, push: (Screen) -> Unit) {
-    val annotation = card.annotation
-    Text(
-        when (cardBlock) {
-            CardBlock.REFUSED ->
-                "The server refused this card, so it can't be reviewed: ${annotation.rejection} Delete it in its note's Highlights and notes."
-            CardBlock.REMOVED ->
-                "Its note was removed from the repository, so this card can't be reviewed. Delete it in the note's Highlights and notes, or skip it."
-            CardBlock.NOT_SAVED ->
-                "The note's current version isn't saved on this phone. Open the note while online to save it, then review this card."
-            // Opening the bank lists its highlights, so the server looks for the line in the new version.
-            CardBlock.NOT_ASKED ->
-                "Its bank no longer has this question's Canonical line. Open the bank while online: if the line was only edited, this card follows it. Otherwise delete the card in the bank's Highlights and notes."
-        }
-    )
-    TextButton(
-        onClick = { push(Screen.Reader(annotation.documentId, card.title, OpenAt.Highlight(annotation.mutationId))) }
-    ) {
-        Text("Open note")
-    }
-}
 
 /** Where a review session's progress, and when it started, are kept for process restoration. */
 private const val SESSION = "session"
