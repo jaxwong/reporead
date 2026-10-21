@@ -44,8 +44,9 @@ class RequestLog extends OncePerRequestFilter {
                     response.getStatus(),
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
         } catch (IOException | ServletException | RuntimeException error) {
-            // Tomcat logs the stack trace next, on the same thread, and answers 500; the status is not set yet here.
-            LOG.warn(
+            // A server bug, so ERROR, as Tomcat's stack trace that follows on the same thread is; it answers 500, and
+            // the status is not set yet here.
+            LOG.error(
                     "Request failed unhandled; method={} path={} durationMs={} error={}",
                     request.getMethod(),
                     request.getRequestURI(),

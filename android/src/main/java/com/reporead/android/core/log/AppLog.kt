@@ -51,6 +51,11 @@ object AppLog {
         this.directory = directory
     }
 
+    /** A line too frequent to keep, such as one per scroll stop: logcat only, never stored or sent to the server. */
+    fun debug(message: String) {
+        Log.d(TAG, message)
+    }
+
     fun info(message: String) {
         Log.i(TAG, message)
         store(AppLogControllerLine.Level.INFO, message)

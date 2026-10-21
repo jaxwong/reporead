@@ -166,6 +166,16 @@ class AppLogTest {
     }
 
     @Test
+    fun aDebugLineIsNeitherStoredNorSent() = runBlocking {
+        AppLog.debug("Reading position saved; documentId=7 percent=18 block=20 viewHeight=2048")
+        AppLog.info("Reader ready; documentId=7")
+
+        AppLog.upload(api())
+
+        assertEquals(listOf("Reader ready; documentId=7"), received.single().lines.map { it.message })
+    }
+
+    @Test
     fun aLineTheProcessEndedWhileWritingIsNotSent() = runBlocking {
         AppLog.info("Reader ready; documentId=7")
         File(temporary.root, "pending.jsonl").appendText("""{"at":"2026-10-21T06:02:11Z","appVersion":"0.1.1","lev""")

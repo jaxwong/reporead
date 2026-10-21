@@ -146,5 +146,7 @@ class RequestLogTest {
                 lines.contains("Request failed unhandled; method=GET path=/api/test-only/unhandled durationMs="),
                 lines);
         assertTrue(lines.contains("error=IllegalStateException"), lines);
+        assertTrue(
+                lines.lines().anyMatch(l -> l.contains(" ERROR ") && l.contains("Request failed unhandled;")), lines);
     }
 }
