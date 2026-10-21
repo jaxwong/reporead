@@ -1,6 +1,7 @@
 # Cognitive-load refactor plan
 
-Status: PR 1 implemented on `establish-language-remove-ambiguous-local-names`; PRs 2 and 3 remain planned.
+Status: PR 1 implemented on `establish-language-remove-ambiguous-local-names`; PR 2 implemented on
+`android-ownership-structure`; PR 3 remains planned.
 Audit baseline: `main` at `92ca61b8830d71e855ecfc5fb8ea64d4d4ccbbcd` on 2026-10-21.
 
 ## Goal
