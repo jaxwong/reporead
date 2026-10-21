@@ -18,8 +18,8 @@ import com.reporead.android.database.AnnotationState
 import com.reporead.android.database.AnnotationType
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.RepoReadDatabase
-import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.ReviewLimitEntity
+import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.findText
 import com.reporead.android.network.Api
@@ -257,7 +257,9 @@ class ReviewLifecycleTest {
                     DocumentEntity(2, 7, "test-only/core.md", "Test-only core", "c".repeat(40)),
                 ),
             )
-            dao.saveNoteWithoutSearch(SavedPageEntity(1, current, bankPath, "Test-only review", bank(current, 2..10), 0))
+            dao.saveNoteWithoutSearch(
+                SavedPageEntity(1, current, bankPath, "Test-only review", bank(current, 2..10), 0)
+            )
             card(1)
             val pushed = mutableListOf<Screen>()
             showReview(push = { pushed += it })

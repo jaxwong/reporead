@@ -148,7 +148,9 @@ class LocalSyncTest {
     fun aFormatThreeCurrentPageIsFetchedOnlyOnceOnline() = runBlocking {
         savedRepository()
         dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n1.md", "n1", sha)))
-        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, 3, "b".repeat(40)))
+        dao.saveNoteWithoutSearch(
+            SavedPageEntity(1, sha, "n1.md", "n1", "<main>old presentation</main>", 0, 3, "b".repeat(40))
+        )
         LoopbackServer(mapOf("GET /api/documents/1/content" to content(1))).use { server ->
             val sync = sync(server.url)
             val first = sync.openNote(1)
@@ -619,7 +621,10 @@ class LocalSyncTest {
     fun saveAllSweepsReplacedImagesOnlyAfterTheBatchSucceeds() = runBlocking {
         val old = "b".repeat(40)
         dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/notes", 2, sha)))
-        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n1.md", "n1", sha), DocumentEntity(2, 7, "n2.md", "n2", sha)))
+        dao.replaceDocuments(
+            7,
+            listOf(DocumentEntity(1, 7, "n1.md", "n1", sha), DocumentEntity(2, 7, "n2.md", "n2", sha)),
+        )
         dao.saveNoteWithoutSearch(
             SavedPageEntity(1, old, "n1.md", "n1", "<main id=note></main>", 0, BuildConfig.RENDER_FORMAT, old)
         )

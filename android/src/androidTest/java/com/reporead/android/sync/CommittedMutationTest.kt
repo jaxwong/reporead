@@ -87,8 +87,8 @@ class CommittedMutationTest {
                 renderFormat = BuildConfig.RENDER_FORMAT,
             )
         )
-        dao.saveServerAnnotation(testHighlight().toRow())
-        dao.saveServerAnnotation(testCard().toRow())
+        dao.saveServerAnnotation(testHighlight().toEntity())
+        dao.saveServerAnnotation(testCard().toEntity())
     }
 
     @After

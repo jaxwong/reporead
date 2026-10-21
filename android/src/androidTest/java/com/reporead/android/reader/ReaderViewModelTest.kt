@@ -24,7 +24,7 @@ import com.reporead.android.network.testHighlight
 import com.reporead.android.network.testSha
 import com.reporead.android.network.wire
 import com.reporead.android.sync.Sync
-import com.reporead.android.sync.toRow
+import com.reporead.android.sync.toEntity
 import com.reporead.android.ui.Load
 import java.io.File
 import java.util.UUID
@@ -70,7 +70,7 @@ class ReaderViewModelTest {
                 snapshotCommitSha = testSha,
             )
         )
-        dao.saveServerAnnotation(testHighlight().toRow())
+        dao.saveServerAnnotation(testHighlight().toEntity())
     }
 
     @After

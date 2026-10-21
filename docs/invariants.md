@@ -97,9 +97,9 @@ These come from the original implementation spec's engineering invariants and th
 
 **A card is graded only against its bank's current saved version, and only while that version still asks its Canonical line.**
 
-- Enforced by: Review reads the card's question, answer and version from the saved bank (`reviewQuestion`), and offers the bank instead of a grade when no question there has the card's line; `LibraryDao.recordReview` saves a grade only while the version it was answered in is still the note's current, saved one. The server records any grade of the user's card: only the phone reads the bank. No confirmation is asked, because a card's question and answer are authored together in the bank (2026-10-21).
+- Enforced by: Review reads the card's question, answer and version from the saved bank (`reviewQuestion`), and offers the bank instead of a grade when no question there has the card's line; `RepoReadDao.recordReview` saves a grade only while the version it was answered in is still the note's current, saved one. The server records any grade of the user's card: only the phone reads the bank. No confirmation is asked, because a card's question and answer are authored together in the bank (2026-10-21).
 - The answer Practice and Review show comes from the bank version the question is asked from; a linked section opens in the reader as its own note.
-- Checks: `AnnotationRowTest` (a card is gradeable without the server placing it in the new version), `LocalStoreTest` (a grade of a superseded version is not saved), `ReviewLifecycleTest` (a card of an edited bank is graded in the new version; one whose line left the bank offers the bank), and the server's `AnnotationTest` (grades in any version are recorded).
+- Checks: `AnnotationEntityTest` (a card is gradeable without the server placing it in the new version), `RepoReadDatabaseTest` (a grade of a superseded version is not saved), `ReviewLifecycleTest` (a card of an edited bank is graded in the new version; one whose line left the bank offers the bank), and the server's `AnnotationTest` (grades in any version are recorded).
 - Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling).
 
 ## Security and privacy

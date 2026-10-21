@@ -9,7 +9,6 @@ import com.reporead.android.database.LoopbackServer
 import com.reporead.android.logging.AppLog
 import com.reporead.android.logging.appLogDirectory
 import com.reporead.android.network.wire.AnnotationControllerAnnotationList
-import com.reporead.android.network.wire.AnnotationControllerCheckRequest
 import com.reporead.android.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.network.wire.AnnotationControllerReattachRequest
