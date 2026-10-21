@@ -14,6 +14,8 @@ EnvironmentFile=/etc/reporead/backend.env
 # Oracle may reclaim an Always Free A1 VM whose CPU, network and memory all stay under 20% for 7 days; RepoRead
 # alone uses ~16% of memory. A 1 GB heap committed and touched at startup keeps memory near 30% (ADR-14).
 ExecStart=/usr/bin/java -Xms1g -XX:+AlwaysPreTouch -jar /opt/reporead/backend.jar
+# The journal (and Cockpit's Identifier filter) names the backend's lines by this, not by the program, "java".
+SyslogIdentifier=reporead-backend
 # The JVM exits 143 on SIGTERM; a normal stop or deploy is not a failure.
 SuccessExitStatus=143
 Restart=on-failure
