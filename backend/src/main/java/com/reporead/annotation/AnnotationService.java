@@ -74,37 +74,42 @@ public class AnnotationService {
     /** The note's highlights and cards, each resolved against its current version first. */
     List<Annotations.Annotation> list(AppUser user, long documentId) {
         var document = documents.find(user.id(), documentId).orElseThrow(ApiFailure::notFound);
-        var all = annotations.list(user.id(), documentId);
+        var storedAnnotations = annotations.list(user.id(), documentId);
         // A deleted note has no current version; its highlights keep their last resolution.
-        if (!document.deleted() && bringUpToDate(user, document, all)) all = annotations.list(user.id(), documentId);
-        return all;
+        if (!document.deleted() && bringUpToDate(user, document, storedAnnotations)) {
+            storedAnnotations = annotations.list(user.id(), documentId);
+        }
+        return storedAnnotations;
     }
 
     /** Resolves every highlight against the note's current version. Returns whether anything needed resolving. */
-    private boolean bringUpToDate(AppUser user, Documents.Located document, List<Annotations.Annotation> all) {
-        String current = document.blobSha();
-        var stale = all.stream()
-                .filter(annotation -> !annotation.resolvedBlobSha().equals(current))
+    private boolean bringUpToDate(
+            AppUser user, Documents.Located document, List<Annotations.Annotation> storedAnnotations) {
+        String currentBlobSha = document.blobSha();
+        var annotationsToResolve = storedAnnotations.stream()
+                .filter(annotation -> !annotation.resolvedBlobSha().equals(currentBlobSha))
                 .toList();
-        if (stale.isEmpty()) return false;
-        var currentBlocks = noteVersions.render(user, document, current).note().blocks();
-        for (var annotation : stale) {
-            var from = annotation.location();
-            var resolved =
-                    meters.timer(REANCHOR_DURATION).record(() -> Anchoring.resolve(from, current, currentBlocks));
-            boolean applied = annotations.resolved(annotation, current, resolved.map(Anchoring.Resolved::location));
-            String outcome = resolved.map(found -> found.method().name()).orElse(Annotations.Status.ORPHANED.name());
+        if (annotationsToResolve.isEmpty()) return false;
+        var currentVersionBlocks =
+                noteVersions.render(user, document, currentBlobSha).note().blocks();
+        for (var annotation : annotationsToResolve) {
+            var previousLocation = annotation.location();
+            var resolution = meters.timer(REANCHOR_DURATION)
+                    .record(() -> Anchoring.resolve(previousLocation, currentBlobSha, currentVersionBlocks));
+            boolean wasApplied =
+                    annotations.resolved(annotation, currentBlobSha, resolution.map(Anchoring.Resolved::location));
+            String outcome = resolution.map(match -> match.method().name()).orElse(Annotations.Status.ORPHANED.name());
             // Counted once per applied resolution; a concurrent listing that lost the race changed nothing.
-            if (applied) meters.counter(REANCHOR, "outcome", outcome).increment();
+            if (wasApplied) meters.counter(REANCHOR, "outcome", outcome).increment();
             LOG.info(
                     "Highlight resolved; userId={} documentId={} annotationId={} from={} to={} outcome={} applied={}",
                     user.id(),
                     document.id(),
                     annotation.id(),
-                    from.passage().sourceBlobSha(),
-                    current,
+                    previousLocation.passage().sourceBlobSha(),
+                    currentBlobSha,
                     outcome,
-                    applied);
+                    wasApplied);
         }
         return true;
     }
@@ -123,64 +128,70 @@ public class AnnotationService {
             Annotations.Type type,
             String question) {
         var document = documents.find(user.id(), documentId).orElseThrow(ApiFailure::notFound);
-        byte[] hash = fingerprint(documentId, selection, note, type, question);
-        var replayed = annotations.replay(user.id(), mutationId, hash);
-        if (replayed.isPresent()) {
+        byte[] requestFingerprint = fingerprint(documentId, selection, note, type, question);
+        var existingMutation = annotations.replay(user.id(), mutationId, requestFingerprint);
+        if (existingMutation.isPresent()) {
             LOG.info(
                     "Annotation creation replayed; userId={} annotationId={}",
                     user.id(),
-                    replayed.get().id());
-            return new Annotations.Created(replayed.get(), true);
+                    existingMutation.get().id());
+            return new Annotations.Created(existingMutation.get(), true);
         }
-        var location = verifiedLocation(
+        var verifiedLocation = verifyLocation(
                 selection,
                 noteVersions.render(user, document, selection.sourceBlobSha()).note());
-        var created = annotations.create(user.id(), documentId, mutationId, hash, location, note, type, question);
-        if (!created.replayed()) meters.counter(CREATED).increment();
+        var creation = annotations.create(
+                user.id(), documentId, mutationId, requestFingerprint, verifiedLocation, note, type, question);
+        if (!creation.replayed()) meters.counter(CREATED).increment();
         LOG.info(
                 "Annotation {}; userId={} documentId={} annotationId={}",
-                created.replayed() ? "creation replayed" : "created",
+                creation.replayed() ? "creation replayed" : "created",
                 user.id(),
                 documentId,
-                created.annotation().id());
-        return created;
+                creation.annotation().id());
+        return creation;
     }
 
     /** The user places an orphaned (or any) highlight on a selection they made in a version of its note. */
-    Annotations.Annotation reattach(AppUser user, long id, int expectedVersion, Selection selection) {
+    Annotations.Annotation reattach(AppUser user, long annotationId, int expectedVersion, Selection selection) {
         // A disconnect between the two reads deletes the annotation as well, so either one missing is 404.
         var document = annotations
-                .find(user.id(), id)
+                .find(user.id(), annotationId)
                 .flatMap(annotation -> documents.find(user.id(), annotation.documentId()))
                 .orElseThrow(ApiFailure::notFound);
-        var location = verifiedLocation(
+        var verifiedLocation = verifyLocation(
                 selection,
                 noteVersions.render(user, document, selection.sourceBlobSha()).note());
-        var reattached = annotations.reattach(user.id(), id, expectedVersion, location);
+        var reattached = annotations.reattach(user.id(), annotationId, expectedVersion, verifiedLocation);
         LOG.info(
                 "Highlight reattached; userId={} documentId={} annotationId={} blobSha={} version={}",
                 user.id(),
                 document.id(),
-                id,
-                location.passage().sourceBlobSha(),
+                annotationId,
+                verifiedLocation.passage().sourceBlobSha(),
                 reattached.version());
         return reattached;
     }
 
     /** The selection must name real text in that exact version; context and headings come from the server's render. */
-    static Annotations.Location verifiedLocation(Selection selection, MarkdownRenderer.RenderedNote rendered) {
-        var block = rendered.blocks().stream()
+    static Annotations.Location verifyLocation(Selection selection, MarkdownRenderer.RenderedNote renderedNote) {
+        var selectedBlock = renderedNote.blocks().stream()
                 .filter(candidate -> candidate.id().equals(selection.blockId()))
                 .findFirst()
                 .orElseThrow(() -> invalidAnchor("Block " + selection.blockId() + " does not exist in that version."));
-        String text = block.text();
-        if (selection.endOffset() > text.length()
-                || !text.substring(selection.startOffset(), selection.endOffset())
+        String canonicalText = selectedBlock.text();
+        if (selection.endOffset() > canonicalText.length()
+                || !canonicalText
+                        .substring(selection.startOffset(), selection.endOffset())
                         .equals(selection.exactText())) {
             throw invalidAnchor("The selected text does not match that version of the note.");
         }
         return Anchoring.anchorAt(
-                selection.sourceBlobSha(), rendered.blocks(), block, selection.startOffset(), selection.endOffset());
+                selection.sourceBlobSha(),
+                renderedNote.blocks(),
+                selectedBlock,
+                selection.startOffset(),
+                selection.endOffset());
     }
 
     private static ApiFailure invalidAnchor(String message) {
