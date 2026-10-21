@@ -636,7 +636,7 @@ class LocalSyncTest {
             )
             .use { server ->
                 assertEquals(
-                    Sync.SavedAll(2, 0, 0),
+                    Sync.SaveAllResult(2, 0, 0),
                     sync(server.url).saveAllNotes(7) { done, _ ->
                         assertTrue("Image sweep must wait until the batch ends; done=$done", replaced.exists())
                     },
@@ -673,7 +673,7 @@ class LocalSyncTest {
                 )
             )
             .use { server ->
-                assertEquals(Sync.SavedAll(3, 1, 0), sync(server.url).saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(3, 1, 0), sync(server.url).saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf(
                         "GET /api/library",
@@ -683,7 +683,7 @@ class LocalSyncTest {
                     ),
                     server.requests,
                 )
-                assertEquals(Sync.SavedAll(0, 4, 0), sync(server.url).saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(0, 4, 0), sync(server.url).saveAllNotes(7) { _, _ -> })
                 assertEquals(2, server.requests.count { it == "GET /api/library" })
                 assertEquals(3, server.requests.count { it.endsWith("/content") })
             }
@@ -708,7 +708,7 @@ class LocalSyncTest {
                 val sync = sync(server.url)
                 val progress = mutableListOf<Pair<Int, Int>>()
                 assertEquals(
-                    Sync.SavedAll(2, 0, 0),
+                    Sync.SaveAllResult(2, 0, 0),
                     sync.saveAllNotes(7) { done, total ->
                         progress += done to total
                         if (done == 1) assertTrue("Images must precede progress", imageRequest in server.requests)
@@ -724,7 +724,7 @@ class LocalSyncTest {
                     ),
                     server.requests,
                 )
-                assertEquals(Sync.SavedAll(0, 2, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(0, 2, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(1, server.requests.count { it == imageRequest })
             }
         val offlineImages =
@@ -772,7 +772,7 @@ class LocalSyncTest {
                     sync.saveAllNotes(7) { done, total -> progress += done to total }
                 }
                     .exceptionOrNull()
-                assertTrue("An image 503 must end this run, not report SavedAll", error is ApiException)
+                assertTrue("An image 503 must end this run, not report SaveAllResult", error is ApiException)
                 assertEquals("GITHUB_UNAVAILABLE", (error as ApiException).code)
                 assertEquals(listOf(0 to 2), progress)
                 assertEquals(listOf("GET /api/library", ok, missing), server.requests)
@@ -794,11 +794,11 @@ class LocalSyncTest {
             )
             .use { server ->
                 val sync = sync(server.url)
-                assertEquals(Sync.SavedAll(1, 1, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(1, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(listOf("GET /api/library", missing, "GET /api/documents/2/content"), server.requests)
                 assertEquals("TEST_ONLY_OK", sync.images.image(1, sha, "ok.png")!!.toString(Charsets.UTF_8))
                 assertEquals("TEST_ONLY_RECOVERED", sync.images.image(1, sha, "missing.png")!!.toString(Charsets.UTF_8))
-                assertEquals(Sync.SavedAll(0, 2, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(0, 2, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf("GET /api/library", missing, "GET /api/documents/2/content", "GET /api/library"),
                     server.requests,
@@ -925,7 +925,10 @@ class LocalSyncTest {
             .use { server ->
                 val sync = sync(server.url)
                 val progress = mutableListOf<Pair<Int, Int>>()
-                assertEquals(Sync.SavedAll(1, 0, 3), sync.saveAllNotes(7) { done, total -> progress += done to total })
+                assertEquals(
+                    Sync.SaveAllResult(1, 0, 3),
+                    sync.saveAllNotes(7) { done, total -> progress += done to total },
+                )
                 assertEquals(listOf(0 to 4, 1 to 4, 2 to 4, 3 to 4, 4 to 4), progress)
                 for (id in 1L..3L) assertEquals(html, dao.note(id)!!.html)
                 assertEquals(
@@ -934,7 +937,7 @@ class LocalSyncTest {
                         "GET /api/documents/4/content",
                     server.requests,
                 )
-                assertEquals(Sync.SavedAll(0, 1, 3), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(0, 1, 3), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(1, server.requests.count { it == "GET /api/documents/1/content" })
                 assertEquals(2, server.requests.count { it == "GET /api/library" })
                 assertTrue(server.requests.none { it.contains("later.png") })
@@ -986,7 +989,7 @@ class LocalSyncTest {
             }
         LoopbackServer(mapOf(listed, second to (200 to "TEST_ONLY_SECOND"))).use { server ->
             val sync = sync(server.url)
-            assertEquals(Sync.SavedAll(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
+            assertEquals(Sync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
             assertEquals(listOf("GET /api/library", second), server.requests)
             assertFalse("The next run's library refresh sweeps the replaced snapshot", replaced.exists())
             assertEquals("TEST_ONLY_FIRST", sync.images.image(1, sha, "first.png")!!.toString(Charsets.UTF_8))
@@ -999,7 +1002,7 @@ class LocalSyncTest {
             repeat(2) {
                 val progress = mutableListOf<Pair<Int, Int>>()
                 assertEquals(
-                    Sync.SavedAll(0, 0, 0),
+                    Sync.SaveAllResult(0, 0, 0),
                     sync(server.url).saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 0), progress)
@@ -1037,7 +1040,7 @@ class LocalSyncTest {
                     val disconnecting = async(start = CoroutineStart.UNDISPATCHED) { sync.disconnect(7) }
                     assertEquals(listOf("GET /api/library", first), server.requests)
                     release.countDown()
-                    assertEquals(Sync.SavedAll(0, 1, 0), saving.await())
+                    assertEquals(Sync.SaveAllResult(0, 1, 0), saving.await())
                     disconnecting.await()
                 } finally {
                     release.countDown()
@@ -1083,7 +1086,7 @@ class LocalSyncTest {
                 val sync = sync(server.url)
                 val progress = mutableListOf<Pair<Int, Int>>()
                 assertEquals(
-                    Sync.SavedAll(1, 0, 2),
+                    Sync.SaveAllResult(1, 0, 2),
                     sync.saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
@@ -1094,7 +1097,7 @@ class LocalSyncTest {
                     assertEquals(expected, dao.note(3)!!.copy(fetchedAt = 0))
                 }
                 assertEquals(
-                    Sync.SavedAll(0, 1, 2),
+                    Sync.SaveAllResult(0, 1, 2),
                     sync.saveAllNotes(7) { _, _ -> },
                 )
                 assertEquals(old, dao.note(1))
@@ -1264,12 +1267,12 @@ class LocalSyncTest {
                 val sync = sync(server.url)
                 val progress = mutableListOf<Pair<Int, Int>>()
                 assertEquals(
-                    Sync.SavedAll(0, 1, 0),
+                    Sync.SaveAllResult(0, 1, 0),
                     sync.saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 1, 1 to 1), progress)
                 assertEquals(Sync.Opened(saved, null), sync.openNote(1))
-                assertEquals(Sync.SavedAll(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(saved, dao.note(1))
                 assertEquals(listOf("GET /api/library", "GET /api/library"), server.requests)
             }
@@ -1303,10 +1306,10 @@ class LocalSyncTest {
             )
             .use { server ->
                 val sync = sync(server.url)
-                assertEquals(Sync.SavedAll(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(html, dao.note(1)!!.html)
                 assertEquals(newCommit, dao.note(1)!!.snapshotCommitSha)
-                assertEquals(Sync.SavedAll(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf("GET /api/library", "GET /api/documents/1/content", imageRequest, "GET /api/library"),
                     server.requests,
@@ -1386,7 +1389,7 @@ class LocalSyncTest {
                 val sync = sync(server.url)
                 assertEquals(displayed, sync.openNote(1).note)
                 assertTrue(server.requests.isEmpty())
-                assertEquals(Sync.SavedAll(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
                 val saved = dao.note(1)!!
                 assertEquals(sha, saved.blobSha)
                 assertEquals(newCommit, saved.snapshotCommitSha)
@@ -1394,7 +1397,7 @@ class LocalSyncTest {
                 assertFalse(oldImage.exists())
                 assertEquals(oldCommit, displayed.snapshotCommitSha)
                 assertEquals(saved, sync.openNote(1).note)
-                assertEquals(Sync.SavedAll(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
+                assertEquals(Sync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf(
                         "GET /api/library",

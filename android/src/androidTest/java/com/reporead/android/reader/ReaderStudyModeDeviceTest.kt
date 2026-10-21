@@ -22,7 +22,7 @@ import org.junit.runner.RunWith
 
 /** Test-only pages in a real isolated WebView; no app database or source repository is changed. */
 @RunWith(AndroidJUnit4::class)
-class StudyReaderTest {
+class ReaderStudyModeDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private lateinit var view: WebView
     private val rendering = MainScope()

@@ -6,7 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class StudyTest {
+class InterviewBankTest {
     private val bank = "core/databases/interview/07-transactions.md"
 
     private fun heading(id: String, name: String, level: Int = 3) =

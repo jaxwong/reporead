@@ -69,7 +69,7 @@ internal fun ApiException.refusesItem(): Boolean =
  * What one sync could not do. [refused]: bookmark changes the server refused and the phone undid. [notSent]: why
  * pending highlights and cards were not sent this time; they wait for the next sync.
  */
-data class LocalSync(val refused: List<RefusedChange>, val notSent: ApiException?)
+data class PendingSyncResult(val refused: List<RefusedChange>, val notSent: ApiException?)
 
 /** The title is the document owner's snapshot at refusal, before a subsequent library replacement can remove it. */
 data class RefusedChange(val documentId: Long, val title: String?, val error: ApiException)
@@ -77,7 +77,7 @@ data class RefusedChange(val documentId: Long, val title: String?, val error: Ap
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
  * cache untouched. Nothing here retries; every local change calls [onPendingChange], which asks for a background sync
- * (BackgroundSync.kt, ADR-08).
+ * (PendingSyncWorker.kt, ADR-08).
  */
 class Sync(
     private val api: Api,
@@ -263,7 +263,7 @@ class Sync(
      * [fetched] new or updated copies whose image pass completed; [alreadySaved] were current and completed it too;
      * [cannotShow] pages skipped on a permanent content/image refusal, counted once and logged by id. Saved text stays.
      */
-    data class SavedAll(val fetched: Int, val alreadySaved: Int, val cannotShow: Int)
+    data class SaveAllResult(val fetched: Int, val alreadySaved: Int, val cannotShow: Int)
 
     /**
      * Saves every note of [repositoryId] on the phone: reloads the library from the server ([refreshLibrary]), then
@@ -272,9 +272,12 @@ class Sync(
      * page, including an already-current copy, saves its missing images before reporting progress. Saved text and
      * complete images survive failures and cancellation; another run checks the rest. At most one library call, one
      * content call per outdated note and 64 image calls per saved page (the server's reference limit). Run only by Save
-     * all's background work (BackgroundSync.kt).
+     * all's background work (SaveAllNotesWorker.kt).
      */
-    suspend fun saveAllNotes(repositoryId: Long, onProgress: suspend (done: Int, totalNotes: Int) -> Unit): SavedAll {
+    suspend fun saveAllNotes(
+        repositoryId: Long,
+        onProgress: suspend (done: Int, totalNotes: Int) -> Unit,
+    ): SaveAllResult {
         refreshLibrary()
         val listedDocuments = dao.listedDocuments(repositoryId)
         val repositoryCommitSha = dao.repositoryCommitSha(repositoryId)
@@ -319,7 +322,7 @@ class Sync(
         AppLog.info(
             "Saved all notes; repositoryId=$repositoryId fetched=$fetched alreadySaved=$alreadySaved cannotShow=$cannotShow"
         )
-        return SavedAll(fetched, alreadySaved, cannotShow)
+        return SaveAllResult(fetched, alreadySaved, cannotShow)
     }
 
     /**
@@ -402,13 +405,13 @@ class Sync(
      * The sync run by library open, pull to refresh and Sync now: sends what waits ([sendPending]), then loads the
      * server's library ([loadLibrary]).
      */
-    suspend fun syncLocalChanges(): LocalSync = locked { sendPending().also { loadLibrary() } }
+    suspend fun syncLocalChanges(): PendingSyncResult = locked { sendPending().also { loadLibrary() } }
 
     /**
      * The background sync's run: sends what waits, and nothing when nothing does (null); each send saves the server's
      * answer, so the lists are left to the screens.
      */
-    suspend fun syncWaitingChanges(): LocalSync? = locked {
+    suspend fun syncWaitingChanges(): PendingSyncResult? = locked {
         if (dao.waitingCount().first() == 0) null else sendPending()
     }
 
@@ -417,7 +420,7 @@ class Sync(
      * access to it, fails they wait, and the database-only work still runs (ADR-03). A refused item is marked and the
      * run goes on; any other failure ends the run with unacknowledged changes still pending.
      */
-    private suspend fun sendPending(): LocalSync {
+    private suspend fun sendPending(): PendingSyncResult {
         val annotationSyncFailure =
             try {
                 sendAnnotations()
@@ -471,7 +474,7 @@ class Sync(
                     )
             }
         }
-        return LocalSync(refusedBookmarks, annotationSyncFailure)
+        return PendingSyncResult(refusedBookmarks, annotationSyncFailure)
     }
 
     /**
