@@ -26,12 +26,13 @@ final class ContentMoves {
      * document and its path, and both sides must have at least MIN_SHINGLES shingles. Anything ambiguous stays
      * unpaired.
      */
-    static Map<Long, String> pairs(Map<Long, Set<String>> vanished, Map<String, Set<String>> fresh) {
+    static Map<Long, String> pairs(
+            Map<Long, Set<String>> vanishedDocumentShingles, Map<String, Set<String>> freshPathShingles) {
         var candidates = new HashMap<Long, List<String>>();
         var reverse = new HashMap<String, List<Long>>();
-        for (var document : vanished.entrySet()) {
+        for (var document : vanishedDocumentShingles.entrySet()) {
             if (document.getValue().size() < MIN_SHINGLES) continue;
-            for (var path : fresh.entrySet()) {
+            for (var path : freshPathShingles.entrySet()) {
                 if (path.getValue().size() < MIN_SHINGLES
                         || similarity(document.getValue(), path.getValue()) < MIN_SIMILARITY) continue;
                 candidates

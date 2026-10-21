@@ -66,11 +66,11 @@ public class Documents {
      */
     public List<Move> publishSnapshot(
             long connectionId,
-            List<SourceFile> files,
+            List<SourceFile> snapshotFiles,
             Instant syncedAt,
             List<Move> contentMoves,
             boolean previouslySynced) {
-        var unmatched = unmatched(existing(connectionId), files);
+        var unmatched = unmatched(existing(connectionId), snapshotFiles);
         var moves = new ArrayList<>(unmatched.exact());
         for (var move : contentMoves) {
             boolean documentStillVanished = unmatched.vanished().stream()
@@ -90,9 +90,9 @@ public class Documents {
                         "titles",
                         moves.stream().map(move -> title(move.toPath())).toArray(String[]::new))
                 .update();
-        String[] paths = files.stream().map(SourceFile::path).toArray(String[]::new);
-        String[] titles = files.stream().map(file -> title(file.path())).toArray(String[]::new);
-        String[] blobs = files.stream().map(SourceFile::blobSha).toArray(String[]::new);
+        String[] paths = snapshotFiles.stream().map(SourceFile::path).toArray(String[]::new);
+        String[] titles = snapshotFiles.stream().map(file -> title(file.path())).toArray(String[]::new);
+        String[] blobs = snapshotFiles.stream().map(SourceFile::blobSha).toArray(String[]::new);
         var now = Timestamp.from(syncedAt);
         db.sql("""
                 INSERT INTO documents (repository_connection_id, path, title, current_blob_sha, content_changed_at)
@@ -127,20 +127,22 @@ public class Documents {
      */
     public record Unmatched(List<Move> exact, List<Existing> vanished, List<SourceFile> fresh) {}
 
-    public static Unmatched unmatched(List<Existing> existing, List<SourceFile> files) {
-        var snapshotPaths = files.stream().map(SourceFile::path).collect(Collectors.toSet());
-        var knownPaths = existing.stream().map(Existing::path).collect(Collectors.toSet());
-        var vanished = existing.stream()
+    public static Unmatched unmatched(List<Existing> existingDocuments, List<SourceFile> snapshotFiles) {
+        var snapshotPaths = snapshotFiles.stream().map(SourceFile::path).collect(Collectors.toSet());
+        var knownPaths = existingDocuments.stream().map(Existing::path).collect(Collectors.toSet());
+        var vanished = existingDocuments.stream()
                 .filter(row -> !row.deleted() && !snapshotPaths.contains(row.path()))
                 .toList();
-        var fresh =
-                files.stream().filter(file -> !knownPaths.contains(file.path())).toList();
-        var activeByBlob =
-                existing.stream().filter(row -> !row.deleted()).collect(Collectors.groupingBy(Existing::blobSha));
-        var filesByBlob = files.stream().collect(Collectors.groupingBy(SourceFile::blobSha));
+        var freshSnapshotFiles =
+                snapshotFiles.stream().filter(file -> !knownPaths.contains(file.path())).toList();
+        var activeByBlob = existingDocuments.stream()
+                .filter(row -> !row.deleted())
+                .collect(Collectors.groupingBy(Existing::blobSha));
+        var snapshotFilesByBlob =
+                snapshotFiles.stream().collect(Collectors.groupingBy(SourceFile::blobSha));
         var exact = new ArrayList<Move>();
         for (var document : vanished) {
-            var targets = filesByBlob.get(document.blobSha());
+            var targets = snapshotFilesByBlob.get(document.blobSha());
             if (activeByBlob.get(document.blobSha()).size() == 1
                     && targets != null
                     && targets.size() == 1
@@ -153,9 +155,10 @@ public class Documents {
         var movedTo = exact.stream().map(Move::toPath).collect(Collectors.toSet());
         var unpairedVanished =
                 vanished.stream().filter(row -> !movedIds.contains(row.id())).toList();
-        var unpairedFresh =
-                fresh.stream().filter(file -> !movedTo.contains(file.path())).toList();
-        return new Unmatched(exact, unpairedVanished, unpairedFresh);
+        var unpairedFreshSnapshotFiles = freshSnapshotFiles.stream()
+                .filter(file -> !movedTo.contains(file.path()))
+                .toList();
+        return new Unmatched(exact, unpairedVanished, unpairedFreshSnapshotFiles);
     }
 
     /**
