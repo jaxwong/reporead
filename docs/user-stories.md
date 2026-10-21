@@ -124,7 +124,7 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 
 **Acceptance criteria**
 
-- I can search cached note titles and content and open a matching note.
+- I can distinguish title/path matches from cached note-text matches; tapping a text match opens the exact block that contains it.
 - An empty query or no matches has a clear state.
 - Search does not expose another user's private repository content.
 

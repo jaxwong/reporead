@@ -171,7 +171,7 @@ Meters appear after their first use. They are in memory and reset when the serve
 | Markdown documents per repository | 5,000 | 422 `DOCUMENT_LIMIT` |
 | Library answer | 8 MiB of JSON, measured after serializing (`Library.MAX_RESPONSE_BYTES`); the app's build reads this line as its own ceiling for the answer | 422 `LIBRARY_TOO_LARGE`, nothing of the library sent |
 | Note source | 1 MiB UTF-8, 4,096 blocks, 16 diagrams of 20,000 UTF-16 units | 422 `UNSUPPORTED_CONTENT` |
-| Saved page | 1 MiB UTF-8 across HTML, canonical search text, path, title, blob SHA and image snapshot SHA (`MarkdownRenderer.MAX_PAGE_BYTES`); `DocumentController.Content` is the sole complete-page byte check after serialization (not a peak-heap bound) | 422 `UNSUPPORTED_CONTENT`; no partial content sent |
+| Saved page | 1 MiB UTF-8 across HTML, canonical search block ids/text, path, title, blob SHA and image snapshot SHA (`MarkdownRenderer.MAX_PAGE_BYTES`); `DocumentController.Content` is the sole complete-page byte check after serialization (not a peak-heap bound) | 422 `UNSUPPORTED_CONTENT`; no partial content sent |
 | Mermaid edges | 200 per diagram, passed to the reader as `data-max-edges` | Enforced by Mermaid on the phone: that diagram shows as an error with its source; the note itself renders (200) |
 | Heading paths | Each heading in a block's path at most 500 UTF-16 units; a longer heading (for example a long paragraph directly followed by `---`) is cut and ends in `…`. The heading's own block text is not cut | None: presentation only; reading anchors have no heading-length limit |
 | Repository images | 64 per note; 5 MiB each | Extra images render as `[Image limit reached]`; larger images 422 `UNSUPPORTED_CONTENT` |

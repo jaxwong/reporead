@@ -387,7 +387,7 @@ flowchart TB
 | `study` | Practice (`Practice.kt`) and Review (`Review.kt`) with their entry ViewModels; `rememberReviewOutlook` owns midnight/time-zone-aware outlooks for Library, Practice and Review completion; the pure review scheduler (`ReviewSchedule.kt`), session progression and note interleaving (`StudySession.kt`), bank recognition (`Study.kt`) and bank answer views (`Answer.kt`) |
 | `reader` | The reader screen and its ViewModel (including visible bookmark rejection for a disconnected note), page hosting and isolation with one JSON decode boundary in `ReaderPage.evaluate`, outline, notes sheet, backlinks, link resolution and previews, and its LeetCode study-view recognition (`Study.kt`) |
 | `ui` | Shared Compose components, including the screen load state and its retry presentation (`Load.kt`) |
-| `search` | Local substring search over saved titles, note text and highlights ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
+| `search` | Local substring search over saved titles, canonical note blocks and highlights; body results carry their exact Reader block ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
 
 `study` uses `reader`'s link parsing and isolated-page hosting; `reader` does not import `study`.
@@ -399,7 +399,8 @@ Room never decides anything the server owns; it mirrors complete server response
 | Table | Comes from | Pending local changes? |
 | --- | --- | --- |
 | `repositories`, `documents` | Server's complete lists (replaced, never merged), with every other list from one library answer in one transaction | No |
-| `notes` | Latest rendered copy of each opened note, one per document with its blob SHA, with its canonical text for search | No |
+| `notes` | Latest rendered copy of each opened note, one per document with its blob SHA | No |
+| `note_search_blocks` | Server-issued canonical block IDs/text for each saved page, written and deleted with it | No |
 | `note_links` | The note links of each saved page, written and deleted with it, for **Linked from** | No |
 | `reading_states`, `bookmarks` | Server lists, merged with local saves | Yes, last write wins by time |
 | `annotations` | Notebook and per-note listings | Yes: creations (with mutation id) and deletions of unacknowledged creations |
