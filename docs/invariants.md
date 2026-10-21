@@ -189,10 +189,10 @@ These come from the original implementation spec's engineering invariants and th
 
 ### Complete-page bytes have one owner
 
-**`DocumentController.Content` checks HTML, canonical search text and metadata together before sending a page.**
+**`DocumentController.Content` checks HTML, canonical search blocks and metadata together before sending a page.**
 
 - GitHubHttp bounds incoming blobs; `MarkdownRenderer` bounds blocks/diagrams and serializes HTML once, without a second input/output-byte check. The complete saved-page limit remains 1 MiB; serialization builds the string before admission, so this is not a peak-heap guarantee.
-- Checked by: `DocumentContentTest` covers the exact UTF-8 boundary and one extra byte, multi-byte characters, expanded HTML, search text/metadata, oversized input and the second read. Canonical extraction still needs no HTML serialization.
+- Checked by: `DocumentContentTest` covers the exact UTF-8 boundary and one extra byte, multi-byte characters, expanded HTML, search blocks/metadata, oversized input and the second read. Canonical extraction still needs no HTML serialization.
 
 ### Bounded memory on the phone
 
