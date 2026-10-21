@@ -59,8 +59,8 @@ class DeviceLogUploadTest {
         DeviceLog.warn("Bookmark refused; documentId=7 code=NOT_FOUND")
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true))
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true))
+            assertEquals(Result.success(), uploadDeviceLogBatches(api(server.url), signedIn = true))
+            assertEquals(Result.success(), uploadDeviceLogBatches(api(server.url), signedIn = true))
 
             assertEquals(
                 "nothing stored, nothing sent the second time",
@@ -78,7 +78,7 @@ class DeviceLogUploadTest {
             // Not retried on a backoff, which would hold later requests: the next request sends the lines.
             assertEquals(
                 Result.failure(),
-                uploadDeviceLogBatch(api(server.url), signedIn = true),
+                uploadDeviceLogBatches(api(server.url), signedIn = true),
             )
             assertEquals(
                 listOf("Library sync started; entryId=1"),
@@ -88,22 +88,17 @@ class DeviceLogUploadTest {
         assertEquals(listOf("Library sync started; entryId=1"), claimedLines().map(DeviceLogLine::message))
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
-            uploadDeviceLogBatch(api(server.url), signedIn = true)
-            assertEquals(
-                listOf(listOf("Library sync started; entryId=1")),
-                sentBatches(server).map { batch -> batch.map(DeviceLogLine::message) },
+            assertEquals(Result.success(), uploadDeviceLogBatches(api(server.url), signedIn = true))
+            val (replayed, since) = sentBatches(server).map { batch -> batch.map(DeviceLogLine::message) }
+            assertEquals(listOf("Library sync started; entryId=1"), replayed)
+            // The lines stored after the failure, its own included, go in the same run rather than waiting behind it.
+            assertTrue(
+                since.toString(),
+                since.any { it.contains("Backend I/O failed; method=POST path=/api/app-logs") },
             )
+            assertTrue(since.toString(), since.any { it.startsWith("Device log upload failed; lines=1 status=0") })
         }
-        // The failed attempt's own lines wait for the next upload.
-        val failedAttempt = claimedLines().map(DeviceLogLine::message)
-        assertTrue(
-            failedAttempt.toString(),
-            failedAttempt.any { it.contains("Backend I/O failed; method=POST path=/api/app-logs") },
-        )
-        assertTrue(
-            failedAttempt.toString(),
-            failedAttempt.any { it.startsWith("Device log upload failed; lines=1 status=0") },
-        )
+        assertNull(DeviceLog.claimPendingBatch())
     }
 
     @Test
@@ -115,7 +110,7 @@ class DeviceLogUploadTest {
             )
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true))
+            assertEquals(Result.success(), uploadDeviceLogBatches(api(server.url), signedIn = true))
             assertEquals(
                 DeviceLogLine(
                     at = Instant.parse("2026-10-21T06:02:11.123Z"),
@@ -135,14 +130,18 @@ class DeviceLogUploadTest {
         val refusal = """{"code":"INVALID_REQUEST","message":"test-only refusal"}"""
 
         LoopbackServer(mapOf("POST /api/app-logs" to (400 to refusal))).use { server ->
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = true))
+            assertEquals(Result.success(), uploadDeviceLogBatches(api(server.url), signedIn = true))
+            // This server refuses every batch, so the first refusal's own lines, sent next, are refused too.
+            val (refused, since) = sentBatches(server).map { batch -> batch.map(DeviceLogLine::message) }
+            assertEquals(listOf("Signed in"), refused)
+            assertTrue(since.toString(), since.contains("Device log lines refused; lines=1 code=INVALID_REQUEST"))
         }
 
         val left = claimedLines()
         assertTrue(left.toString(), left.none { it.message == "Signed in" })
         assertTrue(
             left.toString(),
-            left.any { it.message.contains("Device log lines refused; lines=1 code=INVALID_REQUEST") },
+            left.any { it.message.contains("Device log lines refused; lines=2 code=INVALID_REQUEST") },
         )
     }
 
@@ -151,7 +150,7 @@ class DeviceLogUploadTest {
         DeviceLog.info("Reader ready; documentId=7")
 
         LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
-            assertEquals(Result.success(), uploadDeviceLogBatch(api(server.url), signedIn = false))
+            assertEquals(Result.success(), uploadDeviceLogBatches(api(server.url), signedIn = false))
             assertTrue(server.requests.isEmpty())
         }
         assertEquals(1, DeviceLog.claimPendingBatch().orEmpty().size)

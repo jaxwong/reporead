@@ -59,35 +59,39 @@ class DeviceLogUploadWorker(context: Context, params: WorkerParameters) : Corout
     override suspend fun doWork(): Result {
         val app = applicationContext as RepoReadApplication
         logProcessExits(app.getSystemService(ActivityManager::class.java), File(app.filesDir, EXITS_SEEN))
-        return uploadDeviceLogBatch(app.api, app.sessionStore.read() is StoredSession.Readable)
+        return uploadDeviceLogBatches(app.api, app.sessionStore.read() is StoredSession.Readable)
     }
 }
 
 /**
- * One upload of the stored lines ([DeviceLog.claimPendingBatch]), completed only once the server has logged them, so a
- * lost answer can at most repeat them. Signed out, the server would refuse them, so they wait for the next start after
- * signing in. A batch the route refuses (INVALID_REQUEST, its only refusal) would be refused again, so it is dropped;
- * after any other failure the batch waits for the next request ([requestDeviceLogUpload]).
+ * At most two uploads of the stored lines ([DeviceLog.claimPendingBatch]): the batch a failed run left, then the lines
+ * stored since, so a warning logged after a failure does not wait behind that batch for another request. Each batch is
+ * completed only once the server has logged it, so a lost answer can at most repeat it. Signed out, the server would
+ * refuse them, so they wait for the next start after signing in. A batch the route refuses (INVALID_REQUEST, its only
+ * refusal) would be refused again, so it is dropped; after any other failure the batch waits for the next request
+ * ([requestDeviceLogUpload]).
  */
-internal suspend fun uploadDeviceLogBatch(api: Api, signedIn: Boolean): Result {
+internal suspend fun uploadDeviceLogBatches(api: Api, signedIn: Boolean): Result {
     if (!signedIn) return Result.success()
-    val lines = withContext(Dispatchers.IO) { DeviceLog.claimPendingBatch() } ?: return Result.success()
-    if (lines.isNotEmpty()) {
-        try {
-            api.uploadDeviceLogBatch(
-                DeviceLogIngestControllerUploadRequest(lines.map { wireJson.decodeFromString<DeviceLogLine>(it) })
-            )
-        } catch (failure: ApiException) {
-            if (!(failure.status == 400 && failure.code == "INVALID_REQUEST")) {
-                DeviceLog.warn(
-                    "Device log upload failed; lines=${lines.size} status=${failure.status} code=${failure.code}"
+    repeat(2) {
+        val lines = withContext(Dispatchers.IO) { DeviceLog.claimPendingBatch() } ?: return Result.success()
+        if (lines.isNotEmpty()) {
+            try {
+                api.uploadDeviceLogBatch(
+                    DeviceLogIngestControllerUploadRequest(lines.map { wireJson.decodeFromString<DeviceLogLine>(it) })
                 )
-                return Result.failure()
+            } catch (failure: ApiException) {
+                if (!(failure.status == 400 && failure.code == "INVALID_REQUEST")) {
+                    DeviceLog.warn(
+                        "Device log upload failed; lines=${lines.size} status=${failure.status} code=${failure.code}"
+                    )
+                    return Result.failure()
+                }
+                DeviceLog.warn("Device log lines refused; lines=${lines.size} code=${failure.code}")
             }
-            DeviceLog.warn("Device log lines refused; lines=${lines.size} code=${failure.code}")
         }
+        DeviceLog.finishClaimedBatch()
     }
-    DeviceLog.finishClaimedBatch()
     return Result.success()
 }
 
