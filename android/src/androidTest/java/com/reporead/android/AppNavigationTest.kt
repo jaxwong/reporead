@@ -48,6 +48,7 @@ import com.reporead.android.data.NoteRow
 import com.reporead.android.data.NoteSearchBlockRow
 import com.reporead.android.data.Passage
 import com.reporead.android.data.RepositoryRow
+import com.reporead.android.reader.SEARCH_TARGET_KEY
 import com.reporead.android.reader.testPage
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.toRow
@@ -345,7 +346,7 @@ class AppNavigationTest {
     }
 
     @Test
-    fun tappingANoteTextSearchResultOpensTheExactMatchingBlock() = runBlocking {
+    fun tappingANoteTextSearchResultRevealsTheExactMatchingPhrase() = runBlocking {
         LoopbackServer(emptyMap()).use { server ->
             val api = api(server)
             launchApp(account(api), api)
@@ -356,7 +357,35 @@ class AppNavigationTest {
             awaitTextStarting("Note text · Exact search destination")
             click("Note A")
             withTimeout(10_000) {
-                while (dao.reading(1)?.anchorJson?.let { JSONObject(it).getInt("blockIndex") } != 31) delay(50)
+                var inView = false
+                while (!inView) {
+                    val evaluated = CountDownLatch(1)
+                    scenario!!.onActivity { activity ->
+                        val page = findWebView(activity.window.decorView)
+                        if (page == null) {
+                            evaluated.countDown()
+                            return@onActivity
+                        }
+                        page.evaluateJavascript(
+                            """
+                            (() => {
+                                const mark = document.querySelector(
+                                    '#note mark[data-key="$SEARCH_TARGET_KEY"]'
+                                );
+                                if (!mark || mark.textContent !== 'Exact search destination') return false;
+                                const rect = mark.getBoundingClientRect();
+                                return rect.top >= 0 && rect.bottom <= window.innerHeight;
+                            })()
+                            """
+                                .trimIndent()
+                        ) { result ->
+                            inView = result == "true"
+                            evaluated.countDown()
+                        }
+                    }
+                    check(evaluated.await(5, SECONDS)) { "Reader JavaScript did not answer" }
+                    if (!inView) delay(50)
+                }
             }
         }
     }

@@ -287,6 +287,33 @@ window.reporead.highlight = annotations => {
 };
 
 /**
+ * Finds literal [query] occurrences in canonical block text and returns only occurrence [index] plus the total. The
+ * page is bounded by the saved-note ceiling, and retaining one match avoids an occurrence-sized native payload.
+ */
+window.reporead.findText = (query, index) => {
+  if (!query.length) return {count: 0, index: -1, match: null};
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(escaped, 'giu');
+  let count = 0;
+  let selected = null;
+  for (const block of blocks) {
+    for (const match of block.dataset.anchorText.matchAll(pattern)) {
+      if (count === index) {
+        selected = {
+          blockId: block.dataset.blockId,
+          startOffset: match.index,
+          endOffset: match.index + match[0].length,
+          exactText: match[0],
+        };
+      }
+      count++;
+    }
+  }
+  if (count && !selected) throw new Error(`Find occurrence ${index} outside ${count} matches`);
+  return {count, index: selected ? index : -1, match: selected};
+};
+
+/**
  * The heading [text] names: the first whose text it is (ignoring case and spacing), as Obsidian heading links do, or
  * else the one whose GitHub anchor it is, as Markdown links `note.md#some-heading` do. GitHub's anchor: lowercase,
  * punctuation removed, each space a hyphen, and repeats numbered -1, -2… in page order.

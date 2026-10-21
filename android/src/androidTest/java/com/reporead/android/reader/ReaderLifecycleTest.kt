@@ -20,6 +20,7 @@ import com.reporead.android.data.AnnotationState
 import com.reporead.android.data.DocumentRow
 import com.reporead.android.data.LocalStore
 import com.reporead.android.data.NoteRow
+import com.reporead.android.data.Passage
 import com.reporead.android.data.RepositoryRow
 import com.reporead.android.data.saveNoteWithoutSearch
 import com.reporead.android.findText
@@ -192,15 +193,45 @@ class ReaderLifecycleTest {
     }
 
     @Test
-    fun aSearchResultOpensItsExactBlockOnceAndRecreationKeepsItsPlace() {
-        scenario.onActivity { open(Screen.Reader(1, title, OpenAt.Block(sha, "b20"))) }
-        awaitReader(20)
-        awaitSaved(20)
+    fun aSearchResultHighlightsItsExactPhraseOnceAndRecreationKeepsItsPlace() {
+        val text = "paragraph 21"
+        scenario.onActivity {
+            open(Screen.Reader(1, title, OpenAt.Search(Passage(sha, "b21", 10, 22, text))))
+        }
+        val shown = awaitHighlightInView(SEARCH_TARGET_KEY)
+        awaitSaved(shown)
         evaluate("window.reporead.showBlock('b30'); return {};")
         awaitSaved(30)
         scenario.recreate()
         awaitReader(30)
         awaitSaved(30)
+    }
+
+    @Test
+    fun findInNoteHighlightsOneOccurrenceAndMovesThroughTheMatches() = runBlocking {
+        click("Find in note")
+        type("paragraph 21.")
+        awaitText("1 of 20")
+        awaitHighlightInView(SEARCH_TARGET_KEY)
+        click("Next match")
+        awaitText("2 of 20")
+        click("Previous match")
+        awaitText("1 of 20")
+        click("Previous match")
+        awaitText("20 of 20")
+        click("Close find")
+        withTimeout(5_000) {
+            while (
+                evaluate(
+                        "return {matches: document.querySelectorAll('#note mark[data-key=\"$SEARCH_TARGET_KEY\"]').length};"
+                    )
+                    .getInt("matches") != 0
+            ) delay(50)
+        }
+        click("Find in note")
+        type("No test-only match")
+        awaitText("No matches")
+        click("Close find")
     }
 
     @Test
@@ -507,6 +538,7 @@ class ReaderLifecycleTest {
                     }
                 }
                 scenario.onActivity { assertEquals("Loading page must not flash its top", 0f, page.alpha) }
+                awaitText("Opening note…")
                 awaitText("Test-only unready")
                 click("Highlights and notes")
                 assertFalse("Show is offered before the page is ready", control("Show").isEnabled)

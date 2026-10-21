@@ -43,6 +43,11 @@ private const val SAVE_AFTER_SCROLL_MS = 700L
 private const val SECTION_AFTER_SCROLL_MS = 150L
 /** How far one swipe must scroll before the bars hide or come back, so small jitters do nothing. */
 private const val BARS_SCROLL_DP = 24
+internal const val SEARCH_TARGET_KEY = "search-result"
+
+internal data class FindResult(val query: String = "", val index: Int = -1, val count: Int = 0)
+
+private data class DrawnHighlight(val key: String, val passage: Passage)
 
 /** The page's text selection when a selection action is chosen (reader.js capture). */
 internal sealed interface Selection {
@@ -108,6 +113,14 @@ internal class ReaderSession(
     var stopped by mutableStateOf(false)
         private set
 
+    /** The hidden WebView has reached its final location, or has exposed its own rendering failure. */
+    var pageVisible by mutableStateOf(false)
+        private set
+
+    /** The active in-note query and occurrence; [query] identifies which input the count answers. */
+    var findResult by mutableStateOf(FindResult())
+        private set
+
     /**
      * The page has rendered and opened, so its scripts can be used and scrolling saves the position. The screen offers
      * the controls that use the page only then; saving waits for it so that loading never overwrites the saved
@@ -118,6 +131,8 @@ internal class ReaderSession(
 
     private val main = Handler(Looper.getMainLooper())
     private var view: WebView? = null
+    private var persistentHighlights = emptyList<DrawnHighlight>()
+    private var searchPassage = (openAt as? OpenAt.Search)?.passage
     /** Opening the page, then keeping its highlights current; cancelled when the view is released. */
     private var opening: Job? = null
     private val saveAfterScroll = Runnable { savePosition() }
@@ -185,6 +200,7 @@ internal class ReaderSession(
             outline = null
             this@ReaderSession.view = null
             stopped = true
+            pageVisible = false
             onMessage("This page stopped: Android ended the process that draws it. Go back and open the note again.")
             return true
         }
@@ -274,6 +290,7 @@ internal class ReaderSession(
         if (state != "ready") {
             // A page that failed to render shows why itself.
             view.alpha = 1f
+            pageVisible = true
             Log.w("RepoRead", "Reader did not render; position not saved; documentId=${note.documentId} state=$state")
             if (state == "timeout")
                 onMessage(
@@ -290,7 +307,8 @@ internal class ReaderSession(
         val headings = parseOutline(view.evaluate("window.reporead.outline()") as JSONArray)
         val highlights = dao.annotations(note.documentId)
         // Drawn before opening, so that a highlight to open at is on the page.
-        drawHighlights(view, drawn(highlights.first()))
+        persistentHighlights = visibleHighlights(highlights.first())
+        drawHighlights(view)
         // A link whose target is gone opens the note where it was last read, as an ordinary open does, so the save
         // below keeps the reader's place instead of replacing it with the top of the page.
         suspend fun missing(what: String) = listOfNotNull(what, restoreSaved(view)).joinToString(" ")
@@ -317,6 +335,19 @@ internal class ReaderSession(
                             "That location is not in this version of the note. Open it again from its current source."
                         )
                 }
+                is OpenAt.Search -> {
+                    val passage = openAt.passage
+                    val found =
+                        note.blobSha == passage.blobSha &&
+                            view.evaluate("window.reporead.reveal(${JSONObject.quote(SEARCH_TARGET_KEY)})") == true
+                    Log.i(
+                        "RepoRead",
+                        "Reader opened at a search match; documentId=${note.documentId} " +
+                            "blobSha=${passage.blobSha} blockId=${passage.blockId} found=$found",
+                    )
+                    if (found) null
+                    else missing("That search match is not in this version of the note. Search the current note again.")
+                }
                 is OpenAt.Highlight -> {
                     val found = view.evaluate("window.reporead.reveal(${JSONObject.quote(openAt.mutationId)})") == true
                     Log.i("RepoRead", "Reader opened at a highlight; documentId=${note.documentId} found=$found")
@@ -328,12 +359,16 @@ internal class ReaderSession(
         // A completed positioning script can still leave an older native frame queued.
         view.awaitVisualState()
         view.alpha = 1f
+        pageVisible = true
         if (openAt != null) onOpenedAtTarget()
         outline = headings
         save(view)
         // Room sends the list again after every write to the annotations table, any note's; the page is redrawn only
         // when what it draws changed: a new highlight, an edit, a sync that moved one.
-        highlights.map(::drawn).distinctUntilChanged().collect { drawHighlights(view, it) }
+        highlights.map(::visibleHighlights).distinctUntilChanged().collect {
+            persistentHighlights = it
+            drawHighlights(view)
+        }
     }
 
     /** Restores where the note was last read; returns what to tell the reader when that place could not be found. */
@@ -399,6 +434,7 @@ internal class ReaderSession(
         val wasOpened = opened
         view = null
         outline = null
+        pageVisible = false
         appScope.launch {
             try {
                 if (wasOpened) save(webView)
@@ -408,27 +444,70 @@ internal class ReaderSession(
         }
     }
 
-    /** What the page draws of [rows]: each highlight whose current location is in the displayed version, as JSON. */
-    private fun drawn(rows: List<AnnotationRow>): String =
-        JSONArray(
-                rows
-                    .filter { it.drawn.blobSha == note.blobSha }
-                    .map {
-                        val passage = it.drawn
-                        JSONObject()
-                            .put("key", it.mutationId)
-                            .put("blockId", passage.blockId)
-                            .put("startOffset", passage.startOffset)
-                            .put("endOffset", passage.endOffset)
-                            .put("exactText", passage.exactText)
-                    }
-            )
-            .toString()
+    /** Saved highlights in this displayed version; equality prevents redraws for writes concerning another note. */
+    private fun visibleHighlights(rows: List<AnnotationRow>) =
+        rows.filter { it.drawn.blobSha == note.blobSha }.map { DrawnHighlight(it.mutationId, it.drawn) }
 
-    /** Draws [payload] ([drawn]); a highlight the page cannot place is listed, not drawn. */
-    private suspend fun drawHighlights(view: WebView, payload: String) {
-        val missing = view.evaluate("window.reporead.highlight($payload)") as JSONArray
-        notShown = List(missing.length()) { missing.getString(it) }.toSet()
+    /** The sole payload sent to the page highlighter: saved highlights plus the current search occurrence. */
+    private fun drawn(): String {
+        val highlights = persistentHighlights.toMutableList()
+        searchPassage
+            ?.takeIf { it.blobSha == note.blobSha }
+            ?.let { highlights += DrawnHighlight(SEARCH_TARGET_KEY, it) }
+        return JSONArray(highlights.map { highlightJson(it.key, it.passage) }).toString()
+    }
+
+    private fun highlightJson(key: String, passage: Passage) =
+        JSONObject()
+            .put("key", key)
+            .put("blockId", passage.blockId)
+            .put("startOffset", passage.startOffset)
+            .put("endOffset", passage.endOffset)
+            .put("exactText", passage.exactText)
+
+    /**
+     * Draws [drawn]; saved highlights the page cannot place are listed, while a search miss is handled by its owner.
+     */
+    private suspend fun drawHighlights(view: WebView) {
+        val missing = view.evaluate("window.reporead.highlight(${drawn()})") as JSONArray
+        notShown = List(missing.length()) { missing.getString(it) }.filter { it != SEARCH_TARGET_KEY }.toSet()
+    }
+
+    /** Finds one literal occurrence while counting all of them, then draws and reveals only the active occurrence. */
+    suspend fun find(query: String, index: Int) {
+        require(index >= 0) { "Find occurrence index must be non-negative: $index" }
+        val webView = openedView() ?: return
+        if (query.isEmpty()) {
+            clearFind()
+            return
+        }
+        val found = webView.evaluate("window.reporead.findText(${JSONObject.quote(query)}, $index)") as JSONObject
+        val count = found.getInt("count")
+        val match = found.optJSONObject("match")
+        searchPassage = match?.let {
+            Passage(
+                note.blobSha,
+                it.getString("blockId"),
+                it.getInt("startOffset"),
+                it.getInt("endOffset"),
+                it.getString("exactText"),
+            )
+        }
+        findResult = FindResult(query, found.getInt("index"), count)
+        drawHighlights(webView)
+        if (searchPassage != null) {
+            touched = false
+            check(webView.evaluate("window.reporead.reveal(${JSONObject.quote(SEARCH_TARGET_KEY)})") == true) {
+                "Find result was drawn but not revealed; documentId=${note.documentId} query=$query index=$index"
+            }
+        }
+    }
+
+    /** Ends in-note find and removes its transient highlight; saved highlights are redrawn unchanged. */
+    suspend fun clearFind() {
+        searchPassage = null
+        findResult = FindResult()
+        openedView()?.let { drawHighlights(it) }
     }
 
     /**

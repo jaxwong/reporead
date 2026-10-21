@@ -33,6 +33,7 @@ import com.reporead.android.auth.startSignIn
 import com.reporead.android.core.network.Api
 import com.reporead.android.core.network.describe
 import com.reporead.android.data.LibraryDao
+import com.reporead.android.data.Passage
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
@@ -79,6 +80,9 @@ sealed interface OpenAt {
 
     /** An exact block in a known page version; block ids are meaningful only within [blobSha]. */
     @Serializable data class Block(val blobSha: String, val blockId: String) : OpenAt
+
+    /** The exact text occurrence chosen by note search, in the page version that search read. */
+    @Serializable data class Search(val passage: Passage) : OpenAt
 }
 
 /**
