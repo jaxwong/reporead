@@ -1757,8 +1757,8 @@ class LocalSyncTest {
 
 /**
  * Test-only loopback HTTP server: answers each "METHOD /path" from [routes] (status and JSON body) and records every
- * request line. An unknown route is answered 500 and recorded, so it fails the test visibly. [beforeAnswer] runs on the
- * server thread after recording a request, so a test can hold one open.
+ * request line and body. An unknown route is answered 500 and recorded, so it fails the test visibly. [beforeAnswer]
+ * runs on the server thread after recording a request, so a test can hold one open.
  */
 internal class LoopbackServer(
     private val routes: Map<String, Pair<Int, String>>,
@@ -1767,6 +1767,7 @@ internal class LoopbackServer(
     private val socket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
     val url = "http://127.0.0.1:${socket.localPort}"
     val requests: MutableList<String> = Collections.synchronizedList(mutableListOf())
+    val bodies: MutableList<String> = Collections.synchronizedList(mutableListOf())
     private val worker =
         thread(isDaemon = true, name = "test-only-loopback") {
             while (true) {
@@ -1800,6 +1801,7 @@ internal class LoopbackServer(
         }
         val key = line.substringBeforeLast(" HTTP/")
         requests += key
+        bodies += String(body)
         beforeAnswer(key)
         val (status, json) = routes[key] ?: (500 to """{"code":"TEST_UNEXPECTED_ROUTE","message":"$key"}""")
         val bytes = json.toByteArray(Charsets.UTF_8)
