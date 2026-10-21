@@ -21,8 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.Passage
+import com.reporead.android.database.Passage
+import com.reporead.android.database.RepoReadDao
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
@@ -70,7 +70,7 @@ internal data class SearchResults(val matches: List<SearchResult>, val truncated
  * Searches only what is saved on this phone, which belongs to the signed-in account: note titles and paths in the saved
  * lists, the text of saved notes, and highlights with their notes.
  */
-internal suspend fun search(dao: LibraryDao, query: String): SearchResults {
+internal suspend fun search(dao: RepoReadDao, query: String): SearchResults {
     val pattern = likePattern(query)
     val names = dao.searchNoteNames(pattern, SEARCH_LIMIT)
     val noteText = dao.searchNoteText(pattern, SEARCH_LIMIT)
@@ -141,7 +141,7 @@ private fun noMatches(query: String, counts: Pair<Int, Int>?): String =
             .orEmpty()
 
 @Composable
-fun SearchScreen(dao: LibraryDao, push: (Screen) -> Unit, onBack: () -> Unit) {
+fun SearchScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<SearchResults?>(null) }
     var counts by remember { mutableStateOf<Pair<Int, Int>?>(null) }

@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import android.content.Context
 import androidx.room.AutoMigration
@@ -49,11 +49,11 @@ class DocumentsOwnNoteFacts : AutoMigrationSpec
  */
 class KeepNoteLinks : AutoMigrationSpec {
     override fun onPostMigrate(db: SupportSQLiteDatabase) {
-        val links = mutableListOf<NoteLinkRow>()
+        val links = mutableListOf<NoteLinkEntity>()
         db.query("select documentId, html from notes where html like '%/note-link?%'").use { pages ->
             while (pages.moveToNext()) {
                 noteLinkQueries(pages.getString(1)).forEachIndexed { position, query ->
-                    links += NoteLinkRow(pages.getLong(0), position, query)
+                    links += NoteLinkEntity(pages.getLong(0), position, query)
                 }
             }
         }
@@ -146,16 +146,16 @@ class StructureSearchBlocks : AutoMigrationSpec {
 @Database(
     entities =
         [
-            RepositoryRow::class,
-            DocumentRow::class,
-            NoteRow::class,
-            NoteSearchBlockRow::class,
-            NoteLinkRow::class,
-            ReadingRow::class,
-            BookmarkRow::class,
-            AnnotationRow::class,
-            ReviewRow::class,
-            ReviewLimitRow::class,
+            RepositoryEntity::class,
+            DocumentEntity::class,
+            SavedPageEntity::class,
+            NoteSearchBlockEntity::class,
+            NoteLinkEntity::class,
+            ReadingStateEntity::class,
+            BookmarkEntity::class,
+            AnnotationEntity::class,
+            ReviewEntity::class,
+            ReviewLimitEntity::class,
         ],
     version = 18,
     autoMigrations =
@@ -178,12 +178,14 @@ class StructureSearchBlocks : AutoMigrationSpec {
             AutoMigration(from = 17, to = 18, spec = DropCardConfirmation::class),
         ],
 )
-abstract class LocalStore : RoomDatabase() {
-    abstract fun library(): LibraryDao
+abstract class RepoReadDatabase : RoomDatabase() {
+    abstract fun dao(): RepoReadDao
 
     companion object {
         /** The database file [name] with every migration: the automatic ones above and the hand-written ones here. */
-        fun open(context: Context, name: String): LocalStore =
-            Room.databaseBuilder(context, LocalStore::class.java, name).addMigrations(ANNOTATION_STATE_10_11).build()
+        fun open(context: Context, name: String): RepoReadDatabase =
+            Room.databaseBuilder(context, RepoReadDatabase::class.java, name)
+                .addMigrations(ANNOTATION_STATE_10_11)
+                .build()
     }
 }

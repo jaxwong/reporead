@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -6,9 +6,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class AnnotationRowTest {
+class AnnotationEntityTest {
     private val unsent =
-        AnnotationRow(
+        AnnotationEntity(
             "m1",
             null,
             7,

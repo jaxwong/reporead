@@ -12,7 +12,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
-import com.reporead.android.data.NoteRow
+import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.logging.AppLog
 import com.reporead.android.sync.IMAGE_PREFIX
 import com.reporead.android.sync.NoteImages
@@ -92,7 +92,7 @@ internal fun readerAssets(context: Context): WebViewAssetLoader =
 internal fun readerResource(
     assets: WebViewAssetLoader,
     images: NoteImages,
-    note: NoteRow,
+    note: SavedPageEntity,
     url: Uri,
 ): WebResourceResponse {
     val path = url.path.orEmpty()
@@ -183,7 +183,7 @@ internal open class IsolatedPage(context: Context) : WebView(context) {
     /** Loads one saved page; nothing navigates. A missing [script] target is reported, never replaced by another. */
     fun show(
         images: NoteImages,
-        note: NoteRow,
+        note: SavedPageEntity,
         name: String,
         script: String?,
         onFailed: () -> Unit,

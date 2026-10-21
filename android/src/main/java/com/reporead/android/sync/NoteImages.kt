@@ -3,8 +3,8 @@
 package com.reporead.android.sync
 
 import androidx.core.net.toUri
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.SavedVersion
+import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.SavedVersion
 import com.reporead.android.logging.AppLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
@@ -41,7 +41,7 @@ class NoteImages(private val api: Api, filesDir: File) {
      * or disconnected meanwhile. The server emits at most 64 image references; each distinct path is tried once,
      * sequentially. API failures propagate to Sync, which owns their disposition for this run.
      */
-    internal suspend fun save(note: NoteRow) {
+    internal suspend fun save(note: SavedPageEntity) {
         if (note.snapshotCommitSha == null) return
         val paths =
             Jsoup.parse(note.html)

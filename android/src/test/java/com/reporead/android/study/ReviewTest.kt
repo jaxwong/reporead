@@ -1,10 +1,10 @@
 package com.reporead.android.study
 
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.AnnotationType
-import com.reporead.android.data.NotebookItem
-import com.reporead.android.data.ReviewRow
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.NotebookItem
+import com.reporead.android.database.ReviewEntity
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -16,19 +16,19 @@ class ReviewTest {
     private val day = 86_400_000L
     private val utc = ZoneOffset.UTC
 
-    private fun scheduleReviews(createdAt: Long, reviews: List<ReviewRow>, zone: ZoneId = utc) =
+    private fun scheduleReviews(createdAt: Long, reviews: List<ReviewEntity>, zone: ZoneId = utc) =
         scheduleReviews(card(0).annotation.copy(mutationId = "card", createdAt = createdAt), reviews, zone)
 
     private val day0 = LocalDate.of(1970, 1, 1)
 
-    private fun dueSession(items: List<NotebookItem>, reviews: List<ReviewRow>, now: Long, limit: Int, seed: Int) =
+    private fun dueSession(items: List<NotebookItem>, reviews: List<ReviewEntity>, now: Long, limit: Int, seed: Int) =
         dueSession(items, reviews, now, limit, seed, utc)
 
-    private fun grade(id: Int, value: Int, at: Long) = ReviewRow("g$id", "card", value, at, "sha", false)
+    private fun grade(id: Int, value: Int, at: Long) = ReviewEntity("g$id", "card", value, at, "sha", false)
 
     private fun card(id: Int, document: Long = 1, path: String = "topic/interview/a.md") =
         NotebookItem(
-            AnnotationRow(
+            AnnotationEntity(
                 "m$id",
                 id.toLong(),
                 document,

@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.platform.app.InstrumentationRegistry
@@ -13,7 +13,7 @@ import org.json.JSONObject
 internal suspend fun withMigratedStore(
     version: Int,
     fill: (SQLiteDatabase) -> Unit,
-    verify: suspend (LibraryDao) -> Unit,
+    verify: suspend (RepoReadDao) -> Unit,
 ) {
     val instrumentation = InstrumentationRegistry.getInstrumentation()
     val context = instrumentation.targetContext
@@ -23,7 +23,7 @@ internal suspend fun withMigratedStore(
     val schema =
         JSONObject(
                 instrumentation.context.assets
-                    .open("com.reporead.android.data.LocalStore/$version.json")
+                    .open("com.reporead.android.database.RepoReadDatabase/$version.json")
                     .bufferedReader()
                     .use { it.readText() }
             )
@@ -46,9 +46,9 @@ internal suspend fun withMigratedStore(
             fill(db)
             db.version = version
         }
-        val store = LocalStore.open(context, name)
+        val store = RepoReadDatabase.open(context, name)
         try {
-            verify(store.library())
+            verify(store.dao())
         } finally {
             store.close()
         }

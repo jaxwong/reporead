@@ -30,8 +30,8 @@ import androidx.navigation3.runtime.serialization.NavBackStackSerializer
 import androidx.navigation3.ui.NavDisplay
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.auth.startSignIn
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.Passage
+import com.reporead.android.database.Passage
+import com.reporead.android.database.RepoReadDao
 import com.reporead.android.library.AvailableScreen
 import com.reporead.android.library.FolderScreen
 import com.reporead.android.library.LibraryScreen
@@ -125,7 +125,7 @@ fun RepoReadApp(
     sync: Sync,
     store: SessionStore,
     api: Api,
-    dao: LibraryDao,
+    dao: RepoReadDao,
     appScope: CoroutineScope,
     signInCode: String?,
     onSignInCodeConsumed: () -> Unit,

@@ -1,6 +1,6 @@
-// Owns: Room entities and query projections, including local pending state; not HTTP parsing or reconciliation.
+// Owns: Room table entities and the value types stored inside them; not query projections or wire records.
 
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.room.ColumnInfo
 import androidx.room.Embedded
@@ -11,9 +11,9 @@ import androidx.room.PrimaryKey
 import java.io.Serializable
 import kotlinx.serialization.Serializable as KotlinSerializable
 
-/** Owns the phone's connection/checkpoint projection; document metadata belongs to DocumentRow. */
+/** Owns the phone's connection/checkpoint projection; document metadata belongs to DocumentEntity. */
 @Entity(tableName = "repositories")
-data class RepositoryRow(
+data class RepositoryEntity(
     @PrimaryKey val id: Long,
     val fullName: String,
     val documentCount: Int,
@@ -28,7 +28,7 @@ data class RepositoryRow(
  * keep a link's target across recreation.
  */
 @Entity(tableName = "documents", indices = [Index("repositoryId")])
-data class DocumentRow(
+data class DocumentEntity(
     @PrimaryKey val id: Long,
     val repositoryId: Long,
     val path: String,
@@ -39,26 +39,13 @@ data class DocumentRow(
 ) : Serializable
 
 /**
- * A note in the library's change lists: its current version, when it was seen changing, and the version last read
- * (null: never).
- */
-data class ChangedNote(
-    val documentId: Long,
-    val title: String,
-    val path: String,
-    val blobSha: String,
-    val changedAt: Long?,
-    val lastReadBlobSha: String?,
-)
-
-/**
  * The latest complete rendered copy of an opened note, identified by document and source version. Its searchable
- * canonical blocks are [NoteSearchBlockRow] children. [renderFormat] is the server's page format for [html]; 0 for
+ * canonical blocks are [NoteSearchBlockEntity] children. [renderFormat] is the server's page format for [html]; 0 for
  * copies saved before formats were recorded. [snapshotCommitSha] pins images and embed resolution; null means a legacy
  * page whose image identity is unknown, not permission to fetch current images.
  */
 @Entity(tableName = "notes")
-data class NoteRow(
+data class SavedPageEntity(
     @PrimaryKey val documentId: Long,
     val blobSha: String,
     val path: String,
@@ -77,32 +64,17 @@ data class NoteRow(
     foreignKeys =
         [
             ForeignKey(
-                entity = NoteRow::class,
+                entity = SavedPageEntity::class,
                 parentColumns = ["documentId"],
                 childColumns = ["documentId"],
                 onDelete = ForeignKey.CASCADE,
             )
         ],
 )
-data class NoteSearchBlockRow(val documentId: Long, val blockId: String, val position: Int, val text: String)
-
-/** A saved page's identity without its HTML, used to retain only that snapshot's images. */
-data class SavedVersion(
-    val documentId: Long,
-    val blobSha: String,
-    val path: String,
-    val renderFormat: Int,
-    val snapshotCommitSha: String?,
-)
-
-private val NOTE_LINK_QUERY = Regex("""href="/note-link\?([^"]*)"""")
-
-/** The query of each /note-link in a saved page, in page order, as the reader receives it when the link is tapped. */
-fun noteLinkQueries(html: String): List<String> =
-    NOTE_LINK_QUERY.findAll(html).map { it.groupValues[1].replace("&amp;", "&") }.toList()
+data class NoteSearchBlockEntity(val documentId: Long, val blockId: String, val position: Int, val text: String)
 
 /**
- * One /note-link in a saved page, written with the page ([LibraryDao.saveNote]) and deleted with it, so Linked from
+ * One /note-link in a saved page, written with the page ([RepoReadDao.saveNote]) and deleted with it, so Linked from
  * reads these rows instead of every saved page.
  */
 @Entity(
@@ -111,62 +83,18 @@ fun noteLinkQueries(html: String): List<String> =
     foreignKeys =
         [
             ForeignKey(
-                entity = NoteRow::class,
+                entity = SavedPageEntity::class,
                 parentColumns = ["documentId"],
                 childColumns = ["documentId"],
                 onDelete = ForeignKey.CASCADE,
             )
         ],
 )
-data class NoteLinkRow(val documentId: Long, val position: Int, val query: String)
-
-/** Owns the bounded query projection used to recognize questions in saved interview-bank pages. */
-data class PracticePage(
-    val documentId: Long,
-    val title: String,
-    val path: String,
-    val html: String?,
-    val blobSha: String?,
-)
-
-/** A note whose current title or path matches. Body matches are [NoteTextMatch] rows instead. */
-data class NoteNameMatch(val documentId: Long, val title: String, val path: String, val titleMatch: Boolean)
-
-/** One canonical block containing a search phrase, with the exact saved version its [blockId] belongs to. */
-data class NoteTextMatch(
-    val documentId: Long,
-    val title: String,
-    val path: String,
-    val blobSha: String,
-    val blockId: String,
-    val text: String,
-)
-
-/** A read note in Continue reading, named by its documents row. */
-data class ReadNote(
-    val documentId: Long,
-    val title: String,
-    val path: String,
-    val deleted: Boolean,
-    val progressPercent: Int,
-)
-
-/** A bookmarked note, named by its documents row. */
-data class BookmarkedNote(val documentId: Long, val title: String, val path: String, val deleted: Boolean)
-
-/** A highlight matching a search, with its note's title and path. */
-data class HighlightMatch(
-    val mutationId: String,
-    val documentId: Long,
-    val title: String,
-    val path: String,
-    val exactText: String,
-    val note: String?,
-)
+data class NoteLinkEntity(val documentId: Long, val position: Int, val query: String)
 
 /** [pending] is a local save the backend has not acknowledged. Last write wins by [lastReadAt]. */
 @Entity(tableName = "reading_states")
-data class ReadingRow(
+data class ReadingStateEntity(
     @PrimaryKey val documentId: Long,
     val lastReadBlobSha: String,
     val progressPercent: Int,
@@ -177,7 +105,7 @@ data class ReadingRow(
 
 /** A row with bookmarked=false is a pending removal; it is deleted once the backend acknowledges it. */
 @Entity(tableName = "bookmarks")
-data class BookmarkRow(
+data class BookmarkEntity(
     @PrimaryKey val documentId: Long,
     val bookmarked: Boolean,
     val pending: Boolean,
@@ -201,7 +129,7 @@ data class Passage(
 enum class AnnotationState {
     /** Created on this phone; the next sync sends the creation. */
     UNSENT,
-    /** The server refused the creation ([AnnotationRow.rejection] says why): shown, never sent again. */
+    /** The server refused the creation ([AnnotationEntity.rejection] says why): shown, never sent again. */
     REFUSED,
     /**
      * The user deleted it: hidden at once, and deleted on the server by the next sync, which first replays the creation
@@ -218,7 +146,7 @@ enum class AnnotationType {
     CARD,
 }
 
-/** What the server's location for a highlight means in the version it names ([AnnotationRow.resolvedBlobSha]). */
+/** What the server's location for a highlight means in the version it names ([AnnotationEntity.resolvedBlobSha]). */
 enum class AnchorStatus {
     /** The original selection, in that version. */
     ANCHORED,
@@ -237,7 +165,7 @@ enum class AnchorStatus {
  * made. Serializable so the reader can keep the one being edited, deleted or reattached across recreation.
  */
 @Entity(tableName = "annotations", indices = [Index("documentId")])
-data class AnnotationRow(
+data class AnnotationEntity(
     @PrimaryKey val mutationId: String,
     val serverId: Long?,
     val documentId: Long,
@@ -281,34 +209,9 @@ data class AnnotationRow(
         }
 }
 
-/**
- * Owns the phone-side review restrictions, in AnnotationRow.cardBlock's order. A card is a bank question, authored with
- * its answer, so a new version of its bank never needs confirming: only whether that version still asks it.
- */
-enum class CardBlock(val reason: String) {
-    /** The server refused its creation, which is never sent again ([AnnotationRow.rejection] says why). */
-    REFUSED("Refused by the server"),
-    REMOVED("Note removed from the repository"),
-    NOT_SAVED("Save the current note before reviewing"),
-    /** Decided by Review, which reads the saved bank: no question there has the card's Canonical line. */
-    NOT_ASKED("Its bank no longer asks this question"),
-}
-
-/** A new Practice grade writes both rows or neither; an already scheduled question is a successful no-op. */
-enum class NewCardGrade {
-    SAVED,
-    ALREADY_SCHEDULED,
-    BANK_CHANGED,
-    NOT_SAVED,
-}
-
-/** Distinguishes a bad server grade at the write boundary from a database or programmer failure. */
-internal class InvalidReviewGrade(mutationId: String, grade: Int) :
-    IllegalArgumentException("Review $mutationId has grade $grade; expected 0..5")
-
 /** Pending grades and the server log share the same immutable client mutation id. */
 @Entity(tableName = "review_log", indices = [Index("cardMutationId")])
-data class ReviewRow(
+data class ReviewEntity(
     @PrimaryKey val mutationId: String,
     val cardMutationId: String,
     val grade: Int,
@@ -319,26 +222,4 @@ data class ReviewRow(
 )
 
 /** The server supplies this ceiling; a phone without a complete notebook response cannot start a session. */
-@Entity(tableName = "review_limits") data class ReviewLimitRow(@PrimaryKey val id: Int = 1, val sessionLimit: Int)
-
-/** A highlight or card with its note's documents row: [deleted] from the repository, at [currentBlobSha]. */
-data class NotebookItem(
-    @Embedded val annotation: AnnotationRow,
-    val title: String,
-    val path: String,
-    val currentBlobSha: String,
-    val deleted: Boolean,
-    val savedBlobSha: String?,
-)
-
-/**
- * A card on the review schedule: the server did not refuse it and its note is still listed. Review shows it (one that
- * needs checking, with its fix), and Practice does not ask its question again; refused and removed ones are listed in
- * Notebook.
- */
-internal fun reviewable(item: NotebookItem) =
-    item.annotation.type == AnnotationType.CARD && item.annotation.state != AnnotationState.REFUSED && !item.deleted
-
-/** Scheduled question identity is the bank document and drawn Canonical line, never the saved prompt or version. */
-internal fun scheduledLines(cards: List<NotebookItem>): Set<Pair<Long, String>> =
-    cards.filter(::reviewable).map { it.annotation.documentId to it.annotation.drawn.exactText }.toSet()
+@Entity(tableName = "review_limits") data class ReviewLimitEntity(@PrimaryKey val id: Int = 1, val sessionLimit: Int)

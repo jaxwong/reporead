@@ -1,6 +1,6 @@
 package com.reporead.android.reader
 
-import com.reporead.android.data.DocumentRow
+import com.reporead.android.database.DocumentEntity
 import java.net.URLDecoder
 
 /**
@@ -27,8 +27,8 @@ internal fun resolveNoteLink(
     target: String?,
     path: String?,
     fromPath: String,
-    notes: List<DocumentRow>,
-): List<DocumentRow> {
+    notes: List<DocumentEntity>,
+): List<DocumentEntity> {
     if (path != null) return notes.filter { it.path == path }
     val wanted = target?.trim()?.lowercase()?.removeSuffix(".md")?.ifEmpty { null } ?: return emptyList()
     val matches = notes.filter {

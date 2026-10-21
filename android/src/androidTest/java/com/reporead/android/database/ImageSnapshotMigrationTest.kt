@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
@@ -39,7 +39,7 @@ class ImageSnapshotMigrationTest {
             },
         ) { dao ->
             assertEquals(
-                NoteRow(
+                SavedPageEntity(
                     1,
                     sha,
                     "a.md",
@@ -52,7 +52,7 @@ class ImageSnapshotMigrationTest {
             )
             assertEquals("b0", dao.searchNoteText("%kept%", 1).single().blockId)
             assertNull(dao.allSavedVersions().single().snapshotCommitSha)
-            assertEquals(listOf(NoteLinkRow(1, 0, "path=b.md")), dao.noteLinks(7))
+            assertEquals(listOf(NoteLinkEntity(1, 0, "path=b.md")), dao.noteLinks(7))
             assertEquals(1, dao.pendingReading().size)
             assertEquals(1, dao.pendingBookmarks().size)
             assertEquals("mine", dao.waitingAnnotations().single().note)

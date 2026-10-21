@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
@@ -35,7 +35,7 @@ class ReviewMigrationTest {
             assertNull(highlight.question)
             assertTrue(dao.reviews().first().isEmpty())
             assertNull(dao.reviewLimit().first())
-            dao.saveReviewLimit(ReviewLimitRow(sessionLimit = 40))
+            dao.saveReviewLimit(ReviewLimitEntity(sessionLimit = 40))
             assertEquals(40, dao.reviewLimit().first())
         }
     }

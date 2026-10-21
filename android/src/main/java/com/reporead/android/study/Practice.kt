@@ -34,12 +34,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.NewCardGrade
-import com.reporead.android.data.NotebookItem
-import com.reporead.android.data.Passage
-import com.reporead.android.data.PracticePage
-import com.reporead.android.data.scheduledLines
+import com.reporead.android.database.NewCardGrade
+import com.reporead.android.database.NotebookItem
+import com.reporead.android.database.Passage
+import com.reporead.android.database.PracticePage
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.scheduledLines
 import com.reporead.android.logging.AppLog
 import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
@@ -133,7 +133,7 @@ internal suspend fun gradeNewQuestion(sync: Sync, question: PracticeQuestion, gr
 
 /** Every listed interview bank and the saved ones' questions, read off the main thread; null until first read. */
 @Composable
-internal fun rememberBanks(dao: LibraryDao): Banks? {
+internal fun rememberBanks(dao: RepoReadDao): Banks? {
     val pages by dao.bankPages().collectAsStateWithLifecycle(null)
     val banks by
         produceState<Banks?>(null, pages) {
@@ -148,7 +148,7 @@ internal fun rememberBanks(dao: LibraryDao): Banks? {
  * questions: the folders that hold an interview folder, and All topics mixing them.
  */
 @Composable
-internal fun PracticeTab(dao: LibraryDao, push: (Screen) -> Unit) {
+internal fun PracticeTab(dao: RepoReadDao, push: (Screen) -> Unit) {
     val banks = rememberBanks(dao)
     val cards by dao.notebook().collectAsStateWithLifecycle(null)
     val outlook = rememberReviewOutlook(dao)
@@ -306,7 +306,7 @@ internal class PracticeViewModel(
  */
 @Composable
 internal fun PracticeScreen(
-    dao: LibraryDao,
+    dao: RepoReadDao,
     sync: Sync,
     topic: String?,
     entryId: String,

@@ -31,8 +31,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.RepoReadDao
 import com.reporead.android.logging.AppLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
@@ -57,7 +57,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** Immediate subfolders and notes of [folder] ("" is the repository root), derived from the document paths. */
-internal fun children(documents: List<DocumentRow>, folder: String): Pair<List<String>, List<DocumentRow>> {
+internal fun children(documents: List<DocumentEntity>, folder: String): Pair<List<String>, List<DocumentEntity>> {
     val prefix = if (folder.isEmpty()) "" else "$folder/"
     val inside = documents.filter { it.path.startsWith(prefix) }
     val folders =
@@ -283,7 +283,7 @@ internal class FolderViewModel(
 @Composable
 fun FolderScreen(
     sync: Sync,
-    dao: LibraryDao,
+    dao: RepoReadDao,
     signedIn: Boolean,
     entryId: String,
     screen: Screen.Folder,

@@ -1,4 +1,4 @@
-package com.reporead.android.data
+package com.reporead.android.database
 
 import androidx.room.Dao
 import androidx.room.Insert
@@ -12,12 +12,12 @@ import kotlinx.coroutines.flow.first
 private const val IDS_PER_STATEMENT = 500
 
 @Dao
-interface LibraryDao {
-    @Query("select * from repositories order by fullName") fun repositories(): Flow<List<RepositoryRow>>
+interface RepoReadDao {
+    @Query("select * from repositories order by fullName") fun repositories(): Flow<List<RepositoryEntity>>
 
     @Query("delete from repositories") suspend fun clearRepositories()
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertRepositories(rows: List<RepositoryRow>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertRepositories(rows: List<RepositoryEntity>)
 
     @Query("select id from repositories") suspend fun repositoryIds(): List<Long>
 
@@ -29,7 +29,7 @@ interface LibraryDao {
      * answer lost, or on another device — so everything saved for its listed notes is forgotten too.
      */
     @Transaction
-    suspend fun replaceRepositories(rows: List<RepositoryRow>) {
+    suspend fun replaceRepositories(rows: List<RepositoryEntity>) {
         val listed = rows.map { it.id }.toSet()
         for (gone in repositoryIds().filter { it !in listed }) forgetRepository(gone, documentIds(gone))
         clearRepositories()
@@ -44,11 +44,11 @@ interface LibraryDao {
      */
     @Transaction
     suspend fun replaceFromServer(
-        library: Map<RepositoryRow, List<DocumentRow>>,
-        reading: List<ReadingRow>,
-        bookmarks: List<BookmarkRow>,
-        annotations: List<AnnotationRow>,
-        reviews: List<ReviewRow>,
+        library: Map<RepositoryEntity, List<DocumentEntity>>,
+        reading: List<ReadingStateEntity>,
+        bookmarks: List<BookmarkEntity>,
+        annotations: List<AnnotationEntity>,
+        reviews: List<ReviewEntity>,
         sessionLimit: Int,
     ) {
         replaceRepositories(library.keys.toList())
@@ -60,24 +60,24 @@ interface LibraryDao {
     }
 
     @Query("select * from documents where repositoryId = :repositoryId and not deleted order by path")
-    fun documents(repositoryId: Long): Flow<List<DocumentRow>>
+    fun documents(repositoryId: Long): Flow<List<DocumentEntity>>
 
     /** The notes [repositoryId] lists now: what note links resolve against and Save all fetches. */
     @Query("select * from documents where repositoryId = :repositoryId and not deleted")
-    suspend fun listedDocuments(repositoryId: Long): List<DocumentRow>
+    suspend fun listedDocuments(repositoryId: Long): List<DocumentEntity>
 
     /** Every note of [repositoryId], removed ones too. */
     @Query("select id from documents where repositoryId = :repositoryId")
     suspend fun documentIds(repositoryId: Long): List<Long>
 
-    @Query("select * from documents where id = :id") suspend fun document(id: Long): DocumentRow?
+    @Query("select * from documents where id = :id") suspend fun document(id: Long): DocumentEntity?
 
     @Query("delete from documents where repositoryId = :repositoryId") suspend fun clearDocuments(repositoryId: Long)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDocuments(rows: List<DocumentRow>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertDocuments(rows: List<DocumentEntity>)
 
     @Transaction
-    suspend fun replaceDocuments(repositoryId: Long, rows: List<DocumentRow>) {
+    suspend fun replaceDocuments(repositoryId: Long, rows: List<DocumentEntity>) {
         clearDocuments(repositoryId)
         insertDocuments(rows)
     }
@@ -112,7 +112,7 @@ interface LibraryDao {
         deleteRepository(repositoryId)
     }
 
-    @Query("select * from notes where documentId = :documentId") suspend fun note(documentId: Long): NoteRow?
+    @Query("select * from notes where documentId = :documentId") suspend fun note(documentId: Long): SavedPageEntity?
 
     /** Every saved page's version: the only images worth keeping (NoteImages.sweep). */
     @Query("select documentId, blobSha, path, renderFormat, snapshotCommitSha from notes")
@@ -135,18 +135,18 @@ interface LibraryDao {
     @Query(
         "select l.* from note_links l join documents d on d.id = l.documentId where d.repositoryId = :repositoryId and not d.deleted"
     )
-    suspend fun noteLinks(repositoryId: Long): List<NoteLinkRow>
+    suspend fun noteLinks(repositoryId: Long): List<NoteLinkEntity>
 
     @Query(
         "select count(*) from notes n join documents d on d.id = n.documentId where d.repositoryId = :repositoryId and not d.deleted"
     )
     suspend fun savedNoteCount(repositoryId: Long): Int
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertNote(row: NoteRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertNote(row: SavedPageEntity)
 
-    @Insert suspend fun insertNoteLinks(rows: List<NoteLinkRow>)
+    @Insert suspend fun insertNoteLinks(rows: List<NoteLinkEntity>)
 
-    @Insert suspend fun insertNoteSearchBlocks(rows: List<NoteSearchBlockRow>)
+    @Insert suspend fun insertNoteSearchBlocks(rows: List<NoteSearchBlockEntity>)
 
     @Query("delete from note_links where documentId = :documentId") suspend fun deleteNoteLinks(documentId: Long)
 
@@ -155,13 +155,13 @@ interface LibraryDao {
 
     /** Saves a page with its backend-issued search blocks and derived note links, replacing the complete older copy. */
     @Transaction
-    suspend fun saveNote(row: NoteRow, blocks: List<NoteSearchBlockRow>) {
+    suspend fun saveNote(row: SavedPageEntity, blocks: List<NoteSearchBlockEntity>) {
         deleteNoteLinks(row.documentId)
         deleteNoteSearchBlocks(row.documentId)
         insertNote(row)
         insertNoteSearchBlocks(blocks)
         insertNoteLinks(
-            noteLinkQueries(row.html).mapIndexed { position, query -> NoteLinkRow(row.documentId, position, query) }
+            noteLinkQueries(row.html).mapIndexed { position, query -> NoteLinkEntity(row.documentId, position, query) }
         )
     }
 
@@ -245,7 +245,7 @@ interface LibraryDao {
     fun recentReading(limit: Int): Flow<List<ReadNote>>
 
     @Query("select * from reading_states where documentId = :documentId")
-    suspend fun reading(documentId: Long): ReadingRow?
+    suspend fun reading(documentId: Long): ReadingStateEntity?
 
     /**
      * Read notes whose current version in the saved note lists is not the one last read; most recently changed first.
@@ -275,15 +275,15 @@ interface LibraryDao {
      * ones too): a save that arrives after a clear or a disconnect has no note, writes nothing, and returns false.
      */
     @Transaction
-    suspend fun saveDisplayedReading(row: ReadingRow): Boolean {
+    suspend fun saveDisplayedReading(row: ReadingStateEntity): Boolean {
         if (document(row.documentId) == null) return false
         saveReading(row)
         return true
     }
 
-    @Query("select * from reading_states where pending") suspend fun pendingReading(): List<ReadingRow>
+    @Query("select * from reading_states where pending") suspend fun pendingReading(): List<ReadingStateEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReading(row: ReadingRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReading(row: ReadingStateEntity)
 
     /** Acknowledges only the save that was sent; a newer local save made meanwhile stays pending. */
     @Query("update reading_states set pending = 0 where documentId = :documentId and lastReadAt = :lastReadAt")
@@ -291,7 +291,7 @@ interface LibraryDao {
 
     /** A local pending save wins unless the server's state is at least as new. */
     @Transaction
-    suspend fun mergeRemoteReading(remote: ReadingRow) {
+    suspend fun mergeRemoteReading(remote: ReadingStateEntity) {
         val local = reading(remote.documentId)
         if (local == null || !local.pending || remote.lastReadAt >= local.lastReadAt)
             saveReading(remote.copy(pending = false))
@@ -304,7 +304,7 @@ interface LibraryDao {
      * [mergeRemoteReading] says.
      */
     @Transaction
-    suspend fun replaceRemoteReading(remote: List<ReadingRow>) {
+    suspend fun replaceRemoteReading(remote: List<ReadingStateEntity>) {
         clearAcknowledgedReading()
         remote.forEach { mergeRemoteReading(it) }
     }
@@ -315,15 +315,16 @@ interface LibraryDao {
     )
     fun bookmarks(): Flow<List<BookmarkedNote>>
 
-    @Query("select * from bookmarks where documentId = :documentId") fun bookmark(documentId: Long): Flow<BookmarkRow?>
+    @Query("select * from bookmarks where documentId = :documentId")
+    fun bookmark(documentId: Long): Flow<BookmarkEntity?>
 
-    @Query("select * from bookmarks where pending") suspend fun pendingBookmarks(): List<BookmarkRow>
+    @Query("select * from bookmarks where pending") suspend fun pendingBookmarks(): List<BookmarkEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBookmark(row: BookmarkRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveBookmark(row: BookmarkEntity)
 
     /** A bookmark change made on this phone, for a note it lists; as [saveDisplayedReading], false writes nothing. */
     @Transaction
-    suspend fun saveLocalBookmark(row: BookmarkRow): Boolean {
+    suspend fun saveLocalBookmark(row: BookmarkEntity): Boolean {
         if (document(row.documentId) == null) return false
         saveBookmark(row)
         return true
@@ -343,13 +344,13 @@ interface LibraryDao {
     @Query("select documentId from bookmarks where pending") suspend fun pendingBookmarkIds(): List<Long>
 
     @Query("select * from annotations where documentId = :documentId and state <> 'DELETING' order by createdAt")
-    fun annotations(documentId: Long): Flow<List<AnnotationRow>>
+    fun annotations(documentId: Long): Flow<List<AnnotationEntity>>
 
     @Query("select * from annotations where mutationId = :mutationId")
-    suspend fun annotation(mutationId: String): AnnotationRow?
+    suspend fun annotation(mutationId: String): AnnotationEntity?
 
     @Query("select * from annotations where state in ('UNSENT', 'DELETING') order by createdAt")
-    suspend fun waitingAnnotations(): List<AnnotationRow>
+    suspend fun waitingAnnotations(): List<AnnotationEntity>
 
     @Query(
         """select a.*, d.title, d.path, d.blobSha as currentBlobSha, d.deleted, n.blobSha as savedBlobSha
@@ -358,22 +359,22 @@ interface LibraryDao {
     )
     fun notebook(): Flow<List<NotebookItem>>
 
-    @Query("select * from review_log order by reviewedAt, mutationId") fun reviews(): Flow<List<ReviewRow>>
+    @Query("select * from review_log order by reviewedAt, mutationId") fun reviews(): Flow<List<ReviewEntity>>
 
     @Query("select * from review_log where pending and rejection is null order by reviewedAt, mutationId")
-    suspend fun pendingReviews(): List<ReviewRow>
+    suspend fun pendingReviews(): List<ReviewEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertReview(row: ReviewRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertReview(row: ReviewEntity)
 
     /** The grade-range write boundary for local grades, acknowledgements and complete server snapshots. */
-    suspend fun saveReview(row: ReviewRow) {
+    suspend fun saveReview(row: ReviewEntity) {
         if (row.grade !in 0..5) throw InvalidReviewGrade(row.mutationId, row.grade)
         insertReview(row)
     }
 
     /** Admission and the card-plus-first-grade write share one SQLite transaction, independently of Sync's lock. */
     @Transaction
-    suspend fun saveCardWithFirstReview(card: AnnotationRow, review: ReviewRow): NewCardGrade {
+    suspend fun saveCardWithFirstReview(card: AnnotationEntity, review: ReviewEntity): NewCardGrade {
         require(
             card.type == AnnotationType.CARD &&
                 review.cardMutationId == card.mutationId &&
@@ -396,7 +397,7 @@ interface LibraryDao {
 
     /** A concurrent sync may invalidate/delete a card after it was revealed; never persist that stale grade. */
     @Transaction
-    suspend fun recordReview(row: ReviewRow): Boolean {
+    suspend fun recordReview(row: ReviewEntity): Boolean {
         require(row.pending && row.rejection == null) {
             "Invalid local review ${row.mutationId}"
         }
@@ -421,7 +422,7 @@ interface LibraryDao {
 
     @Query("select sessionLimit from review_limits where id = 1") fun reviewLimit(): Flow<Int?>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReviewLimit(row: ReviewLimitRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReviewLimit(row: ReviewLimitEntity)
 
     @Query("delete from review_log where cardMutationId = :mutationId")
     suspend fun deleteCardReviews(mutationId: String)
@@ -439,13 +440,13 @@ interface LibraryDao {
     @Query("delete from annotations where state = 'ACKNOWLEDGED'") suspend fun clearAcknowledgedNotebook()
 
     @Transaction
-    suspend fun replaceRemoteNotebook(rows: List<AnnotationRow>, reviews: List<ReviewRow>, limit: Int) {
+    suspend fun replaceRemoteNotebook(rows: List<AnnotationEntity>, reviews: List<ReviewEntity>, limit: Int) {
         clearAcknowledgedNotebook()
         rows.forEach { saveServerAnnotation(it) }
         clearAcknowledgedReviews()
         reviews.forEach { saveReview(it) }
         deleteMissingCardReviews()
-        saveReviewLimit(ReviewLimitRow(sessionLimit = limit))
+        saveReviewLimit(ReviewLimitEntity(sessionLimit = limit))
     }
 
     @Transaction
@@ -454,14 +455,14 @@ interface LibraryDao {
         deleteAnnotation(mutationId)
     }
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveAnnotation(row: AnnotationRow)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveAnnotation(row: AnnotationEntity)
 
     /**
      * A highlight or card created on this phone, on the saved page it was selected in; false writes nothing when that
      * page is gone (a clear or a disconnect landed first).
      */
     @Transaction
-    suspend fun saveLocalAnnotation(row: AnnotationRow): Boolean {
+    suspend fun saveLocalAnnotation(row: AnnotationEntity): Boolean {
         if (note(row.documentId) == null) return false
         saveAnnotation(row)
         return true
@@ -472,7 +473,7 @@ interface LibraryDao {
      * stays marked for deletion, now with the server's id, so a sync or an answer arriving late cannot bring it back.
      */
     @Transaction
-    suspend fun saveServerAnnotation(row: AnnotationRow) {
+    suspend fun saveServerAnnotation(row: AnnotationEntity) {
         val deleting = annotation(row.mutationId)?.state == AnnotationState.DELETING
         saveAnnotation(
             row.copy(state = if (deleting) AnnotationState.DELETING else AnnotationState.ACKNOWLEDGED, rejection = null)
@@ -507,7 +508,7 @@ interface LibraryDao {
      * (same mutation id, e.g. after a lost acknowledgement) becomes acknowledged; other pending creations are kept.
      */
     @Transaction
-    suspend fun replaceRemoteAnnotations(documentId: Long, remote: List<AnnotationRow>) {
+    suspend fun replaceRemoteAnnotations(documentId: Long, remote: List<AnnotationEntity>) {
         clearAcknowledgedAnnotations(documentId)
         for (row in remote) saveServerAnnotation(row)
         deleteMissingCardReviews()
@@ -515,7 +516,7 @@ interface LibraryDao {
 
     /** The server's complete bookmark list replaces acknowledged rows; pending local toggles are kept. */
     @Transaction
-    suspend fun replaceRemoteBookmarks(remote: List<BookmarkRow>) {
+    suspend fun replaceRemoteBookmarks(remote: List<BookmarkEntity>) {
         clearAcknowledgedBookmarks()
         val pending = pendingBookmarkIds().toSet()
         for (row in remote) if (row.documentId !in pending) saveBookmark(row.copy(pending = false))

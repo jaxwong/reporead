@@ -15,12 +15,12 @@ import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
 import com.reporead.android.control
-import com.reporead.android.data.AnnotationType
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LocalStore
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.Passage
-import com.reporead.android.data.saveNoteWithoutSearch
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.Passage
+import com.reporead.android.database.RepoReadDatabase
+import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.findText
 import com.reporead.android.network.Api
 import com.reporead.android.reader.testPage
@@ -52,7 +52,7 @@ class PracticeSessionTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val bankSha = "a".repeat(40)
     private val coreSha = "c".repeat(40)
-    private lateinit var store: LocalStore
+    private lateinit var store: RepoReadDatabase
     private lateinit var files: File
 
     private fun block(id: String, tag: String, text: String) =
@@ -103,10 +103,10 @@ class PracticeSessionTest {
     @Before
     fun open() = runBlocking {
         val context = instrumentation.targetContext
-        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
+        store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
         files = File(context.cacheDir, "practice-session-test")
         check(files.mkdirs() || files.isDirectory) { "Cannot create test-only directory $files" }
-        val dao = store.library()
+        val dao = store.dao()
         // Both questions read the same; each must take its own answer.
         val bank =
             testPage(
@@ -133,12 +133,12 @@ class PracticeSessionTest {
         dao.replaceDocuments(
             7,
             listOf(
-                DocumentRow(1, 7, "test-only/topic/interview/bank.md", "Test-only bank", bankSha),
-                DocumentRow(2, 7, "test-only/topic/core.md", "Test-only core", coreSha),
+                DocumentEntity(1, 7, "test-only/topic/interview/bank.md", "Test-only bank", bankSha),
+                DocumentEntity(2, 7, "test-only/topic/core.md", "Test-only core", coreSha),
             ),
         )
         dao.saveNoteWithoutSearch(
-            NoteRow(
+            SavedPageEntity(
                 1,
                 bankSha,
                 "test-only/topic/interview/bank.md",
@@ -149,7 +149,7 @@ class PracticeSessionTest {
             )
         )
         dao.saveNoteWithoutSearch(
-            NoteRow(
+            SavedPageEntity(
                 2,
                 coreSha,
                 "test-only/topic/core.md",
@@ -181,12 +181,12 @@ class PracticeSessionTest {
     @Test
     fun aWarningOpensItsOwnBankWhenRepositoriesShareThePath() =
         runBlocking<Unit> {
-            val dao = store.library()
+            val dao = store.dao()
             val path = "test-only/topic/interview/bank.md"
-            dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
+            dao.replaceDocuments(8, listOf(DocumentEntity(3, 8, path, "Other bank", bankSha)))
             val html = testPage(bankSha, block("b0", "h3", "Other repository's warning"))
             dao.saveNoteWithoutSearch(
-                NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
+                SavedPageEntity(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
             )
             TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
@@ -204,9 +204,9 @@ class PracticeSessionTest {
     @Test
     fun repeatedHeadingAndStrayAnswerWarningsOpenTheirExactBlocks() =
         runBlocking<Unit> {
-            val dao = store.library()
+            val dao = store.dao()
             val path = "test-only/topic/interview/bank.md"
-            dao.replaceDocuments(8, listOf(DocumentRow(3, 8, path, "Other bank", bankSha)))
+            dao.replaceDocuments(8, listOf(DocumentEntity(3, 8, path, "Other bank", bankSha)))
             val html =
                 testPage(
                     bankSha,
@@ -215,7 +215,7 @@ class PracticeSessionTest {
                         block("b3", "h3", "Repeated"),
                 )
             dao.saveNoteWithoutSearch(
-                NoteRow(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
+                SavedPageEntity(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
             )
             TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
             ActivityScenario.launch(TestHostActivity::class.java).use {
@@ -241,7 +241,7 @@ class PracticeSessionTest {
     @Test
     fun eachQuestionTakesItsOwnAnswerAMissComesBackUnsavedAndTheSessionSurvivesRecreation() =
         runBlocking<Unit> {
-            val dao = store.library()
+            val dao = store.dao()
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 awaitText("2 questions left · Foundations · Test-only bank")
                 assertAnswerHidden()
@@ -302,7 +302,7 @@ class PracticeSessionTest {
     @Test
     fun aRestoredProcessResumesTheSessionWithoutGradingAgain() =
         runBlocking<Unit> {
-            val dao = store.library()
+            val dao = store.dao()
             val saved =
                 ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                     awaitText("2 questions left · Foundations · Test-only bank")
@@ -325,7 +325,7 @@ class PracticeSessionTest {
     @Test
     fun doubleTappingTheGradeWritesOneCardAndOneGrade() =
         runBlocking<Unit> {
-            val dao = store.library()
+            val dao = store.dao()
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 click("Show answer")
                 val bounds = Rect().also { control("Good").getBoundsInScreen(it) }
@@ -343,7 +343,7 @@ class PracticeSessionTest {
     @Test
     fun thePromptShowsItsMaterialTheAnswerWaitsForRevealAndEachLinkedSectionOpensItsNote() =
         runBlocking<Unit> {
-            val dao = store.library()
+            val dao = store.dao()
             val note = checkNotNull(dao.note(1))
             val worked = "Test-only worked solution (free)."
             val html =
@@ -392,10 +392,10 @@ class PracticeSessionTest {
     fun aLinkToANoteMissingFromTheListIsReportedOnlyAfterReveal() =
         runBlocking<Unit> {
             store
-                .library()
+                .dao()
                 .replaceDocuments(
                     7,
-                    listOf(DocumentRow(1, 7, "test-only/topic/interview/bank.md", "Test-only bank", bankSha)),
+                    listOf(DocumentEntity(1, 7, "test-only/topic/interview/bank.md", "Test-only bank", bankSha)),
                 )
             ActivityScenario.launch(TestHostActivity::class.java).use {
                 awaitText("Show answer")
@@ -410,7 +410,7 @@ class PracticeSessionTest {
 
     @Test
     fun aGradeWaitingForSyncSurvivesPoppingItsEntry() = runBlocking {
-        val dao = store.library()
+        val dao = store.dao()
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val hold = AtomicBoolean(true)

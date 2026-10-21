@@ -51,10 +51,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.R
 import com.reporead.android.Screen
-import com.reporead.android.data.AnnotationRow
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.Passage
+import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.Passage
 import com.reporead.android.logging.AppLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
@@ -88,16 +88,16 @@ internal sealed interface ReaderOverlay : Serializable {
     data class Note(val passage: Passage) : ReaderOverlay
 
     /** An unsubmitted editor; [initial] also recovers a submitted edit that failed. */
-    data class EditNote(val row: AnnotationRow, val initial: String = row.note.orEmpty()) : ReaderOverlay
+    data class EditNote(val row: AnnotationEntity, val initial: String = row.note.orEmpty()) : ReaderOverlay
 
     /** Keeps the exact annotation whose deletion is awaiting confirmation. */
-    data class Delete(val row: AnnotationRow) : ReaderOverlay
+    data class Delete(val row: AnnotationEntity) : ReaderOverlay
 
     /** A tapped link to one note and its heading, previewed before opening. */
-    data class Preview(val target: DocumentRow, val heading: String?) : ReaderOverlay
+    data class Preview(val target: DocumentEntity, val heading: String?) : ReaderOverlay
 
     /** Notes sharing the linked name, for the reader to pick one. */
-    data class LinkChoices(val heading: String?, val choices: List<DocumentRow>) : ReaderOverlay
+    data class LinkChoices(val heading: String?, val choices: List<DocumentEntity>) : ReaderOverlay
 
     /** Reserves the sole overlay for the page's current outline. */
     data object Outline : ReaderOverlay
@@ -110,7 +110,7 @@ private const val EDIT = "edit"
 /** Only the user's submitted input is restored; the annotation is read again, and no mutation is replayed. */
 private data class SubmittedEdit(val mutationId: String, val text: String?) : Serializable
 
-internal data class ReaderConflict(val current: AnnotationRow, val mine: String?)
+internal data class ReaderConflict(val current: AnnotationEntity, val mine: String?)
 
 /**
  * One reader entry's work ([entryId]), kept across rotation and while it is covered: the opened page, the highlights'
@@ -119,7 +119,7 @@ internal data class ReaderConflict(val current: AnnotationRow, val mine: String?
  */
 internal class ReaderViewModel(
     private val sync: Sync,
-    private val dao: LibraryDao,
+    private val dao: RepoReadDao,
     private val saved: SavedStateHandle,
     private val documentId: Long,
     private val entryId: String,
@@ -128,7 +128,7 @@ internal class ReaderViewModel(
         val page: Load<StudyPage> = Load.Loading,
         val message: String? = null,
         /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach. */
-        val reattaching: AnnotationRow? = null,
+        val reattaching: AnnotationEntity? = null,
         /** A highlight operation runs; one at a time. */
         val changing: Boolean = false,
         val conflict: ReaderConflict? = null,
@@ -136,7 +136,7 @@ internal class ReaderViewModel(
         val overlay: ReaderOverlay? = null,
     )
 
-    private val current = MutableStateFlow(State(reattaching = saved.get<AnnotationRow>(REATTACHING)))
+    private val current = MutableStateFlow(State(reattaching = saved.get<AnnotationEntity>(REATTACHING)))
     val state: StateFlow<State> = current.asStateFlow()
 
     /** The sign-in state the screen last showed; null before it was first shown. */
@@ -245,17 +245,17 @@ internal class ReaderViewModel(
         }
     }
 
-    private fun placing(row: AnnotationRow?) {
+    private fun placing(row: AnnotationEntity?) {
         saved[REATTACHING] = row
         current.update { it.copy(reattaching = row, message = null) }
     }
 
-    fun startReattaching(row: AnnotationRow) = placing(row)
+    fun startReattaching(row: AnnotationEntity) = placing(row)
 
     fun stopReattaching() = placing(null)
 
     /** Starts one server change to a highlight ([what]); another while it runs starts nothing. */
-    private fun change(what: String, row: AnnotationRow, work: suspend () -> String?): Boolean {
+    private fun change(what: String, row: AnnotationEntity, work: suspend () -> String?): Boolean {
         val now = current.value
         if (
             now.changing ||
@@ -276,7 +276,7 @@ internal class ReaderViewModel(
     }
 
     /** Online: the server verifies the new selection against the version it was made on. */
-    fun reattach(row: AnnotationRow, passage: Passage) =
+    fun reattach(row: AnnotationEntity, passage: Passage) =
         change("reattach", row) {
             try {
                 sync.reattachAnnotation(row, passage)
@@ -289,7 +289,7 @@ internal class ReaderViewModel(
         }
 
     // Editing and deleting acknowledged highlights need the server; offline they fail visibly and change nothing.
-    fun editNote(row: AnnotationRow, note: String?, expectedVersion: Int) =
+    fun editNote(row: AnnotationEntity, note: String?, expectedVersion: Int) =
         change("edit", row) {
             saved[EDIT] = SubmittedEdit(row.mutationId, note)
             AppLog.info("Reader edit input retained; entry=$entryId mutationId=${row.mutationId}")
@@ -333,7 +333,7 @@ internal class ReaderViewModel(
         editNote(conflict.current, conflict.mine, conflict.current.version)
     }
 
-    fun delete(row: AnnotationRow) =
+    fun delete(row: AnnotationEntity) =
         change("delete", row) {
             try {
                 sync.deleteAnnotation(row)
@@ -376,7 +376,7 @@ internal class ReaderViewModel(
 @Composable
 fun ReaderScreen(
     sync: Sync,
-    dao: LibraryDao,
+    dao: RepoReadDao,
     appScope: CoroutineScope,
     signedIn: Boolean,
     entryId: String,
@@ -746,7 +746,7 @@ private fun ReadingBars(shown: Boolean) {
 
 /** Several notes share a link's name: the reader picks one by its path. */
 @Composable
-private fun LinkChoicesDialog(choices: List<DocumentRow>, onDismiss: () -> Unit, onChoose: (DocumentRow) -> Unit) {
+private fun LinkChoicesDialog(choices: List<DocumentEntity>, onDismiss: () -> Unit, onChoose: (DocumentEntity) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Which note?") },

@@ -8,18 +8,18 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.BuildConfig
 import com.reporead.android.auth.StoredSession
-import com.reporead.android.data.AnnotationState
-import com.reporead.android.data.DocumentRow
-import com.reporead.android.data.LibraryDao
-import com.reporead.android.data.LocalStore
-import com.reporead.android.data.LoopbackServer
-import com.reporead.android.data.NewCardGrade
-import com.reporead.android.data.NoteRow
-import com.reporead.android.data.Passage
-import com.reporead.android.data.ReadingRow
-import com.reporead.android.data.RepositoryRow
-import com.reporead.android.data.ReviewRow
-import com.reporead.android.data.saveNoteWithoutSearch
+import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.LoopbackServer
+import com.reporead.android.database.NewCardGrade
+import com.reporead.android.database.Passage
+import com.reporead.android.database.ReadingStateEntity
+import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.RepoReadDatabase
+import com.reporead.android.database.RepositoryEntity
+import com.reporead.android.database.ReviewEntity
+import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.network.Api
 import com.reporead.android.network.TEST_CARD_MUTATION
 import com.reporead.android.network.TEST_HIGHLIGHT_MUTATION
@@ -62,8 +62,8 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class CommittedMutationTest {
-    private lateinit var store: LocalStore
-    private lateinit var dao: LibraryDao
+    private lateinit var store: RepoReadDatabase
+    private lateinit var dao: RepoReadDao
     private lateinit var directory: File
     /** Stands for a screen's viewModelScope: cancelling a job is that screen leaving. */
     private val screens = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -71,13 +71,13 @@ class CommittedMutationTest {
     @Before
     fun open() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        store = Room.inMemoryDatabaseBuilder(context, LocalStore::class.java).build()
-        dao = store.library()
+        store = Room.inMemoryDatabaseBuilder(context, RepoReadDatabase::class.java).build()
+        dao = store.dao()
         directory = File(context.cacheDir, "test-only-committed-${UUID.randomUUID()}").also { check(it.mkdirs()) }
-        dao.replaceRepositories(listOf(RepositoryRow(7, "test-only/notes", 1, testSha)))
-        dao.replaceDocuments(7, listOf(DocumentRow(1, 7, "n.md", "Test-only note", testSha)))
+        dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/notes", 1, testSha)))
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n.md", "Test-only note", testSha)))
         dao.saveNoteWithoutSearch(
-            NoteRow(
+            SavedPageEntity(
                 1,
                 testSha,
                 "n.md",
@@ -143,7 +143,7 @@ class CommittedMutationTest {
                 it.disconnect(7)
             }
         assertEquals(listOf("DELETE /api/repositories/7"), requests)
-        assertEquals(emptyList<RepositoryRow>(), dao.repositories().first())
+        assertEquals(emptyList<RepositoryEntity>(), dao.repositories().first())
         assertNull(dao.note(1))
     }
 
@@ -223,9 +223,16 @@ class CommittedMutationTest {
                 ))
 
     private fun reading() =
-        ReadingRow(1, testSha, 60, """{"headingPath":[],"textPrefix":null,"blockIndex":0}""", 2_000, pending = true)
+        ReadingStateEntity(
+            1,
+            testSha,
+            60,
+            """{"headingPath":[],"textPrefix":null,"blockIndex":0}""",
+            2_000,
+            pending = true,
+        )
 
-    private fun grade() = ReviewRow("test-only-grade", TEST_CARD_MUTATION, 4, 2_000, testSha, pending = true)
+    private fun grade() = ReviewEntity("test-only-grade", TEST_CARD_MUTATION, 4, 2_000, testSha, pending = true)
 
     /** A library load, which holds the lock for as long as the server holds its answer. */
     private fun CoroutineScope.holdTheLock(sync: Sync) = async(Dispatchers.IO) { sync.refreshLibrary() }
