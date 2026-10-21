@@ -259,7 +259,7 @@ Three opt-in harnesses run only when pointed at a local clone of a notes reposit
 REPOREAD_MEASURE_CORPUS=<clone> REPOREAD_MEASURE_OUT=<private file> ./gradlew :backend:test --tests '*AnchorMeasurement' --rerun --no-daemon
 # Moved-and-edited similarity (ADR-07).
 REPOREAD_MEASURE_CORPUS=<clone> REPOREAD_MEASURE_OUT=<private file> ./gradlew :backend:test --tests '*MoveMeasurement' --rerun --no-daemon
-# Every note rendered to <dir>; run before and after a renderer change and diff the blocks (ADR-18). The app's StudyCorpus reads <dir>/pages.
+# Every note rendered to <dir>; run before and after a renderer change and diff the blocks (ADR-18). The app's InterviewBankCorpus reads <dir>/pages.
 REPOREAD_MEASURE_CORPUS=<clone> REPOREAD_MEASURE_OUT=<dir> ./gradlew :backend:test --tests '*RenderedCorpus' --rerun --no-daemon
 ```
 

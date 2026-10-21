@@ -9,20 +9,19 @@ import com.reporead.android.database.AnnotationType
 import com.reporead.android.database.BookmarkEntity
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.InvalidReviewGrade
-import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.database.NewCardGrade
-import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.NoteSearchBlockEntity
 import com.reporead.android.database.Passage
 import com.reporead.android.database.ReadingStateEntity
+import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.database.RepositoryEntity
 import com.reporead.android.database.ReviewEntity
+import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.logging.AppLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
 import com.reporead.android.network.invalidResponse
-import com.reporead.android.network.wire.AnnotationControllerCheckRequest
 import com.reporead.android.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.network.wire.AnnotationControllerReattachRequest
@@ -148,10 +147,11 @@ class Sync(
                         )
                     }
             }
-        val readingStates = snapshot.readingStates.map { it.toRow() }
-        val bookmarks = snapshot.bookmarks.map { BookmarkEntity(it.documentId, true, false, it.createdAt.toEpochMilli()) }
-        val annotations = snapshot.notebook.annotations.map { it.toRow() }
-        val reviews = snapshot.notebook.reviews.map { it.toRow() }
+        val readingStates = snapshot.readingStates.map { it.toEntity() }
+        val bookmarks =
+            snapshot.bookmarks.map { BookmarkEntity(it.documentId, true, false, it.createdAt.toEpochMilli()) }
+        val annotations = snapshot.notebook.annotations.map { it.toEntity() }
+        val reviews = snapshot.notebook.reviews.map { it.toEntity() }
         try {
             dao.replaceFromServer(
                 repositoriesWithDocuments,
@@ -387,10 +387,11 @@ class Sync(
 
     /** False when the phone no longer lists the note: nothing is saved. */
     suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = committed {
-        dao.saveLocalBookmark(BookmarkEntity(documentId, bookmarked, pending = true, System.currentTimeMillis())).also {
-            wasSaved ->
-            if (wasSaved) onPendingChange() else AppLog.info("Bookmark not saved; note gone; documentId=$documentId")
-        }
+        dao.saveLocalBookmark(BookmarkEntity(documentId, bookmarked, pending = true, System.currentTimeMillis()))
+            .also { wasSaved ->
+                if (wasSaved) onPendingChange()
+                else AppLog.info("Bookmark not saved; note gone; documentId=$documentId")
+            }
     }
 
     /**
@@ -441,7 +442,7 @@ class Sync(
                 )
             val remoteReadingState =
                 try {
-                    api.saveReading(readingState.documentId, request).toRow()
+                    api.saveReading(readingState.documentId, request).toEntity()
                 } catch (failure: ApiException) {
                     if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
                     AppLog.info("Reading state no longer owned; documentId=${readingState.documentId}")
@@ -580,7 +581,7 @@ class Sync(
             )
         val serverAnnotation =
             try {
-                api.createAnnotation(annotation.documentId, request).toRow()
+                api.createAnnotation(annotation.documentId, request).toEntity()
             } catch (failure: ApiException) {
                 when {
                     (failure.status == 410 && failure.code == "ANNOTATION_DELETED") ||
@@ -629,7 +630,7 @@ class Sync(
     /** Pending creations are sent first, so the server's list already contains them where possible. */
     suspend fun refreshAnnotations(documentId: Long) = locked {
         sendAnnotations()
-        val annotations = api.annotations(documentId).annotations.map { it.toRow() }
+        val annotations = api.annotations(documentId).annotations.map { it.toEntity() }
         dao.replaceRemoteAnnotations(documentId, annotations)
     }
 
@@ -645,7 +646,7 @@ class Sync(
                         annotationId,
                         AnnotationControllerEditRequest(note = note, expectedVersion = expectedVersion),
                     )
-                    .toRow()
+                    .toEntity()
             dao.saveAnnotation(updated)
             updated
         }
@@ -667,7 +668,7 @@ class Sync(
                         anchor = passage.anchor(),
                     ),
                 )
-                .toRow()
+                .toEntity()
         dao.saveAnnotation(updated)
         updated
     }
@@ -730,7 +731,7 @@ class Sync(
                     continue
                 }
             if (acceptedReview.cardMutationId != review.cardMutationId) throw invalidResponse(200)
-            dao.saveReview(acceptedReview.toRow())
+            dao.saveReview(acceptedReview.toEntity())
         }
     }
 

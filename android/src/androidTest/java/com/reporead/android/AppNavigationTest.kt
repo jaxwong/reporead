@@ -51,7 +51,7 @@ import com.reporead.android.network.wire.RepositoryControllerAvailableList
 import com.reporead.android.reader.SEARCH_TARGET_KEY
 import com.reporead.android.reader.testPage
 import com.reporead.android.sync.Sync
-import com.reporead.android.sync.toRow
+import com.reporead.android.sync.toEntity
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -1292,7 +1292,7 @@ class AppNavigationTest {
                 scenario!!.close()
                 scenario = null
                 val newer = current.copy(note = "Test-only newer saved edit", version = 3)
-                dao.saveServerAnnotation(newer.toRow())
+                dao.saveServerAnnotation(newer.toEntity())
                 routes[highlights.first] = 200 to wire(AnnotationControllerAnnotationList(listOf(newer)))
                 TestHostActivity.restoredState = saved
                 launchApp(account, api)

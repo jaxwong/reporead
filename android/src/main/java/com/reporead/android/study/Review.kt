@@ -30,8 +30,8 @@ import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.database.AnnotationEntity
 import com.reporead.android.database.CardBlock
-import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.NotebookItem
+import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.ReviewEntity
 import com.reporead.android.logging.AppLog
 import com.reporead.android.sync.Sync

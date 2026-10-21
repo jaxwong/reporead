@@ -28,7 +28,7 @@ internal fun Passage.anchor() =
 
 private fun AnnotationsPassage.passage() = Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
-internal fun AnnotationsAnnotation.toRow() =
+internal fun AnnotationsAnnotation.toEntity() =
     AnnotationEntity(
         mutationId,
         id,
@@ -61,10 +61,10 @@ internal fun AnnotationsAnnotation.toRow() =
         question = question,
     )
 
-internal fun ReviewsReview.toRow() =
+internal fun ReviewsReview.toEntity() =
     ReviewEntity(mutationId, cardMutationId, grade, reviewedAt.toEpochMilli(), blobSha, pending = false)
 
-internal fun ReadingStatesState.toRow() =
+internal fun ReadingStatesState.toEntity() =
     ReadingStateEntity(
         documentId,
         lastReadBlobSha,

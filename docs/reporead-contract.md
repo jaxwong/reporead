@@ -124,7 +124,7 @@ RepoRead renders the committed `HEAD` of this repository, and the phone reads wh
 
 ```sh
 REPOREAD_MEASURE_CORPUS=<path to this repository> REPOREAD_MEASURE_OUT=<private dir> ./gradlew :backend:test --tests '*RenderedCorpus' --rerun --no-daemon
-REPOREAD_STUDY_PAGES=<private dir>/pages ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --tests '*StudyCorpus' --rerun --no-daemon -i
+REPOREAD_STUDY_PAGES=<private dir>/pages ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew :app:testDebugUnitTest --tests '*InterviewBankCorpus' --rerun --no-daemon -i
 ```
 
-`StudyCorpus` passes when every bank follows this contract. It also names Canonical lines that link nothing and links to notes that do not exist. The output contains note text, so keep `<private dir>` outside both repositories.
+`InterviewBankCorpus` passes when every bank follows this contract. It also names Canonical lines that link nothing and links to notes that do not exist. The output contains note text, so keep `<private dir>` outside both repositories.
