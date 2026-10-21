@@ -31,8 +31,8 @@ internal fun appLogDirectory(context: Context) = File(context.filesDir, "app-log
 
 /**
  * The app's one logger. Every line goes to logcat (tag RepoRead) and, unless it is [debug], to a store on the phone
- * that the upload worker (sync/BackgroundSync.kt) sends to the server's log, so the phone's lines are read on the
- * server without adb. The app's own lines name ids, codes and counts; a throwable's messages and the reader page's
+ * that the upload worker (sync/DeviceLogUploadWorker.kt) sends to the server's log, so the phone's lines are read on
+ * the server without adb. The app's own lines name ids, codes and counts; a throwable's messages and the reader page's
  * console output can quote a note, and are kept as they are (ADR-21, 2026-10-21: the one user's own server log may hold
  * note text). When the store outgrows its cap, its oldest lines go.
  *

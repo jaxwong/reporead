@@ -12,7 +12,7 @@ import org.junit.Test
  * page. Headings inside linked notes are checked on the phone, where the reader finds them. Read-only and opt-in; the
  * pages are private notes and are never committed. Run it after adding or editing interview folders.
  */
-class StudyCorpus {
+class InterviewBankCorpus {
     @Test
     fun everyBankFollowsTheFormat() {
         val pages = System.getenv("REPOREAD_STUDY_PAGES")

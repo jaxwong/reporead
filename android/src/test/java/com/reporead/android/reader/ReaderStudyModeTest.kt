@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class StudyTest {
+class ReaderStudyModeTest {
     private fun heading(id: Int, name: String, level: Int = 2) =
         """<h$level data-block-id="b$id" data-anchor-text="$name">$name</h$level>"""
 
