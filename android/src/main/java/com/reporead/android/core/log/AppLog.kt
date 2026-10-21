@@ -1,29 +1,22 @@
-// Owns: The app's log lines: logcat, the bounded store on the phone, and sending that store to the server's log.
+// Owns: The app's log lines: logcat and the bounded store on the phone that the upload worker sends from.
 
 package com.reporead.android.core.log
 
+import android.content.Context
 import android.util.Log
 import com.reporead.android.BuildConfig
-import com.reporead.android.core.network.Api
-import com.reporead.android.core.network.ApiException
-import com.reporead.android.core.network.wire.AppLogControllerLine
-import com.reporead.android.core.network.wire.AppLogControllerUploadRequest
-import com.reporead.android.core.network.wireJson
 import java.io.File
 import java.io.IOException
 import java.time.Instant
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 private const val TAG = "RepoRead"
 private const val PENDING = "pending.jsonl"
 private const val SENDING = "sending.jsonl"
 
 /**
- * One upload carries the whole store, so the store is at most half the server's request body cap
+ * One upload carries a whole batch, so the store is at most half the server's request body cap
  * (RequestBodyLimit.MAX_BYTES): the lines plus the request's commas and fields always fit.
  */
 private val STORE_MAX_BYTES = BuildConfig.REQUEST_MAX_BYTES / 2
@@ -33,19 +26,24 @@ internal const val MAX_LINE_CHARS = 8_000
 private const val MAX_FRAMES = 40
 private const val MAX_CAUSES = 4
 
+/** Where RepoReadApplication keeps the store. */
+internal fun appLogDirectory(context: Context) = File(context.filesDir, "app-log")
+
 /**
- * The app's one logger. Every line goes to logcat (tag RepoRead) and to a store on the phone that [upload] sends to the
- * server's log (AppLogController), so the phone's lines are read on the server without adb. The app's own lines name
- * ids, codes and counts; a throwable's messages and the reader page's console output can quote a note, and are sent as
- * they are (ADR-21, 2026-10-21: the one user's own server log may hold note text). When the store outgrows its cap, its
- * oldest lines go.
+ * The app's one logger. Every line goes to logcat (tag RepoRead) and, unless it is [debug], to a store on the phone
+ * that the upload worker (sync/BackgroundSync.kt) sends to the server's log, so the phone's lines are read on the
+ * server without adb. The app's own lines name ids, codes and counts; a throwable's messages and the reader page's
+ * console output can quote a note, and are kept as they are (ADR-21, 2026-10-21: the one user's own server log may hold
+ * note text). When the store outgrows its cap, its oldest lines go.
+ *
+ * Each stored line is one AppLogControllerLine as JSON; the worker decodes them with the generated model, so a field
+ * written wrong here fails there.
  */
 object AppLog {
     private val lock = Any()
-    private val uploading = Mutex()
     @Volatile private var directory: File? = null
 
-    /** RepoReadApplication calls this before anything logs; JVM tests call it with a temporary folder. */
+    /** RepoReadApplication calls this before anything logs, with [appLogDirectory]. */
     fun start(directory: File) {
         check(directory.isDirectory || directory.mkdirs()) { "Cannot create the app log folder $directory" }
         this.directory = directory
@@ -58,67 +56,51 @@ object AppLog {
 
     fun info(message: String) {
         Log.i(TAG, message)
-        store(AppLogControllerLine.Level.INFO, message)
+        store("INFO", message)
     }
 
     fun warn(message: String, error: Throwable? = null) {
         if (error == null) Log.w(TAG, message) else Log.w(TAG, message, error)
-        store(AppLogControllerLine.Level.WARN, if (error == null) message else "$message\n${trace(error)}")
+        store("WARN", if (error == null) message else "$message\n${trace(error)}")
     }
 
     /**
      * The uncaught-exception handler's line, stored before the process ends; Android logs the trace to logcat itself.
      */
     fun crash(thread: Thread, error: Throwable) {
-        store(AppLogControllerLine.Level.ERROR, "Crash; thread=${thread.name}\n${trace(error)}")
+        store("ERROR", "Crash; thread=${thread.name}\n${trace(error)}")
     }
 
     /**
-     * Sends every stored line in one request and deletes them only once the server has logged them, so a lost answer
-     * can at most repeat them. A batch the route refuses (INVALID_REQUEST, its only refusal) would be refused again, so
-     * it is dropped; any other failure keeps it for the next upload and is rethrown. Lines logged meanwhile wait for
-     * the next upload.
+     * The stored lines to send, oldest first: the batch a failed send left, or else everything stored so far, which
+     * then stops growing (later lines start a new store). Null when nothing is stored. The batch stays until [sent].
      */
-    suspend fun upload(api: Api) = uploading.withLock {
-        val sending = File(started(), SENDING)
+    fun batch(): List<String>? =
         synchronized(lock) {
+            val sending = File(started(), SENDING)
             val pending = File(started(), PENDING)
             if (!sending.exists() && pending.exists())
                 check(pending.renameTo(sending)) { "Cannot move $pending to $sending" }
+            if (sending.exists()) complete(sending.readText()) else null
         }
-        if (!sending.exists()) return@withLock
-        val lines = withContext(Dispatchers.IO) { complete(sending.readText()) }
-        if (lines.isNotEmpty()) {
-            try {
-                api.uploadAppLog(AppLogControllerUploadRequest(lines))
-            } catch (error: ApiException) {
-                if (!(error.status == 400 && error.code == "INVALID_REQUEST")) throw error
-                warn("App log lines refused; lines=${lines.size} code=${error.code}")
-            }
+
+    /** The last [batch] reached the server, or was refused for good: it goes. */
+    fun sent() =
+        synchronized(lock) {
+            val sending = File(started(), SENDING)
+            check(sending.delete()) { "Cannot delete the sent app log $sending" }
         }
-        check(sending.delete()) { "Cannot delete the sent app log $sending" }
-    }
 
     private fun started() = checkNotNull(directory) { "AppLog.start was not called" }
 
-    private fun store(level: AppLogControllerLine.Level, message: String) {
+    private fun store(level: String, message: String) {
         val bounded =
             if (message.length <= MAX_LINE_CHARS) message
             else message.take(MAX_LINE_CHARS) + "… (${message.length - MAX_LINE_CHARS} characters cut)"
-        // Stored with this build's version: an updated app sends the lines the previous version left.
-        val line =
-            wireJson.encodeToString(
-                AppLogControllerLine(
-                    at = Instant.now(),
-                    appVersion = BuildConfig.VERSION_NAME,
-                    level = level,
-                    message = bounded,
-                )
-            ) + "\n"
         val pending = File(started(), PENDING)
         synchronized(lock) {
             try {
-                pending.appendText(line)
+                pending.appendText(line(level, bounded))
                 if (pending.length() > STORE_MAX_BYTES) keepNewest(pending)
             } catch (error: IOException) {
                 // Logcat already has the line; this one is lost to the server.
@@ -132,28 +114,31 @@ object AppLog {
         val lines = complete(pending.readText())
         val kept = ArrayDeque<String>()
         var bytes = 0
-        for (line in lines.asReversed().map { wireJson.encodeToString(it) + "\n" }) {
-            val size = line.encodeToByteArray().size
+        for (line in lines.asReversed()) {
+            val size = line.encodeToByteArray().size + 1
             if (bytes + size > STORE_MAX_BYTES / 2) break
             kept.addFirst(line)
             bytes += size
         }
-        val dropped =
-            AppLogControllerLine(
-                at = Instant.now(),
-                appVersion = BuildConfig.VERSION_NAME,
-                level = AppLogControllerLine.Level.WARN,
-                message = "App log store full; dropped=${lines.size - kept.size} oldest lines",
-            )
+        val dropped = line("WARN", "App log store full; dropped=${lines.size - kept.size} oldest lines")
         val trimmed = File(pending.parentFile, "$PENDING.trimmed")
-        trimmed.writeText(wireJson.encodeToString(dropped) + "\n" + kept.joinToString(""))
+        trimmed.writeText(dropped + kept.joinToString("") { "$it\n" })
         check(trimmed.renameTo(pending)) { "Cannot replace $pending with $trimmed" }
     }
 }
 
+/** One stored line, with this build's version: an updated app sends the lines the previous version left. */
+private fun line(level: String, message: String) =
+    buildJsonObject {
+        put("at", Instant.now().toString())
+        put("appVersion", BuildConfig.VERSION_NAME)
+        put("level", level)
+        put("message", message)
+    }
+        .toString() + "\n"
+
 /** The stored lines, without a last one the process ended while writing (it has no newline). */
-private fun complete(text: String): List<AppLogControllerLine> =
-    text.split('\n').dropLast(1).filter { it.isNotEmpty() }.map { wireJson.decodeFromString(it) }
+private fun complete(text: String): List<String> = text.split('\n').dropLast(1).filter { it.isNotEmpty() }
 
 /** A throwable's classes, messages and frames, causes included, bounded as [MAX_FRAMES] and [MAX_CAUSES] say. */
 private fun trace(error: Throwable): String = buildString {

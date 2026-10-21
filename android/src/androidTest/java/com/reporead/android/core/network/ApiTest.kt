@@ -5,6 +5,8 @@ package com.reporead.android.core.network
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
+import com.reporead.android.core.log.AppLog
+import com.reporead.android.core.log.appLogDirectory
 import com.reporead.android.core.network.wire.AnnotationControllerAnnotationList
 import com.reporead.android.core.network.wire.AnnotationControllerCheckRequest
 import com.reporead.android.core.network.wire.AnnotationControllerCreateRequest
@@ -12,12 +14,15 @@ import com.reporead.android.core.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.core.network.wire.AnnotationControllerReattachRequest
 import com.reporead.android.core.network.wire.AnnotationServiceSelection
 import com.reporead.android.core.network.wire.AppAuthControllerTokenRequest
+import com.reporead.android.core.network.wire.AppLogControllerLine
+import com.reporead.android.core.network.wire.AppLogControllerUploadRequest
 import com.reporead.android.core.network.wire.ReadingControllerAnchorRequest
 import com.reporead.android.core.network.wire.ReadingControllerSaveRequest
 import com.reporead.android.core.network.wire.RepositoryControllerAvailableList
 import com.reporead.android.core.network.wire.RepositoryControllerConnectRequest
 import com.reporead.android.core.network.wire.ReviewControllerGradeRequest
 import com.reporead.android.data.LoopbackServer
+import java.io.File
 import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -36,6 +41,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -157,6 +163,7 @@ class ApiTest {
                 "POST /api/annotations/9/reattach" to (200 to wire(testHighlight())),
                 "POST /api/annotations/9/check" to (200 to wire(testHighlight())),
                 "POST /api/annotations/10/reviews" to (200 to wire(testReview())),
+                "POST /api/app-logs" to (204 to ""),
             )
         val answers =
             LoopbackServer(routes).use { server ->
@@ -190,6 +197,19 @@ class ApiTest {
                         api.reattachAnnotation(9, reattach),
                         api.checkCard(9, check),
                         api.recordReview(10, grade),
+                        api.uploadAppLog(
+                            AppLogControllerUploadRequest(
+                                lines =
+                                    listOf(
+                                        AppLogControllerLine(
+                                            at = testAt,
+                                            appVersion = "0.1.0",
+                                            level = AppLogControllerLine.Level.INFO,
+                                            message = "Test-only line",
+                                        )
+                                    )
+                            )
+                        ),
                     )
                     .also { assertEquals(routes.keys.toList(), server.requests) }
             }
@@ -405,5 +425,70 @@ class ApiTest {
             }
         // Only the two 401s, each naming the session it was sent with; other failures say nothing about the session.
         assertEquals(listOf("TEST_ONLY_SESSION", "TEST_ONLY_SESSION"), refused)
+    }
+
+    /**
+     * A refused request names the server's request id, on its exception and in the stored line the server's log is
+     * searched with; one nothing answered has none.
+     */
+    @Test
+    fun aFailedRequestNamesTheServersRequestIdWhenTheServerAnswered() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = File(context.cacheDir, "api-test-app-log").apply { deleteRecursively() }
+        AppLog.start(store)
+        try {
+            val refused = coroutineScope {
+                ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
+                    val writer =
+                        async(Dispatchers.IO) {
+                            server.accept().use { client ->
+                                client.soTimeout = 5_000
+                                val input = client.getInputStream().bufferedReader()
+                                while (checkNotNull(input.readLine()).isNotEmpty()) {
+                                    /* consume the request line and headers */
+                                }
+                                val body = """{"code":"NOT_FOUND","message":"Not found."}""".toByteArray()
+                                client.getOutputStream().apply {
+                                    write(
+                                        ("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n" +
+                                                "Content-Length: ${body.size}\r\nX-Request-Id: test-only-request-id\r\n" +
+                                                "Connection: close\r\n\r\n")
+                                            .toByteArray()
+                                    )
+                                    write(body)
+                                    flush()
+                                }
+                            }
+                        }
+                    val error = runCatching {
+                        Api("http://127.0.0.1:${server.localPort}", { StoredSession.Absent }) {}.noteContent(1)
+                    }
+                        .exceptionOrNull()
+                    writer.await()
+                    error as ApiException
+                }
+            }
+            assertEquals(404, refused.status)
+            assertEquals("NOT_FOUND", refused.code)
+            assertEquals("test-only-request-id", refused.requestId)
+            val stored = AppLog.batch().orEmpty().joinToString("\n")
+            assertTrue(
+                stored,
+                stored.contains(
+                    "Backend refused; method=GET path=/api/documents/1/content status=404 code=NOT_FOUND " +
+                        "requestId=test-only-request-id"
+                ),
+            )
+
+            val closed = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+            val unanswered =
+                runCatching { Api("http://127.0.0.1:$closed", { StoredSession.Absent }) {}.noteContent(1) }
+                    .exceptionOrNull() as ApiException
+            assertEquals("BACKEND_UNAVAILABLE", unanswered.code)
+            assertNull(unanswered.requestId)
+        } finally {
+            AppLog.start(appLogDirectory(context))
+            store.deleteRecursively()
+        }
     }
 }

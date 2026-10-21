@@ -3,11 +3,11 @@ package com.reporead.android
 import android.app.Application
 import com.reporead.android.auth.SessionStore
 import com.reporead.android.core.log.AppLog
+import com.reporead.android.core.log.appLogDirectory
 import com.reporead.android.core.network.Api
 import com.reporead.android.data.LocalStore
 import com.reporead.android.sync.Sync
 import com.reporead.android.sync.requestSync
-import java.io.File
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 
@@ -19,7 +19,7 @@ class RepoReadApplication : Application() {
     /** Before any screen, worker or test in this process logs; a crash's line is stored before Android ends it. */
     override fun onCreate() {
         super.onCreate()
-        AppLog.start(File(filesDir, "app-log"))
+        AppLog.start(appLogDirectory(this))
         val ending = checkNotNull(Thread.getDefaultUncaughtExceptionHandler()) { "Android sets the crash handler" }
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             AppLog.crash(thread, error)

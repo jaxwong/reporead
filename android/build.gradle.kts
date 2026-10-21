@@ -184,10 +184,6 @@ android {
     // Migration tests construct the exact previously shipped schema; these assets are test-only.
     sourceSets.getByName("androidTest").assets.directories.add(file("schemas").absolutePath)
 
-    // JVM tests run Api's real failure paths, which log through android.util.Log; its stub would throw instead of
-    // logging. Every other Android call in a JVM test now returns a default, so Android behaviour is tested on devices.
-    testOptions.unitTests.isReturnDefaultValues = true
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
