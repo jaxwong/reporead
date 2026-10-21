@@ -186,10 +186,11 @@ Added after the MVP (see the [feature list](feature-list.md#after-the-mvp)).
 
 **Acceptance criteria**
 
-- I can make a card from a Practice question, a selected passage, or a highlight.
+- I can make a card from a Practice question; the reader no longer makes cards (2026-10-21).
 - Library, Practice and an empty Review completion use the same midnight/time-zone-aware outlook. The Practice tab says how many cards are due now, how many fall due next and in the coming week; a session asks each due card, each grade shows when the card comes back, and my grade schedules it.
 - Grades made offline sync once, even when sent again.
-- A card whose note changed is not drilled until I confirm or reattach its answer.
+- A card whose bank changed is drilled from the new version without my confirming it, while the bank still asks its Canonical line; one whose line left the bank offers the bank instead.
+- I choose which topic's due cards to review, or all of them, when there is no time for every card due.
 - I can see every highlight and card in one notebook and filter it; unused Markdown export was retired on 2026-10-19.
 - Disconnecting a repository removes its server and phone cards/review history; confirmed account deletion removes server data and ends the session but retains this phone's copies and pending work (ADR-22).
 
