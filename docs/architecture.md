@@ -390,7 +390,7 @@ flowchart TB
 | `search` | Local substring search over saved titles, canonical note blocks and highlights; body results carry their exact Reader block ([ADR-10](adrs.md#adr-10--search-is-local-substring-matching-over-what-the-phone-has-saved)) |
 | `reader-web/` | The page's display JavaScript and CSS, bundled by esbuild into the APK; parses no Markdown and makes no network requests |
 
-`study` uses `reader`'s link parsing and isolated-page hosting; `reader` does not import `study`.
+`study` uses `reader`'s link parsing and resolution; `reader` does not import `study`.
 
 ### Room: a projection plus pending changes
 
