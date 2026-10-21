@@ -12,6 +12,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ListenableWorker.Result
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.Operation
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.reporead.android.RepoReadApplication
@@ -23,6 +24,7 @@ import com.reporead.android.network.wire.DeviceLogIngestControllerUploadRequest
 import com.reporead.android.network.wire.DeviceLogLine
 import com.reporead.android.network.wireJson
 import java.io.File
+import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,16 +33,24 @@ private const val DEVICE_LOG_WORK = "upload-app-log"
 private const val EXITS_SEEN = "app-exits-seen"
 
 /**
- * Asks for one upload of the phone's stored log lines once there is a network. While one is waiting or running, asking
- * again changes nothing: it sends whatever is stored when it runs.
+ * How long a warning's upload waits, so the lines logged with it (a caller's own warning after Api's) go in its batch:
+ * a line logged while an upload runs waits for the next request.
  */
-internal fun requestDeviceLogUpload(context: Context) {
+internal val WARNING_UPLOAD_DELAY: Duration = Duration.ofSeconds(2)
+
+/**
+ * Asks for one upload of the phone's stored log lines after [delay], once there is a network. While one is waiting or
+ * running, asking again changes nothing: it sends whatever is stored when it runs. The returned operation completes
+ * once WorkManager has recorded the request, which then outlives this process.
+ */
+internal fun requestDeviceLogUpload(context: Context, delay: Duration = Duration.ZERO): Operation {
     val request =
         OneTimeWorkRequestBuilder<DeviceLogUploadWorker>()
+            .setInitialDelay(delay)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, FIRST_BACKOFF)
             .build()
-    WorkManager.getInstance(context).enqueueUniqueWork(DEVICE_LOG_WORK, ExistingWorkPolicy.KEEP, request)
+    return WorkManager.getInstance(context).enqueueUniqueWork(DEVICE_LOG_WORK, ExistingWorkPolicy.KEEP, request)
 }
 
 class DeviceLogUploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {

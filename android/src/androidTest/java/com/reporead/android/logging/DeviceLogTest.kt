@@ -30,6 +30,7 @@ class DeviceLogTest {
 
     @After
     fun restore() {
+        DeviceLog.requestUploadOnWarning {}
         DeviceLog.start(deviceLogDirectory(context))
         store.deleteRecursively()
     }
@@ -53,6 +54,20 @@ class DeviceLogTest {
             lines.map { it.level to it.message },
         )
         assertTrue(lines.all { it.appVersion == BuildConfig.VERSION_NAME })
+    }
+
+    /** A warning is what a crash is diagnosed from, so it asks for an upload; other lines wait for the next one. */
+    @Test
+    fun onlyAWarningRequestsAnUpload() {
+        var requests = 0
+        DeviceLog.requestUploadOnWarning { requests++ }
+
+        DeviceLog.debug("Reading position saved; documentId=7 percent=18 block=20 viewHeight=2048")
+        DeviceLog.info("Reader ready; documentId=7")
+        assertEquals(0, requests)
+
+        DeviceLog.warn("Bookmark refused; documentId=7 code=NOT_FOUND")
+        assertEquals(1, requests)
     }
 
     @Test
