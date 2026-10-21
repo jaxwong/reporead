@@ -3,26 +3,9 @@
 
 package com.reporead.android.reader
 
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.LocalActivity
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -32,13 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.SavedStateHandle
@@ -49,20 +26,15 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
-import com.reporead.android.R
 import com.reporead.android.Screen
 import com.reporead.android.database.AnnotationEntity
-import com.reporead.android.database.DocumentEntity
-import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.Passage
+import com.reporead.android.database.RepoReadDao
 import com.reporead.android.logging.AppLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
 import com.reporead.android.sync.Sync
-import com.reporead.android.ui.AppBar
-import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.Load
-import com.reporead.android.ui.LoadContent
 import java.io.Serializable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -79,38 +51,12 @@ private const val FIND_TYPING_PAUSE_MS = 150L
 /** The displayed copy and its study model are published together, so reloads cannot use a previous version's blocks. */
 internal data class StudyPage(val opened: Sync.Opened, val study: StudyNote)
 
-/**
- * The one dialog or sheet over the note: at most one is open, and it is kept across recreation, with what was typed in
- * it. Serializable so a screen can keep it in saved state.
- */
-internal sealed interface ReaderOverlay : Serializable {
-    /** A new note is being written for [passage]. */
-    data class Note(val passage: Passage) : ReaderOverlay
-
-    /** An unsubmitted editor; [initial] also recovers a submitted edit that failed. */
-    data class EditNote(val row: AnnotationEntity, val initial: String = row.note.orEmpty()) : ReaderOverlay
-
-    /** Keeps the exact annotation whose deletion is awaiting confirmation. */
-    data class Delete(val row: AnnotationEntity) : ReaderOverlay
-
-    /** A tapped link to one note and its heading, previewed before opening. */
-    data class Preview(val target: DocumentEntity, val heading: String?) : ReaderOverlay
-
-    /** Notes sharing the linked name, for the reader to pick one. */
-    data class LinkChoices(val heading: String?, val choices: List<DocumentEntity>) : ReaderOverlay
-
-    /** Reserves the sole overlay for the page's current outline. */
-    data object Outline : ReaderOverlay
-}
-
 /** What a reader entry keeps for process restoration. */
 private const val REATTACHING = "reattaching"
 private const val EDIT = "edit"
 
 /** Only the user's submitted input is restored; the annotation is read again, and no mutation is replayed. */
 private data class SubmittedEdit(val mutationId: String, val text: String?) : Serializable
-
-internal data class ReaderConflict(val current: AnnotationEntity, val mine: String?)
 
 /**
  * One reader entry's work ([entryId]), kept across rotation and while it is covered: the opened page, the highlights'
@@ -215,7 +161,7 @@ internal class ReaderViewModel(
         val overlay = now.overlay ?: return null
         if (!current.compareAndSet(now, now.copy(overlay = null))) return null
         if (overlay is ReaderOverlay.EditNote) {
-            AppLog.info("Reader edit returned to editor; entry=$entryId mutationId=${overlay.row.mutationId}")
+            AppLog.info("Reader edit returned to editor; entry=$entryId mutationId=${overlay.annotation.mutationId}")
             saved[EDIT] = null
         }
         return overlay
@@ -330,7 +276,11 @@ internal class ReaderViewModel(
     fun keepMine() {
         val conflict = current.value.conflict ?: return
         current.update { it.copy(conflict = null) }
-        editNote(conflict.current, conflict.mine, conflict.current.version)
+        editNote(
+            conflict.latestAnnotation,
+            conflict.submittedNote,
+            conflict.latestAnnotation.version,
+        )
     }
 
     fun delete(row: AnnotationEntity) =
@@ -481,54 +431,43 @@ fun ReaderScreen(
     val barsShown = session?.barsShown ?: true
     ReadingBars(barsShown || findOpen)
     val section = session?.let { it.outline?.sectionAt(it.topBlock) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    if (session != null) {
+        DisposableEffect(lifecycle, session) {
+            // Process death can follow ON_STOP, so the position is captured whenever the reader leaves the screen.
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_STOP) session.savePosition()
+            }
+            lifecycle.addObserver(observer)
+            onDispose { lifecycle.removeObserver(observer) }
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedVisibility(barsShown || findOpen) {
             Column {
-                AppBar(
-                    screen.title,
-                    subtitle = section?.text?.ifBlank { null },
+                val bookmarked = bookmark?.bookmarked == true
+                ReaderToolbar(
+                    title = screen.title,
+                    sectionTitle = section?.text?.ifBlank { null },
+                    outlineAvailable = !session?.outline.isNullOrEmpty(),
+                    controlsVisible = page?.opened != null,
+                    pageActionsEnabled = session?.opened == true,
+                    studyAvailable = page?.study?.recognized == true,
+                    studying = studying,
+                    notesOpen = notesOpen,
+                    annotationCount = annotations.size,
+                    bookmarked = bookmarked,
                     onBack = if (findOpen) ::closeFind else onBack,
-                    actions = {
-                        val opened = page?.opened
-                        if (!session?.outline.isNullOrEmpty()) {
-                            IconButton(onClick = { overlay = ReaderOverlay.Outline }) {
-                                AppIcon(R.drawable.ic_toc, "Outline")
-                            }
-                        }
-                        if (opened != null) {
-                            IconButton(enabled = session?.opened == true, onClick = { findOpen = true }) {
-                                AppIcon(R.drawable.ic_search, "Find in note")
-                            }
-                            if (page.study.recognized) {
-                                // Only once the page is ready: before, it would change nothing on the page.
-                                TextButton(enabled = session?.opened == true, onClick = ::toggleStudy) {
-                                    Text(if (studying) "Read" else "Study")
-                                }
-                            }
-                            IconButton(onClick = { notesOpen = !notesOpen }) {
-                                BadgedBox(
-                                    badge = { if (annotations.isNotEmpty()) Badge { Text("${annotations.size}") } }
-                                ) {
-                                    AppIcon(
-                                        R.drawable.ic_notes,
-                                        if (notesOpen) "Hide highlights and notes" else "Highlights and notes",
-                                    )
-                                }
-                            }
-                            val marked = bookmark?.bookmarked == true
-                            IconButton(onClick = { model.setBookmark(!marked) }) {
-                                AppIcon(
-                                    if (marked) R.drawable.ic_bookmark else R.drawable.ic_bookmark_border,
-                                    if (marked) "Remove bookmark" else "Bookmark",
-                                )
-                            }
-                        }
-                    },
+                    onOutline = { overlay = ReaderOverlay.Outline },
+                    onFind = { findOpen = true },
+                    onToggleStudy = ::toggleStudy,
+                    onToggleNotes = { notesOpen = !notesOpen },
+                    onToggleBookmark = { model.setBookmark(!bookmarked) },
                 )
                 if (findOpen) {
                     val result = session?.findResult?.takeIf { it.query == findQuery }
-                    FindBar(
+                    ReaderFindBar(
                         findQuery,
                         result,
                         onQuery = {
@@ -548,223 +487,35 @@ fun ReaderScreen(
                 }
             }
         }
-        LoadContent(state.page, onRetry = model::retry) { ready ->
-            val opened = ready.opened
-            // The session was created from this same ready load.
-            checkNotNull(session) { "No reader session for documentId=${screen.documentId}" }
-            opened.staleReason?.let { Notice("Showing your saved copy. ${it.describe()}") }
-            session.restoreNotice?.let { Notice(it) }
-            state.message?.let { Notice(it) }
-            state.reattaching?.let { row ->
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Select the passage for “${row.exactText}”, then choose Reattach here.",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = model::stopReattaching) { Text("Cancel") }
-                }
-            }
-            val lifecycle = LocalLifecycleOwner.current.lifecycle
-            DisposableEffect(lifecycle, session) {
-                // Process death can follow ON_STOP, so the position is captured whenever the reader leaves the screen.
-                val observer = LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_STOP) session.savePosition()
-                }
-                lifecycle.addObserver(observer)
-                onDispose { lifecycle.removeObserver(observer) }
-            }
-            if (!session.stopped)
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    AndroidView(
-                        factory = { context -> session.createView(context) },
-                        onRelease = { view -> session.release(view) },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    if (!session.pageVisible) Text("Opening note…", Modifier.align(Alignment.Center))
-                }
-            if (notesOpen) {
-                NotesPanel(
-                    opened.note.documentId,
-                    annotations,
-                    opened.note.blobSha,
-                    session.notShown,
-                    session.opened,
-                    dao,
-                    onReveal = { session.reveal(it.mutationId) },
-                    onEdit = { row -> overlay = ReaderOverlay.EditNote(row) },
-                    onDelete = { row -> overlay = ReaderOverlay.Delete(row) },
-                    onReattach = { row ->
-                        model.startReattaching(row)
-                        notesOpen = false
-                    },
-                    onOpenNote = { from -> push(Screen.Reader(from.id, from.title)) },
-                    modifier = Modifier.fillMaxWidth().weight(0.7f),
-                )
-            }
-        }
-    }
-    when (val shown = overlay) {
-        null -> {}
-        ReaderOverlay.Outline -> {
-            // Restored before the recreated page has its outline: shown once it does.
-            val headings = session?.outline
-            if (session != null && !headings.isNullOrEmpty())
-                OutlineSheet(
-                    headings,
-                    section,
-                    onDismiss = { overlay = null },
-                    onJump = { entry ->
-                        overlay = null
-                        scope.launch {
-                            if (!session.showBlock(entry.blockId))
-                                model.showMessage("Couldn't scroll to “${entry.text}”; reopen the note.")
-                        }
-                    },
-                )
-        }
-        is ReaderOverlay.Preview ->
-            LinkPreviewSheet(
-                shown.target,
-                shown.heading,
-                sync,
-                dao,
-                onDismiss = { overlay = null },
-                onOpen = {
-                    if (close(shown))
-                        push(Screen.Reader(shown.target.id, shown.target.title, shown.heading?.let(OpenAt::Heading)))
-                },
-            )
-        is ReaderOverlay.LinkChoices ->
-            LinkChoicesDialog(
-                shown.choices,
-                onDismiss = { overlay = null },
-                onChoose = { choice ->
-                    if (close(shown)) push(Screen.Reader(choice.id, choice.title, shown.heading?.let(OpenAt::Heading)))
-                },
-            )
-        is ReaderOverlay.Note ->
-            NoteDialog(
-                title = "Add a note",
-                quote = shown.passage.exactText,
-                initial = "",
-                onDismiss = { overlay = null },
-                onSave = { note -> if (close(shown)) model.save(shown.passage, note.ifBlank { null }) },
-            )
-        is ReaderOverlay.EditNote ->
-            NoteDialog(
-                title = "Edit note",
-                quote = shown.row.exactText,
-                initial = shown.initial,
-                status = state.message,
-                onDismiss = { overlay = null },
-                onSave = { text ->
-                    if (overlay == shown && model.editNote(shown.row, text.ifBlank { null }, shown.row.version))
-                        close(shown)
-                },
-            )
-        is ReaderOverlay.Delete ->
-            DeleteDialog(
-                shown.row,
-                onDismiss = { overlay = null },
-                onConfirm = { if (overlay == shown && model.delete(shown.row)) close(shown) },
-            )
-    }
-    if (overlay == null)
-        state.conflict?.let { conflict ->
-            ConflictDialog(
-                conflict.current,
-                conflict.mine,
-                onDismiss = model::dismissConflict,
-                onKeepMine = model::keepMine,
-            )
-        }
-}
-
-/** The reader's Ctrl-F controls; [result] is null while the current [query] is still being evaluated. */
-@Composable
-private fun FindBar(
-    query: String,
-    result: FindResult?,
-    onQuery: (String) -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onClose: () -> Unit,
-) {
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focus.requestFocus() }
-    val count =
-        when {
-            query.isEmpty() -> ""
-            result == null -> "Searching…"
-            result.count == 0 -> "No matches"
-            else -> "${result.index + 1} of ${result.count}"
-        }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQuery,
-            label = { Text("Find in note") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onNext() }),
-            modifier = Modifier.weight(1f).focusRequester(focus),
+        ReaderContent(
+            documentId = screen.documentId,
+            state = state,
+            session = session,
+            notesOpen = notesOpen,
+            annotations = annotations,
+            dao = dao,
+            model = model,
+            onOverlay = { overlay = it },
+            onReattach = { annotation ->
+                model.startReattaching(annotation)
+                notesOpen = false
+            },
+            push = push,
         )
-        Text(count, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 4.dp))
-        IconButton(enabled = result?.count?.let { it > 0 } == true, onClick = onPrevious) {
-            AppIcon(R.drawable.ic_arrow_up, "Previous match")
-        }
-        IconButton(enabled = result?.count?.let { it > 0 } == true, onClick = onNext) {
-            AppIcon(R.drawable.ic_arrow_down, "Next match")
-        }
-        IconButton(onClick = onClose) { AppIcon(R.drawable.ic_close, "Close find") }
     }
-}
-
-/**
- * The system bars follow the reader's top bar: hidden while reading down the note, shown briefly by a swipe from the
- * edge, and always shown again when the reader is left.
- */
-@Composable
-private fun ReadingBars(shown: Boolean) {
-    val activity = LocalActivity.current ?: error("ReaderScreen requires an activity")
-    val bars = activity.window.insetsController ?: error("ReaderScreen requires a window insets controller")
-    DisposableEffect(bars) {
-        bars.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        onDispose { bars.show(WindowInsets.Type.systemBars()) }
-    }
-    LaunchedEffect(shown) {
-        if (shown) bars.show(WindowInsets.Type.systemBars()) else bars.hide(WindowInsets.Type.systemBars())
-    }
-}
-
-/** Several notes share a link's name: the reader picks one by its path. */
-@Composable
-private fun LinkChoicesDialog(choices: List<DocumentEntity>, onDismiss: () -> Unit, onChoose: (DocumentEntity) -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Which note?") },
-        text = {
-            Column {
-                for (choice in choices) TextButton(onClick = { onChoose(choice) }) { Text(choice.path) }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun Notice(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    ReaderOverlayHost(
+        overlay = overlay,
+        conflict = state.conflict,
+        message = state.message,
+        session = session,
+        section = section,
+        sync = sync,
+        dao = dao,
+        model = model,
+        scope = scope,
+        push = push,
+        onDismiss = { overlay = null },
+        isOpen = { overlay == it },
+        close = ::close,
     )
 }
