@@ -135,25 +135,10 @@ internal fun scheduledLines(cards: List<NotebookItem>): Set<Pair<Long, String>> 
     cards.filter(::reviewable).map { it.annotation.documentId to it.annotation.drawn.exactText }.toSet()
 
 /**
- * The highlight among [rows] drawn on [passage]'s phrase, if any; a phrase has at most one, whose note holds everything
- * written about it. Overlapping but different phrases are different highlights.
+ * The highlight among [rows] drawn exactly on [passage], if any; a phrase has at most one, whose note holds everything
+ * written about it. Overlapping but different phrases are different highlights. A refused highlight marks nothing: it
+ * is never sent again, so the phrase is free for one that can be.
  */
 internal fun highlightOn(rows: List<AnnotationEntity>, passage: Passage): AnnotationEntity? = rows.firstOrNull {
-    it.type == AnnotationType.HIGHLIGHT && phrase(it.drawn) == phrase(passage)
+    it.type == AnnotationType.HIGHLIGHT && it.state != AnnotationState.REFUSED && it.drawn == passage
 }
-
-private data class Phrase(val blobSha: String, val blockId: String, val start: Int, val end: Int)
-
-/**
- * A passage's span in its block and version, without leading and trailing whitespace, so a selection with or without
- * the space after a word is the same phrase. Kept outside [Passage], whose Java-serialized form is saved screen state.
- */
-private fun phrase(passage: Passage) =
-    with(passage) {
-        Phrase(
-            blobSha,
-            blockId,
-            startOffset + exactText.length - exactText.trimStart().length,
-            endOffset - (exactText.length - exactText.trimEnd().length),
-        )
-    }

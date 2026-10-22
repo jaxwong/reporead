@@ -135,11 +135,10 @@ class AnnotationEntityTest {
     }
 
     @Test
-    fun aPhraseIsItsDrawnBlockAndOffsetsWithoutSurroundingWhitespace() {
+    fun aPhraseIsTheBlockAndOffsetsAHighlightIsDrawnAt() {
         val version = "a".repeat(40)
         val selected = Passage(version, "b2", 12, 30, "declarative transactions")
         assertEquals(unsent, highlightOn(listOf(unsent), selected))
-        assertEquals(unsent, highlightOn(listOf(unsent), Passage(version, "b2", 11, 31, " declarative transactions\n")))
         val notTheSamePhrase =
             listOf(
                 Passage(version, "b2", 12, 23, "declarative"),
@@ -149,9 +148,8 @@ class AnnotationEntityTest {
             )
         for (passage in notTheSamePhrase) assertNull(highlightOn(listOf(unsent), passage))
         assertNull("a card is not a highlight", highlightOn(listOf(unsent.copy(type = AnnotationType.CARD)), selected))
-        // Two different whitespace-only selections trim to nothing, but are not one phrase.
-        val space = unsent.copy(startOffset = 11, endOffset = 12, exactText = " ")
-        assertNull(highlightOn(listOf(space), Passage(version, "b2", 23, 24, " ")))
+        val refused = unsent.copy(state = AnnotationState.REFUSED, rejection = "Test-only refusal")
+        assertNull("a refused highlight is never sent, so it marks nothing", highlightOn(listOf(refused), selected))
         // An acknowledged highlight is where the server drew it, not where it was made.
         val moved =
             unsent.copy(

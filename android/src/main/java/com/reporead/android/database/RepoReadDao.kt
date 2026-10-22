@@ -468,6 +468,9 @@ interface RepoReadDao {
      */
     @Transaction
     suspend fun saveLocalAnnotation(row: AnnotationEntity): NewHighlight {
+        require(row.type == AnnotationType.HIGHLIGHT && row.state == AnnotationState.UNSENT && row.serverId == null) {
+            "Invalid new highlight ${row.mutationId}: type=${row.type} state=${row.state} serverId=${row.serverId}"
+        }
         if (note(row.documentId) == null) return NewHighlight.PageGone
         highlightOn(annotations(row.documentId).first(), row.drawn)?.let {
             return NewHighlight.AlreadyHighlighted(it)
