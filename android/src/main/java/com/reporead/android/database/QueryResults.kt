@@ -97,6 +97,17 @@ enum class NewCardGrade {
     NOT_SAVED,
 }
 
+/** A new highlight is written only on a saved page, and only on a phrase no highlight marks yet. */
+sealed interface NewHighlight {
+    data class Saved(val mutationId: String) : NewHighlight
+
+    /** [existing] marks the same phrase; nothing was written. */
+    data class AlreadyHighlighted(val existing: AnnotationEntity) : NewHighlight
+
+    /** The page is gone (a clear or a disconnect landed first); nothing was written. */
+    data object PageGone : NewHighlight
+}
+
 /** Distinguishes a bad server grade at the write boundary from a database or programmer failure. */
 internal class InvalidReviewGrade(mutationId: String, grade: Int) :
     IllegalArgumentException("Review $mutationId has grade $grade; expected 0..5")
@@ -122,3 +133,27 @@ internal fun reviewable(item: NotebookItem) =
 /** Scheduled question identity is the bank document and drawn Canonical line, never the saved prompt or version. */
 internal fun scheduledLines(cards: List<NotebookItem>): Set<Pair<Long, String>> =
     cards.filter(::reviewable).map { it.annotation.documentId to it.annotation.drawn.exactText }.toSet()
+
+/**
+ * The highlight among [rows] drawn on [passage]'s phrase, if any; a phrase has at most one, whose note holds everything
+ * written about it. Overlapping but different phrases are different highlights.
+ */
+internal fun highlightOn(rows: List<AnnotationEntity>, passage: Passage): AnnotationEntity? = rows.firstOrNull {
+    it.type == AnnotationType.HIGHLIGHT && phrase(it.drawn) == phrase(passage)
+}
+
+private data class Phrase(val blobSha: String, val blockId: String, val start: Int, val end: Int)
+
+/**
+ * A passage's span in its block and version, without leading and trailing whitespace, so a selection with or without
+ * the space after a word is the same phrase. Kept outside [Passage], whose Java-serialized form is saved screen state.
+ */
+private fun phrase(passage: Passage) =
+    with(passage) {
+        Phrase(
+            blobSha,
+            blockId,
+            startOffset + exactText.length - exactText.trimStart().length,
+            endOffset - (exactText.length - exactText.trimEnd().length),
+        )
+    }

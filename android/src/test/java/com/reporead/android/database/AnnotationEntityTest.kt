@@ -133,4 +133,38 @@ class AnnotationEntityTest {
         assertFalse("its last location is still valid in the older version", orphan.orphanedIn("a".repeat(40)))
         assertEquals("a".repeat(40), orphan.drawn.blobSha)
     }
+
+    @Test
+    fun aPhraseIsItsDrawnBlockAndOffsetsWithoutSurroundingWhitespace() {
+        val version = "a".repeat(40)
+        val selected = Passage(version, "b2", 12, 30, "declarative transactions")
+        assertEquals(unsent, highlightOn(listOf(unsent), selected))
+        assertEquals(unsent, highlightOn(listOf(unsent), Passage(version, "b2", 11, 31, " declarative transactions\n")))
+        val notTheSamePhrase =
+            listOf(
+                Passage(version, "b2", 12, 23, "declarative"),
+                Passage(version, "b2", 12, 31, "declarative transactions,"),
+                Passage(version, "b3", 12, 30, "declarative transactions"),
+                Passage("c".repeat(40), "b2", 12, 30, "declarative transactions"),
+            )
+        for (passage in notTheSamePhrase) assertNull(highlightOn(listOf(unsent), passage))
+        assertNull("a card is not a highlight", highlightOn(listOf(unsent.copy(type = AnnotationType.CARD)), selected))
+        // Two different whitespace-only selections trim to nothing, but are not one phrase.
+        val space = unsent.copy(startOffset = 11, endOffset = 12, exactText = " ")
+        assertNull(highlightOn(listOf(space), Passage(version, "b2", 23, 24, " ")))
+        // An acknowledged highlight is where the server drew it, not where it was made.
+        val moved =
+            unsent.copy(
+                serverId = 3,
+                state = AnnotationState.ACKNOWLEDGED,
+                status = AnchorStatus.REANCHORED,
+                resolvedBlobSha = "c".repeat(40),
+                location = Passage("c".repeat(40), "b3", 12, 29, "declarative transaction"),
+            )
+        assertNull(highlightOn(listOf(moved), selected))
+        assertEquals(
+            moved,
+            highlightOn(listOf(moved), Passage("c".repeat(40), "b3", 12, 29, "declarative transaction")),
+        )
+    }
 }

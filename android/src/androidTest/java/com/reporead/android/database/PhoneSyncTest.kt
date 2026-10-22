@@ -465,7 +465,10 @@ class PhoneSyncTest {
         sync.setBookmark(1, true)
         assertEquals(2, requested)
         val passage = Passage(sha, "b1", 0, 4, "text")
-        val highlight = sync.createAnnotation(passage, 1, null)!!
+        val highlight = (sync.createAnnotation(passage, 1, null) as NewHighlight.Saved).mutationId
+        assertEquals(3, requested)
+        // A second highlight on the same phrase saves nothing, so there is nothing to send.
+        assertTrue(sync.createAnnotation(passage, 1, null) is NewHighlight.AlreadyHighlighted)
         assertEquals(3, requested)
         sync.deleteAnnotation(dao.annotation(highlight)!!)
         assertEquals(4, requested)
@@ -480,6 +483,42 @@ class PhoneSyncTest {
         // A grade the card no longer accepts saves nothing, so there is nothing to send.
         assertFalse(sync.recordReview(ReviewEntity("stale", card, 4, 2, sha, pending = true)))
         assertEquals(7, requested)
+    }
+
+    @Test
+    fun aPhraseHasOneHighlightWhileOverlappingPhrasesHaveTheirOwn() = runBlocking {
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "a", sha)))
+        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0))
+        val sync = sync("http://127.0.0.1:${closedPort()}")
+        // Block b1 reads "Use declarative transactions here."
+        val first = sync.createAnnotation(Passage(sha, "b1", 4, 28, "declarative transactions"), 1, null)
+        val existing = dao.annotation((first as NewHighlight.Saved).mutationId)!!
+        for (again in
+            listOf(
+                Passage(sha, "b1", 4, 28, "declarative transactions"),
+                Passage(sha, "b1", 3, 29, " declarative transactions "),
+            )) assertEquals(
+            NewHighlight.AlreadyHighlighted(existing),
+            sync.createAnnotation(again, 1, "Test-only note"),
+        )
+        assertTrue(sync.createAnnotation(Passage(sha, "b1", 4, 15, "declarative"), 1, null) is NewHighlight.Saved)
+        assertTrue(
+            sync.createAnnotation(Passage(sha, "b1", 16, 33, "transactions here"), 1, null) is NewHighlight.Saved
+        )
+        assertEquals(3, dao.annotations(1).first().size)
+        // Two saves of one new phrase at once: the check and the write are one transaction, so one of them is saved.
+        val racing =
+            listOf("test-only-race-a", "test-only-race-b")
+                .map { id ->
+                    async(Dispatchers.IO) {
+                        dao.saveLocalAnnotation(
+                            AnnotationEntity(id, null, 1, sha, "b2", 0, 4, "Test", null, 1, 0, AnnotationState.UNSENT)
+                        )
+                    }
+                }
+                .map { it.await() }
+        assertEquals(1, racing.count { it is NewHighlight.Saved })
+        assertEquals(4, dao.annotations(1).first().size)
     }
 
     @Test
@@ -1733,7 +1772,10 @@ class PhoneSyncTest {
                 sync.disconnect(7)
                 assertFalse(sync.saveReading(reading(1)))
                 assertFalse(sync.setBookmark(1, true))
-                assertNull(sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, "late note"))
+                assertEquals(
+                    NewHighlight.PageGone,
+                    sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, "late note"),
+                )
             }
         assertTrue(dao.repositoryIds().isEmpty())
         assertNull(dao.note(1))

@@ -28,8 +28,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.NewHighlight
 import com.reporead.android.database.Passage
 import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.highlightOn
 import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
@@ -170,24 +172,30 @@ internal class ReaderViewModel(
 
     /**
      * Saves a highlight on this phone, then sends it now when signed in. The message says where it stands: nothing when
-     * it reached the server.
+     * it reached the server. A phrase already highlighted keeps its one highlight.
      */
     fun save(passage: Passage, note: String?) {
         DeviceLog.info("Reader highlight save started; entry=$entryId documentId=$documentId")
         viewModelScope.launch {
-            val mutationId = sync.createAnnotation(passage, documentId, note)
+            val saved = sync.createAnnotation(passage, documentId, note)
             showMessage(
-                if (mutationId == null) "Highlight not saved: this note is no longer saved on this phone."
-                else if (signedIn != true) "Highlight saved on this phone; it is sent after you sign in."
-                else
-                    try {
-                        sync.pushAnnotations()
-                        dao.annotation(mutationId)?.rejection?.let {
-                            "Highlight kept on this phone only; the server refused it: $it"
-                        }
-                    } catch (error: ApiException) {
-                        "Highlight saved on this phone; it will sync later. ${error.describe()}"
-                    }
+                when (saved) {
+                    NewHighlight.PageGone -> "Highlight not saved: this note is no longer saved on this phone."
+                    is NewHighlight.AlreadyHighlighted ->
+                        if (note == null) "This passage is already highlighted."
+                        else "Note not saved: this passage is already highlighted. Edit its note instead."
+                    is NewHighlight.Saved ->
+                        if (signedIn != true) "Highlight saved on this phone; it is sent after you sign in."
+                        else
+                            try {
+                                sync.pushAnnotations()
+                                dao.annotation(saved.mutationId)?.rejection?.let {
+                                    "Highlight kept on this phone only; the server refused it: $it"
+                                }
+                            } catch (error: ApiException) {
+                                "Highlight saved on this phone; it will sync later. ${error.describe()}"
+                            }
+                }
             )
         }
     }
@@ -379,7 +387,18 @@ fun ReaderScreen(
                     SelectionAction.REATTACH ->
                         if (placing != null) model.reattach(placing, selection.passage)
                         else model.showMessage("Reattaching was cancelled; choose Reattach again in Notes.")
-                    SelectionAction.ADD_NOTE -> overlay = ReaderOverlay.Note(selection.passage)
+                    // A note for a phrase that is already highlighted goes into that highlight's note.
+                    SelectionAction.ADD_NOTE -> {
+                        val existing = highlightOn(annotations, selection.passage)
+                        when {
+                            existing == null -> overlay = ReaderOverlay.Note(selection.passage)
+                            existing.serverId != null -> overlay = ReaderOverlay.EditNote(existing)
+                            else ->
+                                model.showMessage(
+                                    "This passage is already highlighted; its note can be edited once the server accepts it."
+                                )
+                        }
+                    }
                     SelectionAction.HIGHLIGHT -> model.save(selection.passage, null)
                 }
         }
