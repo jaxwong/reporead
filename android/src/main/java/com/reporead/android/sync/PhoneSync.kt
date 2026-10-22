@@ -10,6 +10,7 @@ import com.reporead.android.database.BookmarkEntity
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.InvalidReviewGrade
 import com.reporead.android.database.NewCardGrade
+import com.reporead.android.database.NewHighlight
 import com.reporead.android.database.NoteSearchBlockEntity
 import com.reporead.android.database.Passage
 import com.reporead.android.database.ReadingStateEntity
@@ -484,17 +485,21 @@ class PhoneSync(
     }
 
     /**
-     * Saves a new highlight locally as a pending creation; it is sent with the returned mutation id until acknowledged.
-     * Null for a page disconnected meanwhile. Cards are made only by Practice ([gradeNewCard]).
+     * Saves a new highlight locally as a pending creation; it is sent with the saved mutation id until acknowledged.
+     * Nothing is saved on a page disconnected meanwhile or on a phrase already highlighted. Cards are made only by
+     * Practice ([gradeNewCard]).
      */
-    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?): String? = committed {
-        val annotation = newAnnotation(passage, documentId, note, null)
-        if (!dao.saveLocalAnnotation(annotation)) {
-            DeviceLog.info("Highlight not saved; page gone; documentId=$documentId")
-            return@committed null
+    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?): NewHighlight = committed {
+        val saved = dao.saveLocalAnnotation(newAnnotation(passage, documentId, note, null))
+        when (saved) {
+            is NewHighlight.Saved -> requestPendingChangeSend()
+            is NewHighlight.AlreadyHighlighted ->
+                DeviceLog.info(
+                    "Highlight not saved; phrase already highlighted; documentId=$documentId existing=${saved.existing.mutationId}"
+                )
+            NewHighlight.PageGone -> DeviceLog.info("Highlight not saved; page gone; documentId=$documentId")
         }
-        requestPendingChangeSend()
-        annotation.mutationId
+        saved
     }
 
     /**

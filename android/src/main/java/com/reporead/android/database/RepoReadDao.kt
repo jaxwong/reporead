@@ -463,14 +463,17 @@ interface RepoReadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveAnnotation(row: AnnotationEntity)
 
     /**
-     * A highlight or card created on this phone, on the saved page it was selected in; false writes nothing when that
-     * page is gone (a clear or a disconnect landed first).
+     * A highlight created on this phone, on the saved page it was selected in. Checked and written in one transaction,
+     * so two saves of one phrase cannot both find it free.
      */
     @Transaction
-    suspend fun saveLocalAnnotation(row: AnnotationEntity): Boolean {
-        if (note(row.documentId) == null) return false
+    suspend fun saveLocalAnnotation(row: AnnotationEntity): NewHighlight {
+        if (note(row.documentId) == null) return NewHighlight.PageGone
+        highlightOn(annotations(row.documentId).first(), row.drawn)?.let {
+            return NewHighlight.AlreadyHighlighted(it)
+        }
         saveAnnotation(row)
-        return true
+        return NewHighlight.Saved(row.mutationId)
     }
 
     /**
