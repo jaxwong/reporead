@@ -51,10 +51,10 @@ public class Attachments {
      * Resolves embeds once, before the page leaves its captured snapshot. Missing/ambiguous images remain visibly
      * unavailable without changing canonical text; they never acquire a different meaning when images are fetched.
      */
-    public static void bind(Document page, String notePath, List<String> paths) {
+    public static void bind(Document page, String notePath, List<String> imagePaths) {
         for (var image : page.select("img[data-embed]")) {
             String name = image.attr("data-embed");
-            var matches = matches(paths, notePath, name);
+            var matches = matches(imagePaths, notePath, name);
             if (matches.size() == 1) {
                 image.attr(
                         "src",
@@ -75,7 +75,7 @@ public class Attachments {
     /**
      * Replaces the connection's image list with a snapshot's; callers hold the sync lock in the publishing transaction.
      */
-    public void replace(long connectionId, List<String> paths) {
+    public void replaceImages(long connectionId, List<String> paths) {
         db.sql("DELETE FROM repository_images WHERE repository_connection_id = :connectionId")
                 .param("connectionId", connectionId)
                 .update();
