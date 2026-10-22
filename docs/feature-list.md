@@ -217,7 +217,7 @@ Merged in [PR #106](https://github.com/jaxwong/reporead/pull/106) (ADR-08): the 
 
 ## Naming and ownership (2026-10-21 to 2026-10-22)
 
-Merged in [PR #95](https://github.com/jaxwong/reporead/pull/95), [PR #99](https://github.com/jaxwong/reporead/pull/99), [PR #100](https://github.com/jaxwong/reporead/pull/100) and [PR #103](https://github.com/jaxwong/reporead/pull/103): one [naming guide](code-style.md), Android packages named for their owners (`network`, `logging`, `database`), the device-log flow named alike on the phone and the server, and "sync" split into delivering pending changes and refreshing a repository snapshot. The PRs changed no route, JSON field, table or column; the one approved behaviour change, request targets keeping their query in the server's log, is in ADR-21. The [refactor plan](cognitive-load-refactor-plan.md) holds the steps.
+Merged in [PR #95](https://github.com/jaxwong/reporead/pull/95), [PR #99](https://github.com/jaxwong/reporead/pull/99), [PR #100](https://github.com/jaxwong/reporead/pull/100) and [PR #103](https://github.com/jaxwong/reporead/pull/103): one [naming guide](code-style.md), Android packages named for their owners (`network`, `logging`, `database`), the device-log flow named alike on the phone and the server, and "sync" split into delivering pending changes and refreshing a repository snapshot. The PRs changed no route, JSON field, table or column; the one approved behaviour change, request targets keeping their query in the server's log, is in ADR-21.
 
 ## Not yet verified on the real system
 

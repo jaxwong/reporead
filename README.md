@@ -7,7 +7,7 @@ An Android reading and study layer for technical Markdown notes kept in GitHub: 
 | `backend/` | Spring Boot 4 / Java 25 / PostgreSQL 17: sign-in, connections, sync, rendering, reading state, annotations, re-anchoring | [backend/README.md](backend/README.md) |
 | `android/` | Kotlin/Compose app with Room offline storage and an isolated WebView reader | [android/README.md](android/README.md) |
 | `android/reader-web/` | The reader's bundled display JavaScript (highlighting, Mermaid) | [android/reader-web/README.md](android/reader-web/README.md) |
-| `docs/` | The single source of truth for decisions, scope and status: [architecture](docs/architecture.md), [invariants](docs/invariants.md), [ADRs](docs/adrs.md), [code style](docs/code-style.md), [feature list](docs/feature-list.md), [user stories](docs/user-stories.md), [cognitive-load refactor plan](docs/cognitive-load-refactor-plan.md) | [architecture](docs/architecture.md) |
+| `docs/` | The single source of truth for decisions, scope and status: [architecture](docs/architecture.md), [invariants](docs/invariants.md), [ADRs](docs/adrs.md), [code style](docs/code-style.md), [feature list](docs/feature-list.md), [user stories](docs/user-stories.md) | [architecture](docs/architecture.md) |
 
 ## Local setup, in order
 
