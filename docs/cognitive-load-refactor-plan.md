@@ -1,7 +1,7 @@
 # Cognitive-load refactor plan
 
-Status: PR 1 implemented on `establish-language-remove-ambiguous-local-names`; PR 2 implemented on
-`android-ownership-structure`; PR 3 implemented on `backend-roles-device-log-contract`.
+Status: all three PRs are merged to `main`: PR 1 as [#95](https://github.com/jaxwong/reporead/pull/95), PR 2 as
+[#99](https://github.com/jaxwong/reporead/pull/99) and PR 3 as [#100](https://github.com/jaxwong/reporead/pull/100).
 Audit baseline: `main` at `92ca61b8830d71e855ecfc5fb8ea64d4d4ccbbcd` on 2026-10-21.
 
 ## Goal
