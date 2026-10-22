@@ -50,7 +50,7 @@ import com.reporead.android.network.wire.DocumentsSummary
 import com.reporead.android.network.wire.RepositoryControllerAvailableList
 import com.reporead.android.reader.SEARCH_TARGET_KEY
 import com.reporead.android.reader.testPage
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.sync.toEntity
 import java.io.File
 import java.util.UUID
@@ -77,7 +77,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Drives the real RepoReadApp with the production Account, Sync and Room wiring over test-only preferences, an
+ * Drives the real RepoReadApp with the production Account, PhoneSync and Room wiring over test-only preferences, an
  * in-memory database, a scratch folder and a loopback server. Repository 7 has notes A and B at its root, which link to
  * each other, and C in the folder "deep", which links to A: A's "Linked from" lists B and C, B's lists A, so the open
  * panel tells the two readers apart.
@@ -192,7 +192,7 @@ class AppNavigationTest {
     }
 
     private fun launchApp(account: Account, api: Api) {
-        val sync = Sync(api, store, directory) {}
+        val sync = PhoneSync(api, store, directory) {}
         launch { RepoReadApp(account, sync, sessions, api, dao, scope, signInCode.value) { signInCode.value = null } }
     }
 
@@ -254,7 +254,7 @@ class AppNavigationTest {
     private fun awaitFolderRefreshed(server: LoopbackServer, libraryLoads: Int = 2) = runBlocking {
         withTimeout(10_000) {
             while (server.requests.count { it == "GET /api/library" } < libraryLoads) delay(50)
-            while (!enabled("Refresh from GitHub")) delay(50)
+            while (!enabled("Check GitHub for updates")) delay(50)
         }
     }
 
@@ -676,7 +676,7 @@ class AppNavigationTest {
                 awaitTextStarting("New highlights and cards stay on this phone for now.")
                 click("More")
                 click("Sign out…")
-                awaitText("Saved notes and changes stay on this phone. Syncing waits until you sign in again.")
+                awaitText("Saved notes and changes stay on this phone. Sending changes waits until you sign in again.")
                 val before = server.requests.toList()
                 click("Cancel")
                 awaitScreen("Library", hidden = listOf("Sign out of RepoRead?"))
@@ -788,7 +788,7 @@ class AppNavigationTest {
     private val stored = "GET /api/repositories/7/stored-data" to (200 to wire(testCounts()))
 
     /** Waits until the library was loaded [count] times and the sync that loaded it has finished. */
-    private fun awaitLibrarySynced(server: LoopbackServer, count: Int) = runBlocking {
+    private fun awaitLibraryLoaded(server: LoopbackServer, count: Int) = runBlocking {
         withTimeout(10_000) { while (server.requests.count { it == "GET /api/library" } < count) delay(50) }
         instrumentation.waitForIdleSync()
     }
@@ -798,13 +798,13 @@ class AppNavigationTest {
      * Returning still syncs because B1, which would stop that, is not approved.
      */
     @Test
-    fun theLibrarySyncsWhenCreatedAndReturnedToButNotWhenRecreated() {
+    fun theLibraryLoadsWhenCreatedAndReturnedToButNotWhenRecreated() {
         sessions.save("TEST_ONLY_SESSION")
         LoopbackServer(mapOf("GET /api/library" to library())).use { server ->
             val api = api(server)
             launchApp(account(api), api)
             awaitText("Library")
-            awaitLibrarySynced(server, 1)
+            awaitLibraryLoaded(server, 1)
             scenario!!.recreate()
             awaitText("Library")
             assertNothingMoreSent(server, listOf("GET /api/library"))
@@ -812,14 +812,14 @@ class AppNavigationTest {
             awaitText("Search saved notes")
             pressBack()
             awaitText("Library")
-            awaitLibrarySynced(server, 2)
+            awaitLibraryLoaded(server, 2)
             assertNothingMoreSent(server, listOf("GET /api/library", "GET /api/library"))
         }
     }
 
-    /** T14: two taps on Sync now before the Library recomposes sync once; a later tap syncs again. */
+    /** T14: two taps on Send changes before the Library recomposes send once; a later tap sends again. */
     @Test
-    fun aDoubleTappedSyncNowSyncsOnceAndALaterTapAgain() = runBlocking {
+    fun aDoubleTappedSendChangesSendsOnceAndALaterTapAgain() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")
         dao.saveAnnotation(
             AnnotationEntity("unsent", null, 1, testSha, "b0", 0, 4, "Test", null, 1, 0, state = AnnotationState.UNSENT)
@@ -834,13 +834,13 @@ class AppNavigationTest {
                 val api = api(server)
                 launchApp(account(api), api)
                 awaitTextStarting("New highlights and cards stay on this phone for now.")
-                awaitLibrarySynced(server, 1)
-                tapTwiceBeforeRecomposition("Sync now")
-                awaitLibrarySynced(server, 2)
+                awaitLibraryLoaded(server, 1)
+                tapTwiceBeforeRecomposition("Send changes")
+                awaitLibraryLoaded(server, 2)
                 assertNothingMoreSent(server, server.requests.toList())
                 assertEquals(2, server.requests.count { it == "GET /api/library" })
-                click("Sync now")
-                awaitLibrarySynced(server, 3)
+                click("Send changes")
+                awaitLibraryLoaded(server, 3)
                 assertEquals(3, server.requests.count { it == "POST /api/documents/1/annotations" })
             }
     }
@@ -896,7 +896,7 @@ class AppNavigationTest {
                 launchApp(account(api), api)
                 try {
                     openFolder(server)
-                    click("Refresh from GitHub")
+                    click("Check GitHub for updates")
                     hold.awaitArrived()
                     click("Note A")
                     awaitNoteA(panelOpen = false)
@@ -905,7 +905,7 @@ class AppNavigationTest {
                 } finally {
                     hold.release.countDown()
                 }
-                awaitTextStarting("Refresh failed; the previous list is unchanged.")
+                awaitTextStarting("GitHub update check failed; the previous list is unchanged.")
                 // Returning while the refresh ran started no second load beside it.
                 assertEquals(2, server.requests.count { it == "GET /api/library" })
                 assertEquals(1, server.requests.count { it == "POST /api/repositories/7/sync" })
@@ -932,14 +932,14 @@ class AppNavigationTest {
                 launchApp(account(api), api)
                 try {
                     openFolder(server)
-                    click("Refresh from GitHub")
+                    click("Check GitHub for updates")
                     hold.awaitArrived()
                     scenario!!.recreate()
                     awaitFolder()
                 } finally {
                     hold.release.countDown()
                 }
-                awaitTextStarting("Refresh failed; the previous list is unchanged.")
+                awaitTextStarting("GitHub update check failed; the previous list is unchanged.")
                 assertNothingMoreSent(server, server.requests.toList())
                 assertEquals(
                     listOf("GET /api/library", "GET /api/library", "POST /api/repositories/7/sync"),
@@ -977,21 +977,21 @@ class AppNavigationTest {
                     click("Back")
                     awaitText("Library")
                     click("Notebook")
-                    awaitTextStarting("Highlights and cards saved on this phone.")
+                    awaitTextStarting("Highlights and cards are saved on this phone.")
                 } finally {
                     hold.release.countDown()
                 }
                 withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
                 assertEquals(emptyList<DocumentEntity>(), dao.documents(7).first())
                 // The Library left for the Notebook syncs on its return, after the disconnect's commit.
-                awaitLibrarySynced(server, 4)
+                awaitLibraryLoaded(server, 4)
                 assertNothingMoreSent(server, server.requests.toList())
-                awaitTextStarting("Highlights and cards saved on this phone.")
+                awaitTextStarting("Highlights and cards are saved on this phone.")
                 assertEquals(1, server.requests.count { it == "DELETE /api/repositories/7" })
             }
     }
 
-    /** T14: two taps on Refresh from GitHub before the screen recomposes start one refresh, and a later tap another. */
+    /** T14: two taps on Check GitHub for updates before recomposition start one refresh, then another. */
     @Test
     fun aDoubleTappedRefreshFromGitHubIsSentOnceAndALaterTapAgain() {
         sessions.save("TEST_ONLY_SESSION")
@@ -1002,10 +1002,10 @@ class AppNavigationTest {
                 val api = api(server)
                 launchApp(account(api), api)
                 openFolder(server)
-                tapTwiceBeforeRecomposition("Refresh from GitHub")
+                tapTwiceBeforeRecomposition("Check GitHub for updates")
                 awaitFolderRefreshed(server, libraryLoads = 3)
                 assertEquals(1, server.requests.count { it == "POST /api/repositories/7/sync" })
-                click("Refresh from GitHub")
+                click("Check GitHub for updates")
                 awaitFolderRefreshed(server, libraryLoads = 4)
                 assertEquals(2, server.requests.count { it == "POST /api/repositories/7/sync" })
             }
@@ -1111,7 +1111,7 @@ class AppNavigationTest {
             launchApp(account(api), api)
             try {
                 awaitText("Library")
-                awaitLibrarySynced(server, 1)
+                awaitLibraryLoaded(server, 1)
                 click("Repositories")
                 click("Add repository")
                 click("Connect")
@@ -1378,7 +1378,7 @@ class AppNavigationTest {
                         )
                 pressBack()
                 awaitScreen("Library", hidden = listOf("deep"))
-                awaitLibrarySynced(server, 3)
+                awaitLibraryLoaded(server, 3)
                 click("test-only/notes")
                 awaitText("This repository has no Markdown notes.")
             }

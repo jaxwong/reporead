@@ -1,4 +1,4 @@
-// Owns: The Add repository screen and its entry's list and connection; Sync saves what connecting made.
+// Owns: The Add repository screen and its entry's list and connection; PhoneSync saves what connecting made.
 
 package com.reporead.android.library
 
@@ -27,7 +27,7 @@ import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
 import com.reporead.android.network.wire.RepositoryConnectionsAvailable
 import com.reporead.android.network.wire.RepositoryConnectionsConnection
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
@@ -43,9 +43,9 @@ import kotlinx.coroutines.launch
 /**
  * Add repository's list and connection, kept by its back-stack entry ([entryId]): a rotation neither fetches the list
  * again nor cancels a connect, and the connected repository's folder opens once, from the screen then shown. Leaving
- * the screen cancels a list fetch; a connection the server made is still saved on this phone (Sync.connect).
+ * the screen cancels a list fetch; a connection the server made is still saved on this phone (PhoneSync.connect).
  */
-internal class AvailableViewModel(private val api: Api, private val sync: Sync, private val entryId: String) :
+internal class AvailableViewModel(private val api: Api, private val sync: PhoneSync, private val entryId: String) :
     ViewModel() {
     data class State(
         val listing: Load<List<RepositoryConnectionsAvailable>> = Load.Loading,
@@ -118,7 +118,7 @@ internal class AvailableViewModel(private val api: Api, private val sync: Sync, 
 }
 
 @Composable
-fun AvailableScreen(api: Api, sync: Sync, entryId: String, onBack: () -> Unit, onConnected: (Screen) -> Unit) {
+fun AvailableScreen(api: Api, sync: PhoneSync, entryId: String, onBack: () -> Unit, onConnected: (Screen) -> Unit) {
     val model = viewModel { AvailableViewModel(api, sync, entryId) }
     val state by model.state.collectAsStateWithLifecycle()
     if (state.connected != null)

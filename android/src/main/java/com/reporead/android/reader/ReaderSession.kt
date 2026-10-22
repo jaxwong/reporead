@@ -26,7 +26,7 @@ import com.reporead.android.database.ReadingStateEntity
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.logging.DeviceLog
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -65,7 +65,7 @@ internal sealed interface Selection {
  */
 internal class ReaderSession(
     private val note: SavedPageEntity,
-    private val sync: Sync,
+    private val sync: PhoneSync,
     private val dao: RepoReadDao,
     /** Survives the view so final local saves can finish. */
     private val appScope: CoroutineScope,

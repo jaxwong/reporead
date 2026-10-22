@@ -10,7 +10,7 @@ import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.network.Api
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
@@ -25,12 +25,12 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** The real Practice grading entry, Sync and Room; explicitly test-only notes and no network access. */
+/** The real Practice grading entry, PhoneSync and Room; explicitly test-only notes and no network access. */
 @RunWith(AndroidJUnit4::class)
 class PracticeMutationTest {
     private lateinit var store: RepoReadDatabase
     private lateinit var files: File
-    private lateinit var sync: Sync
+    private lateinit var sync: PhoneSync
     private val notifications = AtomicInteger()
     private val sha = "a".repeat(40)
     private val question =
@@ -58,7 +58,7 @@ class PracticeMutationTest {
         dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, question.path, question.title, sha)))
         dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, question.path, question.title, "<main id=note></main>", 0))
         sync =
-            Sync(
+            PhoneSync(
                 Api("http://127.0.0.1:1", { error("Practice mutation test must not call the network") }) {},
                 store,
                 files,

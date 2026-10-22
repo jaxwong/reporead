@@ -6,9 +6,9 @@ import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.logging.DeviceLog
 import com.reporead.android.logging.deviceLogDirectory
 import com.reporead.android.network.Api
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.sync.requestDeviceLogUpload
-import com.reporead.android.sync.requestSync
+import com.reporead.android.sync.requestPendingChangeSend
 import java.time.Duration
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
@@ -61,8 +61,11 @@ class RepoReadApplication : Application() {
     val scope = MainScope()
 
     /** One local copy per process; the image sweep is independent of sessions and also runs for worker-only starts. */
-    val sync by lazy {
-        Sync(api, database, filesDir) { requestSync(this) }.also { sync -> scope.launch { sync.startUp() } }
+    val phoneSync by lazy {
+        PhoneSync(api, database, filesDir) { requestPendingChangeSend(this) }
+            .also { phoneSync ->
+                scope.launch { phoneSync.startUp() }
+            }
     }
 
     /** Sign-in, sign-out and account deletion, and where they stand. */

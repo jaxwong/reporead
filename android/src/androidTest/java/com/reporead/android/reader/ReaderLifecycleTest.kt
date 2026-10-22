@@ -26,7 +26,7 @@ import com.reporead.android.findText
 import com.reporead.android.findWebView
 import com.reporead.android.network.Api
 import com.reporead.android.root
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.type
 import java.io.File
 import java.util.UUID
@@ -59,7 +59,7 @@ class ReaderLifecycleTest {
     private val sha = "a".repeat(40)
     private lateinit var store: RepoReadDatabase
     private lateinit var files: File
-    private lateinit var sync: Sync
+    private lateinit var sync: PhoneSync
     private lateinit var scenario: ActivityScenario<TestHostActivity>
     /** The reader's entries; a new entry for a new screen, as when the app navigates. */
     private val entries = TestEntries(Screen.Reader(1, "Test-only lifecycle fixture"))
@@ -110,7 +110,7 @@ class ReaderLifecycleTest {
             )
         )
         val api = Api("http://127.0.0.1:1", { error("Lifecycle fixture must not call the network") }) {}
-        sync = Sync(api, store, files) {}
+        sync = PhoneSync(api, store, files) {}
         TestHostActivity.content = entries.content { entry ->
             MaterialTheme {
                 ReaderScreen(

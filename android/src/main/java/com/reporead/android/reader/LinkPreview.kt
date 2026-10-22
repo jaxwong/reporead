@@ -27,7 +27,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.SavedPageEntity
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.ui.folderOf
 import org.json.JSONObject
 
@@ -50,7 +50,7 @@ private sealed interface Saved {
 internal fun LinkPreviewSheet(
     target: DocumentEntity,
     heading: String?,
-    sync: Sync,
+    sync: PhoneSync,
     dao: RepoReadDao,
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
@@ -111,7 +111,7 @@ internal fun LinkPreviewSheet(
 
 private fun previewView(
     context: Context,
-    sync: Sync,
+    sync: PhoneSync,
     note: SavedPageEntity,
     heading: String?,
     onNotice: (String) -> Unit,

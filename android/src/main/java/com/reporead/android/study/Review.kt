@@ -34,7 +34,7 @@ import com.reporead.android.database.NotebookItem
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.ReviewEntity
 import com.reporead.android.logging.DeviceLog
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.EntryRow
@@ -56,10 +56,10 @@ private const val STARTED_AT = "startedAt"
 /**
  * One review session, kept by its back-stack entry ([entryId]) and restored with it ([savedState]): the due cards it
  * asks, where it stands and the grade being saved. A rotation or a covering screen neither loses nor repeats a grade,
- * and a grade this phone accepted is committed even if the screen is left (Sync).
+ * and a grade this phone accepted is committed even if the screen is left (PhoneSync).
  */
 internal class ReviewViewModel(
-    private val sync: Sync,
+    private val sync: PhoneSync,
     private val savedState: SavedStateHandle,
     private val entryId: String,
 ) : ViewModel() {
@@ -195,7 +195,7 @@ internal fun ReviewTopicsScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack
 @Composable
 internal fun ReviewScreen(
     dao: RepoReadDao,
-    sync: Sync,
+    sync: PhoneSync,
     topic: String?,
     entryId: String,
     push: (Screen) -> Unit,

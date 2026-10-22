@@ -58,7 +58,7 @@ class ApiException(
 /**
  * The error envelope (ApiErrors.Body), the one wire shape not generated: the spec publishes route answers, not the
  * advice that wraps every failure, and the app reads [code] as text because a newer server may send codes this version
- * does not know. Only known codes authorize anything (Sync.refusesItem).
+ * does not know. Only known codes authorize anything (PhoneSync.refusesItem).
  */
 @Serializable
 private data class ErrorResponse(val code: String, val message: String) {
@@ -98,7 +98,7 @@ class Api(
             it.githubRepositoryId == githubRepositoryId
         }
 
-    suspend fun syncRepository(repositoryId: Long): RepositorySyncResult =
+    suspend fun refreshRepositorySnapshot(repositoryId: Long): RepositorySyncResult =
         executeJsonRequest("POST", "/api/repositories/$repositoryId/sync") { it.repositoryId == repositoryId }
 
     suspend fun repositoryDeletionCounts(repositoryId: Long): ConnectionDeletionCounts =

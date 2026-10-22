@@ -177,7 +177,7 @@ class ApiTest {
                         api.fetchLibrarySnapshot(),
                         api.availableRepositories(),
                         api.connectRepository(11, connect),
-                        api.syncRepository(7),
+                        api.refreshRepositorySnapshot(7),
                         api.repositoryDeletionCounts(7),
                         api.disconnectRepository(7),
                         api.fetchDocumentContent(1),
@@ -346,7 +346,7 @@ class ApiTest {
                 Triple(
                     "POST /api/repositories/7/sync",
                     wire(testSynced().copy(repositoryId = 8)),
-                    { it.syncRepository(7) },
+                    { it.refreshRepositorySnapshot(7) },
                 ),
                 Triple(
                     "GET /api/documents/1/annotations",

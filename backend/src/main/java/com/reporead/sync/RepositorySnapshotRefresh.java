@@ -31,13 +31,14 @@ import org.springframework.transaction.support.TransactionTemplate;
  * publishing transaction; any failure leaves the previous snapshot and checkpoint untouched.
  */
 @Service
-public class RepositorySync {
-    private static final Logger LOG = LoggerFactory.getLogger(RepositorySync.class);
+public class RepositorySnapshotRefresh {
+    private static final Logger LOG = LoggerFactory.getLogger(RepositorySnapshotRefresh.class);
     static final int MAX_DOCUMENTS = 5_000;
-    static final String SYNCS = "reporead.github.syncs";
+    static final String SNAPSHOT_REFRESHES = "reporead.github.syncs";
     static final String DOCUMENTS_SYNCED = "reporead.documents.synced";
     /**
-     * Vanished documents plus new paths compared by content in one sync; more is skipped (each blob is one request).
+     * Vanished documents plus new paths compared by content in one snapshot refresh; more is skipped (each blob is one
+     * request).
      */
     static final int MAX_CONTENT_MOVE_CANDIDATES = 8;
 
@@ -50,7 +51,7 @@ public class RepositorySync {
     private final MeterRegistry meters;
     private final Attachments attachments;
 
-    public RepositorySync(
+    public RepositorySnapshotRefresh(
             GitHubApi github,
             GitHubTokenLifecycle credentials,
             RepositoryConnections connections,
@@ -70,16 +71,16 @@ public class RepositorySync {
     }
 
     /**
-     * Counts every sync in reporead.github.syncs by outcome and failure code, and the documents of each successful one
-     * in reporead.documents.synced.
+     * Counts every snapshot refresh by outcome and failure code, and the documents published by each successful one.
+     * Metric identifiers stay stable for existing dashboards.
      */
-    public RepositorySyncResult sync(AppUser user, long connectionId) {
-        RepositorySyncResult syncResult;
+    public RepositorySyncResult refresh(AppUser user, long connectionId) {
+        RepositorySyncResult refreshResult;
         try {
-            syncResult = fetchAndPublishSnapshot(user, connectionId);
+            refreshResult = fetchAndPublishSnapshot(user, connectionId);
         } catch (RuntimeException failure) {
             meters.counter(
-                            SYNCS,
+                            SNAPSHOT_REFRESHES,
                             "outcome",
                             "failure",
                             "code",
@@ -87,9 +88,9 @@ public class RepositorySync {
                     .increment();
             throw failure;
         }
-        meters.counter(SYNCS, "outcome", "success", "code", "NONE").increment();
-        meters.counter(DOCUMENTS_SYNCED).increment(syncResult.documentCount());
-        return syncResult;
+        meters.counter(SNAPSHOT_REFRESHES, "outcome", "success", "code", "NONE").increment();
+        meters.counter(DOCUMENTS_SYNCED).increment(refreshResult.documentCount());
+        return refreshResult;
     }
 
     private RepositorySyncResult fetchAndPublishSnapshot(AppUser user, long connectionId) {
@@ -105,35 +106,35 @@ public class RepositorySync {
         Instant syncedAt = Instant.now();
         var publishedMoves = transaction.execute(transactionStatus -> {
             var lockedConnection = connections.lockForSync(user.id(), connectionId);
-            // A reconnect changed the branch while this sync fetched; its snapshot is of a branch no longer synced.
+            // A reconnect changed the branch while this refresh fetched; its snapshot is no longer current.
             if (!lockedConnection.defaultBranch().equals(connection.defaultBranch())) {
                 LOG.info(
-                        "Sync superseded; connectionId={} fetchedBranch={} defaultBranch={}",
+                        "Snapshot refresh superseded; connectionId={} fetchedBranch={} defaultBranch={}",
                         connectionId,
                         connection.defaultBranch(),
                         lockedConnection.defaultBranch());
                 throw new ApiFailure(
                         Code.SYNC_SUPERSEDED,
-                        "The repository's default branch changed during this sync; nothing was published.");
+                        "The repository's default branch changed during this refresh; nothing was published.");
             }
             String publishedCommitSha = lockedConnection.commitSha();
-            // Another sync published while this one fetched; its snapshot may be newer, so this one must not replace
+            // Another refresh published while this one fetched; its snapshot may be newer, so this one must not replace
             // it.
             if (!Objects.equals(publishedCommitSha, connection.lastSyncedCommitSha())
                     && !branchSnapshot.commitSha().equals(publishedCommitSha)) {
                 LOG.info(
-                        "Sync superseded; connectionId={} fetched={} startedFrom={} published={}",
+                        "Snapshot refresh superseded; connectionId={} fetched={} startedFrom={} published={}",
                         connectionId,
                         branchSnapshot.commitSha(),
                         connection.lastSyncedCommitSha(),
                         publishedCommitSha);
                 throw new ApiFailure(
                         Code.SYNC_SUPERSEDED,
-                        "Another sync of this repository published first; nothing was published.");
+                        "Another refresh of this repository published first; nothing was published.");
             }
             var appliedMoves = documents.publishSnapshot(
                     connectionId, githubSnapshotFiles, syncedAt, detectedMoves, publishedCommitSha != null);
-            attachments.replace(connectionId, imagePaths);
+            attachments.replaceImages(connectionId, imagePaths);
             connections.markSynced(connectionId, branchSnapshot.commitSha());
             return appliedMoves;
         });
@@ -141,25 +142,22 @@ public class RepositorySync {
             LOG.info("Document moved; connectionId={} documentId={}", connectionId, move.documentId());
         }
         LOG.info(
-                "Repository synced; userId={} connectionId={} commitSha={} documents={} moves={}",
+                "Repository snapshot refreshed; userId={} connectionId={} commitSha={} documents={} moves={}",
                 user.id(),
                 connectionId,
                 branchSnapshot.commitSha(),
                 githubSnapshotFiles.size(),
                 publishedMoves.size());
-        return new RepositorySyncResult(
-                connectionId, branchSnapshot.commitSha(), githubSnapshotFiles.size(), syncedAt);
+        return new RepositorySyncResult(connectionId, branchSnapshot.commitSha(), githubSnapshotFiles.size(), syncedAt);
     }
 
     /**
      * Vanished documents that carry user data, paired by content with paths that never had a document. Skipped when
      * there are more than MAX_CONTENT_MOVE_CANDIDATES. A version GitHub no longer has (rewritten history) or cannot be
-     * read as a note excludes only that candidate; any other failure fails the sync.
+     * read as a note excludes only that candidate; any other failure fails the refresh.
      */
     private List<Documents.Move> contentMoves(
-            AppUser user,
-            RepositoryConnections.Connection connection,
-            List<Documents.SourceFile> githubSnapshotFiles) {
+            AppUser user, RepositoryConnections.Connection connection, List<Documents.SourceFile> githubSnapshotFiles) {
         var unmatchedSnapshot = Documents.unmatched(documents.existing(connection.id()), githubSnapshotFiles);
         var documentIdsWithUserState = documents.withUserState(connection.id());
         var vanishedDocuments = unmatchedSnapshot.vanished().stream()

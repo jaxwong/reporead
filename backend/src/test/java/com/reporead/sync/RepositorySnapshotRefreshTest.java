@@ -1,5 +1,8 @@
 package com.reporead.sync;
 
+import static com.reporead.sync.RepositorySnapshotRefresh.DOCUMENTS_SYNCED;
+import static com.reporead.sync.RepositorySnapshotRefresh.MAX_CONTENT_MOVE_CANDIDATES;
+import static com.reporead.sync.RepositorySnapshotRefresh.SNAPSHOT_REFRESHES;
 import static org.hamcrest.Matchers.contains;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -43,7 +46,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestTemplate;
 
 @ExtendWith(OutputCaptureExtension.class)
-class RepositorySyncTest extends SharedSpringTest {
+class RepositorySnapshotRefreshTest extends SharedSpringTest {
     // Test-only repository, SHAs, and tokens; no live GitHub call is made or claimed.
     private static final String TOKEN = "TEST_ONLY_ALICE_USER_TOKEN";
     private static final String BRANCH = "https://api.github.com/repos/test-only/notes/branches/main";
@@ -256,11 +259,11 @@ class RepositorySyncTest extends SharedSpringTest {
                 COMMIT_A,
                 TREE_A,
                 withSuccess(tree(false, entry("intro.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
-        double succeeded = meters.counter(RepositorySync.SYNCS, "outcome", "success", "code", "NONE")
+        double succeeded = meters.counter(SNAPSHOT_REFRESHES, "outcome", "success", "code", "NONE")
                 .count();
-        double incomplete = meters.counter(RepositorySync.SYNCS, "outcome", "failure", "code", "GITHUB_TREE_INCOMPLETE")
+        double incomplete = meters.counter(SNAPSHOT_REFRESHES, "outcome", "failure", "code", "GITHUB_TREE_INCOMPLETE")
                 .count();
-        double documents = meters.counter(RepositorySync.DOCUMENTS_SYNCED).count();
+        double documents = meters.counter(DOCUMENTS_SYNCED).count();
         sync(alice, connection).andExpect(status().isOk());
         next();
         expectSync(COMMIT_B, TREE_B, withSuccess(tree(true), MediaType.APPLICATION_JSON));
@@ -271,14 +274,13 @@ class RepositorySyncTest extends SharedSpringTest {
         assertEquals(COMMIT_A, checkpoint());
         assertEquals(
                 succeeded + 1,
-                meters.counter(RepositorySync.SYNCS, "outcome", "success", "code", "NONE")
+                meters.counter(SNAPSHOT_REFRESHES, "outcome", "success", "code", "NONE")
                         .count());
         assertEquals(
                 incomplete + 1,
-                meters.counter(RepositorySync.SYNCS, "outcome", "failure", "code", "GITHUB_TREE_INCOMPLETE")
+                meters.counter(SNAPSHOT_REFRESHES, "outcome", "failure", "code", "GITHUB_TREE_INCOMPLETE")
                         .count());
-        assertEquals(
-                documents + 1, meters.counter(RepositorySync.DOCUMENTS_SYNCED).count());
+        assertEquals(documents + 1, meters.counter(DOCUMENTS_SYNCED).count());
     }
 
     @Test
@@ -816,7 +818,7 @@ class RepositorySyncTest extends SharedSpringTest {
         long id = syncedNote("backend/ingest.md", before);
         readSomething(id);
         var entries = new java.util.ArrayList<String>();
-        for (int i = 0; i < RepositorySync.MAX_CONTENT_MOVE_CANDIDATES; i++)
+        for (int i = 0; i < MAX_CONTENT_MOVE_CANDIDATES; i++)
             entries.add(entry("new-" + i + ".md", "100644", "blob", BLOB_1));
         entries.add(entry("other.md", "100644", "blob", BLOB_2));
         expectSync(

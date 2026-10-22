@@ -43,7 +43,7 @@ import com.reporead.android.search.SearchScreen
 import com.reporead.android.study.PracticeScreen
 import com.reporead.android.study.ReviewScreen
 import com.reporead.android.study.ReviewTopicsScreen
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.Serializable
@@ -122,7 +122,7 @@ internal fun noticeText(notice: AccountNotice): String =
 @Composable
 fun RepoReadApp(
     account: Account,
-    sync: Sync,
+    sync: PhoneSync,
     store: SessionStore,
     api: Api,
     dao: RepoReadDao,

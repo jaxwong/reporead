@@ -33,7 +33,7 @@ import com.reporead.android.database.RepoReadDao
 import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.ui.Load
 import java.io.Serializable
 import kotlinx.coroutines.CoroutineScope
@@ -49,7 +49,7 @@ import kotlinx.coroutines.withContext
 private const val FIND_TYPING_PAUSE_MS = 150L
 
 /** The displayed copy and its study model are published together, so reloads cannot use a previous version's blocks. */
-internal data class StudyPage(val opened: Sync.Opened, val study: StudyNote)
+internal data class StudyPage(val opened: PhoneSync.Opened, val study: StudyNote)
 
 /** What a reader entry keeps for process restoration. */
 private const val REATTACHING = "reattaching"
@@ -61,10 +61,11 @@ private data class SubmittedEdit(val mutationId: String, val text: String?) : Se
 /**
  * One reader entry's work ([entryId]), kept across rotation and while it is covered: the opened page, the highlights'
  * refresh and every change made to them, and what they reported. A change the server or this phone accepted is
- * committed even if the reader is left (Sync). [saved] restores the highlight being reattached and a submitted edit.
+ * committed even if the reader is left (PhoneSync). [saved] restores the highlight being reattached and a submitted
+ * edit.
  */
 internal class ReaderViewModel(
-    private val sync: Sync,
+    private val sync: PhoneSync,
     private val dao: RepoReadDao,
     private val saved: SavedStateHandle,
     private val documentId: Long,
@@ -327,7 +328,7 @@ internal class ReaderViewModel(
 
 @Composable
 fun ReaderScreen(
-    sync: Sync,
+    sync: PhoneSync,
     dao: RepoReadDao,
     appScope: CoroutineScope,
     signedIn: Boolean,

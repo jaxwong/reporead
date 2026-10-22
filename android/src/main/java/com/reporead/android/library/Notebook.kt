@@ -84,7 +84,7 @@ internal fun NotebookScreen(
     Scaffold(topBar = { AppBar("Notebook", onBack = onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             StatusLine(
-                "Highlights and cards saved on this phone. Sync in Library to load the server's complete notebook."
+                "Highlights and cards are saved on this phone. Open the Library to load the server's complete notebook."
             )
             Filter("Folder", folders, folder) {
                 folder = it

@@ -6,7 +6,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.StoredSession
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -20,7 +20,9 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Explicit test-only loopback HTTP fixture; production Sync/Api/Room wiring, never the user's backend or database. */
+/**
+ * Explicit test-only loopback HTTP fixture; production PhoneSync/Api/Room wiring, never the user's backend or database.
+ */
 @RunWith(AndroidJUnit4::class)
 class ReviewSyncTest {
     @Test
@@ -59,7 +61,7 @@ class ReviewSyncTest {
                         }
                     grades.forEach { dao.saveReview(it) }
                     val sync =
-                        Sync(
+                        PhoneSync(
                             Api(
                                 "http://127.0.0.1:${server.localPort}",
                                 { StoredSession.Readable("TEST_ONLY_SESSION") },
@@ -70,7 +72,7 @@ class ReviewSyncTest {
                     val stored = mutableMapOf<String, JSONObject>()
                     val first = async(Dispatchers.IO) { respond(server, 6, failLast = true, stored) }
                     try {
-                        sync.syncWaitingChanges()
+                        sync.sendPendingChanges()
                         fail("Expected a typed 503 failure")
                     } catch (error: ApiException) {
                         assertEquals("GITHUB_UNAVAILABLE", error.code)
@@ -79,18 +81,18 @@ class ReviewSyncTest {
                     assertEquals(5, stored.size)
                     assertEquals(5, dao.pendingReviews().size)
                     val second = async(Dispatchers.IO) { respond(server, 5, failLast = false, stored) }
-                    sync.syncWaitingChanges()
+                    sync.sendPendingChanges()
                     second.await()
                     assertEquals(10, stored.size)
                     assertTrue(dao.pendingReviews().isEmpty())
                     // Lost local acknowledgement: explicitly resend the identical mutation.
                     dao.saveReview(grades.first())
                     val replay = async(Dispatchers.IO) { respond(server, 1, failLast = false, stored) }
-                    sync.syncWaitingChanges()
+                    sync.sendPendingChanges()
                     replay.await()
                     assertEquals(10, stored.size)
                     assertTrue(dao.pendingReviews().isEmpty())
-                    sync.syncWaitingChanges() // empty: makes no HTTP calls
+                    sync.sendPendingChanges() // empty: makes no HTTP calls
                     assertEquals(10, stored.size)
                 }
             } finally {
