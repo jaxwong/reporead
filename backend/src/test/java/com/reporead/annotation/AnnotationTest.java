@@ -196,7 +196,7 @@ class AnnotationTest extends SharedSpringTest {
         create(alice, note, waiting)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("ANNOTATION_LIMIT"));
-        assertEquals(501, count("annotations"), "bookmarks do not consume highlight/card capacity");
+        assertEquals(500, count("annotations"), "bookmarks do not consume highlight/card capacity");
         assertEquals(1, count("annotation_mutations"), "refused creation must roll back its mutation claim");
         remove(alice, id, 2).andExpect(status().isNoContent());
         create(alice, note, waiting).andExpect(status().isCreated());
@@ -473,7 +473,7 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
-    void annotationsArePrivateAndBookmarksAreNotEditableAsHighlights() throws Exception {
+    void annotationsArePrivateAndListNoBookmark() throws Exception {
         expectSource(ExpectedCount.once());
         expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
         long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
@@ -489,11 +489,6 @@ class AnnotationTest extends SharedSpringTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceBlobSha\":\"" + CURRENT_SHA + "\"}"))
                 .andExpect(status().isOk());
-        long bookmark = db.sql("SELECT id FROM annotations WHERE type = 'BOOKMARK'")
-                .query(Long.class)
-                .single();
-        edit(alice, bookmark, "x", 1).andExpect(status().isNotFound());
-        remove(alice, bookmark, 1).andExpect(status().isNotFound());
         mvc.perform(get("/api/documents/" + note + "/annotations").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(jsonPath("$.annotations.length()").value(1));
     }

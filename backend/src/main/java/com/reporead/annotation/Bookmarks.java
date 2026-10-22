@@ -10,7 +10,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Document-level bookmarks, stored in the annotation domain as type BOOKMARK. Setting and clearing are idempotent. */
+/** Document-level bookmarks, one per user and document in the bookmarks table. Setting and clearing are idempotent. */
 @Component
 public class Bookmarks {
     private final JdbcClient db;
@@ -30,7 +30,7 @@ public class Bookmarks {
     public record Bookmark(long documentId, Instant createdAt) {}
 
     private static final String SELECT = """
-        SELECT a.document_id, a.created_at FROM annotations a WHERE a.type = 'BOOKMARK' AND a.user_id = :userId""";
+        SELECT b.document_id, b.created_at FROM bookmarks b WHERE b.user_id = :userId""";
 
     /**
      * Bookmarking an already bookmarked document keeps the original bookmark. Holds the document's connection lock
@@ -41,14 +41,13 @@ public class Bookmarks {
         return transaction.execute(status -> {
             connections.lockForDocumentWrite(userId, documentId);
             db.sql("""
-                    INSERT INTO annotations (user_id, document_id, type, created_at, updated_at)
-                    VALUES (:userId, :documentId, 'BOOKMARK', :now, :now)
-                    ON CONFLICT (user_id, document_id) WHERE type = 'BOOKMARK' DO NOTHING""")
+                    INSERT INTO bookmarks (user_id, document_id, created_at) VALUES (:userId, :documentId, :now)
+                    ON CONFLICT (user_id, document_id) DO NOTHING""")
                     .param("userId", userId)
                     .param("documentId", documentId)
                     .param("now", Timestamp.from(Instant.now()))
                     .update();
-            return db.sql(SELECT + " AND a.document_id = :documentId")
+            return db.sql(SELECT + " AND b.document_id = :documentId")
                     .param("userId", userId)
                     .param("documentId", documentId)
                     .query(Bookmark.class)
@@ -62,16 +61,24 @@ public class Bookmarks {
      */
     void clear(long userId, long documentId) {
         documents.find(userId, documentId).orElseThrow(ApiFailure::notFound);
-        db.sql("DELETE FROM annotations WHERE type = 'BOOKMARK' AND user_id = :userId AND document_id = :documentId")
+        db.sql("DELETE FROM bookmarks WHERE user_id = :userId AND document_id = :documentId")
                 .param("userId", userId)
                 .param("documentId", documentId)
                 .update();
     }
 
     public List<Bookmark> list(long userId) {
-        return db.sql(SELECT + " ORDER BY a.created_at DESC")
+        return db.sql(SELECT + " ORDER BY b.created_at DESC")
                 .param("userId", userId)
                 .query(Bookmark.class)
                 .list();
+    }
+
+    /** Deletes the bookmarks on a connection's documents, returning how many. */
+    public int deleteOnConnection(long connectionId) {
+        return db.sql(
+                        "DELETE FROM bookmarks WHERE document_id IN (SELECT id FROM documents WHERE repository_connection_id = :connectionId)")
+                .param("connectionId", connectionId)
+                .update();
     }
 }

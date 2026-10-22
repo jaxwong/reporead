@@ -81,7 +81,7 @@ class ContractTest {
         for (question in listOf(null, "", "  ")) broken<AnnotationsAnnotation>(
             wire(testCard().copy(question = question))
         )
-        broken<AnnotationsAnnotation>(wire(testHighlight().copy(type = AnnotationsAnnotation.Type.BOOKMARK)))
+        broken<AnnotationsAnnotation>(json(testHighlight()).with("type", "\"BOOKMARK\""))
         broken<AnnotationsAnnotation>(json(testHighlight()).with("type", "\"FUTURE_TYPE\""))
         broken<AnnotationsAnnotation>(wire(testHighlight().copy(location = testPassage().copy(endOffset = 3))))
         broken<AnnotationsAnnotation>(wire(testHighlight().copy(id = 0)))

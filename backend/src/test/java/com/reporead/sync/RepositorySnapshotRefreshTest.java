@@ -11,6 +11,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.jayway.jsonpath.JsonPath;
@@ -744,6 +745,28 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         assertEquals(List.of("other.md", "pipelines/ingest-worker.md"), activePaths());
         assertEquals(
                 2, db.sql("SELECT count(*) FROM documents").query(Integer.class).single());
+    }
+
+    @Test
+    void aBookmarkAloneIsUserDataThatKeepsAMovedNotesIdentity() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        mvc.perform(put("/api/documents/" + id + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isOk());
+        byte[] after = edited(before);
+        expectSync(
+                COMMIT_B,
+                TREE_B,
+                withSuccess(
+                        tree(
+                                false,
+                                entry("pipelines/ingest-worker.md", "100644", "blob", sha(after)),
+                                entry("other.md", "100644", "blob", BLOB_2)),
+                        MediaType.APPLICATION_JSON));
+        expectBlob(before);
+        expectBlob(after);
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(id, documentId("pipelines/ingest-worker.md"));
     }
 
     @Test

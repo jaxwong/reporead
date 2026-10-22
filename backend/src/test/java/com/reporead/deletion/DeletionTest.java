@@ -150,8 +150,7 @@ class DeletionTest extends SharedSpringTest {
     }
 
     private void bookmark(long userId, long documentId) {
-        db.sql(
-                        "INSERT INTO annotations (user_id, document_id, type, created_at, updated_at) VALUES (:userId, :documentId, 'BOOKMARK', now(), now())")
+        db.sql("INSERT INTO bookmarks (user_id, document_id, created_at) VALUES (:userId, :documentId, now())")
                 .param("userId", userId)
                 .param("documentId", documentId)
                 .update();
@@ -268,6 +267,7 @@ class DeletionTest extends SharedSpringTest {
                 db.sql("SELECT document_id FROM annotations ORDER BY document_id")
                         .query(Long.class)
                         .list());
+        assertEquals(0, count("SELECT count(*) FROM bookmarks"));
         assertEquals(
                 List.of("b.png"),
                 db.sql("SELECT path FROM repository_images").query(String.class).list());
@@ -460,6 +460,7 @@ class DeletionTest extends SharedSpringTest {
         for (String table : List.of(
                 "repository_connections",
                 "reading_states",
+                "bookmarks",
                 "annotations",
                 "annotation_mutations",
                 "app_sessions",

@@ -187,13 +187,14 @@ public class Documents {
 
     /**
      * Documents of a connection that carry the user's own data: reading progress, a bookmark, or a highlight. Only
-     * their identity is worth recognizing a content move for; a read-only projection of the reading and annotation
-     * tables.
+     * their identity is worth recognizing a content move for; a read-only projection of the reading, bookmark and
+     * annotation tables.
      */
     public Set<Long> withUserState(long connectionId) {
         return new HashSet<>(db.sql("""
                 SELECT d.id FROM documents d WHERE d.repository_connection_id = :connectionId
                 AND (EXISTS (SELECT 1 FROM reading_states r WHERE r.document_id = d.id)
+                     OR EXISTS (SELECT 1 FROM bookmarks b WHERE b.document_id = d.id)
                      OR EXISTS (SELECT 1 FROM annotations a WHERE a.document_id = d.id))""")
                 .param("connectionId", connectionId)
                 .query(Long.class)
