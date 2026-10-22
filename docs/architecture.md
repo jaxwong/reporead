@@ -98,7 +98,7 @@ flowchart TB
         direction LR
         AuthC["AppAuthController"]
         RepoC["RepositoryController"]
-        SyncC["SyncController"]
+        SnapshotRefreshC["RepositorySnapshotRefreshController"]
         DocC["DocumentController"]
         ReadC["ReadingController"]
         AnnC["AnnotationController<br/>BookmarkController<br/>ReviewController"]
@@ -110,7 +110,7 @@ flowchart TB
     deletion["deletion<br/>disconnect, stored data,<br/>account deletion"]
     observability["observability<br/>request and device-log boundaries"]
     library["library<br/>LibrarySnapshotReader: every list the phone saves,<br/>one read-only snapshot"]
-    sync["sync<br/>RepositorySync: snapshot publish<br/>ContentMoves: moved-and-edited"]
+    sync["sync<br/>RepositorySnapshotRefresh: publish GitHub-backed snapshot<br/>ContentMoves: moved-and-edited"]
     annotation["annotation<br/>Annotations, Anchoring,<br/>Bookmarks, Reviews"]
     reading["reading<br/>ReadingStates"]
     document["document<br/>MarkdownRenderer, NoteVersions,<br/>Attachments"]
@@ -160,7 +160,7 @@ flowchart TB
 | `auth` | GitHub OAuth (Spring Security), single-use sign-in codes bound to a PKCE challenge, 30-day bearer sessions (only hashes stored), the encrypted stored GitHub token (`GitHubTokens`) and its renewal and revocation (`GitHubTokenLifecycle`) | `ApiSecurity` (loopback only, the API and management chains), `GitHubBrowserSignIn` (browser sign-in), `GitHubTokens`, `GitHubTokenLifecycle`, `AppSignInSuccess`, `AppSessions`, `BearerAuthentication` |
 | `github` | Every GitHub REST read, with the user's token; the HTTP clients every GitHub call goes through: 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttpConfiguration` |
 | `repository` | Which repositories a user may connect (GitHub decides, through the user's token) and has connected; the connection row lock every write shares | `RepositoryConnections` |
-| `sync` | Publishing a complete tree snapshot of the default branch; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySync`, `ContentMoves` |
+| `sync` | Refreshing and publishing a complete default-branch snapshot; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySnapshotRefresh`, `ContentMoves` |
 | `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `Attachments` |
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
@@ -341,10 +341,10 @@ flowchart TB
     Screens -- "state ↑ · actions ↓" --> Models
 
     subgraph Core["Shared code"]
-        Sync["sync/Sync<br/>owns every server call<br/>whose answer reaches Room"]
+        PhoneSync["sync/PhoneSync<br/>owns every server call<br/>whose answer reaches Room"]
         Store["database/RepoReadDatabase<br/>Room database + DAO"]
         Api["network/Api<br/>typed routes + bounded HTTP"]
-        Images["sync/NoteImages<br/>saved notes' images,<br/>reader reads outside Sync lock"]
+        Images["sync/NoteImages<br/>saved notes' images,<br/>reader reads outside PhoneSync lock"]
         Session["auth/SessionStore<br/>Keystore AES-GCM bearer token"]
         Sched["study/ReviewSchedule<br/>pure review scheduler"]
         StudyS["study/StudySession<br/>pure session progress"]
@@ -358,7 +358,7 @@ flowchart TB
         Page --> WebV
     end
 
-    Models --> Sync
+    Models --> PhoneSync
     Models --> Store
     Screens -- "Room flows" --> Store
     Practice --> StudyK
@@ -369,24 +369,24 @@ flowchart TB
     Review --> StudyS
     Reader --> Page
     Reader --> StudyView
-    Sync --> Api
+    PhoneSync --> Api
     App -- "sign-in, sign-out" --> Api
     Models -- "Add repository's list" --> Api
-    Sync --> Store
+    PhoneSync --> Store
     Api --> Session
     Page -- "images" --> Images
-    Sync --> Images
+    PhoneSync --> Images
     Images --> Api
 ```
 
 | Package | Owns |
 | --- | --- |
-| (root) | `RepoReadApplication`: long-lived objects, including one `Sync` per process and its startup image sweep; `Account`: sign-in, sign-out and account deletion, one at a time in the app's scope, and their outcomes (ADR-22); `RepoReadApp`: Navigation 3 back stack/entry owners (ADR-27), retained across account operations; `MainActivity`: sign-in redirect and compatible saved-state restoration |
+| (root) | `RepoReadApplication`: long-lived objects, including one `PhoneSync` per process and its startup image sweep; `Account`: sign-in, sign-out and account deletion, one at a time in the app's scope, and their outcomes (ADR-22); `RepoReadApp`: Navigation 3 back stack/entry owners (ADR-27), retained across account operations; `MainActivity`: sign-in redirect and compatible saved-state restoration |
 | `auth` | PKCE sign-in through a Custom Tab and validated code exchange; `SessionStore`: encrypted bearer session and pending verifier, no local-data owner or removal state |
 | `network` | `Api`: the only executor of backend paths, with one named function per app-used route, exact success statuses, bounded responses and request/response correspondence; `wire/`: the wire models, generated at build time from `backend/openapi.json` (never committed or edited); `WireRules.kt`: the value rules a generated shape cannot state; `WireJson.kt`: one decoding policy, strict scalar/time serializers and `INVALID_RESPONSE` with its cause. Unknown fields are compatible, missing required-nullable keys are not. `ApiException(status, code)` carries a strictly decoded server error or a local HTTP/I/O failure; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `logging` | `DeviceLog`: logcat plus the bounded durable device-log store, whose `pending.jsonl` and `sending.jsonl` filenames and JSON fields remain stable across app updates. `DeviceLogUploadWorker` makes at most two upload requests per run (a failed run's batch, then the lines since) and never retries on a backoff; a warning requests a run only when no batch is claimed |
 | `database` | `RepoReadDatabase`: the Room database and its migrations; `Entities.kt`: its tables; `QueryResults.kt`: its query projections and database-local results; `RepoReadDao.kt`: its queries and cross-entity transactions (schema history in `android/schemas/`) |
-| `sync` | `Sync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `NoteImages` retains its file lock and deletion generation, preventing a late image fetch from republishing files after a sweep. An open sweeps after its fetched page; Save all sweeps once after a successful loop under cancellable `locked`, rather than after every fetched page. Failure/cancellation defer cleanup to the next library refresh, Library open or startup. Library replacement, disconnect and startup retain their sweeps. Save all checks one page at a time, including already-current copies, and prefetches its distinct images under the existing per-page Sync lock before progress; WebView image reads remain outside that lock (ADR-19). Only the reader's `NoteImages.image()` catches API failures as unavailable; Save all uses the throwing fetch, `Sync` owns permanent page skips, and the existing worker owns retry/stop for all other API failures. `WireMappings.kt` maps validated wire records; `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `PendingSyncWorker.kt`, `DeviceLogUploadWorker.kt` and `SaveAllNotesWorker.kt` own their independently scheduled WorkManager jobs. `DeviceLogUploadWorker.kt` never retries a failed run; `WorkerRetry.kt` owns the fixed retry ceiling and backoff shared only by pending sync and Save all. Pending sync and Save all enter `Sync` directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through Sync |
+| `sync` | `PhoneSync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `NoteImages` retains its file lock and deletion generation, preventing a late image fetch from republishing files after a sweep. An open sweeps after its fetched page; Save all sweeps once after a successful loop under cancellable `locked`, rather than after every fetched page. Failure/cancellation defer cleanup to the next library refresh, Library open or startup. Library replacement, disconnect and startup retain their sweeps. Save all checks one page at a time, including already-current copies, and prefetches its distinct images under the existing per-page PhoneSync lock before progress; WebView image reads remain outside that lock (ADR-19). Only the reader's `NoteImages.image()` catches API failures as unavailable; Save all uses the throwing fetch, `PhoneSync` owns permanent page skips, and the existing worker owns retry/stop for all other API failures. `WireMappings.kt` maps validated wire records; `PhoneSync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `PendingSyncWorker.kt`, `DeviceLogUploadWorker.kt` and `SaveAllNotesWorker.kt` own their independently scheduled WorkManager jobs; `WorkerRetry.kt` owns their shared fixed retry ceiling and backoff. Pending sync and Save all enter `PhoneSync` directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through PhoneSync |
 | `library` | Library tabs, Notebook (`Notebook.kt`), the folder screen and folder filters (`Folder.kt`), and Add repository (`Available.kt`); each work-owning screen's ViewModel is in its file (ADR-28) |
 | `study` | Practice (`Practice.kt`) and Review's screen/session owner (`Review.kt`) with their entry ViewModels; `ReviewAnswer.kt` owns answer loading/rendering, and `ReviewOutlook.kt` owns the midnight/time-zone-aware outlook used by Library, Practice and Review completion; the pure review scheduler (`ReviewSchedule.kt`), session progression and note interleaving (`StudySession.kt`), bank recognition (`InterviewBank.kt`) and bank answer views (`Answer.kt`) |
 | `reader` | The reader state/effect owner and ViewModel (`Reader.kt`, including visible bookmark rejection for a disconnected note); its toolbar/system bars (`ReaderToolbar.kt`), note and notes-panel rendering (`ReaderContent.kt`), and saved overlays (`ReaderOverlayHost.kt`); page hosting and isolation with one JSON decode boundary in `ReaderPage.evaluate`; outline, notes, backlinks, link resolution and previews; and LeetCode study-view recognition (`ReaderStudyMode.kt`) |
@@ -443,13 +443,13 @@ sequenceDiagram
 
 ### Refreshing a repository (sync)
 
-A sync publishes one complete snapshot of the default branch or changes nothing ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)).
+A repository snapshot refresh publishes the default branch's complete snapshot or changes nothing ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)).
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant App as Phone (Sync)
-    participant API as RepositorySync
+    participant App as Phone (PhoneSync)
+    participant API as RepositorySnapshotRefresh
     participant DB as PostgreSQL
     participant GH as GitHub
 
@@ -484,7 +484,7 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     participant R as Reader screen
-    participant S as Sync
+    participant S as PhoneSync
     participant Room as Room
     participant API as Backend
     participant GH as GitHub
@@ -514,15 +514,15 @@ sequenceDiagram
 
 Links the page needs native help with (`/note-link`, `/copy-code`) are same-origin URLs the app intercepts; the page itself can't call native code.
 
-### Highlights, cards and the sync
+### Phone pending changes and repository snapshot refresh
 
-Local changes are written to Room first. Each one asks WorkManager for a background sync once the phone has a network (5 s after the last change, tried again with backoff on an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts); opening the Library, pull to refresh and **Sync now** also send them, then load the server's library in one request, which the background sync leaves alone; opening a note sends the waiting highlight and card creations. All local mutations and server answers use the process's one `Sync` lock. Sign-out and confirmed account deletion clear the session, never Room or image files. Account operations retain entries and do not gate background work. A different account replaces acknowledged lists at its first sync; unsent work can be sent under that account (the accepted one-account limit, ADR-22). Mutation ids make resending safe.
+Local changes are written to Room first. Each asks WorkManager for a background pending-change send once the phone has a network (5 s after the last change, retried by WorkManager for an unreachable server, 5xx, or GitHub unavailable, at most 10 attempts). Opening the Library, pull to refresh, or **Send changes** sends pending mutations and then loads the server's library in one request; the background sender leaves lists alone. Opening a note also sends waiting highlight and card creations. All local mutations and server answers use the process's one `PhoneSync` lock. Separately, **Check GitHub for updates** calls `RepositorySnapshotRefresh` through the stable `POST /api/repositories/{id}/sync` route; it reads GitHub's default-branch tree, publishes a complete server snapshot, then reloads the phone's library. Sign-out and confirmed account deletion clear the session, never Room or image files. Account operations retain entries and do not gate background work. A different account replaces acknowledged lists at its first library load; unsent work can be sent under that account (the accepted one-account limit, ADR-22). Mutation ids make resending safe.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant U as User
-    participant P as Phone (Sync + Room)
+    participant P as Phone (PhoneSync + Room)
     participant API as Backend
     participant GH as GitHub
 
@@ -536,7 +536,7 @@ sequenceDiagram
     API-->>P: 201 annotation (or 422 ANNOTATION_LIMIT, no insertion)
     P->>P: mark acknowledged
 
-    Note over P,API: Library open / Sync runs syncLocalChanges, in this order
+    Note over P,API: Library open / sendPendingChangesAndRefreshLibrary, in this order
     P->>API: 1. pending highlight and card creations (need GitHub, so they wait if it fails)
     P->>API: 2. pending grades
     P->>API: 3. pending reading positions
@@ -545,7 +545,7 @@ sequenceDiagram
     P->>P: 6. delete the images of every snapshot Room holds no page of
 ```
 
-Only the known status/code pairs in `Sync.refusesItem()` permanently refuse an annotation, grade or bookmark; a status family alone is not authority. Reading saves separately accept only 404 `NOT_FOUND` as final. In particular, 422 `ANNOTATION_LIMIT` and 409 `REPOSITORY_RENAMED` leave creations pending, because capacity or repository identity can change without changing the mutation. Any other failure leaves the item pending: sending a highlight or card stops the remaining creations but not the database-only work (ADR-03) unless the server is unreachable, and sending a grade, reading position or bookmark ends the run.
+Only the known status/code pairs in `PhoneSync.refusesItem()` permanently refuse an annotation, grade or bookmark; a status family alone is not authority. Reading saves separately accept only 404 `NOT_FOUND` as final. In particular, 422 `ANNOTATION_LIMIT` and 409 `REPOSITORY_RENAMED` leave creations pending, because capacity or repository identity can change without changing the mutation. Any other failure leaves the item pending: sending a highlight or card stops the remaining creations but not the database-only work (ADR-03) unless the server is unreachable, and sending a grade, reading position or bookmark ends the run.
 
 ### Re-anchoring
 
