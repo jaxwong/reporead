@@ -194,6 +194,10 @@ Implemented and locally verified on branch `request-id`: the server names each r
 
 Merged in [PR #96](https://github.com/jaxwong/reporead/pull/96), whose backend deployed on 2026-10-21; V16 then drops the unused `annotations.checked_blob_sha` on branch `drop-card-confirmation-column` (ADR-24's contract step). By user decision: the reader no longer makes cards, so a card is a bank question and is never confirmed in a new version; Review grades it from the bank's current saved version while that version still asks its Canonical line, and offers the bank otherwise (ADR-13 Safety). Review opens on the cards due by topic and a session covers one topic or all of them (ADR-20 Review). A new card starts on the ladder's first step (ADR-13 Scheduling). The API change ships with the matching app: the old app requires `checkedBlobSha` and cannot read the notebook from the new server until it updates (user decision, as ADR-24 allows). Verified locally: backend tests and formatting, app unit tests, lint, formatting, the reader assets and the contract tests; the device suite passed on the Pixel 8a (206 tests, RepoRead Dev from this branch).
 
+## Bookmarks in their own table (2026-10-22)
+
+On branch `bookmarks-table`: V17 moves bookmarks from `annotations` into `bookmarks`, `Bookmarks` owns them and their deletion on disconnect, and `BOOKMARK` leaves the published API (ADR-17). Verified locally: backend tests and formatting (a migration test moves a V16 bookmark with its time and runs the previous release's bookmark write and disconnect on the new schema; a deletion test disconnects a repository holding a bookmark the previous release left in `annotations`; a sync test keeps a moved note's identity for a bookmark alone), and app unit tests, lint, formatting and debug builds. Not run: the device suite, and V17 on the hosted database. Open: ADR-17's contract step, after this release is deployed.
+
 ## Not yet verified on the real system
 
 Covered by automated tests only, or not at all:

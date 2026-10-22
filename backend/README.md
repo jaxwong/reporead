@@ -213,7 +213,7 @@ The renderer turns `[[note]]`, `[[note|alias]]`, `[[note#Heading]]` (block refer
 
 ### Reading state and bookmarks
 
-Only the reader writes reading state, recording the blob SHA actually displayed; repository refreshes never change it. The controller clamps `lastReadAt` into [1970, server now] before last-write-wins storage. A write older than or equal to the stored time is ignored and the current state is returned, so replaying a stale offline save cannot overwrite newer progress. Anchor strings are stored exactly, with no heading-count/length, prefix-length or block-index bounds beyond their types and the request-body limit; NUL and unpaired surrogates are malformed, not sanitized. Each save makes zero GitHub calls. Deleting a document upstream keeps its reading state and bookmarks. Bookmarks live in the `annotations` table as type `BOOKMARK` (one per user and document).
+Only the reader writes reading state, recording the blob SHA actually displayed; repository refreshes never change it. The controller clamps `lastReadAt` into [1970, server now] before last-write-wins storage. A write older than or equal to the stored time is ignored and the current state is returned, so replaying a stale offline save cannot overwrite newer progress. Anchor strings are stored exactly, with no heading-count/length, prefix-length or block-index bounds beyond their types and the request-body limit; NUL and unpaired surrogates are malformed, not sanitized. Each save makes zero GitHub calls. Deleting a document upstream keeps its reading state and bookmarks. Bookmarks live in the `bookmarks` table, one row per user and document ([ADR-17](../docs/adrs.md#adr-17--highlights-and-cards-share-the-annotations-table-bookmarks-have-their-own)).
 
 ### Annotations
 

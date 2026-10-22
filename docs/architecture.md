@@ -171,7 +171,7 @@ flowchart TB
 
 ### Data model (PostgreSQL)
 
-Bookmarks, highlights and cards share the `annotations` table, told apart by `type`. A highlight or card has an original anchor that never changes and a current location that re-anchoring moves. Every column of every table is listed, in the database's order, as the Flyway migrations leave it.
+Highlights and cards share the `annotations` table, told apart by `type`; a bookmark is a row of `bookmarks` (ADR-17). Until ADR-17's contract step, the `annotations` type check still admits the `BOOKMARK` rows V17 moved out. A highlight or card has an original anchor that never changes and a current location that re-anchoring moves. Every column of every table is listed, in the database's order, as the Flyway migrations leave it.
 
 ```mermaid
 erDiagram
@@ -182,6 +182,8 @@ erDiagram
     repository_connections ||--o{ repository_images : "snapshot image paths"
     users ||--o{ reading_states : reads
     documents ||--o{ reading_states : "read as"
+    users ||--o{ bookmarks : bookmarks
+    documents ||--o{ bookmarks : "bookmarked as"
     users ||--o{ annotations : owns
     documents ||--o{ annotations : "annotated by"
     annotations ||--o| annotation_anchors : "original selection"
@@ -250,11 +252,16 @@ erDiagram
         jsonb anchor_json
         timestamptz last_read_at
     }
+    bookmarks {
+        bigint user_id PK, FK
+        bigint document_id PK, FK
+        timestamptz created_at
+    }
     annotations {
         bigint id PK
         bigint user_id FK
         bigint document_id FK
-        text type "BOOKMARK | HIGHLIGHT | CARD"
+        text type "HIGHLIGHT | CARD"
         timestamptz created_at
         text note "nullable"
         text status "ANCHORED | REANCHORED | ORPHANED"
