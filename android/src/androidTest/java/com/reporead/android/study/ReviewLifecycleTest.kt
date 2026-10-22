@@ -25,7 +25,7 @@ import com.reporead.android.findText
 import com.reporead.android.network.Api
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -44,7 +44,7 @@ class ReviewLifecycleTest {
     private val sha = "a".repeat(40)
     private val bankPath = "test-only/interview/review.md"
     private lateinit var store: RepoReadDatabase
-    private lateinit var sync: Sync
+    private lateinit var sync: PhoneSync
 
     private fun canonicalLine(i: Int) = "Canonical answer: Test-only core $i"
 
@@ -78,7 +78,7 @@ class ReviewLifecycleTest {
         dao.saveReviewLimit(ReviewLimitEntity(sessionLimit = 40))
         // No token and a closed local port: a server call fails as unreachable instead of leaving the phone.
         sync =
-            Sync(
+            PhoneSync(
                 Api("http://127.0.0.1:1", { StoredSession.Absent }) {},
                 store,
                 File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),

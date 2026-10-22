@@ -1,4 +1,4 @@
-// Owns: Library presentation and its entry's sync and confirmations; Sync owns synchronization decisions.
+// Owns: Library presentation, pending-change delivery UI and confirmations; PhoneSync owns delivery decisions.
 
 package com.reporead.android.library
 
@@ -50,8 +50,8 @@ import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
 import com.reporead.android.study.PracticeTab
 import com.reporead.android.study.rememberReviewOutlook
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.sync.RefusedChange
-import com.reporead.android.sync.Sync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.AppIcon
 import com.reporead.android.ui.EmptyState
@@ -89,13 +89,13 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 }
 
 /**
- * The Library's sync, kept by its back-stack entry ([entryId]): a rotation neither stops nor repeats the sync, and what
- * it reported stays shown. Leaving the Library cancels a sync still running; its sends commit what the server answered
- * (Sync).
+ * The Library's send-and-refresh operation, kept by its back-stack entry ([entryId]): a rotation neither stops nor
+ * repeats it, and what it reported stays shown. Leaving the Library cancels an operation still running; sent changes
+ * commit what the server answered (PhoneSync).
  */
-internal class LibraryViewModel(private val sync: Sync, private val entryId: String) : ViewModel() {
+internal class LibraryViewModel(private val sync: PhoneSync, private val entryId: String) : ViewModel() {
     data class State(
-        val syncing: Boolean = false,
+        val updatingLibrary: Boolean = false,
         val status: String? = null,
     )
 
@@ -107,7 +107,7 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
     /** The screen was left for another (not rotated) since it was last shown, so showing it again is a return. */
     private var left = false
 
-    /** The screen is shown while [signedIn]: it syncs when first shown, after a sign-in and when returned to. */
+    /** The screen is shown while [signedIn]: it loads when first shown, after sign-in and when returned to. */
     fun shown(signedIn: Boolean) {
         val reason =
             when {
@@ -119,7 +119,7 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
             }
         shownSignedIn = signedIn
         left = false
-        if (reason != null) syncNow(reason)
+        if (reason != null) sendChangesAndRefreshLibrary(reason)
     }
 
     /** The screen left composition for another reason than a configuration change. */
@@ -127,23 +127,25 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
         left = true
     }
 
-    /** Pushes pending changes, then pulls the server's view; the background sync sends changes without it (ADR-08). */
-    fun syncNow(reason: String = "asked") {
+    /**
+     * Sends pending changes, then reloads the server's library; the background sender leaves the lists alone (ADR-08).
+     */
+    fun sendChangesAndRefreshLibrary(reason: String = "asked") {
         val now = current.value
-        if (now.syncing || !current.compareAndSet(now, now.copy(syncing = true))) {
-            DeviceLog.info("Library sync not started; entry=$entryId reason=$reason running=true")
+        if (now.updatingLibrary || !current.compareAndSet(now, now.copy(updatingLibrary = true))) {
+            DeviceLog.info("Library update not started; entry=$entryId reason=$reason running=true")
             return
         }
-        DeviceLog.info("Library sync started; entry=$entryId reason=$reason")
+        DeviceLog.info("Library update started; entry=$entryId reason=$reason")
         viewModelScope.launch {
             val status =
                 try {
-                    val synced = sync.syncLocalChanges()
+                    val sent = sync.sendPendingChangesAndRefreshLibrary()
                     listOfNotNull(
-                            synced.notSent?.let {
+                            sent.notSent?.let {
                                 "New highlights and cards stay on this phone for now. ${it.describe()}"
                             },
-                            synced.refused
+                            sent.refused
                                 .takeIf { it.isNotEmpty() }
                                 ?.let {
                                     "The server refused: ${it.joinToString("; ") { item -> item.describe() }}. A refused place stays on this phone."
@@ -154,7 +156,7 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
                 } catch (error: ApiException) {
                     "Showing saved data. ${error.describe()}"
                 }
-            current.update { it.copy(syncing = false, status = status) }
+            current.update { it.copy(updatingLibrary = false, status = status) }
         }
     }
 }
@@ -162,7 +164,7 @@ internal class LibraryViewModel(private val sync: Sync, private val entryId: Str
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
-    sync: Sync,
+    sync: PhoneSync,
     dao: RepoReadDao,
     signedIn: Boolean,
     entryId: String,
@@ -231,7 +233,9 @@ fun LibraryScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (!signedIn) {
-                StatusLine("GitHub sign-in needed. Saved notes are still readable; sign in to refresh and sync.")
+                StatusLine(
+                    "GitHub sign-in needed. Saved notes are still readable; sign in to load the library and send changes."
+                )
                 FilledTonalButton(onClick = onSignIn, modifier = Modifier.padding(horizontal = 16.dp)) {
                     Text("Sign in with GitHub")
                 }
@@ -242,15 +246,17 @@ fun LibraryScreen(
             }
             StatusLine(state.status)
             if (signedIn && waiting > 0) {
-                // The background sync sends these once the phone is online; Sync now sends them while you watch.
+                // The background sender sends these once the phone is online; Send changes sends them now.
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "${counted(waiting, "change")} waiting to sync",
+                        counted(waiting, "unsent change"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { model.syncNow() }, enabled = !state.syncing) { Text("Sync now") }
+                    TextButton(onClick = { model.sendChangesAndRefreshLibrary() }, enabled = !state.updatingLibrary) {
+                        Text("Send changes")
+                    }
                 }
             }
             TextButton(onClick = { push(Screen.Notebook) }) { Text("Notebook") }
@@ -264,8 +270,8 @@ fun LibraryScreen(
             }
             if (signedIn)
                 PullToRefreshBox(
-                    isRefreshing = state.syncing,
-                    onRefresh = { model.syncNow() },
+                    isRefreshing = state.updatingLibrary,
+                    onRefresh = { model.sendChangesAndRefreshLibrary() },
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     content()
@@ -297,7 +303,7 @@ private fun SignOutDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Sign out of RepoRead?") },
-        text = { Text("Saved notes and changes stay on this phone. Syncing waits until you sign in again.") },
+        text = { Text("Saved notes and changes stay on this phone. Sending changes waits until you sign in again.") },
         confirmButton = { TextButton(onClick = onConfirm) { Text("Sign out") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

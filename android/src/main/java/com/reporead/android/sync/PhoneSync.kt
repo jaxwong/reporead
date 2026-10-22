@@ -65,31 +65,32 @@ internal fun ApiException.refusesItem(): Boolean =
     }
 
 /**
- * What one sync could not do. [refused]: bookmark changes the server refused and the phone undid. [notSent]: why
- * pending highlights and cards were not sent this time; they wait for the next sync.
+ * What one pending-change send could not do. [refused]: bookmark changes the server refused and the phone undid.
+ * [notSent]: why pending highlights and cards were not sent this time; they wait for the next send.
  */
-data class PendingSyncResult(val refused: List<RefusedChange>, val notSent: ApiException?)
+data class PendingChangesResult(val refused: List<RefusedChange>, val notSent: ApiException?)
 
 /** The title is the document owner's snapshot at refusal, before a subsequent library replacement can remove it. */
 data class RefusedChange(val documentId: Long, val title: String?, val error: ApiException)
 
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
- * cache untouched. Nothing here retries; every local change calls [onPendingChange], which asks for a background sync
- * (PendingSyncWorker.kt, ADR-08).
+ * cache untouched. Pending-change delivery is distinct from [refreshRepositoryFromGitHub], which asks the backend to
+ * reconcile a repository snapshot. Nothing here retries; every local change calls [requestPendingChangeSend], which
+ * asks WorkManager for a background pending-change send (PendingSyncWorker.kt, ADR-08).
  */
-class Sync(
+class PhoneSync(
     private val api: Api,
     store: RepoReadDatabase,
     filesDir: File,
-    private val onPendingChange: () -> Unit,
+    private val requestPendingChangeSend: () -> Unit,
 ) {
     private val dao = store.dao()
 
-    private val oneSyncAtATime = Mutex()
+    private val onePhoneOperationAtATime = Mutex()
 
     /** Orders local writes and server answers for the process's one local copy. */
-    private suspend fun <T> locked(work: suspend () -> T): T = oneSyncAtATime.withLock {
+    private suspend fun <T> locked(work: suspend () -> T): T = onePhoneOperationAtATime.withLock {
         withContext(Dispatchers.IO) { work() }
     }
 
@@ -167,12 +168,12 @@ class Sync(
         sweepImages()
     }
 
-    /** Reloads the server's whole library (one request, no GitHub call); pending changes wait for a sync. */
+    /** Reloads the server's whole library (one request, no GitHub call); pending changes wait for a send. */
     suspend fun refreshLibrary() = locked { loadLibrary() }
 
     /** Asks the backend to reconcile with GitHub, then reloads the now-current library. */
-    suspend fun refreshFromGitHub(repositoryId: Long) = committed {
-        api.syncRepository(repositoryId)
+    suspend fun refreshRepositoryFromGitHub(repositoryId: Long) = committed {
+        api.refreshRepositorySnapshot(repositoryId)
         loadLibrary()
     }
 
@@ -340,7 +341,7 @@ class Sync(
      * phone's copies are then removed by reloading the server's library.
      */
     suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = locked {
-        val pendingSyncResult = sendPending().also { loadLibrary() }
+        val pendingChanges = sendPending().also { loadLibrary() }
         val deletionCounts =
             try {
                 api.repositoryDeletionCounts(repositoryId)
@@ -350,7 +351,7 @@ class Sync(
                 loadLibrary()
                 return@locked null
             }
-        DisconnectPreview(deletionCounts, dao.unsentInRepository(repositoryId), pendingSyncResult.notSent)
+        DisconnectPreview(deletionCounts, dao.unsentInRepository(repositoryId), pendingChanges.notSent)
     }
 
     /**
@@ -382,7 +383,7 @@ class Sync(
     /** Only the reader calls this, with the version it actually displayed. False for a disconnected note. */
     suspend fun saveReading(readingState: ReadingStateEntity): Boolean = committed {
         dao.saveDisplayedReading(readingState.copy(pending = true)).also { wasSaved ->
-            if (wasSaved) onPendingChange()
+            if (wasSaved) requestPendingChangeSend()
             else DeviceLog.info("Reading position not saved; note gone; documentId=${readingState.documentId}")
         }
     }
@@ -391,7 +392,7 @@ class Sync(
     suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = committed {
         dao.saveLocalBookmark(BookmarkEntity(documentId, bookmarked, pending = true, System.currentTimeMillis()))
             .also { wasSaved ->
-                if (wasSaved) onPendingChange()
+                if (wasSaved) requestPendingChangeSend()
                 else DeviceLog.info("Bookmark not saved; note gone; documentId=$documentId")
             }
     }
@@ -401,20 +402,22 @@ class Sync(
      * recordReview).
      */
     suspend fun recordReview(review: ReviewEntity): Boolean = committed {
-        dao.recordReview(review).also { if (it) onPendingChange() }
+        dao.recordReview(review).also { if (it) requestPendingChangeSend() }
     }
 
     /**
-     * The sync run by library open, pull to refresh and Sync now: sends what waits ([sendPending]), then loads the
-     * server's library ([loadLibrary]).
+     * The Library's send-and-refresh operation: sends what waits ([sendPending]), then loads the server's library
+     * ([loadLibrary]).
      */
-    suspend fun syncLocalChanges(): PendingSyncResult = locked { sendPending().also { loadLibrary() } }
+    suspend fun sendPendingChangesAndRefreshLibrary(): PendingChangesResult = locked {
+        sendPending().also { loadLibrary() }
+    }
 
     /**
-     * The background sync's run: sends what waits, and nothing when nothing does (null); each send saves the server's
+     * The background sender: sends what waits, and nothing when nothing does (null); each send saves the server's
      * answer, so the lists are left to the screens.
      */
-    suspend fun syncWaitingChanges(): PendingSyncResult? = locked {
+    suspend fun sendPendingChanges(): PendingChangesResult? = locked {
         if (dao.waitingCount().first() == 0) null else sendPending()
     }
 
@@ -423,8 +426,8 @@ class Sync(
      * access to it, fails they wait, and the database-only work still runs (ADR-03). A refused item is marked and the
      * run goes on; any other failure ends the run with unacknowledged changes still pending.
      */
-    private suspend fun sendPending(): PendingSyncResult {
-        val annotationSyncFailure =
+    private suspend fun sendPending(): PendingChangesResult {
+        val annotationSendFailure =
             try {
                 sendAnnotations()
                 null
@@ -477,7 +480,7 @@ class Sync(
                     )
             }
         }
-        return PendingSyncResult(refusedBookmarks, annotationSyncFailure)
+        return PendingChangesResult(refusedBookmarks, annotationSendFailure)
     }
 
     /**
@@ -490,7 +493,7 @@ class Sync(
             DeviceLog.info("Highlight not saved; page gone; documentId=$documentId")
             return@committed null
         }
-        onPendingChange()
+        requestPendingChangeSend()
         annotation.mutationId
     }
 
@@ -513,7 +516,7 @@ class Sync(
                     pending = true,
                 )
             val saveResult = dao.saveCardWithFirstReview(card, review)
-            if (saveResult == NewCardGrade.SAVED) onPendingChange()
+            if (saveResult == NewCardGrade.SAVED) requestPendingChangeSend()
             DeviceLog.info("Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$saveResult")
             saveResult
         }
@@ -543,7 +546,7 @@ class Sync(
 
     /**
      * Sends pending creations; a failure that is not one item's refusal stops it, and the rest wait, unsent, for the
-     * next sync. The same mutation id is replayed until the server answers, so a lost acknowledgement cannot create a
+     * next send. The same mutation id is replayed until the server answers, so a lost acknowledgement cannot create a
      * duplicate. A refusal is kept on the row and shown; it is not retried.
      */
     suspend fun pushAnnotations() = locked { sendAnnotations() }
@@ -678,7 +681,7 @@ class Sync(
     /**
      * Deletes a highlight or card. An acknowledged one is deleted on the server now (online only; 409 if it changed
      * elsewhere). A creation the server has not acknowledged is marked for deletion on this phone, so it disappears at
-     * once and offline too; the next sync replays the creation (the server may have it after a lost acknowledgement)
+     * once and offline too; the next send replays the creation (the server may have it after a lost acknowledgement)
      * and deletes it there. A refused creation the server never accepted is only local.
      */
     suspend fun deleteAnnotation(annotation: AnnotationEntity) = committed {
@@ -696,7 +699,7 @@ class Sync(
             AnnotationState.REFUSED -> dao.removeAnnotation(annotation.mutationId)
             AnnotationState.UNSENT -> {
                 dao.markDeleting(annotation.mutationId)
-                onPendingChange()
+                requestPendingChangeSend()
             }
             AnnotationState.DELETING ->
                 error("Highlight ${annotation.mutationId} is already being deleted; it is not shown")

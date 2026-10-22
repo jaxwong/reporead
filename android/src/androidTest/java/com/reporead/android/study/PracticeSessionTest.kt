@@ -26,7 +26,7 @@ import com.reporead.android.network.Api
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.saveActivityState
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.tap
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -161,7 +161,11 @@ class PracticeSessionTest {
             )
         )
         val sync =
-            Sync(Api("http://127.0.0.1:1", { error("Practice fixture must not call the network") }) {}, store, files) {}
+            PhoneSync(
+                Api("http://127.0.0.1:1", { error("Practice fixture must not call the network") }) {},
+                store,
+                files,
+            ) {}
         TestHostActivity.content =
             TestEntries(Screen.Practice("test-only/topic")).content { entry ->
                 MaterialTheme {
@@ -414,9 +418,13 @@ class PracticeSessionTest {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val hold = AtomicBoolean(true)
-        // A real local write holds Sync's lock at its notification boundary, never a second DAO implementation.
+        // A real local write holds PhoneSync's lock at its notification boundary, never a second DAO implementation.
         val sync =
-            Sync(Api("http://127.0.0.1:1", { error("Practice test must not call the network") }) {}, store, files) {
+            PhoneSync(
+                Api("http://127.0.0.1:1", { error("Practice test must not call the network") }) {},
+                store,
+                files,
+            ) {
                 if (hold.compareAndSet(true, false)) {
                     entered.countDown()
                     check(release.await(10, TimeUnit.SECONDS)) { "Test never released the local write" }

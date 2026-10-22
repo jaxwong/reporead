@@ -11,7 +11,7 @@ import com.reporead.android.database.AnnotationEntity
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.Passage
 import com.reporead.android.database.RepoReadDao
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import java.io.Serializable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -51,7 +51,7 @@ internal fun ReaderOverlayHost(
     overlay: ReaderOverlay?,
     state: ReaderViewModel.State,
     session: ReaderSession?,
-    sync: Sync,
+    sync: PhoneSync,
     dao: RepoReadDao,
     model: ReaderViewModel,
     scope: CoroutineScope,

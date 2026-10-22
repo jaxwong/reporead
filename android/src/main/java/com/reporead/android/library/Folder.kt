@@ -1,4 +1,4 @@
-// Owns: Repository-folder presentation and its entry's operations; Sync and WorkManager own the data they change.
+// Owns: Repository-folder presentation and its entry's operations; PhoneSync and WorkManager own the data they change.
 
 package com.reporead.android.library
 
@@ -36,8 +36,8 @@ import com.reporead.android.database.RepoReadDao
 import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.sync.SavingNotes
-import com.reporead.android.sync.Sync
 import com.reporead.android.sync.requestSaveAllNotes
 import com.reporead.android.sync.savingNotes
 import com.reporead.android.sync.stopSavingNotes
@@ -112,7 +112,7 @@ internal sealed interface FolderOperation {
     data object Previewing : FolderOperation
 
     /** The confirmation is shown with what disconnecting deletes; the only owner of that dialog. */
-    data class Confirming(val preview: Sync.DisconnectPreview) : FolderOperation
+    data class Confirming(val preview: PhoneSync.DisconnectPreview) : FolderOperation
 
     data object Disconnecting : FolderOperation
 }
@@ -120,11 +120,11 @@ internal sealed interface FolderOperation {
 /**
  * The folder screen's work, kept by its back-stack entry ([entryId]): a rotation or a covering screen neither stops nor
  * repeats it, and its outcome waits for the screen. Leaving the screen cancels a library load or a preview; a
- * disconnect or a refresh from GitHub the server answers is committed here regardless (Sync). [app] reaches Save all's
- * background work.
+ * disconnect or a refresh from GitHub the server answers is committed here regardless (PhoneSync). [app] reaches Save
+ * all's background work.
  */
 internal class FolderViewModel(
-    private val sync: Sync,
+    private val sync: PhoneSync,
     private val app: Application,
     private val screen: Screen.Folder,
     private val entryId: String,
@@ -184,9 +184,9 @@ internal class FolderViewModel(
         left = true
     }
 
-    fun refreshFromGitHub() =
-        refresh("refreshFromGitHub", "Refresh failed; the previous list is unchanged.") {
-            sync.refreshFromGitHub(screen.repositoryId)
+    fun checkGitHubForUpdates() =
+        refresh("checkGitHubForUpdates", "GitHub update check failed; the previous list is unchanged.") {
+            sync.refreshRepositoryFromGitHub(screen.repositoryId)
         }
 
     private fun refresh(reason: String, failed: String, work: suspend () -> Unit) {
@@ -262,7 +262,7 @@ internal class FolderViewModel(
                 finish { it.copy(disconnected = true) }
             } catch (failure: ApiException) {
                 // The server may have disconnected it with the answer lost; trying again then reconciles
-                // (Sync.disconnect).
+                // (PhoneSync.disconnect).
                 finish {
                     it.copy(
                         status =
@@ -282,7 +282,7 @@ internal class FolderViewModel(
 
 @Composable
 fun FolderScreen(
-    sync: Sync,
+    sync: PhoneSync,
     dao: RepoReadDao,
     signedIn: Boolean,
     entryId: String,
@@ -321,8 +321,8 @@ fun FolderScreen(
                 onBack = onBack,
                 actions = {
                     if (signedIn && root) {
-                        IconButton(enabled = !busy, onClick = model::refreshFromGitHub) {
-                            AppIcon(R.drawable.ic_refresh, "Refresh from GitHub")
+                        IconButton(enabled = !busy, onClick = model::checkGitHubForUpdates) {
+                            AppIcon(R.drawable.ic_refresh, "Check GitHub for updates")
                         }
                         OverflowMenu(
                             listOf(
@@ -396,7 +396,7 @@ fun FolderScreen(
 @Composable
 private fun DisconnectDialog(
     repositoryName: String,
-    preview: Sync.DisconnectPreview,
+    preview: PhoneSync.DisconnectPreview,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {

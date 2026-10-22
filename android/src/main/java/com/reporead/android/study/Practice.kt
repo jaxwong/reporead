@@ -41,7 +41,7 @@ import com.reporead.android.database.PracticePage
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.scheduledLines
 import com.reporead.android.logging.DeviceLog
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.EntryRow
@@ -115,11 +115,11 @@ internal fun topicName(topic: String?) =
 
 /**
  * Saves a new question's first grade on this phone: its card, whose answer is the question's Canonical line in the
- * saved version it was asked from, with that grade (Sync.gradeNewCard). The background sync sends both. Returns why it
- * saved nothing, or null. A question that already has a card (graded just before the process was restored) is not saved
- * twice.
+ * saved version it was asked from, with that grade (PhoneSync.gradeNewCard). The background sync sends both. Returns
+ * why it saved nothing, or null. A question that already has a card (graded just before the process was restored) is
+ * not saved twice.
  */
-internal suspend fun gradeNewQuestion(sync: Sync, question: PracticeQuestion, grade: Int): String? {
+internal suspend fun gradeNewQuestion(sync: PhoneSync, question: PracticeQuestion, grade: Int): String? {
     val answer = question.question.answer
     val passage = Passage(question.blobSha, answer.blockId, 0, answer.text.length, answer.text)
     return when (sync.gradeNewCard(passage, question.documentId, question.question.prompt, grade)) {
@@ -245,10 +245,10 @@ private const val SESSION = "session"
 /**
  * One topic's practice session, kept by its back-stack entry ([entryId]) and restored with it ([saved]): the questions
  * it asks, where it stands and the grade being saved. A rotation or a covering screen neither loses nor repeats a
- * grade, and a grade being saved is committed even if the screen is left (Sync.gradeNewCard).
+ * grade, and a grade being saved is committed even if the screen is left (PhoneSync.gradeNewCard).
  */
 internal class PracticeViewModel(
-    private val sync: Sync,
+    private val sync: PhoneSync,
     private val saved: SavedStateHandle,
     private val entryId: String,
 ) : ViewModel() {
@@ -307,7 +307,7 @@ internal class PracticeViewModel(
 @Composable
 internal fun PracticeScreen(
     dao: RepoReadDao,
-    sync: Sync,
+    sync: PhoneSync,
     topic: String?,
     entryId: String,
     push: (Screen) -> Unit,

@@ -23,7 +23,7 @@ import com.reporead.android.network.TEST_HIGHLIGHT_MUTATION
 import com.reporead.android.network.testHighlight
 import com.reporead.android.network.testSha
 import com.reporead.android.network.wire
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import com.reporead.android.sync.toEntity
 import com.reporead.android.ui.Load
 import java.io.File
@@ -42,7 +42,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** A test-only note with one acknowledged highlight; production Sync, Api and Room against a loopback server. */
+/** A test-only note with one acknowledged highlight; production PhoneSync, Api and Room against a loopback server. */
 @RunWith(AndroidJUnit4::class)
 class ReaderViewModelTest {
     private lateinit var store: RepoReadDatabase
@@ -84,7 +84,8 @@ class ReaderViewModelTest {
     fun aBookmarkOnADisconnectedNoteReportsThatItWasNotSaved() = runBlocking {
         LoopbackServer(emptyMap()).use { server ->
             val dao = store.dao()
-            val sync = Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
+            val sync =
+                PhoneSync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
             val model =
                 withContext(Dispatchers.Main) {
                     val factory = viewModelFactory {
@@ -129,7 +130,7 @@ class ReaderViewModelTest {
             }
             .use { server ->
                 val sync =
-                    Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
+                    PhoneSync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
                 val dao = store.dao()
                 val row = checkNotNull(dao.annotation(TEST_HIGHLIGHT_MUTATION))
                 val model =

@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize()) {
                     RepoReadApp(
                         app.account,
-                        app.sync,
+                        app.phoneSync,
                         app.sessionStore,
                         app.api,
                         app.database.dao(),

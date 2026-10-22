@@ -1,4 +1,4 @@
-// Owns: Sync's committed boundary: a caller's cancellation (its screen left) never loses a confirmed or accepted
+// Owns: PhoneSync's committed boundary: a caller's cancellation (its screen left) never loses a confirmed or accepted
 // change.
 
 package com.reporead.android.sync
@@ -58,7 +58,8 @@ import org.junit.runner.RunWith
 
 /**
  * Each test-only caller is cancelled as a left screen's ViewModel is, while its request or the lock holds it.
- * Production Sync/Api/Room against a loopback server and an in-memory database; every answer and row is a test fixture.
+ * Production PhoneSync/Api/Room against a loopback server and an in-memory database; every answer and row is a test
+ * fixture.
  */
 @RunWith(AndroidJUnit4::class)
 class CommittedMutationTest {
@@ -99,7 +100,7 @@ class CommittedMutationTest {
     }
 
     private fun sync(server: LoopbackServer) =
-        Sync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
+        PhoneSync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
 
     /**
      * Runs [operation] in a test-only screen job, cancels the job once [held] reaches the server, then lets the server
@@ -108,7 +109,7 @@ class CommittedMutationTest {
     private fun leftWhileTheServerAnswers(
         routes: Map<String, Pair<Int, String>>,
         held: String,
-        operation: suspend (Sync) -> Unit,
+        operation: suspend (PhoneSync) -> Unit,
     ): List<String> = runBlocking {
         val arrived = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -158,7 +159,7 @@ class CommittedMutationTest {
                 ),
                 "POST /api/repositories/7/sync",
             ) {
-                it.refreshFromGitHub(7)
+                it.refreshRepositoryFromGitHub(7)
             }
         assertEquals(listOf("POST /api/repositories/7/sync", "GET /api/library"), requests)
         assertEquals(testCommit, dao.repositories().first().single().lastSyncedCommitSha)
@@ -235,7 +236,7 @@ class CommittedMutationTest {
     private fun grade() = ReviewEntity("test-only-grade", TEST_CARD_MUTATION, 4, 2_000, testSha, pending = true)
 
     /** A library load, which holds the lock for as long as the server holds its answer. */
-    private fun CoroutineScope.holdTheLock(sync: Sync) = async(Dispatchers.IO) { sync.refreshLibrary() }
+    private fun CoroutineScope.holdTheLock(sync: PhoneSync) = async(Dispatchers.IO) { sync.refreshLibrary() }
 
     @Test
     fun localWritesWaitingForTheLockCommitOnceAfterTheirScreensLeft() = runBlocking {

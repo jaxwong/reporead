@@ -17,6 +17,7 @@ import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import java.time.Duration
 
+// WorkManager persists both identifiers. Keep them stable so already-queued work still runs after an app update.
 private const val WORK_NAME = "sync-local-changes"
 
 /** A burst of reading saves (one per scroll stop) becomes one sync. */
@@ -26,7 +27,7 @@ private val SETTLE: Duration = Duration.ofSeconds(5)
  * Asks for one background sync once the phone has a network. A change saved while a run is under way replaces that run,
  * so the run cannot miss it; sending again is idempotent (mutation ids, last-write-wins positions; ADR-08).
  */
-internal fun requestSync(context: Context) {
+internal fun requestPendingChangeSend(context: Context) {
     val request =
         OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -38,28 +39,28 @@ internal fun requestSync(context: Context) {
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result =
-        backgroundSync((applicationContext as RepoReadApplication).sync, runAttemptCount)
+        sendPendingChangesInBackground((applicationContext as RepoReadApplication).phoneSync, runAttemptCount)
 }
 
 /**
- * One background run: sends what waits, as library open does, but loads no lists (Sync.syncWaitingChanges). An
+ * One background send: sends what waits, as library open does, but loads no lists (PhoneSync.sendPendingChanges). An
  * unreachable server, a 5xx, or GitHub unavailable is tried again by WorkManager; anything else (signed out, access
  * denied) waits for the next change or library open, which show it. [attempt] counts from 0.
  */
-internal suspend fun backgroundSync(sync: Sync, attempt: Int): Result {
-    val syncResult =
+internal suspend fun sendPendingChangesInBackground(phoneSync: PhoneSync, attempt: Int): Result {
+    val sendResult =
         try {
-            sync.syncWaitingChanges()
+            phoneSync.sendPendingChanges()
         } catch (failure: ApiException) {
-            return if (shouldRetry("Background sync", failure, attempt)) Result.retry() else Result.failure()
+            return if (shouldRetry("Pending-change sender", failure, attempt)) Result.retry() else Result.failure()
         }
-    if (syncResult == null) {
-        DeviceLog.info("Background sync: nothing waiting; attempt=$attempt")
+    if (sendResult == null) {
+        DeviceLog.info("Pending-change send: nothing waiting; attempt=$attempt")
         return Result.success()
     }
-    syncResult.notSent?.let {
-        return if (shouldRetry("Background sync", it, attempt)) Result.retry() else Result.failure()
+    sendResult.notSent?.let {
+        return if (shouldRetry("Pending-change sender", it, attempt)) Result.retry() else Result.failure()
     }
-    DeviceLog.info("Background sync done; attempt=$attempt refused=${syncResult.refused.size}")
+    DeviceLog.info("Pending-change send done; attempt=$attempt refused=${sendResult.refused.size}")
     return Result.success()
 }

@@ -57,20 +57,24 @@ class SaveAllNotesWorker(context: Context, params: WorkerParameters) : Coroutine
     override suspend fun doWork(): Result {
         val repositoryId =
             checkNotNull(inputData.keyValueMap[REPOSITORY] as? Long) { "Save all enqueued without a repository id" }
-        return saveAllInBackground((applicationContext as RepoReadApplication).sync, repositoryId, runAttemptCount) {
+        return saveAllInBackground(
+            (applicationContext as RepoReadApplication).phoneSync,
+            repositoryId,
+            runAttemptCount,
+        ) {
             setProgress(it)
         }
     }
 }
 
 /**
- * One Save all run ([Sync.saveAllNotes]), reporting its progress through [report]. A run Android stops part-way (after
- * about 10 minutes, or when the network goes) is started again by WorkManager, and each run fetches only the notes not
- * yet saved. Failures are tried again as the background sync's are; the last says how far it got. [attempt] counts
- * from 0.
+ * One Save all run ([PhoneSync.saveAllNotes]), reporting its progress through [report]. A run Android stops part-way
+ * (after about 10 minutes, or when the network goes) is started again by WorkManager, and each run fetches only the
+ * notes not yet saved. Failures are tried again as the background sync's are; the last says how far it got. [attempt]
+ * counts from 0.
  */
 internal suspend fun saveAllInBackground(
-    sync: Sync,
+    sync: PhoneSync,
     repositoryId: Long,
     attempt: Int,
     report: suspend (Data) -> Unit,
@@ -107,7 +111,7 @@ sealed interface SavingNotes {
     /** [done] of the [totalNotes] listed notes checked for pages and images; [totalNotes] is 0 until they are known. */
     data class Running(val done: Int, val totalNotes: Int) : SavingNotes
 
-    /** [Sync.SaveAllResult]. */
+    /** [PhoneSync.SaveAllResult]. */
     data class Saved(val fetched: Int, val alreadySaved: Int, val cannotShow: Int) : SavingNotes
 
     /**

@@ -40,7 +40,7 @@ interface RepoReadDao {
      * The server's library, read from one snapshot, replaces the saved lists in one transaction, so the phone holds all
      * of one answer or none of it: the repositories and each one's notes, then the reading, bookmark and notebook rows
      * (acknowledged ones only; pending work stays), then saved copies nothing refers to any more. Their images are
-     * swept from what is left (Sync.sweepImages).
+     * swept from what is left (PhoneSync.sweepImages).
      */
     @Transaction
     suspend fun replaceFromServer(
@@ -372,7 +372,9 @@ interface RepoReadDao {
         insertReview(row)
     }
 
-    /** Admission and the card-plus-first-grade write share one SQLite transaction, independently of Sync's lock. */
+    /**
+     * Admission and the card-plus-first-grade write share one SQLite transaction, independently of PhoneSync's lock.
+     */
     @Transaction
     suspend fun saveCardWithFirstReview(card: AnnotationEntity, review: ReviewEntity): NewCardGrade {
         require(

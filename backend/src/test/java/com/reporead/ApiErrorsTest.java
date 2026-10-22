@@ -27,8 +27,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Which failures are RepoRead's answer ({code, message}) and which are not. The app treats a RepoRead 400, 404, 409,
- * 410 or 422 as the server refusing that item for good, and drops or marks the pending change (Sync.refusesItem); a
- * body without a code is not RepoRead's answer and leaves it pending. So a route, method or body type the server does
+ * 410 or 422 as the server refusing that item for good, and drops or marks the pending change (PhoneSync.refusesItem);
+ * a body without a code is not RepoRead's answer and leaves it pending. So a route, method or body type the server does
  * not have, as when the app is newer than the server, must not carry a code. Through a real socket, because that body
  * is Spring Boot's /error page, which MockMvc does not render. Requests send the app's own headers (Api.kt).
  */

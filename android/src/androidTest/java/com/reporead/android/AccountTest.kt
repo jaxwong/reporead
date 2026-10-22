@@ -29,7 +29,7 @@ import com.reporead.android.library.LibraryScreen
 import com.reporead.android.network.Api
 import com.reporead.android.network.testSession
 import com.reporead.android.network.wire
-import com.reporead.android.sync.Sync
+import com.reporead.android.sync.PhoneSync
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -56,9 +56,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Sign-in, sign-out and account deletion through the production Account, SessionStore, Api, Sync and Room wiring, with
- * test-only preferences, an in-memory database, a scratch folder and a loopback server; never the app's own session,
- * database or backend.
+ * Sign-in, sign-out and account deletion through the production Account, SessionStore, Api, PhoneSync and Room wiring,
+ * with test-only preferences, an in-memory database, a scratch folder and a loopback server; never the app's own
+ * session, database or backend.
  */
 @RunWith(AndroidJUnit4::class)
 class AccountTest {
@@ -279,7 +279,7 @@ class AccountTest {
             }
             .use { server ->
                 val account = account(server.url)
-                val sync = Sync(api(server.url), store, directory) {}
+                val sync = PhoneSync(api(server.url), store, directory) {}
                 account.signOut()
                 assertTrue(arrived.await(10, SECONDS))
                 try {
@@ -323,7 +323,7 @@ class AccountTest {
             }
             .use { server ->
                 val api = api(server.url)
-                val sync = Sync(api, store, directory) {}
+                val sync = PhoneSync(api, store, directory) {}
                 val account = Account(sessions, api, scope)
                 account.deleteAccount()
                 val notice = (account.settled() as AccountState.Idle).notice!!

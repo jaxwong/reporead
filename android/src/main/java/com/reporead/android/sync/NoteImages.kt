@@ -19,9 +19,9 @@ internal const val IMAGE_PREFIX = "/repo-image/"
 
 /**
  * Saved pages' images, kept per document and snapshot (files/images/<document>/commit-<sha>/<key>) and fetched through
- * the backend with the bearer token when missing. WebView request interception is blocking and outside Sync's lock;
- * Save all uses its per-page lock. [generation] keeps a fetch from writing back what a deletion removed meanwhile. Sync
- * deletes them when their notes go.
+ * the backend with the bearer token when missing. WebView request interception is blocking and outside PhoneSync's
+ * lock; Save all uses its per-page lock. [generation] keeps a fetch from writing back what a deletion removed
+ * meanwhile. PhoneSync deletes them when their notes go.
  */
 class NoteImages(private val api: Api, filesDir: File) {
     private val root = File(filesDir, "images")
@@ -37,9 +37,9 @@ class NoteImages(private val api: Api, filesDir: File) {
     private var generation = 0L
 
     /**
-     * Save all's image pass, on a background thread under Sync's per-page lock so the saved snapshot cannot be replaced
-     * or disconnected meanwhile. The server emits at most 64 image references; each distinct path is tried once,
-     * sequentially. API failures propagate to Sync, which owns their disposition for this run.
+     * Save all's image pass, on a background thread under PhoneSync's per-page lock so the saved snapshot cannot be
+     * replaced or disconnected meanwhile. The server emits at most 64 image references; each distinct path is tried
+     * once, sequentially. API failures propagate to PhoneSync, which owns their disposition for this run.
      */
     internal suspend fun save(note: SavedPageEntity) {
         if (note.snapshotCommitSha == null) return

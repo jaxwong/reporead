@@ -43,7 +43,7 @@ private data class Backlinks(val notes: List<DocumentEntity>, val saved: Int, va
 private fun status(row: AnnotationEntity, displayedBlobSha: String, notShown: Set<String>): String? =
     when {
         row.state == AnnotationState.REFUSED -> "Not saved to the server: ${row.rejection}"
-        row.state == AnnotationState.UNSENT -> "Saved on this phone; waiting to sync"
+        row.state == AnnotationState.UNSENT -> "Saved on this phone; waiting to send"
         row.orphanedIn(displayedBlobSha) ->
             "The note changed and this passage could not be found reliably. Originally: …${row.prefixText}[${row.exactText}]${row.suffixText}…"
         row.drawn.blobSha != displayedBlobSha -> "Placed in another version of this note; not shown in the text"
