@@ -215,7 +215,8 @@ window.reporead = {
 
 /*
  * Selection capture under ADR-05's contract: one block, UTF-16 offsets into its canonical (Java-exported) text.
- * Broken mapping is an invariant failure, never an approximate anchor.
+ * Broken mapping is an invariant failure, never an approximate anchor. Leading and trailing whitespace is left out, so
+ * a selection with or without the space after a word is the same phrase (ADR-17).
  */
 function capture() {
   const selection = window.getSelection();
@@ -238,8 +239,11 @@ function capture() {
       startBlock.dataset.anchorText.slice(startOffset, endOffset) !== exactText) {
     throw new Error(`Canonical selection invariant failed in ${startBlock.dataset.blockId}`);
   }
-  if (!exactText.length) return null;
-  return {sourceBlobSha: document.body.dataset.sourceBlobSha, blockId: startBlock.dataset.blockId, startOffset, endOffset, exactText};
+  const phrase = exactText.trim();
+  if (!phrase.length) return null;
+  const phraseStart = startOffset + exactText.length - exactText.trimStart().length;
+  return {sourceBlobSha: document.body.dataset.sourceBlobSha, blockId: startBlock.dataset.blockId,
+    startOffset: phraseStart, endOffset: phraseStart + phrase.length, exactText: phrase};
 }
 
 /** Wraps [start, end) of a block's canonical text in <mark> elements; text content is unchanged. */

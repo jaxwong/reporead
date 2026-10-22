@@ -139,4 +139,25 @@ class ReaderStudyModeDeviceTest {
                 .trimIndent()
         )
     }
+
+    @Test
+    fun aSelectionIsCapturedWithoutItsSurroundingWhitespace() {
+        load(block(0, "p", "Use declarative transactions here."))
+        checkScript(
+            """
+            const text = document.querySelector('[data-block-id="b0"]').firstChild;
+            const select = (start, end) => {
+              const range = document.createRange(); range.setStart(text, start); range.setEnd(text, end);
+              getSelection().removeAllRanges(); getSelection().addRange(range);
+              return window.reporead.capture();
+            };
+            const padded = select(3, 29);
+            check(padded.exactText === 'declarative transactions', 'Padded selection text: ' + padded.exactText);
+            check(padded.startOffset === 4 && padded.endOffset === 28, 'Padded selection offsets');
+            check(select(3, 4) === null, 'A whitespace-only selection is no selection');
+            return true;
+            """
+                .trimIndent()
+        )
+    }
 }

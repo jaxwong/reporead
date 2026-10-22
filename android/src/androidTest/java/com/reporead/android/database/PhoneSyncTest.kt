@@ -491,21 +491,20 @@ class PhoneSyncTest {
         dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0))
         val sync = sync("http://127.0.0.1:${closedPort()}")
         // Block b1 reads "Use declarative transactions here."
-        val first = sync.createAnnotation(Passage(sha, "b1", 4, 28, "declarative transactions"), 1, null)
+        val phrase = Passage(sha, "b1", 4, 28, "declarative transactions")
+        val first = sync.createAnnotation(phrase, 1, null)
         val existing = dao.annotation((first as NewHighlight.Saved).mutationId)!!
-        for (again in
-            listOf(
-                Passage(sha, "b1", 4, 28, "declarative transactions"),
-                Passage(sha, "b1", 3, 29, " declarative transactions "),
-            )) assertEquals(
-            NewHighlight.AlreadyHighlighted(existing),
-            sync.createAnnotation(again, 1, "Test-only note"),
-        )
+        assertEquals(NewHighlight.AlreadyHighlighted(existing), sync.createAnnotation(phrase, 1, "Test-only note"))
         assertTrue(sync.createAnnotation(Passage(sha, "b1", 4, 15, "declarative"), 1, null) is NewHighlight.Saved)
         assertTrue(
             sync.createAnnotation(Passage(sha, "b1", 16, 33, "transactions here"), 1, null) is NewHighlight.Saved
         )
         assertEquals(3, dao.annotations(1).first().size)
+        // A refused highlight is never sent again, so it leaves its phrase free for one that can be.
+        dao.rejectAnnotation(existing.mutationId, "Test-only refusal")
+        assertTrue(sync.createAnnotation(phrase, 1, null) is NewHighlight.Saved)
+        assertTrue(sync.createAnnotation(phrase, 1, null) is NewHighlight.AlreadyHighlighted)
+        assertEquals(4, dao.annotations(1).first().size)
         // Two saves of one new phrase at once: the check and the write are one transaction, so one of them is saved.
         val racing =
             listOf("test-only-race-a", "test-only-race-b")
@@ -518,7 +517,7 @@ class PhoneSyncTest {
                 }
                 .map { it.await() }
         assertEquals(1, racing.count { it is NewHighlight.Saved })
-        assertEquals(4, dao.annotations(1).first().size)
+        assertEquals(5, dao.annotations(1).first().size)
     }
 
     @Test
