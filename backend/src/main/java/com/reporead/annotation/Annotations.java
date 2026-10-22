@@ -21,8 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Owns HIGHLIGHT and CARD annotations: their original anchors, their current locations and status, and the idempotency
- * record of each client creation. Bookmarks share the table (ADR-17) and are written by Bookmarks; disconnecting
- * deletes a connection's rows of every type here.
+ * record of each client creation. Bookmarks are document-level state in their own table, owned by Bookmarks (ADR-17).
  */
 @Component
 public class Annotations {
@@ -42,11 +41,10 @@ public class Annotations {
         this.connections = connections;
     }
 
-    public record DeletedAnnotations(int highlights, int bookmarks, int cards) {}
+    public record DeletedAnnotations(int highlights, int cards) {}
 
-    /** annotations.type; its check constraint (V7) holds the same set. */
+    /** annotations.type; its check constraint (V7) also admits BOOKMARK until bookmarks' contract step (ADR-17). */
     public enum Type {
-        BOOKMARK,
         HIGHLIGHT,
         CARD
     }
@@ -60,8 +58,7 @@ public class Annotations {
 
     /**
      * Deletes every annotation on a connection's documents: highlights and cards (their anchors, locations, and review
-     * logs cascade) and bookmarks. Their mutation records stay, named by no annotation, so a late replay is answered as
-     * deleted.
+     * logs cascade). Their mutation records stay, named by no annotation, so a late replay is answered as deleted.
      */
     public DeletedAnnotations deleteOnConnection(long connectionId) {
         var types = db.sql("""
@@ -72,7 +69,6 @@ public class Annotations {
                 .list();
         return new DeletedAnnotations(
                 (int) types.stream().filter(Type.HIGHLIGHT::equals).count(),
-                (int) types.stream().filter(Type.BOOKMARK::equals).count(),
                 (int) types.stream().filter(Type.CARD::equals).count());
     }
 

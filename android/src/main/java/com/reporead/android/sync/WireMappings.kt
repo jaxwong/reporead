@@ -56,7 +56,6 @@ internal fun AnnotationsAnnotation.toEntity() =
             when (type) {
                 AnnotationsAnnotation.Type.HIGHLIGHT -> AnnotationType.HIGHLIGHT
                 AnnotationsAnnotation.Type.CARD -> AnnotationType.CARD
-                AnnotationsAnnotation.Type.BOOKMARK -> error("checkRules admits no BOOKMARK annotation; id=$id")
             },
         question = question,
     )

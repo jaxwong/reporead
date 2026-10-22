@@ -772,7 +772,7 @@
           },
           "type" : {
             "type" : "string",
-            "enum" : [ "BOOKMARK", "HIGHLIGHT", "CARD" ]
+            "enum" : [ "HIGHLIGHT", "CARD" ]
           },
           "updatedAt" : {
             "type" : "string",

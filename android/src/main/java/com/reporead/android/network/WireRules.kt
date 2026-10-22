@@ -60,8 +60,6 @@ internal fun checkRules(answer: Any) {
             require(answer.id > 0 && answer.version > 0) {
                 "Expected a positive annotation id and version for later mutations"
             }
-            // Bookmarks are their own list; these answers hold highlights and cards only, the app's AnnotationType.
-            require(answer.type != AnnotationsAnnotation.Type.BOOKMARK) { "Expected a highlight or card" }
             require(answer.type != AnnotationsAnnotation.Type.CARD || !answer.question.isNullOrBlank()) {
                 "Expected a non-blank CARD question"
             }

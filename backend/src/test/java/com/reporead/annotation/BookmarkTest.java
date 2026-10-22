@@ -67,7 +67,7 @@ class BookmarkTest extends SharedSpringTest {
     }
 
     @Test
-    void settingAndClearingAreIdempotentAndUseTheAnnotationDomain() throws Exception {
+    void settingAndClearingAreIdempotentAndKeepOneRow() throws Exception {
         String first = set(alice, note)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.documentId").value(note))
@@ -82,8 +82,7 @@ class BookmarkTest extends SharedSpringTest {
                         .getResponse()
                         .getContentAsString());
         assertEquals(
-                "BOOKMARK",
-                db.sql("SELECT type FROM annotations").query(String.class).single());
+                1, db.sql("SELECT count(*) FROM bookmarks").query(Integer.class).single());
         list(alice)
                 .andExpect(jsonPath("$.bookmarks.length()").value(1))
                 .andExpect(jsonPath("$.bookmarks[0].documentId").value(note));
@@ -102,7 +101,6 @@ class BookmarkTest extends SharedSpringTest {
         set(alice, 999).andExpect(status().isNotFound());
         mvc.perform(put("/api/documents/" + note + "/bookmark")).andExpect(status().isUnauthorized());
         assertEquals(
-                1,
-                db.sql("SELECT count(*) FROM annotations").query(Integer.class).single());
+                1, db.sql("SELECT count(*) FROM bookmarks").query(Integer.class).single());
     }
 }

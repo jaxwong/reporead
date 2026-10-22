@@ -2,6 +2,7 @@ package com.reporead.deletion;
 
 import com.reporead.ApiFailure;
 import com.reporead.annotation.Annotations;
+import com.reporead.annotation.Bookmarks;
 import com.reporead.document.Documents;
 import com.reporead.reading.ReadingStates;
 import com.reporead.repository.RepositoryConnections;
@@ -26,6 +27,7 @@ public class ConnectionDeletion {
     private final RepositoryConnections connections;
     private final Documents documents;
     private final ReadingStates readingStates;
+    private final Bookmarks bookmarks;
     private final Annotations annotations;
 
     public ConnectionDeletion(
@@ -34,12 +36,14 @@ public class ConnectionDeletion {
             RepositoryConnections connections,
             Documents documents,
             ReadingStates readingStates,
+            Bookmarks bookmarks,
             Annotations annotations) {
         this.db = db;
         this.transaction = transaction;
         this.connections = connections;
         this.documents = documents;
         this.readingStates = readingStates;
+        this.bookmarks = bookmarks;
         this.annotations = annotations;
     }
 
@@ -54,7 +58,7 @@ public class ConnectionDeletion {
                 SELECT (SELECT count(*) FROM documents d WHERE d.repository_connection_id = :id) AS documents,
                        (SELECT count(*) FROM reading_states r JOIN documents d ON d.id = r.document_id WHERE d.repository_connection_id = :id)
                            AS reading_states,
-                       (SELECT count(*) FROM annotations a JOIN documents d ON d.id = a.document_id WHERE d.repository_connection_id = :id AND a.type = 'BOOKMARK')
+                       (SELECT count(*) FROM bookmarks b JOIN documents d ON d.id = b.document_id WHERE d.repository_connection_id = :id)
                            AS bookmarks,
                        (SELECT count(*) FROM annotations a JOIN documents d ON d.id = a.document_id WHERE d.repository_connection_id = :id AND a.type = 'HIGHLIGHT')
                            AS highlights,
@@ -87,13 +91,14 @@ public class ConnectionDeletion {
     /** Deletes the connection and everything stored for it. Runs inside a transaction holding its sync lock. */
     public Disconnected delete(long connectionId) {
         var deletedAnnotations = annotations.deleteOnConnection(connectionId);
+        int deletedBookmarks = bookmarks.deleteOnConnection(connectionId);
         int deletedReading = readingStates.deleteOnConnection(connectionId);
         var documentIds = documents.deleteConnection(connectionId);
         connections.delete(connectionId);
         return new Disconnected(
                 documentIds,
                 deletedReading,
-                deletedAnnotations.bookmarks(),
+                deletedBookmarks,
                 deletedAnnotations.highlights(),
                 deletedAnnotations.cards());
     }

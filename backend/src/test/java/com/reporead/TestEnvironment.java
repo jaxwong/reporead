@@ -91,7 +91,7 @@ public final class TestEnvironment {
 
     public static void reset(JdbcClient db) {
         db.sql(
-                        "TRUNCATE github_tokens, review_log, repository_images, annotation_mutations, annotation_locations, annotation_anchors, annotations, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users RESTART IDENTITY")
+                        "TRUNCATE github_tokens, review_log, repository_images, annotation_mutations, annotation_locations, annotation_anchors, annotations, bookmarks, reading_states, documents, repository_connections, app_sessions, app_sign_in_codes, users RESTART IDENTITY")
                 .update();
     }
 }

@@ -2,7 +2,6 @@ package com.reporead;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.Arrays;
 import java.util.List;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
@@ -82,7 +81,7 @@ class MigrationTest {
         flyway(database, "latest").migrate();
 
         assertEquals(
-                Arrays.asList(null, HIGHLIGHT_MUTATION, CARD_MUTATION),
+                List.of(HIGHLIGHT_MUTATION, CARD_MUTATION),
                 db.sql("SELECT mutation_id::text FROM annotations ORDER BY id")
                         .query(String.class)
                         .list());
@@ -108,13 +107,45 @@ class MigrationTest {
         assertFalse(hasColumn(db, "repository_connections", "installation_id"));
         assertFalse(hasColumn(db, "annotations", "source_blob_sha"));
         assertEquals(
-                "BOOKMARK",
-                db.sql("SELECT type FROM annotations").query(String.class).single());
-        assertEquals(
                 SHA,
                 db.sql("SELECT last_synced_commit_sha FROM repository_connections")
                         .query(String.class)
                         .single());
+    }
+
+    @Test
+    void bookmarksMoveToTheirOwnTableAndThePreviousReleaseStillRuns() {
+        var database = TestEnvironment.emptyDatabase();
+        var db = JdbcClient.create(database);
+        flyway(database, "8").migrate();
+        long note = noteAtV8(db);
+        mutationAtV8(db, HIGHLIGHT_MUTATION, annotationAtV8(db, note, "HIGHLIGHT"));
+        flyway(database, "16").migrate();
+        String bookmarkedAt = db.sql("SELECT created_at::text FROM annotations WHERE type = 'BOOKMARK'")
+                .query(String.class)
+                .single();
+
+        flyway(database, "latest").migrate();
+
+        assertEquals(
+                List.of(note + " " + bookmarkedAt),
+                db.sql("SELECT document_id || ' ' || created_at::text FROM bookmarks WHERE user_id = 1")
+                        .query(String.class)
+                        .list());
+        assertEquals(
+                List.of("HIGHLIGHT"),
+                db.sql("SELECT type FROM annotations").query(String.class).list());
+        // The previous release's bookmark write, then its disconnect: annotations, then documents.
+        db.sql("""
+                INSERT INTO annotations (user_id, document_id, type, created_at, updated_at)
+                VALUES (1, :note, 'BOOKMARK', now(), now())
+                ON CONFLICT (user_id, document_id) WHERE type = 'BOOKMARK' DO NOTHING""").param("note", note).update();
+        db.sql(
+                        "DELETE FROM annotations WHERE document_id IN (SELECT id FROM documents WHERE repository_connection_id = 1)")
+                .update();
+        db.sql("DELETE FROM documents WHERE repository_connection_id = 1").update();
+        assertEquals(
+                0, db.sql("SELECT count(*) FROM bookmarks").query(Integer.class).single());
     }
 
     @Test
