@@ -1,5 +1,6 @@
 package com.reporead.sync;
 
+import static com.reporead.sync.RepositorySnapshotRefresh.CONCURRENT_BLOB_READS;
 import static com.reporead.sync.RepositorySnapshotRefresh.DOCUMENTS_SYNCED;
 import static com.reporead.sync.RepositorySnapshotRefresh.MAX_CONTENT_MOVE_CANDIDATES;
 import static com.reporead.sync.RepositorySnapshotRefresh.SNAPSHOT_REFRESHES;
@@ -18,12 +19,15 @@ import com.reporead.TestEnvironment;
 import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.github.GitHubHttpConfiguration;
+import jakarta.servlet.ServletException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -831,6 +835,195 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
     }
 
     @Test
+    void candidatesAreReadConcurrently() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] after = edited(before);
+        var newNotes = new java.util.ArrayList<byte[]>(List.of(after));
+        for (int i = 1; i < CONCURRENT_BLOB_READS - 1; i++) newNotes.add(note("topic" + i, "writes"));
+        var entries = new java.util.ArrayList<String>();
+        for (int i = 0; i < newNotes.size(); i++)
+            entries.add(entry("new-" + i + ".md", "100644", "blob", sha(newNotes.get(i))));
+        entries.add(entry("other.md", "100644", "blob", BLOB_2));
+        expectSync(
+                COMMIT_B, TREE_B, withSuccess(tree(false, entries.toArray(String[]::new)), MediaType.APPLICATION_JSON));
+        // Every read waits until all of them have started: read one at a time, the first would wait in vain.
+        var started = new CountDownLatch(CONCURRENT_BLOB_READS);
+        var blobs = new java.util.ArrayList<>(newNotes);
+        blobs.add(before);
+        for (byte[] blob : blobs) {
+            user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(blob)))
+                    .andRespond(request -> {
+                        started.countDown();
+                        try {
+                            if (!started.await(10, TimeUnit.SECONDS))
+                                throw new AssertionError(
+                                        "Blob reads did not overlap; still waiting for " + started.getCount());
+                        } catch (InterruptedException interrupted) {
+                            throw new AssertionError("Interrupted waiting for overlapping reads", interrupted);
+                        }
+                        return withSuccess(blob, MediaType.APPLICATION_OCTET_STREAM)
+                                .createResponse(request);
+                    });
+        }
+        sync(alice, connection).andExpect(status().isOk());
+        assertEquals(id, documentId("new-0.md"));
+    }
+
+    @Test
+    void concurrentSyncsShareOneContentReadCeiling() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] after = edited(before);
+        var newNotes = new java.util.ArrayList<byte[]>(List.of(after));
+        for (int i = 1; i < CONCURRENT_BLOB_READS - 1; i++) newNotes.add(note("topic" + i, "writes"));
+        var entries = new java.util.ArrayList<String>();
+        for (int i = 0; i < newNotes.size(); i++)
+            entries.add(entry("new-" + i + ".md", "100644", "blob", sha(newNotes.get(i))));
+        entries.add(entry("other.md", "100644", "blob", BLOB_2));
+        String body = tree(false, entries.toArray(String[]::new));
+        user.expect(ExpectedCount.times(2), requestTo(BRANCH))
+                .andRespond(withSuccess(branch(COMMIT_B, TREE_B), MediaType.APPLICATION_JSON));
+        var treesRead = new CountDownLatch(2);
+        trees.expect(
+                        ExpectedCount.times(2),
+                        requestTo("https://api.github.com/repos/test-only/notes/git/trees/" + TREE_B + "?recursive=1"))
+                .andRespond(request -> {
+                    treesRead.countDown();
+                    return withSuccess(body, MediaType.APPLICATION_JSON).createResponse(request);
+                });
+        var firstReadsStarted = new CountDownLatch(CONCURRENT_BLOB_READS);
+        var contentReadCeilingExceeded = new CountDownLatch(1);
+        var releaseFirstReads = new CountDownLatch(1);
+        var readsStarted = new AtomicInteger();
+        var blobs = new java.util.ArrayList<>(newNotes);
+        blobs.add(before);
+        for (byte[] blob : blobs) {
+            user.expect(
+                            ExpectedCount.times(2),
+                            requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(blob)))
+                    .andRespond(request -> {
+                        int read = readsStarted.incrementAndGet();
+                        if (read > CONCURRENT_BLOB_READS) contentReadCeilingExceeded.countDown();
+                        if (read <= CONCURRENT_BLOB_READS) {
+                            firstReadsStarted.countDown();
+                            try {
+                                if (!releaseFirstReads.await(10, TimeUnit.SECONDS))
+                                    throw new AssertionError("Timed out holding the first sync's blob reads");
+                            } catch (InterruptedException interrupted) {
+                                throw new AssertionError(
+                                        "Interrupted while holding the first sync's blob reads", interrupted);
+                            }
+                        }
+                        return withSuccess(blob, MediaType.APPLICATION_OCTET_STREAM)
+                                .createResponse(request);
+                    });
+        }
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(() -> sync(alice, connection).andExpect(status().isOk()));
+            var second = executor.submit(() -> sync(alice, connection).andExpect(status().isOk()));
+            try {
+                assertTrue(treesRead.await(10, TimeUnit.SECONDS), "both syncs did not read their trees");
+                assertTrue(firstReadsStarted.await(10, TimeUnit.SECONDS), "the first read set did not start");
+                assertFalse(
+                        contentReadCeilingExceeded.await(1, TimeUnit.SECONDS),
+                        "a second sync exceeded the process content-read ceiling; reads started=" + readsStarted.get());
+            } finally {
+                releaseFirstReads.countDown();
+            }
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+        }
+        assertEquals(id, documentId("new-0.md"));
+    }
+
+    @Test
+    void aFailedReadDoesNotStartTheNextReadSet() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        var newNotes = new java.util.ArrayList<byte[]>();
+        for (int i = 0; i < CONCURRENT_BLOB_READS; i++) newNotes.add(note("topic" + i, "writes"));
+        var entries = new java.util.ArrayList<String>();
+        for (int i = 0; i < newNotes.size(); i++)
+            entries.add(entry("new-" + i + ".md", "100644", "blob", sha(newNotes.get(i))));
+        entries.add(entry("other.md", "100644", "blob", BLOB_2));
+        expectSync(
+                COMMIT_B, TREE_B, withSuccess(tree(false, entries.toArray(String[]::new)), MediaType.APPLICATION_JSON));
+        var releaseFailure = new CountDownLatch(1);
+        user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before)))
+                .andRespond(request -> {
+                    try {
+                        if (!releaseFailure.await(10, TimeUnit.SECONDS))
+                            throw new AssertionError("Timed out holding the failed blob read");
+                    } catch (InterruptedException interrupted) {
+                        throw new AssertionError("Interrupted while holding the failed blob read", interrupted);
+                    }
+                    return withServiceUnavailable().createResponse(request);
+                });
+        var firstSetSucceeded = new CountDownLatch(CONCURRENT_BLOB_READS - 1);
+        for (int i = 0; i < CONCURRENT_BLOB_READS - 1; i++) {
+            byte[] blob = newNotes.get(i);
+            user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(blob)))
+                    .andRespond(request -> {
+                        firstSetSucceeded.countDown();
+                        return withSuccess(blob, MediaType.APPLICATION_OCTET_STREAM)
+                                .createResponse(request);
+                    });
+        }
+        var nextSetStarted = new CountDownLatch(1);
+        byte[] next = newNotes.getLast();
+        user.expect(
+                        ExpectedCount.between(0, 1),
+                        requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(next)))
+                .andRespond(request -> {
+                    nextSetStarted.countDown();
+                    return withSuccess(next, MediaType.APPLICATION_OCTET_STREAM).createResponse(request);
+                });
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var run = executor.submit(() -> sync(alice, connection).andExpect(status().isServiceUnavailable()));
+            assertTrue(firstSetSucceeded.await(10, TimeUnit.SECONDS), "the first read set did not run");
+            boolean startedBeforeFailure = nextSetStarted.await(500, TimeUnit.MILLISECONDS);
+            releaseFailure.countDown();
+            run.get(10, TimeUnit.SECONDS);
+            assertFalse(startedBeforeFailure, "a later read started before the first failure ended the operation");
+        }
+        assertEquals(COMMIT_A, checkpoint());
+        assertEquals(List.of("backend/ingest.md", "other.md"), activePaths());
+    }
+
+    @Test
+    void aFatalReaderErrorIsNotConvertedToARequestFailure() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] after = edited(before);
+        expectSync(
+                COMMIT_B,
+                TREE_B,
+                withSuccess(
+                        tree(
+                                false,
+                                entry("pipelines/ingest.md", "100644", "blob", sha(after)),
+                                entry("other.md", "100644", "blob", BLOB_2)),
+                        MediaType.APPLICATION_JSON));
+        user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before)))
+                .andRespond(request -> {
+                    throw new AssertionError("test-only fatal reader failure");
+                });
+        user.expect(
+                        ExpectedCount.between(0, 1),
+                        requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(after)))
+                .andRespond(withSuccess(after, MediaType.APPLICATION_OCTET_STREAM));
+        var requestFailure = assertThrows(ServletException.class, () -> sync(alice, connection));
+        var fatal = assertInstanceOf(AssertionError.class, requestFailure.getCause());
+        assertEquals("test-only fatal reader failure", fatal.getMessage());
+        assertEquals(COMMIT_A, checkpoint());
+    }
+
+    @Test
     void anOldVersionGitHubNoLongerHasOnlyExcludesThatCandidate(CapturedOutput log) throws Exception {
         byte[] before = note("ingest", "reads");
         long id = syncedNote("backend/ingest.md", before);
@@ -848,7 +1041,11 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before)))
                 .andRespond(withResourceNotFound());
         expectBlob(after);
-        sync(alice, connection).andExpect(status().isOk());
+        String requestId = sync(alice, connection)
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getHeader("X-Request-Id");
         assertNotEquals(id, documentId("pipelines/ingest.md"));
         assertEquals(COMMIT_B, checkpoint());
         var skipped = log.getOut()
@@ -858,6 +1055,8 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
                 .orElseThrow();
         assertTrue(skipped.contains("connectionId=" + connection));
         assertTrue(skipped.contains("blobSha=" + sha(before) + " code=SOURCE_NOT_FOUND"));
+        // Logged from a reader thread, which carries the sync request's id.
+        assertTrue(skipped.contains("[" + requestId + "]"), skipped);
         assertFalse(skipped.contains("backend/ingest.md"));
     }
 
@@ -901,6 +1100,11 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
                         MediaType.APPLICATION_JSON));
         user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before)))
                 .andRespond(withServiceUnavailable());
+        // Read concurrently with the failing one, so it may or may not have started when the outage stops the sync.
+        user.expect(
+                        ExpectedCount.between(0, 1),
+                        requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(after)))
+                .andRespond(withSuccess(after, MediaType.APPLICATION_OCTET_STREAM));
         sync(alice, connection).andExpect(status().isServiceUnavailable());
         assertEquals(COMMIT_A, checkpoint());
         assertEquals(List.of("backend/ingest.md", "other.md"), activePaths());
