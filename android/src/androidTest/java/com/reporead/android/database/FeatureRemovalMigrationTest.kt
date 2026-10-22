@@ -16,7 +16,7 @@ class FeatureRemovalMigrationTest {
         for (version in listOf(14, 15)) {
             withMigratedStore(version, fill = {}) { dao ->
                 assertTrue(dao.allSavedVersions().isEmpty())
-                assertEquals(0, dao.waitingCount().first())
+                assertEquals(0, dao.unsentChangeCount().first())
             }
         }
     }

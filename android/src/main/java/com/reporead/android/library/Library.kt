@@ -184,7 +184,7 @@ fun LibraryScreen(
     var confirmDeleteAccount by rememberSaveable { mutableStateOf(false) }
     var confirmSignOut by rememberSaveable { mutableStateOf(false) }
     val repositories by dao.repositories().collectAsStateWithLifecycle(emptyList())
-    val waiting by dao.waitingCount().collectAsStateWithLifecycle(0)
+    val waiting by dao.unsentChangeCount().collectAsStateWithLifecycle(0)
     val outlook = rememberReviewOutlook(dao)
     val deleteAccount = {
         confirmDeleteAccount = false
