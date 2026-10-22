@@ -145,7 +145,7 @@ public class Annotations {
         JOIN annotation_locations l ON l.annotation_id = a.id
         WHERE a.type IN ('HIGHLIGHT', 'CARD') AND a.user_id = :userId""";
 
-    List<Annotation> notebook(long userId) {
+    List<Annotation> listAllForUser(long userId) {
         return db.sql(SELECT + " ORDER BY a.created_at, a.id")
                 .param("userId", userId)
                 .query(this::annotation)
