@@ -290,6 +290,18 @@ class DeletionTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.repositories[0].id").value(other));
     }
 
+    @Test
+    void aBookmarkThePreviousReleaseLeftInAnnotationsGoesWithItsRepository() throws Exception {
+        // Until ADR-17's contract step, the previous release (ADR-24) still writes bookmarks into annotations.
+        db.sql("""
+                INSERT INTO annotations (user_id, document_id, type, created_at, updated_at)
+                VALUES (1, :documentId, 'BOOKMARK', now(), now())""").param("documentId", active).update();
+        mvc.perform(delete("/api/repositories/" + notes).header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.highlights").value(1));
+        assertEquals(0, count("SELECT count(*) FROM annotations WHERE type = 'BOOKMARK'"));
+    }
+
     /**
      * Runs {@code write} while a disconnect of {@code notes} holds its lock, as DeletionController.disconnect does, and
      * returns the write's HTTP status. A write that did not wait would commit rows the disconnect's deletes no longer

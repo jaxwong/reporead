@@ -59,17 +59,18 @@ public class Annotations {
     /**
      * Deletes every annotation on a connection's documents: highlights and cards (their anchors, locations, and review
      * logs cascade). Their mutation records stay, named by no annotation, so a late replay is answered as deleted.
+     * Counted in SQL so a BOOKMARK row the previous release left (ADR-17's contract step) goes too, uncounted.
      */
     public DeletedAnnotations deleteOnConnection(long connectionId) {
-        var types = db.sql("""
-                DELETE FROM annotations WHERE document_id IN (SELECT id FROM documents WHERE repository_connection_id = :connectionId)
-                RETURNING type""")
+        return db.sql("""
+                WITH deleted AS (
+                    DELETE FROM annotations WHERE document_id IN (SELECT id FROM documents WHERE repository_connection_id = :connectionId)
+                    RETURNING type)
+                SELECT count(*) FILTER (WHERE type = 'HIGHLIGHT') AS highlights, count(*) FILTER (WHERE type = 'CARD') AS cards
+                FROM deleted""")
                 .param("connectionId", connectionId)
-                .query((row, n) -> Type.valueOf(row.getString("type")))
-                .list();
-        return new DeletedAnnotations(
-                (int) types.stream().filter(Type.HIGHLIGHT::equals).count(),
-                (int) types.stream().filter(Type.CARD::equals).count());
+                .query(DeletedAnnotations.class)
+                .single();
     }
 
     /** Deletes a user's mutation records (request hashes); called when deleting the account, after its annotations. */
