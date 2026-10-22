@@ -185,8 +185,6 @@ class AnnotationTest extends SharedSpringTest {
     @Test
     void documentCapacityCountsCardsAndHighlightsButKeepsReplaysEditsAndDeletionWorking() throws Exception {
         seedCountedAnnotations(note, 499);
-        mvc.perform(put("/api/documents/" + note + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
-                .andExpect(status().isOk());
         expectSource(ExpectedCount.times(3));
         String first = body(UUID.randomUUID().toString(), "b2", START, EXACT, null);
         long id = createdId(first);
@@ -196,7 +194,7 @@ class AnnotationTest extends SharedSpringTest {
         create(alice, note, waiting)
                 .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.code").value("ANNOTATION_LIMIT"));
-        assertEquals(500, count("annotations"), "bookmarks do not consume highlight/card capacity");
+        assertEquals(500, count("annotations"));
         assertEquals(1, count("annotation_mutations"), "refused creation must roll back its mutation claim");
         remove(alice, id, 2).andExpect(status().isNoContent());
         create(alice, note, waiting).andExpect(status().isCreated());
@@ -473,7 +471,7 @@ class AnnotationTest extends SharedSpringTest {
     }
 
     @Test
-    void annotationsArePrivateAndListNoBookmark() throws Exception {
+    void annotationsArePrivate() throws Exception {
         expectSource(ExpectedCount.once());
         expectVersion(ExpectedCount.once(), CURRENT_SHA, CURRENT);
         long id = createdId(body(UUID.randomUUID().toString(), "b2", START, EXACT, null));
@@ -484,11 +482,6 @@ class AnnotationTest extends SharedSpringTest {
                 .andExpect(status().isNotFound());
         edit(bob, id, "x", 1).andExpect(status().isNotFound());
         remove(bob, id, 1).andExpect(status().isNotFound());
-        mvc.perform(put("/api/documents/" + note + "/bookmark")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"sourceBlobSha\":\"" + CURRENT_SHA + "\"}"))
-                .andExpect(status().isOk());
         mvc.perform(get("/api/documents/" + note + "/annotations").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(jsonPath("$.annotations.length()").value(1));
     }
