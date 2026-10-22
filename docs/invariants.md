@@ -77,6 +77,15 @@ These come from the original implementation spec's engineering invariants and th
 - Enforced by: `annotation_mutations` and `review_log` are keyed by user and client UUID; a replay returns the original, reuse with different content is 409 `MUTATION_ID_REUSED`, and an annotation replay after deletion is 410. Review timestamps are clamped to [1970, server now]; V15 retains the original client timestamp for replay comparison (pre-V15 rows use their unchanged stored time).
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes), [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling).
 
+### A phrase has one highlight
+
+**The phone never saves a second highlight on a phrase one already marks: the same block of the same version, ignoring leading and trailing whitespace. Overlapping phrases are separate highlights.**
+
+- Enforced by: `RepoReadDao.saveLocalAnnotation` checks with `highlightOn` and writes in one Room transaction; the reader's Add note opens the existing highlight's note editor instead of a new one.
+- Checked by: `AnnotationEntityTest` (what counts as one phrase) and `PhoneSyncTest` (a second save, with spaces or a note, and two concurrent saves).
+- Not enforced by the server: highlights from two devices, Reattach and re-anchoring can still put two on one phrase.
+- Why: [ADR-17](adrs.md#adr-17--highlights-and-cards-share-the-annotations-table-bookmarks-have-their-own).
+
 ### No silent overwrite
 
 **Annotation text is never overwritten by a concurrent edit; a conflict is shown.** Reading position is the exception: last write wins by the client's time, because losing a progress update costs little.

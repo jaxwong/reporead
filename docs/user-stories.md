@@ -71,6 +71,7 @@ The core need is: **“I already have good technical notes in GitHub. I want a b
 **Acceptance criteria**
 
 - I can select text, create a highlight, and attach a textual annotation to it.
+- A phrase has one highlight: selecting the same text again, with or without surrounding spaces, adds no second one, and Add note opens the note already there. Overlapping highlights stay separate.
 - My highlight or annotation can be viewed again in its document context.
 - The source Markdown and Git history are unchanged by these actions.
 - Each annotation retains the source version and original selected context.
