@@ -460,8 +460,8 @@ sequenceDiagram
         API-->>App: 502 GITHUB_TREE_INCOMPLETE, nothing changed
     else complete tree
         API->>API: keep regular .md blobs, match documents by path,<br/>then unique-blob moves
-        opt vanished documents with user data (≤ 8 candidates)
-            API->>GH: up to 8 blob reads
+        opt vanished documents with user data (≤ 128 candidates)
+            API->>GH: up to 128 blob reads, ≤16 in flight process-wide
             API->>API: shingle similarity → moved and edited?
         end
         API->>DB: lock connection row (FOR UPDATE)

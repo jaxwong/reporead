@@ -17,17 +17,23 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Reconciles a connection's Markdown documents with its default branch. Ceiling: 2 GitHub requests (branch, recursive
- * tree) plus at most 8 blob reads to recognize notes moved and edited. All validation happens before the single
+ * tree) plus at most 128 blob reads to recognize notes moved and edited. All validation happens before the single
  * publishing transaction; any failure leaves the previous snapshot and checkpoint untouched.
  */
 @Service
@@ -38,9 +44,14 @@ public class RepositorySnapshotRefresh {
     static final String DOCUMENTS_SYNCED = "reporead.documents.synced";
     /**
      * Vanished documents plus new paths compared by content in one snapshot refresh; more is skipped (each blob is one
-     * request).
+     * request). The largest reorganization in the measured notes repository had 99 (ADR-07).
      */
-    static final int MAX_CONTENT_MOVE_CANDIDATES = 8;
+    static final int MAX_CONTENT_MOVE_CANDIDATES = 128;
+    /**
+     * Blob reads in flight at once. 128 / 16 is at most 8 rounds, the worst case of the 8 sequential reads before; the
+     * 99 real candidates took 2.3–2.8 s at 16 against 36–37 s one at a time (ADR-07).
+     */
+    static final int CONCURRENT_BLOB_READS = 16;
 
     private final GitHubApi github;
     private final GitHubTokenLifecycle credentials;
@@ -50,6 +61,7 @@ public class RepositorySnapshotRefresh {
     private final NoteVersions noteVersions;
     private final MeterRegistry meters;
     private final Attachments attachments;
+    private final Object contentMoveReadAdmission = new Object();
 
     public RepositorySnapshotRefresh(
             GitHubApi github,
@@ -174,15 +186,22 @@ public class RepositorySnapshotRefresh {
                     MAX_CONTENT_MOVE_CANDIDATES);
             return List.of();
         }
+        var versions = new ArrayList<Documents.SourceFile>();
+        for (var document : vanishedDocuments)
+            versions.add(new Documents.SourceFile(document.path(), document.blobSha()));
+        versions.addAll(freshSnapshotFiles);
+        var shinglesByVersion = shingles(user, connection, versions);
         var oldShinglesByDocumentId = new HashMap<Long, Set<String>>();
-        for (var document : vanishedDocuments) {
-            shingles(user, connection, document.path(), document.blobSha())
-                    .ifPresent(shingles -> oldShinglesByDocumentId.put(document.id(), shingles));
+        for (int i = 0; i < vanishedDocuments.size(); i++) {
+            long documentId = vanishedDocuments.get(i).id();
+            shinglesByVersion.get(i).ifPresent(shingles -> oldShinglesByDocumentId.put(documentId, shingles));
         }
         var newShinglesByPath = new HashMap<String, Set<String>>();
-        for (var file : freshSnapshotFiles) {
-            shingles(user, connection, file.path(), file.blobSha())
-                    .ifPresent(shingles -> newShinglesByPath.put(file.path(), shingles));
+        for (int i = 0; i < freshSnapshotFiles.size(); i++) {
+            String path = freshSnapshotFiles.get(i).path();
+            shinglesByVersion
+                    .get(vanishedDocuments.size() + i)
+                    .ifPresent(shingles -> newShinglesByPath.put(path, shingles));
         }
         var oldPathsByDocumentId = new HashMap<Long, String>();
         for (var document : vanishedDocuments) oldPathsByDocumentId.put(document.id(), document.path());
@@ -190,6 +209,51 @@ public class RepositorySnapshotRefresh {
                 .map(pair ->
                         new Documents.Move(pair.getKey(), oldPathsByDocumentId.get(pair.getKey()), pair.getValue()))
                 .toList();
+    }
+
+    /**
+     * Each version's shingles, in the order given, read in sets of CONCURRENT_BLOB_READS. One RepositorySnapshotRefresh
+     * owns the admission boundary, so overlapping refreshes cannot multiply that process ceiling. A failed set fails
+     * the refresh without admitting a later set.
+     */
+    private List<Optional<Set<String>>> shingles(
+            AppUser user, RepositoryConnections.Connection connection, List<Documents.SourceFile> versions) {
+        // Log lines from the readers carry the sync request's id; the pool's threads end with this sync.
+        Map<String, String> requestContext = MDC.getCopyOfContextMap();
+        synchronized (contentMoveReadAdmission) {
+            var shinglesByVersion = new ArrayList<Optional<Set<String>>>(versions.size());
+            try (var executor = Executors.newFixedThreadPool(CONCURRENT_BLOB_READS)) {
+                for (int start = 0; start < versions.size(); start += CONCURRENT_BLOB_READS) {
+                    var completions = new ExecutorCompletionService<Optional<Set<String>>>(executor);
+                    var reads = new ArrayList<Future<Optional<Set<String>>>>();
+                    for (var version :
+                            versions.subList(start, Math.min(start + CONCURRENT_BLOB_READS, versions.size()))) {
+                        reads.add(completions.submit(() -> {
+                            if (requestContext != null) MDC.setContextMap(requestContext);
+                            return shingles(user, connection, version.path(), version.blobSha());
+                        }));
+                    }
+                    try {
+                        for (int i = 0; i < reads.size(); i++)
+                            completions.take().get();
+                    } catch (ExecutionException failure) {
+                        executor.shutdownNow();
+                        if (failure.getCause() instanceof Error error) throw error;
+                        if (failure.getCause() instanceof RuntimeException runtime) throw runtime;
+                        throw new IllegalStateException(
+                                "Content move read failed; connectionId=" + connection.id(), failure.getCause());
+                    } catch (InterruptedException interrupted) {
+                        executor.shutdownNow();
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(
+                                "Interrupted while comparing content moves; connectionId=" + connection.id(),
+                                interrupted);
+                    }
+                    reads.stream().map(Future::resultNow).forEach(shinglesByVersion::add);
+                }
+            }
+            return List.copyOf(shinglesByVersion);
+        }
     }
 
     private Optional<Set<String>> shingles(

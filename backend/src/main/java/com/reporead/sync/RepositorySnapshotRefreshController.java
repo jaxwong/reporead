@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** External-call ceiling: 2 GitHub requests plus at most 8 (see RepositorySnapshotRefresh). */
+/** External-call ceiling: 2 GitHub requests plus at most 128 (see RepositorySnapshotRefresh). */
 @Tag(name = "sync-controller")
 @RestController
 public class RepositorySnapshotRefreshController {
