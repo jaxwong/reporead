@@ -41,7 +41,7 @@ public class Reviews {
      */
     public Notebook notebook(long userId) {
         return new Notebook(
-                annotations.notebook(userId),
+                annotations.listAllForUser(userId),
                 db.sql(SELECT + " ORDER BY r.reviewed_at, r.mutation_id")
                         .param("userId", userId)
                         .query(Review.class)
