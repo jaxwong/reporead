@@ -133,13 +133,13 @@ public class Documents {
         var vanished = existingDocuments.stream()
                 .filter(row -> !row.deleted() && !snapshotPaths.contains(row.path()))
                 .toList();
-        var freshSnapshotFiles =
-                snapshotFiles.stream().filter(file -> !knownPaths.contains(file.path())).toList();
+        var freshSnapshotFiles = snapshotFiles.stream()
+                .filter(file -> !knownPaths.contains(file.path()))
+                .toList();
         var activeByBlob = existingDocuments.stream()
                 .filter(row -> !row.deleted())
                 .collect(Collectors.groupingBy(Existing::blobSha));
-        var snapshotFilesByBlob =
-                snapshotFiles.stream().collect(Collectors.groupingBy(SourceFile::blobSha));
+        var snapshotFilesByBlob = snapshotFiles.stream().collect(Collectors.groupingBy(SourceFile::blobSha));
         var exact = new ArrayList<Move>();
         for (var document : vanished) {
             var targets = snapshotFilesByBlob.get(document.blobSha());
