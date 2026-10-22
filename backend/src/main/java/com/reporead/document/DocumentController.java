@@ -83,27 +83,27 @@ public class DocumentController {
             return new ContentSource(document, attachments.paths(document.connectionId()));
         });
         var document = source.document();
-        var version = noteVersions.render(user, document, document.blobSha());
-        var rendered = version.note();
-        Attachments.bind(rendered.page(), document.path(), source.imagePaths());
-        String html = MarkdownRenderer.pageHtml(rendered.page());
+        var noteVersion = noteVersions.render(user, document, document.blobSha());
+        var renderedNote = noteVersion.note();
+        Attachments.bind(renderedNote.page(), document.path(), source.imagePaths());
+        String pageHtml = MarkdownRenderer.pageHtml(renderedNote.page());
         LOG.info(
                 "Document rendered; userId={} documentId={} blobSha={} snapshotCommitSha={} bytes={} blocks={} diagrams={}",
                 user.id(),
                 id,
                 document.blobSha(),
                 document.commitSha(),
-                version.bytes(),
-                rendered.blocks().size(),
-                rendered.diagramCount());
+                noteVersion.bytes(),
+                renderedNote.blocks().size(),
+                renderedNote.diagramCount());
         return new Content(
                 id,
                 document.path(),
                 document.title(),
                 document.blobSha(),
                 document.commitSha(),
-                html,
-                rendered.blocks().stream()
+                pageHtml,
+                renderedNote.blocks().stream()
                         .map(block -> new SearchBlock(block.id(), block.text()))
                         .toList(),
                 MarkdownRenderer.FORMAT);
