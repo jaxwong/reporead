@@ -201,7 +201,7 @@ On branch `bookmarks-table`: V17 moves bookmarks from `annotations` into `bookma
 
 ## One highlight per phrase (2026-10-22)
 
-On branch `no-duplicate-highlights`, by user decision: the phone saves no second highlight on a phrase; the reader's selection leaves out surrounding whitespace, and a refused highlight leaves its phrase free. Highlight says the passage is already highlighted and Add note opens that highlight's note (ADR-17). Verified locally: app unit tests (`AnnotationEntityTest` covers what counts as one phrase), lint, formatting, and the debug and device-test builds. Not run: the device suite, including the new `PhoneSyncTest` and `ReaderStudyModeDeviceTest` cases, and the reader on the phone.
+On branch `no-duplicate-highlights`, by user decision: the phone saves no second highlight on a phrase; the reader's selection leaves out surrounding whitespace, and a refused highlight leaves its phrase free. Highlight says the passage is already highlighted and Add note opens that highlight's note (ADR-17). Verified: app unit tests (`AnnotationEntityTest` covers what counts as one phrase), lint, formatting, and the device suite on the Pixel 8a (210 tests, including the new `PhoneSyncTest` and `ReaderStudyModeDeviceTest` cases). Not tried by hand in the reader on the phone.
 
 ## Not yet verified on the real system
 
