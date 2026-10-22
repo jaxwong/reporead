@@ -418,6 +418,110 @@ Room never decides anything the server owns; it mirrors complete server response
 | `review_log` | Server's durable log | Yes: grades (with mutation id) |
 | `review_limits` | Server-owned session limit (40) | No |
 
+The columns, as the latest exported schema (`android/schemas/`) lists them, in its order. Only `note_search_blocks` and `note_links` have foreign keys, to `notes` with delete cascade; every other reference is by id and not enforced by the database. Booleans are stored as 0/1 integers, and an embedded passage is stored as columns prefixed with its field name (`location…`).
+
+```mermaid
+erDiagram
+    repositories ||--o{ documents : "has (repositoryId, no FK)"
+    documents ||--o| notes : "saved as (documentId, no FK)"
+    notes ||--o{ note_search_blocks : "canonical blocks (FK, cascade)"
+    notes ||--o{ note_links : "links out (FK, cascade)"
+    documents ||--o| reading_states : "read as (no FK)"
+    documents ||--o| bookmarks : "bookmarked as (no FK)"
+    documents ||--o{ annotations : "annotated by (no FK)"
+    annotations ||--o{ review_log : "graded in (cardMutationId, no FK)"
+
+    repositories {
+        integer id PK
+        text fullName
+        integer documentCount
+        text lastSyncedCommitSha "nullable"
+    }
+    documents {
+        integer id PK
+        integer repositoryId "indexed"
+        text path
+        text title
+        text blobSha
+        integer changedAt "nullable; epoch ms the refresh found it new or changed"
+        integer deleted "the latest complete refresh did not list it"
+    }
+    notes {
+        integer documentId PK
+        text blobSha
+        text path
+        text title
+        text html
+        integer fetchedAt
+        integer renderFormat "0 = saved before formats were recorded"
+        text snapshotCommitSha "nullable; null = legacy page, images never fetched"
+    }
+    note_search_blocks {
+        integer documentId PK, FK
+        text blockId PK
+        integer position "unique with documentId"
+        text text
+    }
+    note_links {
+        integer documentId PK, FK
+        integer position PK
+        text query
+    }
+    reading_states {
+        integer documentId PK
+        text lastReadBlobSha
+        integer progressPercent
+        text anchorJson
+        integer lastReadAt
+        integer pending "unacknowledged local save"
+    }
+    bookmarks {
+        integer documentId PK
+        integer bookmarked "0 = pending removal"
+        integer pending
+        integer changedAt
+    }
+    annotations {
+        text mutationId PK "client UUID"
+        integer serverId "nullable"
+        integer documentId "indexed"
+        text sourceBlobSha "original selection: this, blockId, both offsets, exactText, prefixText, suffixText"
+        text blockId
+        integer startOffset
+        integer endOffset
+        text exactText
+        text note "nullable"
+        integer version
+        integer createdAt
+        text state "UNSENT | REFUSED | DELETING | ACKNOWLEDGED"
+        text rejection "nullable; set only when REFUSED"
+        text prefixText
+        text suffixText
+        text status "nullable; ANCHORED | REANCHORED | ORPHANED"
+        text resolvedBlobSha "nullable"
+        text type "HIGHLIGHT | CARD"
+        text question "nullable; cards only"
+        text locationblobSha "nullable; the server's location: this and the next four"
+        text locationblockId "nullable"
+        integer locationstartOffset "nullable"
+        integer locationendOffset "nullable"
+        text locationexactText "nullable"
+    }
+    review_log {
+        text mutationId PK "client UUID, shared with the server's log"
+        text cardMutationId "the card's annotations.mutationId; indexed"
+        integer grade
+        integer reviewedAt
+        text blobSha
+        integer pending
+        text rejection "nullable"
+    }
+    review_limits {
+        integer id PK "always 1"
+        integer sessionLimit
+    }
+```
+
 ## 5. Key flows
 
 ### Sign-in
