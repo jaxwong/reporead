@@ -418,7 +418,7 @@ class PhoneSync(
      * answer, so the lists are left to the screens.
      */
     suspend fun sendPendingChanges(): PendingChangesResult? = locked {
-        if (dao.waitingCount().first() == 0) null else sendPending()
+        if (dao.unsentChangeCount().first() == 0 && dao.pendingReading().isEmpty()) null else sendPending()
     }
 
     /**

@@ -243,6 +243,19 @@ class PhoneSyncTest {
     }
 
     @Test
+    fun aReadingPositionAloneIsNotCountedAsUnsentButIsStillSent() = runBlocking {
+        dao.saveReading(reading(1))
+        assertEquals(0, dao.unsentChangeCount().first())
+        LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to serverReading))).use { server ->
+            val sync = sync(server.url)
+            assertTrue(sync.sendPendingChanges()!!.refused.isEmpty())
+            assertTrue(dao.pendingReading().isEmpty())
+            assertNull(sync.sendPendingChanges())
+            assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
+        }
+    }
+
+    @Test
     fun aReadingPositionNoLongerOwnedIsAcknowledgedAndDoesNotStopBookmarks() = runBlocking {
         dao.saveReading(reading(1))
         dao.saveBookmark(BookmarkEntity(2, bookmarked = true, pending = true, changedAt = 5))

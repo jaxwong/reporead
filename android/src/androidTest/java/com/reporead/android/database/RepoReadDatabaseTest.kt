@@ -458,8 +458,8 @@ class RepoReadDatabaseTest {
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = true, at = 1))
         assertEquals(3, dao.unsentInRepository(7))
         assertEquals(1, dao.unsentInRepository(8))
-        // A refused highlight is kept locally, but is not waiting to be sent.
-        assertEquals(5, dao.waitingCount().first())
+        // Neither a refused highlight (kept locally) nor the pending reading position counts as unsent.
+        assertEquals(4, dao.unsentChangeCount().first())
     }
 
     @Test

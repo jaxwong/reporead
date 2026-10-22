@@ -192,13 +192,16 @@ interface RepoReadDao {
     )
     suspend fun unsentInRepository(repositoryId: Long): Int
 
-    /** Changes waiting to be sent, excluding work the server already refused. */
+    /**
+     * The reader's changes waiting to be sent, excluding work the server already refused. A pending reading position
+     * also waits ([pendingReading]) but is not counted: every scroll saves one, and the background sender sends it.
+     */
     @Query(
         """SELECT (SELECT count(*) FROM annotations WHERE state IN ('UNSENT', 'DELETING'))
               + (SELECT count(*) FROM review_log WHERE pending AND rejection IS NULL)
-              + (SELECT count(*) FROM reading_states WHERE pending) + (SELECT count(*) FROM bookmarks WHERE pending)"""
+              + (SELECT count(*) FROM bookmarks WHERE pending)"""
     )
-    fun waitingCount(): Flow<Int>
+    fun unsentChangeCount(): Flow<Int>
 
     /** Name-only matches; a note with a body match is omitted because its exact [NoteTextMatch] is more useful. */
     @Query(
