@@ -30,7 +30,7 @@ adds vocabulary and decomposition rules rather than another formatter.
 - Preserve the device-log filenames and persisted JSON shape so logs written by an earlier app version remain uploadable.
 - Do not add Detekt, Checkstyle or another dependency. Add automation only after repeated violations identify a rule that
   the existing formatter, compiler and Android Lint cannot enforce.
-- Do not split `Sync`: it remains the one owner of synchronization ordering and its lock. Do not split the Room DAO merely
+- Do not split `PhoneSync`: it remains the one owner of synchronization ordering and its lock. Do not split the Room DAO merely
   by feature: it remains the transaction owner. Do not rewrite `Anchoring`'s algorithmic variables solely to avoid short
   mathematical names.
 - A large file is not itself a defect. Extract only an existing responsibility that can be named without inventing a
@@ -90,14 +90,14 @@ types or HTTP DTO owners. This gives later structural changes a stable vocabular
      `lastLoggedExitFile`, and `toFetch` to `totalNotes` without changing WorkManager data-key strings in this PR;
    - rename parser symbols in `study/Study.kt`: `interviewBank()` to `parseInterviewBank()`, `bankQuestion()` to
      `parseQuestion()`, `Read` to `QuestionParseResult`, and its outcomes to `Parsed` and `Invalid`;
-   - rename private `Sync` locals by responsibility while keeping `Sync` and its locking boundary intact.
+   - rename private `PhoneSync` locals by responsibility while keeping `PhoneSync` and its locking boundary intact.
 4. In backend code, make long-scope locals state their role:
    - `AnnotationService`: `all` to `storedAnnotations`, `current` to `currentBlobSha`, `stale` to
      `annotationsToResolve`, `from` to `previousLocation`, `resolved` to `resolution`, and `hash` to
      `requestFingerprint`;
    - `GitHubApi`: distinguish response objects, installation nodes/ids, repository nodes/results, branch responses and
      tree entries instead of repeating `page`, `items`, `body` and `result`;
-   - `RepositorySync`: use `markdownFiles`, `imagePaths`, `detectedMoves`, `publishedMoves`, `lockedConnection`,
+   - `RepositorySnapshotRefresh`: use `markdownFiles`, `imagePaths`, `detectedMoves`, `publishedMoves`, `lockedConnection`,
      `publishedCommitSha` and `appliedMoves`.
 5. In `backend/deploy`, retain every script and unit filename but expand shell identifiers:
    - `JAR`, `PREVIOUS`, `HEALTH`, `DIR`, `KEEP`, `KIND` to `BACKEND_JAR`, `PREVIOUS_BACKEND_JAR`, `HEALTH_URL`,
@@ -166,7 +166,7 @@ responsibilities. This PR changes source organization, not application behaviour
      `ReviewAnswer.kt` and `ReviewOutlook.kt`;
    - replace overlay payload names such as `row`, `current` and `mine` with `annotation`, `latestAnnotation` and
      `submittedNote`.
-6. Keep `Sync.kt` as the coordinator. Rename its result types where they clarify intent (`LocalSync` to
+6. Keep `PhoneSync.kt` as the coordinator. Rename its result types where they clarify intent (`LocalSync` to
    `PendingSyncResult`, `SavedAll` to `SaveAllResult`) but do not distribute its ordering decisions across new classes.
 
 ### Deliberately excluded
@@ -224,7 +224,7 @@ the one renderer function that combines unrelated transformations.
    - `GitHubHttp` to `GitHubHttpConfiguration`, with bean names that say HTTP client rather than API;
    - `Library` to `LibrarySnapshotReader`; move its response data to a plainly named `LibrarySnapshot` record so the
      published schema remains meaningful;
-   - replace nested `RepositorySync.Result` with `RepositorySyncResult`, and rename `publish()` to
+   - replace nested `RepositorySnapshotRefresh.Result` with `RepositorySyncResult`, and rename `publish()` to
      `fetchAndPublishSnapshot()`;
    - keep the plural persistence components (`Documents`, `Annotations`, `Bookmarks`, `Reviews`, `ReadingStates`,
      `RepositoryConnections`) because that convention is already consistent.

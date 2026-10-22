@@ -32,7 +32,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Every list the phone saves from the server comes from one read of one database snapshot, and is written with the others in one Room transaction: all of one answer, or none of it.**
 
-- Enforced by: `GET /api/library` is the only route this app reads them from, one request per read and no GitHub call, and the server has no other route for them (ADR-08); `LibrarySnapshotReader` reads every list in one read-only `REPEATABLE READ` transaction; `Api` decodes and validates the whole answer, then `Sync` maps it before `RepoReadDao.replaceFromServer` writes it, and deletes images only after the commit.
+- Enforced by: `GET /api/library` is the only route this app reads them from, one request per read and no GitHub call, and the server has no other route for them (ADR-08); `LibrarySnapshotReader` reads every list in one read-only `REPEATABLE READ` transaction; `Api` decodes and validates the whole answer, then `PhoneSync` maps it before `RepoReadDao.replaceFromServer` writes it, and deletes images only after the commit.
 - Checked by: `LibraryTest` (a write committed during the read is wholly out of it and wholly in the next); `SyncTest` on a device (a failed request or a broken answer leaves every saved list and image as it was).
 - Why: [ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes).
 
@@ -48,8 +48,8 @@ These come from the original implementation spec's engineering invariants and th
 
 **A sync publishes a complete snapshot or changes nothing; a missing path is marked deleted, never removed, and only from a complete tree.**
 
-- Enforced by: `RepositorySync` validates the whole tree before one transaction; neither an older snapshot nor one of a branch the connection no longer follows can replace the current one (409 `SYNC_SUPERSEDED`).
-- Checked by: `RepositorySyncTest`.
+- Enforced by: `RepositorySnapshotRefresh` validates the whole tree before one transaction; neither an older snapshot nor one of a branch the connection no longer follows can replace the current one (409 `SYNC_SUPERSEDED`).
+- Checked by: `RepositorySnapshotRefreshTest`.
 - Why: [ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots).
 
 ## Correctness
@@ -88,9 +88,9 @@ These come from the original implementation spec's engineering invariants and th
 
 **A new Practice card and its first grade appear together or neither does; a restored or concurrent submission cannot create another pair for the same bank and Canonical line on this phone.**
 
-- Enforced by: unchanged-bank and existing-card admission inside `RepoReadDao.saveCardWithFirstReview`'s Room transaction, under `Sync.committed`. Review admission likewise belongs to `RepoReadDao.recordReview`'s transaction. An insert failure propagates with both rows rolled back; there is no card-only fallback and no external call.
-- Shared rule owners: `QueryResults.kt` owns schedule eligibility (`reviewable`) and document/drawn-Canonical-line keys (`scheduledLines`, used by Practice and the DAO). `RepoReadDao.saveReview` is the single phone-side grade-range boundary; invalid server snapshots roll back and become `INVALID_RESPONSE`. No Sync, Room or wire-validation import points back into `library`.
-- Checks: `PracticeMutationTest` forces a real SQLite grade-insert failure, concurrent submissions, a restored prompt edit and changed/missing banks; `RepoReadDatabaseTest` covers direct transactional admission, the full grade scale and invalid-grade rollback; `PracticeSessionTest` drives grades, double taps and leaving a queued grade through the real screen; `CommittedMutationTest` checks cancellation at Sync's boundary.
+- Enforced by: unchanged-bank and existing-card admission inside `RepoReadDao.saveCardWithFirstReview`'s Room transaction, under `PhoneSync.committed`. Review admission likewise belongs to `RepoReadDao.recordReview`'s transaction. An insert failure propagates with both rows rolled back; there is no card-only fallback and no external call.
+- Shared rule owners: `QueryResults.kt` owns schedule eligibility (`reviewable`) and document/drawn-Canonical-line keys (`scheduledLines`, used by Practice and the DAO). `RepoReadDao.saveReview` is the single phone-side grade-range boundary; invalid server snapshots roll back and become `INVALID_RESPONSE`. No PhoneSync, Room or wire-validation import points back into `library`.
+- Checks: `PracticeMutationTest` forces a real SQLite grade-insert failure, concurrent submissions, a restored prompt edit and changed/missing banks; `RepoReadDatabaseTest` covers direct transactional admission, the full grade scale and invalid-grade rollback; `PracticeSessionTest` drives grades, double taps and leaving a queued grade through the real screen; `CommittedMutationTest` checks cancellation at PhoneSync's boundary.
 - Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer). Cross-device duplicates are not deduplicated.
 
 ### An outdated answer is never drilled
@@ -115,7 +115,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **GitHub credentials never appear in logs, metrics, rendered pages, page JavaScript, or on the phone, and are never readable from the database alone.**
 
-- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; `RequestLoggingFilter` redacts the complete query on the GitHub OAuth callback and app-code landing page; GitHub HTTP success/failure logs and oversize exception messages omit request paths, while metric tags never carry paths or content. `RequestLoggingFilterTest` checks callback `code` and `state` values are absent from request summaries; `GitHubHttpConfigurationTest` checks success, transport failure and oversized responses; repository-sync candidate/move logs also omit note paths (`RepositorySyncTest`).
+- Enforced by: tokens are stored only on the server, AES-256-GCM-encrypted under a key file kept outside the database (`GitHubTokens`); the phone holds only an opaque app session, encrypted with a Keystore key; native code attaches it to image requests so the page never sees it; `RequestLoggingFilter` redacts the complete query on the GitHub OAuth callback and app-code landing page; GitHub HTTP success/failure logs and oversize exception messages omit request paths, while metric tags never carry paths or content. `RequestLoggingFilterTest` checks callback `code` and `state` values are absent from request summaries; `GitHubHttpConfigurationTest` checks success, transport failure and oversized responses; repository-sync candidate/move logs also omit note paths (`RepositorySnapshotRefreshTest`).
 - Why: [ADR-03](adrs.md#adr-03--github-user-tokens-stay-on-the-server-encrypted-at-rest), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
 
 ### Repository content is untrusted
@@ -129,7 +129,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Every repository image belongs to the displayed page's immutable repository commit and resolved path, even when only images changed.**
 
-- Enforced by: the content boundary captures document/checkpoint and image paths together, binds embeds once, and returns `snapshotCommitSha`; `SavedPageEntity` and shared reader resources preserve it; image requests require that commit, and `NoteImages` uses one commit-keyed layout for both reader loads and Save all. `Sync` requires a known matching snapshot for saved HTML containing `/repo-image/` or `image-blocked`; text-only pages need only the listed blob, path and current render format, so unrelated commits do not refetch them. Save all prefetch is ordered against page replacement/disconnect by the existing per-page Sync lock; reader image reads retain their independent file lock. An unknown legacy identity means unavailable images, never a latest-snapshot fallback.
+- Enforced by: the content boundary captures document/checkpoint and image paths together, binds embeds once, and returns `snapshotCommitSha`; `SavedPageEntity` and shared reader resources preserve it; image requests require that commit, and `NoteImages` uses one commit-keyed layout for both reader loads and Save all. `PhoneSync` requires a known matching snapshot for saved HTML containing `/repo-image/` or `image-blocked`; text-only pages need only the listed blob, path and current render format, so unrelated commits do not refetch them. Save all prefetch is ordered against page replacement/disconnect by the existing per-page PhoneSync lock; reader image reads retain their independent file lock. An unknown legacy identity means unavailable images, never a latest-snapshot fallback.
 - Checked by: `DocumentContentTest` (explicit older commit and refresh during blob fetch); `SyncTest`, `NoteImagesTest`, `ImageSnapshotMigrationTest` and `NavigationTest` (text-only commit reuse in Save all and open, blocked-embed rebinding, format upgrades, image-only refresh, Save all then offline reader access, current-page backfill, 503/unreachable/401 propagation through the worker, one-count permanent page skips, reader-only unavailable fallback, cancellation/repeat runs, disconnect during prefetch, cache/deletion interleavings including a fetch finishing after a sweep, preserved legacy data and saved navigation).
 - Why: [Images contract](../backend/README.md#images), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone).
 
@@ -137,7 +137,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **Notes and annotations are not backed up off the phone or transferred, and are logged only where the app's crash messages and reader console output quote them, in the server's own log (ADR-21). Ending a session keeps the phone's notes; account deletion clears the live server, not the phone. Server backups keep their copies until replaced.**
 
-- Enforced by: Android backup/device transfer excluded; the server's own lines and every metric carry no content, and device log lines carry it only in exception messages and page console output; disconnect removes its server and local copies; account deletion removes server data and explicitly clears the session only on confirmation (a 401 can independently end it). Sign-out attempts one revocation and clears only the session. Dialogs distinguish these effects and name existing backup copies (retention in backend/README.md). One process-lifetime Sync keeps local writes ordered independently of sessions. Image sweeps derive retained files from Room; Save all sweeps under cancellable `locked` only after a successful loop, not after each fetched page; failure/cancellation leave orphan cleanup to the next library refresh, Library open or startup; cached reads share the deletion lock and an older fetch cannot write after a deletion.
+- Enforced by: Android backup/device transfer excluded; the server's own lines and every metric carry no content, and device log lines carry it only in exception messages and page console output; disconnect removes its server and local copies; account deletion removes server data and explicitly clears the session only on confirmation (a 401 can independently end it). Sign-out attempts one revocation and clears only the session. Dialogs distinguish these effects and name existing backup copies (retention in backend/README.md). One process-lifetime PhoneSync keeps local writes ordered independently of sessions. Image sweeps derive retained files from Room; Save all sweeps under cancellable `locked` only after a successful loop, not after each fetched page; failure/cancellation leave orphan cleanup to the next library refresh, Library open or startup; cached reads share the deletion lock and an older fetch cannot write after a deletion.
 - Why: [ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything), [ADR-22](adrs.md#adr-22--the-phones-data-stays-on-the-phone), [ADR-21](adrs.md#adr-21--metrics-and-logs-are-projections-on-a-loopback-port).
 
 ## Failure behaviour
@@ -152,7 +152,7 @@ These come from the original implementation spec's engineering invariants and th
 
 **A complete, valid, request-matching response is required before acknowledging a mutation. Only a known item-refusal status/code pair authorizes its permanent rejection.**
 
-- Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence (generated from `backend/openapi.json`), the value rules (`WireRules.kt`) and echoed identity checks; `Sync` owns a review's local card match. `Sync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send accepts only 404 `NOT_FOUND` as final and raises every other failure, including a malformed-save 400. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
+- Enforced by: `Api` owns route statuses, strict scalar/time decoding, required-nullable presence (generated from `backend/openapi.json`), the value rules (`WireRules.kt`) and echoed identity checks; `PhoneSync` owns a review's local card match. `PhoneSync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send accepts only 404 `NOT_FOUND` as final and raises every other failure, including a malformed-save 400. Malformed/oversized responses, unknown codes and known codes at the wrong status leave work pending; a later run uses the same mutation id. No alternate fetch/retry strategy is introduced.
 - Checked by: `OpenApiSpecTest` (the committed spec is the backend's, and its mapper's actual output conforms), `ContractTest`, `ItemRefusalsTest` with `RefusalTest`, `ApiTest` (every route against the published spec), `SyncTest` and `AccountTest`. A broken reading-save answer cannot acknowledge the save; an unconfirmed account deletion cannot report success or explicitly clear the session (a 401 may independently end it).
 - Why: [ADR-26](adrs.md#adr-26--one-owner-for-the-apps-side-of-the-http-contract).
 
@@ -213,15 +213,15 @@ These come from the original implementation spec's engineering invariants and th
 - Checks: `AppNavigationTest` drives real screens/account gates, session changes without resets and Activity restoration; `NavigationTest` checks every destination and format acceptance; `EntryLifetimeTest` probes real decorated Navigation 3 owners, including cover/rotation/pop/removal and fresh-Activity restoration. The debug host uses the production format policy at its Activity boundary. `MainActivity` wiring itself remains checked by review; tests do not launch the live app's store. Execution status is recorded in ADR-27.
 - Why: Compose keeps saved state by place, so incompatible formats must be rejected without discarding compatible state at every update; [ADR-27](adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format).
 
-### A screen's work belongs to its entry; a confirmed change belongs to Sync
+### A screen's work belongs to its entry; a confirmed change belongs to PhoneSync
 
 **Rotation or covering neither cancels nor repeats a screen's work, and leaving a screen never abandons a change the server confirmed or a local write it accepted. Only the resumed current entry navigates, once; disconnect predicates refuse writes for notes no longer listed.**
 
-- Enforced by: one ViewModel per screen that starts work, owning its loads, operations (admitted synchronously, one per exclusion group) and outcomes; `isChangingConfigurations` telling a return from a rotation; results claimed once by the resumed screen; `Sync.committed` for the screens' mutations, under the process's one Sync lock.
+- Enforced by: one ViewModel per screen that starts work, owning its loads, operations (admitted synchronously, one per exclusion group) and outcomes; `isChangingConfigurations` telling a return from a rotation; results claimed once by the resumed screen; `PhoneSync.committed` for the screens' mutations, under the process's one PhoneSync lock.
 - Checks: `AppNavigationTest` (recreation, covering, pop, double taps, restoration and a real read timeout through the real app); `CommittedMutationTest` (each mutation committed after its caller is cancelled, queued writes); `ReaderViewModelTest`; `PracticeSessionTest`, `ReviewLifecycleTest`, `ReaderLifecycleTest` and `AccountTest` in decorated entries. Execution evidence is recorded in ADR-28.
 - Why: [ADR-28](adrs.md#adr-28--a-screens-work-belongs-to-its-entrys-viewmodel-a-confirmed-change-belongs-to-sync).
 
-A submitted Practice grade enters Sync before validation; validation and its atomic write share `committed`. Reader edit/delete dialogs close
+A submitted Practice grade enters PhoneSync before validation; validation and its atomic write share `committed`. Reader edit/delete dialogs close
 only after admission; rejected input remains editable. Restored submitted edits reload their saved annotation and never
 replay a mutation.
 
