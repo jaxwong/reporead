@@ -58,7 +58,7 @@ internal data class StudySession(
 
     /**
      * After grading this item: Again, a miss, sends it to the back, to be answered again until it is answered right;
-     * Hard was right, so it leaves the session and keeps its gap.
+     * Hard or better is a pass, so it leaves the session. The scheduler separately determines its next gap.
      */
     fun graded(grade: Int) = if (isMiss(grade)) requeue() else skip()
 

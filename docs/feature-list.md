@@ -113,7 +113,7 @@ These are exclusions, not hidden stretch goals.
 | --- | --- |
 | Drawing edge to edge | When the reader hides the system bars, the camera cutout area shows as a black band. Not decided |
 | Phone storage eviction | None; every saved note is kept (ADR-19). Revisit if storage matters |
-| Scheduler | Fixed gap ladder (replaced SM-2 on 2026-10-15); a new card starts on its first step since 2026-10-21 (Hard 1, Good 3, Easy 7 days); consider FSRS only if review data shows a need (ADR-13) |
+| Scheduler | Fixed gap ladder (replaced SM-2 on 2026-10-15); a new card starts on its first step since 2026-10-21 (Hard 1, Good 3, Easy 7 days); Hard steps back one rung since 2026-10-23; consider FSRS only if review data shows a need (ADR-13) |
 | Notebook paging | Not paged; revisit as the review log nears about 40,000 grades, past which the library is refused (422 `LIBRARY_TOO_LARGE`, ADR-13). On 2026-10-19 the real hosted library was 260,497 / 8,388,608 bytes (3.11%): 3 repositories, 100 reading states, 1 bookmark, 19 annotations, 12 reviews; document count was not logged. Revisit as bytes approach the ceiling; serialized bytes are not peak heap |
 | Dependency advisories | Two low-severity KaTeX/Mermaid findings accepted at the 2026-10-19 audit; no dependency upgrade approved and Dependabot alerts remain disabled by user decision. The manual Spring-advisory review was not a transitive-graph scan; evidence is in [PR #81](https://github.com/jaxwong/reporead/pull/81) |
 | AI-drafted questions | Intent recorded; not designed (ADR-20) |
