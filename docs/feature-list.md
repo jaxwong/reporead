@@ -217,7 +217,7 @@ Merged in [PR #106](https://github.com/jaxwong/reporead/pull/106) (ADR-08): the 
 
 ## Session size and grade range, one owner each (2026-10-23)
 
-[PR #109](https://github.com/jaxwong/reporead/pull/109), by user decision (ADR-13): the phone owns the review session size (`SESSION_LIMIT`, 40) and drops Room's `review_limits` (v19); the server alone checks a grade's range (`ReviewController` and the `review_log.grade` `CHECK`), and the phone's second check is deleted. Verified in the PR: `spotlessCheck lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest` and `:backend:spotlessCheck :backend:test`, exit 0. Not run: the device suite, so `SessionLimitMigrationTest` (v18 to v19) is compiled but not yet run on a phone. Owed (ADR-24's contract step): remove `sessionLimit` from `Reviews.Notebook`, `backend/openapi.json` and their tests once the release with this change is installed.
+[PR #109](https://github.com/jaxwong/reporead/pull/109), by user decision (ADR-13): the phone owns the review session size (`SESSION_LIMIT`, 40) and drops Room's `review_limits` (v19); the server alone checks a grade's range (`ReviewController` and the `review_log.grade` `CHECK`), and the phone's second check is deleted. Verified in the PR: `spotlessCheck lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest` and `:backend:spotlessCheck :backend:test`, exit 0. Device suite on the Pixel 8a (`am instrument`, 2026-10-23, debug APK sha256 e0c19f8f…): `OK (211 tests)`, including `SessionLimitMigrationTest` (v18 to v19). Owed (ADR-24's contract step): remove `sessionLimit` from `Reviews.Notebook`, `backend/openapi.json` and their tests once the release with this change is installed.
 
 ## Naming and ownership (2026-10-21 to 2026-10-22)
 
