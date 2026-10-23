@@ -65,28 +65,28 @@ private fun startOfToday(): ZonedDateTime =
 
 /**
  * One line on what review holds: the due count, then what falls due next — tomorrow or on the next day with cards — and
- * in the 7 days after the outlook's day. [sessionLimit] is the server's session size.
+ * in the 7 days after the outlook's day. More due than [SESSION_LIMIT] says how many a session holds.
  */
-internal fun outlookLine(outlook: ReviewOutlook, sessionLimit: Int?): String {
+internal fun outlookLine(outlook: ReviewOutlook): String {
     val next =
         outlook.next
-            ?: return if (outlook.due > 0) dueParts(outlook, sessionLimit).joinToString(" · ")
+            ?: return if (outlook.due > 0) dueParts(outlook).joinToString(" · ")
             else "No cards yet: grade a question below."
     val upcoming =
         if (next == outlook.today.plusDays(1)) "${outlook.nextCount} tomorrow"
         else
             "next on ${next.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))}, ${counted(outlook.nextCount, "card")}"
-    return (dueParts(outlook, sessionLimit) +
+    return (dueParts(outlook) +
             upcoming +
             listOfNotNull(outlook.week.takeIf { it > outlook.nextCount }?.let { "$it in the next 7 days" }))
         .joinToString(" · ")
 }
 
-private fun dueParts(outlook: ReviewOutlook, sessionLimit: Int?): List<String> =
+private fun dueParts(outlook: ReviewOutlook): List<String> =
     if (outlook.due == 0) listOf("Nothing due")
     else
         listOfNotNull(
             "${outlook.due} due",
-            sessionLimit?.takeIf { outlook.due > it }?.let { "$it per session" },
+            "$SESSION_LIMIT per session".takeIf { outlook.due > SESSION_LIMIT },
             outlook.blocked.takeIf { it > 0 }?.let { "$it to save first" },
         )

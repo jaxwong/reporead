@@ -46,8 +46,6 @@ internal fun checkRules(answer: Any) {
             require(answer.reviews.all { it.cardMutationId in cards }) {
                 "Expected every review to refer to a card in the notebook"
             }
-            // The server, not the app, chooses the session ceiling.
-            require(answer.sessionLimit > 0) { "Expected a positive notebook sessionLimit" }
             answer.annotations.forEach(::checkRules)
         }
         is ReadingStatesState -> {

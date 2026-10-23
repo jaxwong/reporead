@@ -143,6 +143,9 @@ class StructureSearchBlocks : AutoMigrationSpec {
 /** v18: a card is never confirmed in a version, so the version it was last confirmed in is gone (ADR-13). */
 @DeleteColumn(tableName = "annotations", columnName = "checkedBlobSha") class DropCardConfirmation : AutoMigrationSpec
 
+/** v19: the review session size is the phone's own constant (ADR-13), so the server's copy is no longer stored. */
+@DeleteTable(tableName = "review_limits") class DropReviewLimits : AutoMigrationSpec
+
 @Database(
     entities =
         [
@@ -155,9 +158,8 @@ class StructureSearchBlocks : AutoMigrationSpec {
             BookmarkEntity::class,
             AnnotationEntity::class,
             ReviewEntity::class,
-            ReviewLimitEntity::class,
         ],
-    version = 18,
+    version = 19,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -176,6 +178,7 @@ class StructureSearchBlocks : AutoMigrationSpec {
             AutoMigration(from = 15, to = 16, spec = RetireUnreadablePages::class),
             AutoMigration(from = 16, to = 17, spec = StructureSearchBlocks::class),
             AutoMigration(from = 17, to = 18, spec = DropCardConfirmation::class),
+            AutoMigration(from = 18, to = 19, spec = DropReviewLimits::class),
         ],
 )
 abstract class RepoReadDatabase : RoomDatabase() {

@@ -13,7 +13,6 @@ import com.reporead.android.network.wire.LibrarySnapshot
 import com.reporead.android.network.wire.ReadingStatesAnchor
 import com.reporead.android.network.wire.ReadingStatesState
 import com.reporead.android.network.wire.RepositoryConnectionsAvailable
-import com.reporead.android.network.wire.ReviewsNotebook
 import com.reporead.android.network.wire.ReviewsReview
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -77,7 +76,6 @@ class ContractTest {
     fun valueRulesFailBeforeAnythingIsPublished() {
         broken<ReadingStatesState>(wire(testReading().copy(progressPercent = 101)))
         broken<ReadingStatesAnchor>(wire(testReading().anchor.copy(blockIndex = -1)))
-        broken<ReviewsNotebook>(wire(testLibrary().notebook.copy(sessionLimit = 0)))
         for (question in listOf(null, "", "  ")) broken<AnnotationsAnnotation>(
             wire(testCard().copy(question = question))
         )

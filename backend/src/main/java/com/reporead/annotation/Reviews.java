@@ -33,6 +33,10 @@ public class Reviews {
 
     public record Review(String mutationId, String cardMutationId, int grade, Instant reviewedAt, String blobSha) {}
 
+    /**
+     * {@code sessionLimit} is no longer read by the app, which owns the session size (ADR-13). It stays on the wire
+     * until no supported release reads it, then goes (ADR-24).
+     */
     public record Notebook(List<Annotations.Annotation> annotations, List<Review> reviews, int sessionLimit) {}
 
     /**

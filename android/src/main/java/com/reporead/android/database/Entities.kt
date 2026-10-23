@@ -220,6 +220,3 @@ data class ReviewEntity(
     val pending: Boolean,
     val rejection: String? = null,
 )
-
-/** The server supplies this ceiling; a phone without a complete notebook response cannot start a session. */
-@Entity(tableName = "review_limits") data class ReviewLimitEntity(@PrimaryKey val id: Int = 1, val sessionLimit: Int)

@@ -152,9 +152,8 @@ internal fun PracticeTab(dao: RepoReadDao, push: (Screen) -> Unit) {
     val banks = rememberBanks(dao)
     val cards by dao.notebook().collectAsStateWithLifecycle(null)
     val outlook = rememberReviewOutlook(dao)
-    val cap by dao.reviewLimit().collectAsStateWithLifecycle(null)
     Column(Modifier.fillMaxSize()) {
-        outlook?.let { EntryRow("Review", outlookLine(it, cap), R.drawable.ic_refresh) { push(Screen.ReviewTopics) } }
+        outlook?.let { EntryRow("Review", outlookLine(it), R.drawable.ic_refresh) { push(Screen.ReviewTopics) } }
         StatusLine("New questions: each is asked once; your grade puts it on your review schedule.")
         val ready = banks
         val notebook = cards

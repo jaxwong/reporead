@@ -81,14 +81,14 @@ internal class ReviewViewModel(
     }
 
     /** Chooses the session once, from the cards due now. */
-    fun start(cards: List<NotebookItem>, reviewLog: List<ReviewEntity>, sessionLimit: Int) {
+    fun start(cards: List<NotebookItem>, reviewLog: List<ReviewEntity>) {
         if (_state.value.session != null) return
         val startedAt = System.currentTimeMillis()
         savedState[STARTED_AT] = startedAt
         _state.update { it.copy(startedAt = startedAt) }
         updateSession(
             StudySession(
-                dueSession(cards, reviewLog, startedAt, sessionLimit, Random.nextInt(), ZoneId.systemDefault()).map {
+                dueSession(cards, reviewLog, startedAt, Random.nextInt(), ZoneId.systemDefault()).map {
                     it.annotation.mutationId
                 }
             )
@@ -158,14 +158,13 @@ internal fun ReviewTopicsScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack
     val outlook = rememberReviewOutlook(dao)
     val cards = dao.notebook().collectAsStateWithLifecycle(null).value
     val reviewLog = dao.reviews().collectAsStateWithLifecycle(null).value
-    val sessionLimit = dao.reviewLimit().collectAsStateWithLifecycle(null).value
     Scaffold(topBar = { AppBar("Review", onBack = onBack) }) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (outlook == null || cards == null || reviewLog == null) {
                 EmptyState("Loading saved cards…")
                 return@Column
             }
-            StatusLine(outlookLine(outlook, sessionLimit))
+            StatusLine(outlookLine(outlook))
             if (outlook.due == 0) return@Column
             // Keyed on the outlook too, which changes at local midnight, when more cards fall due.
             val dueTopics =
@@ -207,14 +206,9 @@ internal fun ReviewScreen(
     val outlook = rememberReviewOutlook(dao)
     val cards = dao.notebook().collectAsStateWithLifecycle(null).value
     val reviewLog = dao.reviews().collectAsStateWithLifecycle(null).value
-    val sessionLimit = dao.reviewLimit().collectAsStateWithLifecycle(null).value
-    LaunchedEffect(cards, reviewLog, sessionLimit) {
-        if (cards != null && reviewLog != null && sessionLimit != null)
-            viewModel.start(
-                cards.filter { topic == null || interviewTopic(it.path) == topic },
-                reviewLog,
-                sessionLimit,
-            )
+    LaunchedEffect(cards, reviewLog) {
+        if (cards != null && reviewLog != null)
+            viewModel.start(cards.filter { topic == null || interviewTopic(it.path) == topic }, reviewLog)
     }
     Scaffold(topBar = { AppBar("Review · ${topicName(topic)}", onBack = onBack) }) { padding ->
         // Not scrolled as a whole: a revealed answer takes the space left, and the grades stay under it.
@@ -242,10 +236,6 @@ internal fun ReviewScreen(
                     "$pendingReviewCount grades saved on this phone; they are sent once it is online.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-            if (sessionLimit == null) {
-                Text("Review starts after one sync with the server: open Library while signed in and online.")
-                return@Column
-            }
             val session = state.session
             if (session == null) {
                 Text("Choosing due cards…")
@@ -263,7 +253,7 @@ internal fun ReviewScreen(
                     when {
                         session.started.isNotEmpty() ->
                             "Session complete: ${counted(session.completed(gradedCardIds), "card")} reviewed."
-                        topic == null -> outlookLine(outlook, sessionLimit)
+                        topic == null -> outlookLine(outlook)
                         else -> "Nothing due in ${topicName(topic)} now."
                     }
                 )

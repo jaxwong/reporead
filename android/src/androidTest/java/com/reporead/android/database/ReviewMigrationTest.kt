@@ -34,9 +34,6 @@ class ReviewMigrationTest {
             assertEquals(AnnotationState.UNSENT, highlight.state)
             assertNull(highlight.question)
             assertTrue(dao.reviews().first().isEmpty())
-            assertNull(dao.reviewLimit().first())
-            dao.saveReviewLimit(ReviewLimitEntity(sessionLimit = 40))
-            assertEquals(40, dao.reviewLimit().first())
         }
     }
 }

@@ -84,7 +84,6 @@ class FeatureRemovalMigrationTest {
                         arrayOf(sha),
                     )
                     db.execSQL("INSERT INTO review_log VALUES ('grade', 'card', 2, 8, ?, 1, NULL)", arrayOf(sha))
-                    db.execSQL("INSERT INTO review_limits VALUES (1, 40)")
                 },
             ) { dao ->
                 assertEquals(listOf(RepositoryEntity(7, "test/notes", 6, snapshot)), dao.repositories().first())
@@ -125,9 +124,8 @@ class FeatureRemovalMigrationTest {
                 assertEquals(AnnotationState.UNSENT, dao.annotation("card")!!.state)
                 assertEquals(AnnotationState.ACKNOWLEDGED, dao.annotation("highlight")!!.state)
                 assertEquals(listOf(ReviewEntity("grade", "card", 2, 8, sha, pending = true)), dao.reviews().first())
-                assertEquals(40, dao.reviewLimit().first())
                 SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                    assertEquals(18, db.version)
+                    assertEquals(19, db.version)
                     db.rawQuery("PRAGMA foreign_key_check", null).use { assertFalse(it.moveToFirst()) }
                     db.rawQuery("SELECT name FROM sqlite_master WHERE name = 'change_baselines'", null).use {
                         assertFalse(it.moveToFirst())

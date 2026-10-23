@@ -91,15 +91,10 @@ class PhoneSyncTest {
         status to JSONObject().put("code", code).put("message", "Test-only $code").toString()
 
     /** The server's library (GET /api/library) holding these lists' items, as JSON. */
-    private fun library(
-        repositories: String = "",
-        readingStates: String = "",
-        bookmarks: String = "",
-        sessionLimit: Int = 40,
-    ) =
+    private fun library(repositories: String = "", readingStates: String = "", bookmarks: String = "") =
         200 to
             """{"repositories":[$repositories],"readingStates":[$readingStates],"bookmarks":[$bookmarks],
-            "notebook":{"annotations":[],"reviews":[],"sessionLimit":$sessionLimit}}"""
+            "notebook":{"annotations":[],"reviews":[],"sessionLimit":40}}"""
 
     /** A library repository [id] with one listed note and these [documents]. */
     private fun repository(id: Int, documents: String, snapshot: String = sha) =
@@ -1697,7 +1692,6 @@ class PhoneSyncTest {
                     )) to "INVALID_RESPONSE",
                 (200 to wire(testLibrary(reviews = listOf(testReview().copy(grade = -1))))) to "INVALID_RESPONSE",
                 (200 to wire(testLibrary(reviews = listOf(testReview().copy(grade = 6))))) to "INVALID_RESPONSE",
-                library(repositories, sessionLimit = 0) to "INVALID_RESPONSE",
                 library(repository(7, document(2).replace("false", "\"false\""))) to "INVALID_RESPONSE",
                 library(repository(7, document(2)).replace("\"lastSyncedCommitSha\"", "\"unknownCheckpoint\"")) to
                     "INVALID_RESPONSE",
