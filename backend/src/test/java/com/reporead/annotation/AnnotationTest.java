@@ -731,12 +731,18 @@ class AnnotationTest extends SharedSpringTest {
         long id = createdId(cardBody());
         String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB");
         grade(bob, id, UUID.randomUUID().toString(), 4, OLD_SHA).andExpect(status().isNotFound());
-        grade(alice, id, UUID.randomUUID().toString(), 6, OLD_SHA).andExpect(status().isBadRequest());
+        for (int outside : new int[] {-1, 6}) {
+            grade(alice, id, UUID.randomUUID().toString(), outside, OLD_SHA).andExpect(status().isBadRequest());
+        }
         grade(alice, id, "bad", 4, OLD_SHA).andExpect(status().isBadRequest());
         mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + bob))
                 .andExpect(jsonPath("$.notebook.annotations.length()").value(0))
                 .andExpect(jsonPath("$.notebook.reviews.length()").value(0));
         assertEquals(0, count("review_log"));
+        for (int edge : new int[] {0, 5}) {
+            grade(alice, id, UUID.randomUUID().toString(), edge, OLD_SHA).andExpect(status().isOk());
+        }
+        assertEquals(2, count("review_log"));
     }
 
     @Test

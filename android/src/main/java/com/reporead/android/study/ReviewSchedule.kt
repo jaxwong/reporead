@@ -20,7 +20,7 @@ internal val STEPS = listOf(1L, 3, 7, 14, 30, 60, 120)
  */
 internal const val FIRST_STEP = 0
 
-/** The grades offered, stored on a 0–5 scale (the server accepts 0–5). */
+/** The grades offered; the range the server accepts is its own to check. */
 internal val GRADES = listOf(0 to "Again", 3 to "Hard", 4 to "Good", 5 to "Easy")
 
 /** Again, a miss: every grade below Hard. The one place that decides it; the server only stores grades. */

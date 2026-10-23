@@ -108,10 +108,6 @@ sealed interface NewHighlight {
     data object PageGone : NewHighlight
 }
 
-/** Distinguishes a bad server grade at the write boundary from a database or programmer failure. */
-internal class InvalidReviewGrade(mutationId: String, grade: Int) :
-    IllegalArgumentException("Review $mutationId has grade $grade; expected 0..5")
-
 /** A highlight or card with its note's documents row: [deleted] from the repository, at [currentBlobSha]. */
 data class NotebookItem(
     @Embedded val annotation: AnnotationEntity,
