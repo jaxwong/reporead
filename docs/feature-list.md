@@ -215,6 +215,10 @@ Merged in [PR #104](https://github.com/jaxwong/reporead/pull/104) (ADR-07): a re
 
 Merged in [PR #106](https://github.com/jaxwong/reporead/pull/106) (ADR-08): the Library's unsent count leaves out reading positions, which are still sent. Verified in the PR: `spotlessCheck lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest` exit 0, and the device suite on the Pixel 8a, `OK (209 tests)`.
 
+## Session size and grade range, one owner each (2026-10-23)
+
+[PR #109](https://github.com/jaxwong/reporead/pull/109), by user decision (ADR-13): the phone owns the review session size (`SESSION_LIMIT`, 40) and drops Room's `review_limits` (v19); the server alone checks a grade's range (`ReviewController` and the `review_log.grade` `CHECK`), and the phone's second check is deleted. Verified in the PR: `spotlessCheck lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest` and `:backend:spotlessCheck :backend:test`, exit 0. Not run: the device suite, so `SessionLimitMigrationTest` (v18 to v19) is compiled but not yet run on a phone. Owed (ADR-24's contract step): remove `sessionLimit` from `Reviews.Notebook`, `backend/openapi.json` and their tests once the release with this change is installed.
+
 ## Naming and ownership (2026-10-21 to 2026-10-22)
 
 Merged in [PR #95](https://github.com/jaxwong/reporead/pull/95), [PR #99](https://github.com/jaxwong/reporead/pull/99), [PR #100](https://github.com/jaxwong/reporead/pull/100) and [PR #103](https://github.com/jaxwong/reporead/pull/103): one [naming guide](code-style.md), Android packages named for their owners (`network`, `logging`, `database`), the device-log flow named alike on the phone and the server, and "sync" split into delivering pending changes and refreshing a repository snapshot. The PRs changed no route, JSON field, table or column; the one approved behaviour change, request targets keeping their query in the server's log, is in ADR-21.
