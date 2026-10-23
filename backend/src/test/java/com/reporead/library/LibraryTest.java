@@ -126,8 +126,7 @@ class LibraryTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.bookmarks[0].documentId").value(removed))
                 .andExpect(jsonPath("$.notebook.annotations").isEmpty())
                 .andExpect(jsonPath("$.notebook.reviews").isEmpty())
-                // Server-owned: the phone never chooses its own session size.
-                .andExpect(jsonPath("$.notebook.sessionLimit").value(40));
+                .andExpect(jsonPath("$.notebook.sessionLimit").doesNotExist());
     }
 
     @Test

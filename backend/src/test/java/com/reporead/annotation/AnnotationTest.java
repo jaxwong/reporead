@@ -691,7 +691,7 @@ class AnnotationTest extends SharedSpringTest {
         assertEquals(10, count("review_log"));
         mvc.perform(get("/api/library").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.notebook.sessionLimit").value(40))
+                .andExpect(jsonPath("$.notebook.sessionLimit").doesNotExist())
                 .andExpect(jsonPath("$.notebook.annotations[0].type").value("CARD"))
                 .andExpect(jsonPath("$.notebook.reviews.length()").value(10));
         remove(alice, id, 1).andExpect(status().isNoContent());

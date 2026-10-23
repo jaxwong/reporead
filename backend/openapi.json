@@ -1316,7 +1316,7 @@
         }
       },
       "ReviewsNotebook" : {
-        "required" : [ "annotations", "reviews", "sessionLimit" ],
+        "required" : [ "annotations", "reviews" ],
         "type" : "object",
         "properties" : {
           "annotations" : {
@@ -1330,10 +1330,6 @@
             "items" : {
               "$ref" : "#/components/schemas/ReviewsReview"
             }
-          },
-          "sessionLimit" : {
-            "type" : "integer",
-            "format" : "int32"
           }
         }
       },
