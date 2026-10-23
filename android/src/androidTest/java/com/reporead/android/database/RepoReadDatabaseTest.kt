@@ -518,7 +518,7 @@ class RepoReadDatabaseTest {
         // The server had it after all (a lost acknowledgement), from a listing, the notebook, or a late answer.
         val serverCopy = annotation("deleted", 9, null, AnnotationState.ACKNOWLEDGED)
         dao.replaceRemoteAnnotations(1, listOf(serverCopy))
-        dao.replaceRemoteNotebook(listOf(serverCopy), emptyList(), 40)
+        dao.replaceRemoteNotebook(listOf(serverCopy), emptyList())
         dao.saveServerAnnotation(serverCopy)
         val kept = dao.annotation("deleted")!!
         assertEquals(AnnotationState.DELETING, kept.state)
@@ -650,30 +650,24 @@ class RepoReadDatabaseTest {
         dao.saveAnnotation(card)
         val grades = (1..10).map { ReviewEntity("g$it", "card", 4, it.toLong(), sha, true) }
         grades.forEach { assertTrue(dao.recordReview(it)) }
-        dao.replaceRemoteNotebook(
-            listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)),
-            emptyList(),
-            40,
-        )
+        dao.replaceRemoteNotebook(listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)), emptyList())
         assertEquals(10, dao.pendingReviews().size)
         dao.replaceRemoteNotebook(
             listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)),
             grades.map { it.copy(pending = false) },
-            40,
         )
         assertTrue(dao.pendingReviews().isEmpty())
         assertEquals(10, dao.reviews().first().size)
         dao.replaceRemoteNotebook(
             listOf(card.copy(serverId = 8, state = AnnotationState.ACKNOWLEDGED)),
             grades.map { it.copy(pending = false) },
-            40,
         )
         assertEquals(10, dao.reviews().first().size)
         // Answered in a version that is no longer the note's current one.
         assertEquals(false, dao.recordReview(grades[0].copy(mutationId = "stale", blobSha = "b".repeat(40))))
         // The card as a pending offline creation again.
         dao.saveAnnotation(card)
-        dao.replaceRemoteNotebook(emptyList(), emptyList(), 40)
+        dao.replaceRemoteNotebook(emptyList(), emptyList())
         // Pending offline creations stay; acknowledged deletions remove associated logs.
         assertEquals(AnnotationState.UNSENT, dao.annotation("card")!!.state)
         dao.removeAnnotation("card")

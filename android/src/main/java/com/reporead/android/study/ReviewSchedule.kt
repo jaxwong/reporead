@@ -73,18 +73,19 @@ private fun dueTimes(
     }
 }
 
-/** Due cards, interleaving shuffled note groups; the cap comes only from the server's notebook response. */
+/** The cards in one review session. The phone builds sessions, offline too, so it owns their size (ADR-13). */
+internal const val SESSION_LIMIT = 40
+
+/** Due cards, interleaving shuffled note groups, at most [SESSION_LIMIT]. */
 internal fun dueSession(
     items: List<NotebookItem>,
     reviews: List<ReviewEntity>,
     now: Long,
-    limit: Int,
     seed: Int,
     zone: ZoneId,
 ): List<NotebookItem> {
-    require(limit > 0) { "Expected positive server sessionLimit, got $limit" }
     val due = dueTimes(items, reviews, zone).filter { it.second <= now }.map { it.first }
-    return interleaveByNote(due, seed) { it.annotation.documentId }.take(limit)
+    return interleaveByNote(due, seed) { it.annotation.documentId }.take(SESSION_LIMIT)
 }
 
 /**

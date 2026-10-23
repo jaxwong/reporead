@@ -161,7 +161,6 @@ class PhoneSync(
                 bookmarks,
                 annotations,
                 reviews,
-                snapshot.notebook.sessionLimit,
             )
         } catch (invalidGrade: InvalidReviewGrade) {
             throw invalidResponse(200, invalidGrade)

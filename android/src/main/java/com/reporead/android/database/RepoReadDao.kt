@@ -49,13 +49,12 @@ interface RepoReadDao {
         bookmarks: List<BookmarkEntity>,
         annotations: List<AnnotationEntity>,
         reviews: List<ReviewEntity>,
-        sessionLimit: Int,
     ) {
         replaceRepositories(library.keys.toList())
         for ((repository, documents) in library) replaceDocuments(repository.id, documents)
         replaceRemoteReading(reading)
         replaceRemoteBookmarks(bookmarks)
-        replaceRemoteNotebook(annotations, reviews, sessionLimit)
+        replaceRemoteNotebook(annotations, reviews)
         forgetUnreferencedNotes()
     }
 
@@ -425,10 +424,6 @@ interface RepoReadDao {
     /** Forgets grades the server refused; they never reached it and the schedule already ignores them. */
     @Query("DELETE FROM review_log WHERE rejection IS NOT NULL") suspend fun dismissRefusedReviews()
 
-    @Query("SELECT sessionLimit FROM review_limits WHERE id = 1") fun reviewLimit(): Flow<Int?>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReviewLimit(row: ReviewLimitEntity)
-
     @Query("DELETE FROM review_log WHERE cardMutationId = :mutationId")
     suspend fun deleteCardReviews(mutationId: String)
 
@@ -445,13 +440,12 @@ interface RepoReadDao {
     @Query("DELETE FROM annotations WHERE state = 'ACKNOWLEDGED'") suspend fun clearAcknowledgedNotebook()
 
     @Transaction
-    suspend fun replaceRemoteNotebook(rows: List<AnnotationEntity>, reviews: List<ReviewEntity>, limit: Int) {
+    suspend fun replaceRemoteNotebook(rows: List<AnnotationEntity>, reviews: List<ReviewEntity>) {
         clearAcknowledgedNotebook()
         rows.forEach { saveServerAnnotation(it) }
         clearAcknowledgedReviews()
         reviews.forEach { saveReview(it) }
         deleteMissingCardReviews()
-        saveReviewLimit(ReviewLimitEntity(sessionLimit = limit))
     }
 
     @Transaction

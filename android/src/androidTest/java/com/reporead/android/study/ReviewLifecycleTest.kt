@@ -18,7 +18,6 @@ import com.reporead.android.database.AnnotationState
 import com.reporead.android.database.AnnotationType
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.RepoReadDatabase
-import com.reporead.android.database.ReviewLimitEntity
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.findText
@@ -75,7 +74,6 @@ class ReviewLifecycleTest {
             ),
         )
         dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, bankPath, "Test-only review", bank(sha), 0))
-        dao.saveReviewLimit(ReviewLimitEntity(sessionLimit = 40))
         // No token and a closed local port: a server call fails as unreachable instead of leaving the phone.
         sync =
             PhoneSync(

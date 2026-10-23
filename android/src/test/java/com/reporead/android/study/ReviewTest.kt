@@ -21,8 +21,8 @@ class ReviewTest {
 
     private val day0 = LocalDate.of(1970, 1, 1)
 
-    private fun dueSession(items: List<NotebookItem>, reviews: List<ReviewEntity>, now: Long, limit: Int, seed: Int) =
-        dueSession(items, reviews, now, limit, seed, utc)
+    private fun dueSession(items: List<NotebookItem>, reviews: List<ReviewEntity>, now: Long, seed: Int) =
+        dueSession(items, reviews, now, seed, utc)
 
     private fun grade(id: Int, value: Int, at: Long) = ReviewEntity("g$id", "card", value, at, "sha", false)
 
@@ -159,7 +159,6 @@ class ReviewTest {
                     listOf(card(1)),
                     listOf(grade(1, 3, evening).copy(cardMutationId = "m1")),
                     nextMorning,
-                    40,
                     1,
                     bangkok,
                 )
@@ -177,7 +176,7 @@ class ReviewTest {
                 ready.copy(savedBlobSha = null),
             )) {
             assertNotNull(changed.annotation.cardBlock(changed.deleted, changed.currentBlobSha, changed.savedBlobSha))
-            assertEquals(listOf(changed), dueSession(listOf(changed), emptyList(), 0, 40, 1))
+            assertEquals(listOf(changed), dueSession(listOf(changed), emptyList(), 0, 1))
         }
         for (gone in
             listOf(
@@ -185,7 +184,7 @@ class ReviewTest {
                 ready.copy(annotation = ready.annotation.copy(state = AnnotationState.REFUSED, rejection = "refused")),
             )) {
             assertNotNull(gone.annotation.cardBlock(gone.deleted, gone.currentBlobSha, gone.savedBlobSha))
-            assertTrue(dueSession(listOf(gone), emptyList(), 0, 40, 1).isEmpty())
+            assertTrue(dueSession(listOf(gone), emptyList(), 0, 1).isEmpty())
             assertEquals(ReviewOutlook(day0, 0, 0, null, 0, 0), reviewOutlook(listOf(gone), emptyList(), 0, utc))
         }
     }
@@ -218,24 +217,23 @@ class ReviewTest {
     fun theOutlookLineSaysWhatIsDueTheSessionSizeAndWhatFallsDueNext() {
         assertEquals(
             "45 due · 40 per session · 2 to save first",
-            outlookLine(ReviewOutlook(day0, 45, 2, null, 0, 0), 40),
+            outlookLine(ReviewOutlook(day0, 45, 2, null, 0, 0)),
         )
-        assertEquals("3 due", outlookLine(ReviewOutlook(day0, 3, 0, null, 0, 0), 40))
-        assertEquals("3 due", outlookLine(ReviewOutlook(day0, 3, 0, null, 0, 0), null))
-        assertEquals("3 due · 2 tomorrow", outlookLine(ReviewOutlook(day0, 3, 0, day0.plusDays(1), 2, 2), 40))
+        assertEquals("3 due", outlookLine(ReviewOutlook(day0, 3, 0, null, 0, 0)))
+        assertEquals("3 due · 2 tomorrow", outlookLine(ReviewOutlook(day0, 3, 0, day0.plusDays(1), 2, 2)))
         assertEquals(
             "Nothing due · 2 tomorrow · 5 in the next 7 days",
-            outlookLine(ReviewOutlook(day0, 0, 0, day0.plusDays(1), 2, 5), 40),
+            outlookLine(ReviewOutlook(day0, 0, 0, day0.plusDays(1), 2, 5)),
         )
-        val later = outlookLine(ReviewOutlook(day0, 0, 0, day0.plusDays(3), 1, 4), 40)
+        val later = outlookLine(ReviewOutlook(day0, 0, 0, day0.plusDays(3), 1, 4))
         assertTrue(
             later,
             later.startsWith("Nothing due · next on ") && later.endsWith(", 1 card · 4 in the next 7 days"),
         )
-        assertTrue(outlookLine(ReviewOutlook(day0, 0, 0, day0.plusDays(30), 2, 0), 40).endsWith(", 2 cards"))
+        assertTrue(outlookLine(ReviewOutlook(day0, 0, 0, day0.plusDays(30), 2, 0)).endsWith(", 2 cards"))
         assertEquals(
             "No cards yet: grade a question below.",
-            outlookLine(ReviewOutlook(day0, 0, 0, null, 0, 0), 40),
+            outlookLine(ReviewOutlook(day0, 0, 0, null, 0, 0)),
         )
     }
 
@@ -245,19 +243,19 @@ class ReviewTest {
         val log = listOf(grade(1, 3, 0).copy(cardMutationId = "m1"), grade(2, 4, 0).copy(cardMutationId = "m2"))
         val outlook = reviewOutlook(listOf(card(1), card(2)), log, day - 3_600_000, utc)
         assertEquals(ReviewOutlook(day0, 0, 0, day0.plusDays(1), 1, 2), outlook)
-        assertEquals("Nothing due · 1 tomorrow · 2 in the next 7 days", outlookLine(outlook, 40))
+        assertEquals("Nothing due · 1 tomorrow · 2 in the next 7 days", outlookLine(outlook))
     }
 
     @Test
-    fun sessionsRespectTheServerCapInterleaveNotesAndExcludeNotDueCards() {
+    fun sessionsHoldAtMostTheSessionLimitInterleaveNotesAndExcludeNotDueCards() {
         val items = (1..50).map { card(it, if (it <= 30) 1 else 2) }
-        val session = dueSession(items, emptyList(), 0, 40, 7)
-        assertEquals(40, session.size)
+        val session = dueSession(items, emptyList(), 0, 7)
+        assertEquals(SESSION_LIMIT, session.size)
         assertEquals(setOf(1L, 2L), session.take(2).map { it.annotation.documentId }.toSet())
-        assertEquals(session, dueSession(items, emptyList(), 0, 40, 7))
+        assertEquals(session, dueSession(items, emptyList(), 0, 7))
         val reviews = listOf(grade(1, 4, 0).copy(cardMutationId = "m1"))
-        assertFalse(dueSession(items, reviews, 0, 40, 7).any { it.annotation.mutationId == "m1" })
-        assertTrue(dueSession(emptyList(), emptyList(), 0, 40, 7).isEmpty())
+        assertFalse(dueSession(items, reviews, 0, 7).any { it.annotation.mutationId == "m1" })
+        assertTrue(dueSession(emptyList(), emptyList(), 0, 7).isEmpty())
     }
 
     @Test
