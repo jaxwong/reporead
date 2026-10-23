@@ -99,10 +99,10 @@ class ReviewTest {
     }
 
     @Test
-    fun againGoesBackToTheFirstStepHardStaysAndArrivalOrderDoesNotChangeTheSchedule() {
+    fun againGoesBackToTheFirstStepHardStepsBackAndArrivalOrderDoesNotChangeTheSchedule() {
         val good = listOf(grade(1, 4, 0), grade(2, 4, 3 * day), grade(3, 4, 10 * day))
         assertEquals(ReviewSchedule(25 * day, 0), scheduleReviews(0, good + grade(4, 0, 24 * day)))
-        assertEquals(ReviewSchedule(38 * day, 3), scheduleReviews(0, good + grade(4, 3, 24 * day)))
+        assertEquals(ReviewSchedule(31 * day, 2), scheduleReviews(0, good + grade(4, 3, 24 * day)))
         assertEquals(ReviewSchedule(day, 0), scheduleReviews(0, listOf(grade(1, 3, 0))))
         val log = good + grade(4, 0, 24 * day) + grade(5, 4, 25 * day)
         assertEquals(ReviewSchedule(28 * day, 1), scheduleReviews(0, log))
@@ -135,8 +135,8 @@ class ReviewTest {
 
     @Test
     fun eachGradeShowsTheGapItWouldSchedule() {
-        assertEquals(mapOf(0 to 1L, 3 to 7L, 4 to 14L, 5 to 30L), gaps(2))
-        assertEquals(mapOf(0 to 1L, 3 to 120L, 4 to 120L, 5 to 120L), gaps(STEPS.lastIndex))
+        assertEquals(mapOf(0 to 1L, 3 to 3L, 4 to 14L, 5 to 30L), gaps(2))
+        assertEquals(mapOf(0 to 1L, 3 to 60L, 4 to 120L, 5 to 120L), gaps(STEPS.lastIndex))
         // Each gap is what grading then schedules.
         val onStep2 = listOf(grade(1, 4, 0), grade(2, 4, 3 * day))
         for ((grade, gap) in gaps(2)) assertEquals(

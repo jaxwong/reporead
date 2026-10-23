@@ -37,7 +37,7 @@ internal const val GRADE_MEANING =
 internal fun nextStep(step: Int, grade: Int): Int =
     when {
         isMiss(grade) -> FIRST_STEP
-        grade == 3 -> step // Hard: stay.
+        grade == 3 -> (step - 1).coerceAtLeast(FIRST_STEP) // Hard: step back one.
         grade == 4 -> (step + 1).coerceAtMost(STEPS.lastIndex) // Good: climb one.
         else -> (step + 2).coerceAtMost(STEPS.lastIndex) // Easy: climb two.
     }
