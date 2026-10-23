@@ -21,8 +21,9 @@ These come from the original implementation spec's engineering invariants and th
 | State | Owner |
 | --- | --- |
 | Note content and history | GitHub |
-| Users, sessions, connections, document identity, reading state, annotations, the review log, the session limit, every reconciliation decision | Backend and PostgreSQL |
+| Users, sessions, connections, document identity, reading state, annotations, the review log, the range a grade may take, every reconciliation decision | Backend and PostgreSQL |
 | Saved copies, pending changes, the review schedule | Phone (Room) |
+| The review session size (40) | Phone (a constant, `SESSION_LIMIT`) |
 | Metrics and logs | Projections only, never read back as state |
 
 - Enforced by: Room replaces server lists only with complete responses; the server stores no due dates; the phone computes no reconciliation.
@@ -98,8 +99,8 @@ These come from the original implementation spec's engineering invariants and th
 **A new Practice card and its first grade appear together or neither does; a restored or concurrent submission cannot create another pair for the same bank and Canonical line on this phone.**
 
 - Enforced by: unchanged-bank and existing-card admission inside `RepoReadDao.saveCardWithFirstReview`'s Room transaction, under `PhoneSync.committed`. Review admission likewise belongs to `RepoReadDao.recordReview`'s transaction. An insert failure propagates with both rows rolled back; there is no card-only fallback and no external call.
-- Shared rule owners: `QueryResults.kt` owns schedule eligibility (`reviewable`) and document/drawn-Canonical-line keys (`scheduledLines`, used by Practice and the DAO). `RepoReadDao.saveReview` is the single phone-side grade-range boundary; invalid server snapshots roll back and become `INVALID_RESPONSE`. No PhoneSync, Room or wire-validation import points back into `library`.
-- Checks: `PracticeMutationTest` forces a real SQLite grade-insert failure, concurrent submissions, a restored prompt edit and changed/missing banks; `RepoReadDatabaseTest` covers direct transactional admission, the full grade scale and invalid-grade rollback; `PracticeSessionTest` drives grades, double taps and leaving a queued grade through the real screen; `CommittedMutationTest` checks cancellation at PhoneSync's boundary.
+- Shared rule owners: `QueryResults.kt` owns schedule eligibility (`reviewable`) and document/drawn-Canonical-line keys (`scheduledLines`, used by Practice and the DAO). The grade range is checked only by the server (`ReviewController` and the `review_log.grade` constraint); the phone stores the grade it is given and shows a refused one as refused. No PhoneSync, Room or wire-validation import points back into `library`.
+- Checks: `PracticeMutationTest` forces a real SQLite grade-insert failure, concurrent submissions, a restored prompt edit and changed/missing banks; `RepoReadDatabaseTest` covers direct transactional admission, and the server's `AnnotationTest` covers the grade range (refused at −1 and 6, accepted at 0 and 5); `PracticeSessionTest` drives grades, double taps and leaving a queued grade through the real screen; `CommittedMutationTest` checks cancellation at PhoneSync's boundary.
 - Why: [ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling), [ADR-20](adrs.md#adr-20--practise-from-interview-banks-in-sessions-that-show-the-linked-answer). Cross-device duplicates are not deduplicated.
 
 ### An outdated answer is never drilled

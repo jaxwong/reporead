@@ -416,7 +416,6 @@ Room never decides anything the server owns; it mirrors complete server response
 | `reading_states`, `bookmarks` | Server lists, merged with local saves | Yes, last write wins by time |
 | `annotations` | Notebook and per-note listings | Yes: creations (with mutation id) and deletions of unacknowledged creations |
 | `review_log` | Server's durable log | Yes: grades (with mutation id) |
-| `review_limits` | Server-owned session limit (40) | No |
 
 The columns, as the latest exported schema (`android/schemas/`) lists them, in its order. Only `note_search_blocks` and `note_links` have foreign keys, to `notes` with delete cascade; every other reference is by id and not enforced by the database. Booleans are stored as 0/1 integers, and an embedded passage is stored as columns prefixed with its field name (`location…`).
 
@@ -515,10 +514,6 @@ erDiagram
         text blobSha
         integer pending
         text rejection "nullable"
-    }
-    review_limits {
-        integer id PK "always 1"
-        integer sessionLimit
     }
 ```
 
@@ -682,7 +677,7 @@ stateDiagram-v2
 
 ### Practice and review
 
-Cards are anchored annotations with a question: interview-bank questions, anchored to their Canonical line. The server owns the immutable review log and the session limit; the phone owns scheduling ([ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling)).
+Cards are anchored annotations with a question: interview-bank questions, anchored to their Canonical line. The server owns the immutable review log; the phone owns scheduling and the session size (40) ([ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling)).
 
 ```mermaid
 flowchart LR
@@ -696,7 +691,7 @@ flowchart LR
     Log -- "GET /api/library" --> Proj["Room: review_log projection"]
     Proj --> Ladder["study/ReviewSchedule.kt<br/>gap ladder over the log"]
     Ladder --> Topics["Due cards by topic<br/>Review opens here"]
-    Topics --> Due["Review session: one topic or all<br/>capped at 40 (server-owned)"]
+    Topics --> Due["Review session: one topic or all<br/>capped at 40 (a phone constant)"]
     Due --> Asks{"Saved current bank<br/>still asks the card's<br/>Canonical line?"}
     Asks -- "yes" --> Grade
     Asks -- "no" --> Open["Offer the bank: the server re-anchors<br/>an edited line, or delete the card"]
