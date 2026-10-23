@@ -606,41 +606,6 @@ class RepoReadDatabaseTest {
     }
 
     @Test
-    fun theReviewWriteBoundaryAcceptsTheStoredScaleAndRollsBackInvalidFirstGrades() = runBlocking {
-        val sha = "a".repeat(40)
-        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "Test-only note", sha)))
-        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "Test-only note", "<html/>", 0))
-        val card =
-            annotation("card", null, null, AnnotationState.UNSENT)
-                .copy(type = AnnotationType.CARD, question = "Test-only question?")
-        for (grade in 0..5) {
-            val graded = card.copy(mutationId = "card-$grade", exactText = "text-$grade", endOffset = 6)
-            val review = ReviewEntity("grade-$grade", graded.mutationId, grade, grade.toLong(), sha, true)
-            assertEquals(NewCardGrade.SAVED, dao.saveCardWithFirstReview(graded, review))
-            dao.saveReview(review.copy(pending = false))
-        }
-        for (grade in listOf(-1, 6)) {
-            val review = ReviewEntity("invalid-grade-$grade", card.mutationId, grade, 0, sha, true)
-            try {
-                dao.saveReview(review)
-                throw AssertionError("Review grade $grade must fail")
-            } catch (expected: InvalidReviewGrade) {
-                assertTrue(expected.message.orEmpty().contains(review.mutationId))
-            }
-            try {
-                dao.saveCardWithFirstReview(card, review)
-                throw AssertionError("First review grade $grade must fail")
-            } catch (expected: InvalidReviewGrade) {
-                assertTrue(expected.message.orEmpty().contains(review.mutationId))
-            }
-            assertNull("An invalid first grade must roll back its card", dao.annotation(card.mutationId))
-        }
-        assertEquals((0..5).toList(), dao.reviews().first().map { it.grade })
-        assertTrue(dao.pendingReviews().isEmpty())
-        assertEquals(6, dao.annotations(1).first().size)
-    }
-
-    @Test
     fun gradesSurviveNotebookRefreshAndAcknowledgementAndOnlyCurrentAnswersCanBeGraded() = runBlocking {
         val sha = "a".repeat(40)
         dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "a", sha)))

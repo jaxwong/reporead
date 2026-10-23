@@ -1690,8 +1690,6 @@ class PhoneSyncTest {
                     wire(
                         testLibrary(reviews = listOf(testReview().copy(cardMutationId = "test-only-missing-card")))
                     )) to "INVALID_RESPONSE",
-                (200 to wire(testLibrary(reviews = listOf(testReview().copy(grade = -1))))) to "INVALID_RESPONSE",
-                (200 to wire(testLibrary(reviews = listOf(testReview().copy(grade = 6))))) to "INVALID_RESPONSE",
                 library(repository(7, document(2).replace("false", "\"false\""))) to "INVALID_RESPONSE",
                 library(repository(7, document(2)).replace("\"lastSyncedCommitSha\"", "\"unknownCheckpoint\"")) to
                     "INVALID_RESPONSE",

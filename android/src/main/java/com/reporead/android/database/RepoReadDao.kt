@@ -366,13 +366,8 @@ interface RepoReadDao {
     @Query("SELECT * FROM review_log WHERE pending AND rejection IS NULL ORDER BY reviewedAt, mutationId")
     suspend fun pendingReviews(): List<ReviewEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertReview(row: ReviewEntity)
-
-    /** The grade-range write boundary for local grades, acknowledgements and complete server snapshots. */
-    suspend fun saveReview(row: ReviewEntity) {
-        if (row.grade !in 0..5) throw InvalidReviewGrade(row.mutationId, row.grade)
-        insertReview(row)
-    }
+    /** The range a grade may take is the server's to check: a grade it refuses comes back as INVALID_REVIEW. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveReview(row: ReviewEntity)
 
     /**
      * Admission and the card-plus-first-grade write share one SQLite transaction, independently of PhoneSync's lock.

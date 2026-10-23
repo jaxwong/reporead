@@ -8,7 +8,6 @@ import com.reporead.android.database.AnnotationState
 import com.reporead.android.database.AnnotationType
 import com.reporead.android.database.BookmarkEntity
 import com.reporead.android.database.DocumentEntity
-import com.reporead.android.database.InvalidReviewGrade
 import com.reporead.android.database.NewCardGrade
 import com.reporead.android.database.NewHighlight
 import com.reporead.android.database.NoteSearchBlockEntity
@@ -154,17 +153,7 @@ class PhoneSync(
             snapshot.bookmarks.map { BookmarkEntity(it.documentId, true, false, it.createdAt.toEpochMilli()) }
         val annotations = snapshot.notebook.annotations.map { it.toEntity() }
         val reviews = snapshot.notebook.reviews.map { it.toEntity() }
-        try {
-            dao.replaceFromServer(
-                repositoriesWithDocuments,
-                readingStates,
-                bookmarks,
-                annotations,
-                reviews,
-            )
-        } catch (invalidGrade: InvalidReviewGrade) {
-            throw invalidResponse(200, invalidGrade)
-        }
+        dao.replaceFromServer(repositoriesWithDocuments, readingStates, bookmarks, annotations, reviews)
         sweepImages()
     }
 
