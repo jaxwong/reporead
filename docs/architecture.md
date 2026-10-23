@@ -165,7 +165,7 @@ flowchart TB
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
 | `deletion` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionDeletion`, `AccountDeletion`, `DeletionController` |
-| `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook, each from its owner, in one read-only `REPEATABLE READ` transaction of a fixed 6 queries, refused over 8 MiB ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `LibrarySnapshotReader`, `LibrarySnapshot`, `LibraryController` |
+| `library` | The phone's one read of the server's lists: repositories with every document, reading states, bookmarks and the notebook's annotations and review log, each from its owner, in one read-only `REPEATABLE READ` transaction of a fixed 6 queries, refused over 8 MiB. The notebook carries no scheduler or session-size setting ([ADR-08](adrs.md#adr-08--offline-a-room-projection-plus-explicit-pending-changes)) | `LibrarySnapshotReader`, `LibrarySnapshot`, `LibraryController` |
 | `observability` | The request id and outcome boundary; journald priority conversion; authenticated ingestion of typed device-log batches into the server journal, with no stored copy | `RequestLoggingFilter`, `JournaldPriorityConverter`, `DeviceLogIngestController`, `DeviceLogLine` |
 | root | Error responses (`{code, message}`), shared PostgreSQL text-storability and hash rules | `ApiErrors`, `ApiFailure`, `StoredText`, `Hashes` |
 
@@ -677,7 +677,7 @@ stateDiagram-v2
 
 ### Practice and review
 
-Cards are anchored annotations with a question: interview-bank questions, anchored to their Canonical line. The server owns the immutable review log; the phone owns scheduling and the session size (40) ([ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling)).
+Cards are anchored annotations with a question: interview-bank questions, anchored to their Canonical line. The server owns the immutable review log; the phone owns scheduling and the session size (40) ([ADR-13](adrs.md#adr-13--anchored-cards-server-review-log-phone-only-scheduling)). `GET /api/library` carries the annotations and review log, not a session-size setting, so Review can build a session offline from Room.
 
 ```mermaid
 flowchart LR

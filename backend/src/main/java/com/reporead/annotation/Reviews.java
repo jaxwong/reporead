@@ -15,7 +15,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** Owns review_log, the durable record of every grade; never scheduling, which stays on the phone (ADR-13). */
 @Component
 public class Reviews {
-    private static final int SESSION_LIMIT = 40;
     private static final String SELECT = """
         SELECT r.mutation_id, a.mutation_id AS card_mutation_id, r.grade, r.reviewed_at, r.blob_sha
         FROM review_log r JOIN annotations a ON a.id = r.annotation_id
@@ -33,11 +32,7 @@ public class Reviews {
 
     public record Review(String mutationId, String cardMutationId, int grade, Instant reviewedAt, String blobSha) {}
 
-    /**
-     * {@code sessionLimit} is no longer read by the app, which owns the session size (ADR-13). It stays on the wire
-     * until no supported release reads it, then goes (ADR-24).
-     */
-    public record Notebook(List<Annotations.Annotation> annotations, List<Review> reviews, int sessionLimit) {}
+    public record Notebook(List<Annotations.Annotation> annotations, List<Review> reviews) {}
 
     /**
      * The user's anchored annotations and review log. LibrarySnapshotReader calls it inside the library's one
@@ -49,8 +44,7 @@ public class Reviews {
                 db.sql(SELECT + " ORDER BY r.reviewed_at, r.mutation_id")
                         .param("userId", userId)
                         .query(Review.class)
-                        .list(),
-                SESSION_LIMIT);
+                        .list());
     }
 
     /**

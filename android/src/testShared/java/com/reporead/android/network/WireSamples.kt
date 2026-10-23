@@ -148,7 +148,7 @@ internal fun testLibrary(
 ) =
     LibrarySnapshot(
         bookmarks = bookmarks,
-        notebook = ReviewsNotebook(annotations = annotations, reviews = reviews, sessionLimit = 40),
+        notebook = ReviewsNotebook(annotations = annotations, reviews = reviews),
         readingStates = readingStates,
         repositories = repositories,
     )

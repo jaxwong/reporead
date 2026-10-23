@@ -316,7 +316,7 @@ class AccountTest {
                     "GET /api/library" to
                         (200 to
                             """{"repositories":[],"readingStates":[],"bookmarks":[],
-                "notebook":{"annotations":[],"reviews":[],"sessionLimit":40}}"""),
+                "notebook":{"annotations":[],"reviews":[]}}"""),
                 )
             ) { key ->
                 if (key == "GET /api/library") check(releaseRefresh.await(10, SECONDS))

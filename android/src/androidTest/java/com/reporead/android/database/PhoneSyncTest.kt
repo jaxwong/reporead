@@ -94,7 +94,7 @@ class PhoneSyncTest {
     private fun library(repositories: String = "", readingStates: String = "", bookmarks: String = "") =
         200 to
             """{"repositories":[$repositories],"readingStates":[$readingStates],"bookmarks":[$bookmarks],
-            "notebook":{"annotations":[],"reviews":[],"sessionLimit":40}}"""
+            "notebook":{"annotations":[],"reviews":[]}}"""
 
     /** A library repository [id] with one listed note and these [documents]. */
     private fun repository(id: Int, documents: String, snapshot: String = sha) =
