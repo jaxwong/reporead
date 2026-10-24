@@ -172,6 +172,7 @@ internal fun testAvailable() =
         fullName = "test-only/notes",
         githubRepositoryId = 11,
         installationId = 7,
+        outdated = false,
         privateRepository = true,
     )
 
