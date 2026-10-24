@@ -37,7 +37,7 @@ class NoteLinksMigrationTest {
                 ),
                 dao.noteLinks(7),
             )
-            assertNotNull("the page itself is kept", dao.note(1))
+            assertNotNull("the page itself is kept", dao.savedPage(1))
         }
     }
 }

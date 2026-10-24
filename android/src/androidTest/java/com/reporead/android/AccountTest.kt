@@ -18,13 +18,13 @@ import com.reporead.android.database.AnnotationType
 import com.reporead.android.database.BookmarkEntity
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.LoopbackServer
-import com.reporead.android.database.NoteSearchBlockEntity
 import com.reporead.android.database.ReadingStateEntity
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.database.RepositoryEntity
 import com.reporead.android.database.ReviewEntity
 import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.SearchBlockEntity
 import com.reporead.android.library.LibraryScreen
 import com.reporead.android.network.Api
 import com.reporead.android.network.testSession
@@ -104,9 +104,9 @@ class AccountTest {
         sessions.save("TEST_ONLY_SESSION")
         dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/notes", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "a.md", "a", sha)))
-        dao.saveNote(
+        dao.savePage(
             SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0, snapshotCommitSha = sha),
-            listOf(NoteSearchBlockEntity(1, "b0", 0, "private text")),
+            listOf(SearchBlockEntity(1, "b0", 0, "private text")),
         )
         assertTrue(dao.saveDisplayedReading(reading()))
         dao.saveAnnotation(
@@ -148,7 +148,7 @@ class AccountTest {
         withTimeout(10_000) { state.first { it is AccountState.Idle } as AccountState.Idle }
 
     private suspend fun assertPhoneKept() {
-        assertEquals("private text", dao.searchNoteText("%private%", 1).single().text)
+        assertEquals("private text", dao.searchSavedPageText("%private%", 1).single().text)
         assertEquals(AnnotationState.UNSENT, dao.annotation("unsent")?.state)
         assertEquals(AnnotationState.UNSENT, dao.annotation("card")?.state)
         assertTrue(dao.reading(1)!!.pending)

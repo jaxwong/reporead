@@ -119,7 +119,7 @@ class PracticeMutationTest {
         dao.clearDocuments(7)
         assertNotNull(gradeNewQuestion(sync, question, 4))
         dao.insertDocuments(listOf(DocumentEntity(1, 7, question.path, question.title, sha)))
-        dao.deleteNotes(listOf(1))
+        dao.deleteSavedPages(listOf(1))
         assertNotNull(gradeNewQuestion(sync, question, 4))
         assertTrue(dao.annotations(1).first().isEmpty())
         assertTrue(dao.reviews().first().isEmpty())

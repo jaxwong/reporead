@@ -188,7 +188,7 @@ class RepoReadDatabaseTest {
             SavedPageEntity(1, sha, "a.md", "a", """<main><a href="/note-link?target=c">c</a></main>""", 0)
         )
         assertEquals(listOf(NoteLinkEntity(1, 0, "target=c")), dao.noteLinks(7))
-        dao.deleteNotes(listOf(1L))
+        dao.deleteSavedPages(listOf(1L))
         assertEquals(emptyList<NoteLinkEntity>(), dao.noteLinks(7))
         assertEquals(
             listOf(NoteLinkEntity(4, 0, "target=b"), NoteLinkEntity(4, 1, "path=c.md&heading=x")),
@@ -252,7 +252,7 @@ class RepoReadDatabaseTest {
                 DocumentEntity(10, 7, "gone/Older.md", "Older", "e".repeat(40), deleted = true),
             ),
         )
-        dao.saveNote(
+        dao.savePage(
             SavedPageEntity(
                 2,
                 "b".repeat(40),
@@ -262,8 +262,8 @@ class RepoReadDatabaseTest {
                 0,
             ),
             listOf(
-                NoteSearchBlockEntity(2, "b0", 0, "MVCC\nkeeps an internal newline"),
-                NoteSearchBlockEntity(2, "b7", 1, "Use 100% of the TRANSACTION log"),
+                SearchBlockEntity(2, "b0", 0, "MVCC\nkeeps an internal newline"),
+                SearchBlockEntity(2, "b7", 1, "Use 100% of the TRANSACTION log"),
             ),
         )
         dao.saveNoteWithoutSearch(SavedPageEntity(9, "d".repeat(40), "gone/Old.md", "Old", "<html/>", 0))
@@ -285,19 +285,19 @@ class RepoReadDatabaseTest {
         )
 
         // Title in a saved list, an exact canonical block, and a highlight's note all match independently.
-        val textMatch = dao.searchNoteText("%transaction%", 50).single()
+        val textMatch = dao.searchSavedPageText("%transaction%", 50).single()
         assertEquals(2L, textMatch.documentId)
         assertEquals("b7", textMatch.blockId)
         assertEquals(listOf(1L), dao.searchHighlights("%transaction%", 50).map { it.documentId })
-        assertEquals(listOf(1L), dao.searchNoteNames("%spring%", 50).map { it.documentId })
+        assertEquals(listOf(1L), dao.searchDocumentNames("%spring%", 50).map { it.documentId })
         // A removed note still matches by name while its saved copy is kept, and not without one.
-        assertEquals(listOf(9L), dao.searchNoteNames("%old%", 50).map { it.documentId })
+        assertEquals(listOf(9L), dao.searchDocumentNames("%old%", 50).map { it.documentId })
         // Escaped wildcards are literal: "0\_p" matches "100_percent" only, "0\%" only the text with "100%".
-        assertEquals(listOf(3L), dao.searchNoteNames("%0\\_p%", 50).map { it.documentId })
-        assertEquals(listOf(2L), dao.searchNoteText("%0\\%%", 50).map { it.documentId })
-        assertTrue(dao.searchNoteNames("%nothing like this%", 50).isEmpty())
-        assertTrue(dao.searchNoteText("%nothing like this%", 50).isEmpty())
-        assertEquals(2, dao.searchNoteNames("%s%", 2).size)
+        assertEquals(listOf(3L), dao.searchDocumentNames("%0\\_p%", 50).map { it.documentId })
+        assertEquals(listOf(2L), dao.searchSavedPageText("%0\\%%", 50).map { it.documentId })
+        assertTrue(dao.searchDocumentNames("%nothing like this%", 50).isEmpty())
+        assertTrue(dao.searchSavedPageText("%nothing like this%", 50).isEmpty())
+        assertEquals(2, dao.searchDocumentNames("%s%", 2).size)
     }
 
     @Test
@@ -310,16 +310,16 @@ class RepoReadDatabaseTest {
                 DocumentEntity(2, 7, "b.md", "B", sha),
             ),
         )
-        dao.saveNote(
+        dao.savePage(
             SavedPageEntity(1, sha, "a.md", "A", "<html/>", 0),
-            (0..5).map { position -> NoteSearchBlockEntity(1, "b$position", position, "Needle $position") },
+            (0..5).map { position -> SearchBlockEntity(1, "b$position", position, "Needle $position") },
         )
-        dao.saveNote(
+        dao.savePage(
             SavedPageEntity(2, sha, "b.md", "B", "<html/>", 0),
-            listOf(NoteSearchBlockEntity(2, "b0", 0, "Needle in the next note")),
+            listOf(SearchBlockEntity(2, "b0", 0, "Needle in the next note")),
         )
 
-        val rows = dao.searchNoteText("%needle%", 50)
+        val rows = dao.searchSavedPageText("%needle%", 50)
         assertEquals(listOf(1L, 2L), rows.map { it.documentId })
         assertEquals(listOf("b0", "b0"), rows.map { it.blockId })
         val found = search(dao, "needle")
@@ -338,14 +338,14 @@ class RepoReadDatabaseTest {
         val listed = (1L..60L).map { DocumentEntity(it, 7, "topics/Topic $it.md", "Topic $it", sha) }
         dao.replaceDocuments(7, listed + DocumentEntity(61, 7, "now/Renamed.md", "Renamed", "b".repeat(40)))
         // A body match supersedes the same note's name match, so each exact block appears once.
-        for (row in listed) dao.saveNote(
+        for (row in listed) dao.savePage(
             SavedPageEntity(row.id, sha, row.path, row.title, "<html/>", 0),
-            listOf(NoteSearchBlockEntity(row.id, "b0", 0, "A topic in detail")),
+            listOf(SearchBlockEntity(row.id, "b0", 0, "A topic in detail")),
         )
         // Saved before the note was renamed and moved: its documents row names it, not the older copy.
-        dao.saveNote(
+        dao.savePage(
             SavedPageEntity(61, "c".repeat(40), "then/Original.md", "Original", "<html/>", 0),
-            listOf(NoteSearchBlockEntity(61, "b3", 0, "Written about a topic")),
+            listOf(SearchBlockEntity(61, "b3", 0, "Written about a topic")),
         )
 
         val found = search(dao, "topic")
@@ -378,9 +378,9 @@ class RepoReadDatabaseTest {
         assertEquals(listOf(8L), dao.repositories().first().map { it.id })
         assertEquals(emptyList<DocumentEntity>(), dao.documents(7).first())
         assertEquals(listOf(3L), dao.documents(8).first().map { it.id })
-        assertNull(dao.note(1))
-        assertNull(dao.note(2))
-        assertTrue(dao.note(3) != null)
+        assertNull(dao.savedPage(1))
+        assertNull(dao.savedPage(2))
+        assertTrue(dao.savedPage(3) != null)
         assertNull(dao.reading(2))
         assertEquals(emptyList<ReadingStateEntity>(), dao.pendingReading())
         assertEquals(listOf(3L), dao.bookmarks().first().map { it.documentId })
@@ -402,13 +402,13 @@ class RepoReadDatabaseTest {
         // Disconnected with its answer lost, or from another device: the server no longer lists repository 7.
         dao.replaceRepositories(listOf(RepositoryEntity(8, "o/other", 1, "c".repeat(40))))
         assertEquals(listOf(8L), dao.repositories().first().map { it.id })
-        assertNull(dao.note(1))
+        assertNull(dao.savedPage(1))
         assertNull(dao.reading(1))
         assertNull(dao.annotation("m1"))
-        assertTrue(dao.note(3) != null)
+        assertTrue(dao.savedPage(3) != null)
         assertEquals(listOf(3L), dao.pendingReading().map { it.documentId })
         dao.replaceRepositories(listOf(RepositoryEntity(8, "o/other", 1, "c".repeat(40))))
-        assertTrue(dao.note(3) != null)
+        assertTrue(dao.savedPage(3) != null)
     }
 
     @Test
@@ -438,8 +438,8 @@ class RepoReadDatabaseTest {
         dao.saveBookmark(bookmark(3, bookmarked = true, pending = false, at = 1))
         dao.saveAnnotation(annotation("m4", 4, null, AnnotationState.ACKNOWLEDGED).copy(documentId = 4))
         // A removed note's copy goes once nothing refers to it, as an unlisted one's does.
-        dao.forgetUnreferencedNotes()
-        assertEquals(listOf(1L, 2L, 3L, 4L), (1L..6L).filter { dao.note(it) != null })
+        dao.forgetUnreferencedSavedPages()
+        assertEquals(listOf(1L, 2L, 3L, 4L), (1L..6L).filter { dao.savedPage(it) != null })
     }
 
     @Test
@@ -486,10 +486,10 @@ class RepoReadDatabaseTest {
         assertEquals(listOf(1L, 2L, 3L), dao.documentIds(7).sorted())
         assertEquals(listOf(1L), dao.bankPages().first().map { it.documentId })
         assertEquals(listOf(1L), dao.noteLinks(7).map { it.documentId })
-        assertEquals(1, dao.savedNoteCount(7))
+        assertEquals(1, dao.savedPageCount(7))
         assertEquals(1, dao.savedListCount())
-        assertEquals(1, dao.searchableNoteCount())
-        assertEquals(emptyList<NoteNameMatch>(), dao.searchNoteNames("%gone%", 10))
+        assertEquals(1, dao.searchableSavedPageCount())
+        assertEquals(emptyList<DocumentNameMatch>(), dao.searchDocumentNames("%gone%", 10))
         assertEquals(listOf(1L), dao.updatedSinceRead().first().map { it.documentId })
         assertTrue(dao.recentlyChanged(5).first().isEmpty())
         // Named, and marked removed, wherever the user's own data on it is kept.

@@ -40,11 +40,11 @@ data class DocumentEntity(
 
 /**
  * The latest complete rendered copy of an opened note, identified by document and source version. Its searchable
- * canonical blocks are [NoteSearchBlockEntity] children. [renderFormat] is the server's page format for [html]; 0 for
+ * canonical blocks are [SearchBlockEntity] children. [renderFormat] is the server's page format for [html]; 0 for
  * copies saved before formats were recorded. [snapshotCommitSha] pins images and embed resolution; null means a legacy
  * page whose image identity is unknown, not permission to fetch current images.
  */
-@Entity(tableName = "notes")
+@Entity(tableName = "saved_pages")
 data class SavedPageEntity(
     @PrimaryKey val documentId: Long,
     val blobSha: String,
@@ -58,7 +58,7 @@ data class SavedPageEntity(
 
 /** One backend-issued canonical block of a saved page, searchable without loading the page HTML. */
 @Entity(
-    tableName = "note_search_blocks",
+    tableName = "search_blocks",
     primaryKeys = ["documentId", "blockId"],
     indices = [Index(value = ["documentId", "position"], unique = true)],
     foreignKeys =
@@ -71,10 +71,10 @@ data class SavedPageEntity(
             )
         ],
 )
-data class NoteSearchBlockEntity(val documentId: Long, val blockId: String, val position: Int, val text: String)
+data class SearchBlockEntity(val documentId: Long, val blockId: String, val position: Int, val text: String)
 
 /**
- * One /note-link in a saved page, written with the page ([RepoReadDao.saveNote]) and deleted with it, so Linked from
+ * One /note-link in a saved page, written with the page ([RepoReadDao.savePage]) and deleted with it, so Linked from
  * reads these rows instead of every saved page.
  */
 @Entity(

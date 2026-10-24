@@ -55,7 +55,7 @@ interface RepoReadDao {
         replaceRemoteReading(reading)
         replaceRemoteBookmarks(bookmarks)
         replaceRemoteNotebook(annotations, reviews)
-        forgetUnreferencedNotes()
+        forgetUnreferencedSavedPages()
     }
 
     @Query("SELECT * FROM documents WHERE repositoryId = :repositoryId AND NOT deleted ORDER BY path")
@@ -83,7 +83,8 @@ interface RepoReadDao {
 
     @Query("DELETE FROM repositories WHERE id = :repositoryId") suspend fun deleteRepository(repositoryId: Long)
 
-    @Query("DELETE FROM notes WHERE documentId IN (:documentIds)") suspend fun deleteNotes(documentIds: List<Long>)
+    @Query("DELETE FROM saved_pages WHERE documentId IN (:documentIds)")
+    suspend fun deleteSavedPages(documentIds: List<Long>)
 
     @Query("DELETE FROM reading_states WHERE documentId IN (:documentIds)")
     suspend fun deleteReading(documentIds: List<Long>)
@@ -101,7 +102,7 @@ interface RepoReadDao {
     @Transaction
     suspend fun forgetRepository(repositoryId: Long, documentIds: List<Long>) {
         for (chunk in documentIds.chunked(IDS_PER_STATEMENT)) {
-            deleteNotes(chunk)
+            deleteSavedPages(chunk)
             deleteReading(chunk)
             deleteBookmarks(chunk)
             deleteReviewsOnDocuments(chunk)
@@ -111,10 +112,11 @@ interface RepoReadDao {
         deleteRepository(repositoryId)
     }
 
-    @Query("SELECT * FROM notes WHERE documentId = :documentId") suspend fun note(documentId: Long): SavedPageEntity?
+    @Query("SELECT * FROM saved_pages WHERE documentId = :documentId")
+    suspend fun savedPage(documentId: Long): SavedPageEntity?
 
-    /** Every saved page's version: the only images worth keeping (NoteImages.sweep). */
-    @Query("SELECT documentId, blobSha, path, renderFormat, snapshotCommitSha FROM notes")
+    /** Every saved page's version: the only images worth keeping (SavedPageImages.sweep). */
+    @Query("SELECT documentId, blobSha, path, renderFormat, snapshotCommitSha FROM saved_pages")
     suspend fun allSavedVersions(): List<SavedVersion>
 
     /**
@@ -125,7 +127,7 @@ interface RepoReadDao {
      */
     @Query(
         """SELECT d.id AS documentId, d.title, d.path, n.html, n.blobSha
-              FROM documents d LEFT JOIN notes n ON n.documentId = d.id AND n.blobSha = d.blobSha
+              FROM documents d LEFT JOIN saved_pages n ON n.documentId = d.id AND n.blobSha = d.blobSha
               WHERE NOT d.deleted AND ('/' || d.path) LIKE '%/interview/%' ORDER BY d.id"""
     )
     fun bankPages(): Flow<List<PracticePage>>
@@ -137,39 +139,40 @@ interface RepoReadDao {
     suspend fun noteLinks(repositoryId: Long): List<NoteLinkEntity>
 
     @Query(
-        "SELECT count(*) FROM notes n JOIN documents d ON d.id = n.documentId WHERE d.repositoryId = :repositoryId AND NOT d.deleted"
+        "SELECT count(*) FROM saved_pages n JOIN documents d ON d.id = n.documentId WHERE d.repositoryId = :repositoryId AND NOT d.deleted"
     )
-    suspend fun savedNoteCount(repositoryId: Long): Int
+    suspend fun savedPageCount(repositoryId: Long): Int
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertNote(row: SavedPageEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertSavedPage(page: SavedPageEntity)
 
     @Insert suspend fun insertNoteLinks(rows: List<NoteLinkEntity>)
 
-    @Insert suspend fun insertNoteSearchBlocks(rows: List<NoteSearchBlockEntity>)
+    @Insert suspend fun insertSearchBlocks(rows: List<SearchBlockEntity>)
 
     @Query("DELETE FROM note_links WHERE documentId = :documentId") suspend fun deleteNoteLinks(documentId: Long)
 
-    @Query("DELETE FROM note_search_blocks WHERE documentId = :documentId")
-    suspend fun deleteNoteSearchBlocks(documentId: Long)
+    @Query("DELETE FROM search_blocks WHERE documentId = :documentId") suspend fun deleteSearchBlocks(documentId: Long)
 
     /** Saves a page with its backend-issued search blocks and derived note links, replacing the complete older copy. */
     @Transaction
-    suspend fun saveNote(row: SavedPageEntity, blocks: List<NoteSearchBlockEntity>) {
-        deleteNoteLinks(row.documentId)
-        deleteNoteSearchBlocks(row.documentId)
-        insertNote(row)
-        insertNoteSearchBlocks(blocks)
+    suspend fun savePage(page: SavedPageEntity, blocks: List<SearchBlockEntity>) {
+        deleteNoteLinks(page.documentId)
+        deleteSearchBlocks(page.documentId)
+        insertSavedPage(page)
+        insertSearchBlocks(blocks)
         insertNoteLinks(
-            noteLinkQueries(row.html).mapIndexed { position, query -> NoteLinkEntity(row.documentId, position, query) }
+            noteLinkQueries(page.html).mapIndexed { position, query ->
+                NoteLinkEntity(page.documentId, position, query)
+            }
         )
     }
 
     @Query(
-        """SELECT documentId FROM notes WHERE documentId NOT IN (SELECT id FROM documents WHERE NOT deleted)
+        """SELECT documentId FROM saved_pages WHERE documentId NOT IN (SELECT id FROM documents WHERE NOT deleted)
               AND documentId NOT IN (SELECT documentId FROM reading_states) AND documentId NOT IN (SELECT documentId FROM bookmarks)
               AND documentId NOT IN (SELECT documentId FROM annotations)"""
     )
-    suspend fun unreferencedNoteIds(): List<Long>
+    suspend fun unreferencedSavedPageIds(): List<Long>
 
     /**
      * Deletes saved copies of notes that no saved list lists now and that no reading, bookmark, or annotation row
@@ -177,8 +180,8 @@ interface RepoReadDao {
      * server's complete lists.
      */
     @Transaction
-    suspend fun forgetUnreferencedNotes() {
-        for (chunk in unreferencedNoteIds().chunked(IDS_PER_STATEMENT)) deleteNotes(chunk)
+    suspend fun forgetUnreferencedSavedPages() {
+        for (chunk in unreferencedSavedPageIds().chunked(IDS_PER_STATEMENT)) deleteSavedPages(chunk)
     }
 
     /**
@@ -202,29 +205,29 @@ interface RepoReadDao {
     )
     fun unsentChangeCount(): Flow<Int>
 
-    /** Name-only matches; a note with a body match is omitted because its exact [NoteTextMatch] is more useful. */
+    /** Name-only matches; a note with a body match is omitted because its exact [SavedPageTextMatch] is more useful. */
     @Query(
         """SELECT d.id AS documentId, d.title, d.path, d.title LIKE :pattern ESCAPE '\' AS isTitleMatch
-              FROM documents d LEFT JOIN notes n ON n.documentId = d.id
+              FROM documents d LEFT JOIN saved_pages n ON n.documentId = d.id
               WHERE (NOT d.deleted OR n.documentId IS NOT NULL)
               AND (d.title LIKE :pattern ESCAPE '\' OR d.path LIKE :pattern ESCAPE '\')
-              AND NOT EXISTS (SELECT 1 FROM note_search_blocks b WHERE b.documentId = d.id AND b.text LIKE :pattern ESCAPE '\')
+              AND NOT EXISTS (SELECT 1 FROM search_blocks b WHERE b.documentId = d.id AND b.text LIKE :pattern ESCAPE '\')
               ORDER BY d.title LIMIT :limit"""
     )
-    suspend fun searchNoteNames(pattern: String, limit: Int): List<NoteNameMatch>
+    suspend fun searchDocumentNames(pattern: String, limit: Int): List<DocumentNameMatch>
 
     /** The first canonical block per note containing [pattern], with its saved version and exact reader block id. */
     @Query(
         """SELECT d.id AS documentId, d.title, d.path, n.blobSha, b.blockId, b.text
-              FROM note_search_blocks b JOIN notes n ON n.documentId = b.documentId
+              FROM search_blocks b JOIN saved_pages n ON n.documentId = b.documentId
               JOIN documents d ON d.id = b.documentId
               WHERE b.text LIKE :pattern ESCAPE '\'
-              AND NOT EXISTS (SELECT 1 FROM note_search_blocks earlier
+              AND NOT EXISTS (SELECT 1 FROM search_blocks earlier
                 WHERE earlier.documentId = b.documentId AND earlier.position < b.position
                 AND earlier.text LIKE :pattern ESCAPE '\')
               ORDER BY d.title, b.position LIMIT :limit"""
     )
-    suspend fun searchNoteText(pattern: String, limit: Int): List<NoteTextMatch>
+    suspend fun searchSavedPageText(pattern: String, limit: Int): List<SavedPageTextMatch>
 
     @Query(
         """SELECT a.mutationId, a.documentId, d.title, d.path, a.exactText, a.note
@@ -237,8 +240,8 @@ interface RepoReadDao {
     @Query("SELECT count(*) FROM documents WHERE NOT deleted") suspend fun savedListCount(): Int
 
     /** Notes in the saved lists with a saved page: the part of [savedListCount] whose canonical blocks are searched. */
-    @Query("SELECT count(*) FROM notes n JOIN documents d ON d.id = n.documentId WHERE NOT d.deleted")
-    suspend fun searchableNoteCount(): Int
+    @Query("SELECT count(*) FROM saved_pages n JOIN documents d ON d.id = n.documentId WHERE NOT d.deleted")
+    suspend fun searchableSavedPageCount(): Int
 
     @Query(
         """SELECT r.documentId, d.title, d.path, d.deleted, r.progressPercent
@@ -356,7 +359,7 @@ interface RepoReadDao {
 
     @Query(
         """SELECT a.*, d.title, d.path, d.blobSha AS currentBlobSha, d.deleted, n.blobSha AS savedBlobSha
-              FROM annotations a JOIN documents d ON d.id = a.documentId LEFT JOIN notes n ON n.documentId = a.documentId
+              FROM annotations a JOIN documents d ON d.id = a.documentId LEFT JOIN saved_pages n ON n.documentId = a.documentId
               WHERE a.state <> 'DELETING' ORDER BY a.createdAt, a.mutationId"""
     )
     fun notebook(): Flow<List<NotebookItem>>
@@ -385,9 +388,9 @@ interface RepoReadDao {
         }
         if ((card.documentId to card.exactText) in scheduledLines(notebook().first()))
             return NewCardGrade.ALREADY_SCHEDULED
-        val note = note(card.documentId) ?: return NewCardGrade.NOT_SAVED
+        val savedPage = savedPage(card.documentId) ?: return NewCardGrade.NOT_SAVED
         val document = document(card.documentId) ?: return NewCardGrade.NOT_SAVED
-        if (note.blobSha != card.sourceBlobSha || document.blobSha != card.sourceBlobSha || document.deleted)
+        if (savedPage.blobSha != card.sourceBlobSha || document.blobSha != card.sourceBlobSha || document.deleted)
             return NewCardGrade.BANK_CHANGED
         saveAnnotation(card)
         saveReview(review)
@@ -406,7 +409,7 @@ interface RepoReadDao {
             card.type != AnnotationType.CARD ||
                 card.state == AnnotationState.DELETING ||
                 row.blobSha != document.blobSha ||
-                card.cardBlock(document.deleted, row.blobSha, note(card.documentId)?.blobSha) != null
+                card.cardBlock(document.deleted, row.blobSha, savedPage(card.documentId)?.blobSha) != null
         )
             return false
         saveReview(row)
@@ -460,7 +463,7 @@ interface RepoReadDao {
         require(row.type == AnnotationType.HIGHLIGHT && row.state == AnnotationState.UNSENT && row.serverId == null) {
             "Invalid new highlight ${row.mutationId}: type=${row.type} state=${row.state} serverId=${row.serverId}"
         }
-        if (note(row.documentId) == null) return NewHighlight.PageGone
+        if (savedPage(row.documentId) == null) return NewHighlight.PageGone
         highlightOn(annotations(row.documentId).first(), row.drawn)?.let {
             return NewHighlight.AlreadyHighlighted(it)
         }

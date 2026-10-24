@@ -28,14 +28,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class DocumentController {
     private static final Logger LOG = LoggerFactory.getLogger(DocumentController.class);
     private final Documents documents;
-    private final NoteVersions noteVersions;
+    private final DocumentVersions documentVersions;
     private final Attachments attachments;
     private final TransactionTemplate snapshot;
 
     public DocumentController(
-            Documents documents, NoteVersions noteVersions, Attachments attachments, TransactionTemplate transaction) {
+            Documents documents,
+            DocumentVersions documentVersions,
+            Attachments attachments,
+            TransactionTemplate transaction) {
         this.documents = documents;
-        this.noteVersions = noteVersions;
+        this.documentVersions = documentVersions;
         this.attachments = attachments;
         this.snapshot = new TransactionTemplate(transaction.getTransactionManager());
         snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -83,19 +86,19 @@ public class DocumentController {
             return new ContentSource(document, attachments.paths(document.connectionId()));
         });
         var document = source.document();
-        var noteVersion = noteVersions.render(user, document, document.blobSha());
-        var renderedNote = noteVersion.note();
-        Attachments.bind(renderedNote.page(), document.path(), source.imagePaths());
-        String pageHtml = MarkdownRenderer.pageHtml(renderedNote.page());
+        var documentVersion = documentVersions.render(user, document, document.blobSha());
+        var renderedDocument = documentVersion.document();
+        Attachments.bind(renderedDocument.page(), document.path(), source.imagePaths());
+        String pageHtml = MarkdownRenderer.pageHtml(renderedDocument.page());
         LOG.info(
                 "Document rendered; userId={} documentId={} blobSha={} snapshotCommitSha={} bytes={} blocks={} diagrams={}",
                 user.id(),
                 documentId,
                 document.blobSha(),
                 document.commitSha(),
-                noteVersion.bytes(),
-                renderedNote.blocks().size(),
-                renderedNote.diagramCount());
+                documentVersion.bytes(),
+                renderedDocument.blocks().size(),
+                renderedDocument.diagramCount());
         return new Content(
                 documentId,
                 document.path(),
@@ -103,7 +106,7 @@ public class DocumentController {
                 document.blobSha(),
                 document.commitSha(),
                 pageHtml,
-                renderedNote.blocks().stream()
+                renderedDocument.blocks().stream()
                         .map(block -> new SearchBlock(block.id(), block.text()))
                         .toList(),
                 MarkdownRenderer.FORMAT);

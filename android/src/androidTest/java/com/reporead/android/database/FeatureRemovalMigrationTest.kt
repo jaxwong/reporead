@@ -93,10 +93,10 @@ class FeatureRemovalMigrationTest {
                     setOf(1L, 4L),
                     dao.allSavedVersions().map { it.documentId }.toSet(),
                 )
-                assertNull(dao.note(2))
-                assertNull(dao.note(3))
-                assertNull(dao.note(5))
-                assertNull(dao.note(6))
+                assertNull(dao.savedPage(2))
+                assertNull(dao.savedPage(3))
+                assertNull(dao.savedPage(5))
+                assertNull(dao.savedPage(6))
                 assertEquals(
                     SavedPageEntity(
                         1,
@@ -108,10 +108,10 @@ class FeatureRemovalMigrationTest {
                         3,
                         snapshot,
                     ),
-                    dao.note(1),
+                    dao.savedPage(1),
                 )
-                assertEquals("kept\nline", dao.searchNoteText("%kept%", 1).single().text)
-                assertEquals("b4", dao.searchNoteText("%near limit%", 1).single().blockId)
+                assertEquals("kept\nline", dao.searchSavedPageText("%kept%", 1).single().text)
+                assertEquals("b4", dao.searchSavedPageText("%near limit%", 1).single().blockId)
                 assertEquals(setOf(1L, 4L), dao.noteLinks(7).map { it.documentId }.toSet())
                 assertTrue(dao.noteLinks(7).contains(NoteLinkEntity(1, 0, "path=b.md")))
                 assertEquals(ReadingStateEntity(1, sha, 40, "{}", 5, pending = true), dao.reading(1))

@@ -9,12 +9,12 @@ import org.jsoup.Jsoup;
 import org.junit.jupiter.api.Test;
 
 class MarkdownRendererTest {
-    private MarkdownRenderer.RenderedNote render(String source) {
+    private MarkdownRenderer.RenderedDocument render(String source) {
         return MarkdownRenderer.render(source, sha(source), "notes/backend/test.md");
     }
 
-    private org.jsoup.nodes.Document page(MarkdownRenderer.RenderedNote note) {
-        return Jsoup.parse(MarkdownRenderer.pageHtml(note.page()));
+    private org.jsoup.nodes.Document page(MarkdownRenderer.RenderedDocument rendered) {
+        return Jsoup.parse(MarkdownRenderer.pageHtml(rendered.page()));
     }
 
     static String sha(String source) {

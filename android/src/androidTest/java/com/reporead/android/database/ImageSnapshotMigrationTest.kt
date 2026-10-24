@@ -48,9 +48,9 @@ class ImageSnapshotMigrationTest {
                     0,
                     3,
                 ),
-                dao.note(1),
+                dao.savedPage(1),
             )
-            assertEquals("b0", dao.searchNoteText("%kept%", 1).single().blockId)
+            assertEquals("b0", dao.searchSavedPageText("%kept%", 1).single().blockId)
             assertNull(dao.allSavedVersions().single().snapshotCommitSha)
             assertEquals(listOf(NoteLinkEntity(1, 0, "path=b.md")), dao.noteLinks(7))
             assertEquals(1, dao.pendingReading().size)

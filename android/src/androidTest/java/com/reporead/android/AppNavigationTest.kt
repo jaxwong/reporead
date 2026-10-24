@@ -26,12 +26,12 @@ import com.reporead.android.database.AnnotationEntity
 import com.reporead.android.database.AnnotationState
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.LoopbackServer
-import com.reporead.android.database.NoteSearchBlockEntity
 import com.reporead.android.database.Passage
 import com.reporead.android.database.RepoReadDao
 import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.database.RepositoryEntity
 import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.SearchBlockEntity
 import com.reporead.android.network.Api
 import com.reporead.android.network.TEST_HIGHLIGHT_MUTATION
 import com.reporead.android.network.testAvailable
@@ -127,7 +127,7 @@ class AppNavigationTest {
                         """<p data-block-id="$id" data-anchor-text="$text">Test-only text, then <a href="/note-link?target=${note.linksTo}">onward</a>.</p>"""
                     else """<p data-block-id="$id" data-anchor-text="$text">$text</p>"""
                 }
-            dao.saveNote(
+            dao.savePage(
                 SavedPageEntity(
                     note.id,
                     testSha,
@@ -138,7 +138,7 @@ class AppNavigationTest {
                     renderFormat = BuildConfig.RENDER_FORMAT,
                     snapshotCommitSha = testSha,
                 ),
-                blocks.mapIndexed { position, (id, text) -> NoteSearchBlockEntity(note.id, id, position, text) },
+                blocks.mapIndexed { position, (id, text) -> SearchBlockEntity(note.id, id, position, text) },
             )
         }
     }
@@ -512,7 +512,7 @@ class AppNavigationTest {
             awaitScreen("Reading", hidden = listOf("Note A", "Linked from", "Test-only legacy stack"))
             assertTrue(selected("Reading"))
             assertEquals(3, dao.documents(7).first().size)
-            assertNotNull(dao.note(1))
+            assertNotNull(dao.savedPage(1))
             assertEquals(AnnotationState.UNSENT, dao.annotation("test-only-pending")?.state)
             assertEquals("Test-only saved file", file.readText())
             assertEquals(emptyList<String>(), server.requests)
@@ -623,7 +623,7 @@ class AppNavigationTest {
                 awaitScreen("Reading", hidden = listOf("Signing out…"))
                 assertFalse(sessions.hasSession)
                 assertTrue(selected("Repositories"))
-                assertNotNull(runBlocking { dao.note(1) })
+                assertNotNull(runBlocking { dao.savedPage(1) })
                 sessions.pendingVerifier = "test-only-verifier"
                 scenario!!.onActivity { signInCode.value = "TEST_ONLY_CODE" }
                 runBlocking { withTimeout(10_000) { while (!sessions.hasSession) delay(20) } }
@@ -658,7 +658,7 @@ class AppNavigationTest {
                 click("Cancel")
                 awaitScreen("Reading", hidden = listOf(title))
                 assertTrue(sessions.hasSession)
-                assertNotNull(dao.note(1))
+                assertNotNull(dao.savedPage(1))
                 scenario!!.close()
                 scenario = null
             }
@@ -690,7 +690,7 @@ class AppNavigationTest {
                 awaitScreen("Reading", hidden = listOf("Sign out of RepoRead?"))
                 assertNothingMoreSent(server, before)
                 assertEquals(AnnotationState.UNSENT, dao.annotation("unsent")?.state)
-                assertNotNull(dao.note(1))
+                assertNotNull(dao.savedPage(1))
                 assertTrue(sessions.hasSession)
             }
     }

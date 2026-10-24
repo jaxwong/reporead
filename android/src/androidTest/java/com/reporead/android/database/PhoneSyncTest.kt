@@ -25,8 +25,8 @@ import com.reporead.android.network.wire
 import com.reporead.android.network.wireJson
 import com.reporead.android.reader.readerAssets
 import com.reporead.android.reader.readerResource
-import com.reporead.android.sync.NoteImages
 import com.reporead.android.sync.PhoneSync
+import com.reporead.android.sync.SavedPageImages
 import com.reporead.android.sync.SavingNotes
 import com.reporead.android.sync.saveAllInBackground
 import com.reporead.android.sync.savingNotes
@@ -164,7 +164,7 @@ class PhoneSyncTest {
         val opened = sync("http://127.0.0.1:${closedPort()}").openNote(1)
         assertEquals(old, opened.note)
         assertNull(opened.staleReason)
-        assertEquals(old, dao.note(1))
+        assertEquals(old, dao.savedPage(1))
     }
 
     @Test
@@ -176,7 +176,7 @@ class PhoneSyncTest {
             val opened = sync(server.url).openNote(1)
             assertEquals(old, opened.note)
             assertEquals("UNSUPPORTED_CONTENT", opened.staleReason?.code)
-            assertEquals(old, dao.note(1))
+            assertEquals(old, dao.savedPage(1))
             assertEquals(listOf("GET /api/documents/1/content"), server.requests)
         }
     }
@@ -779,7 +779,7 @@ class PhoneSyncTest {
                 assertEquals(1, server.requests.count { it == imageRequest })
             }
         val offlineImages =
-            NoteImages(
+            SavedPageImages(
                 Api("http://127.0.0.1:1", { error("The saved image must not need a network request") }) {},
                 directory,
             )
@@ -788,7 +788,7 @@ class PhoneSyncTest {
             readerResource(
                 readerAssets(context),
                 offlineImages,
-                dao.note(1)!!,
+                dao.savedPage(1)!!,
                 Uri.parse("https://appassets.androidplatform.net$imageSource"),
             )
         assertEquals(200, response.statusCode)
@@ -827,8 +827,8 @@ class PhoneSyncTest {
                 assertEquals("GITHUB_UNAVAILABLE", (error as ApiException).code)
                 assertEquals(listOf(0 to 2), progress)
                 assertEquals(listOf("GET /api/library", ok, missing), server.requests)
-                assertEquals(current, dao.note(1))
-                assertNull(dao.note(2))
+                assertEquals(current, dao.savedPage(1))
+                assertNull(dao.savedPage(2))
                 assertEquals(Result.retry(), saveAllInBackground(sync, 7, 0) {})
                 val last = saveAllInBackground(sync, 7, 9) {} as Result.Failure
                 assertEquals(
@@ -907,7 +907,7 @@ class PhoneSyncTest {
                         if (attempt == 0) listOf("GET /api/library", first) else listOf("GET /api/library"),
                         server.requests,
                     )
-                    for (id in 1L..3L) assertEquals(html, dao.note(id)!!.html)
+                    for (id in 1L..3L) assertEquals(html, dao.savedPage(id)!!.html)
                 }
         }
     }
@@ -946,7 +946,7 @@ class PhoneSyncTest {
                     assertFalse(sessions.hasSession)
                     assertEquals(StoredSession.Absent, sessions.read())
                     assertEquals(listOf("GET /api/library", first, refused), server.requests)
-                    for (id in 1L..3L) assertEquals(html, dao.note(id)!!.html)
+                    for (id in 1L..3L) assertEquals(html, dao.savedPage(id)!!.html)
                     assertEquals("TEST_ONLY_FIRST", sync.images.image(1, sha, "a.png")!!.toString(Charsets.UTF_8))
                 }
         } finally {
@@ -981,7 +981,7 @@ class PhoneSyncTest {
                     sync.saveAllNotes(7) { done, total -> progress += done to total },
                 )
                 assertEquals(listOf(0 to 4, 1 to 4, 2 to 4, 3 to 4, 4 to 4), progress)
-                for (id in 1L..3L) assertEquals(html, dao.note(id)!!.html)
+                for (id in 1L..3L) assertEquals(html, dao.savedPage(id)!!.html)
                 assertEquals(
                     listOf("GET /api/library", "GET /api/documents/1/content") +
                         requests +
@@ -1025,7 +1025,7 @@ class PhoneSyncTest {
                 val saved: SavedPageEntity
                 try {
                     assertTrue("The image was never requested", arrived.await(10, SECONDS))
-                    saved = checkNotNull(dao.note(1))
+                    saved = checkNotNull(dao.savedPage(1))
                     assertEquals(sha, saved.snapshotCommitSha)
                     assertEquals(html, saved.html)
                     saving.cancel()
@@ -1035,7 +1035,7 @@ class PhoneSyncTest {
                 saving.join()
                 assertTrue(saving.isCancelled)
                 assertEquals(listOf("GET /api/library", contentRequest, first), server.requests)
-                assertEquals(saved, dao.note(1))
+                assertEquals(saved, dao.savedPage(1))
                 assertTrue("Cancellation must leave the orphan for a later sweep", replaced.exists())
             }
         LoopbackServer(mapOf(listed, second to (200 to "TEST_ONLY_SECOND"))).use { server ->
@@ -1097,7 +1097,7 @@ class PhoneSyncTest {
                     release.countDown()
                 }
                 assertEquals(listOf("GET /api/library", first, second, "DELETE /api/repositories/7"), server.requests)
-                assertNull(dao.note(1))
+                assertNull(dao.savedPage(1))
                 assertFalse(File(directory, "images/1").exists())
             }
     }
@@ -1143,16 +1143,16 @@ class PhoneSyncTest {
                 assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
                 val expected = SavedPageEntity(3, sha, path, title, html, 0, BuildConfig.RENDER_FORMAT, sha)
                 repeat(2) {
-                    assertEquals(old, dao.note(1))
-                    assertNull(dao.note(2))
-                    assertEquals(expected, dao.note(3)!!.copy(fetchedAt = 0))
+                    assertEquals(old, dao.savedPage(1))
+                    assertNull(dao.savedPage(2))
+                    assertEquals(expected, dao.savedPage(3)!!.copy(fetchedAt = 0))
                 }
                 assertEquals(
                     PhoneSync.SaveAllResult(0, 1, 2),
                     sync.saveAllNotes(7) { _, _ -> },
                 )
-                assertEquals(old, dao.note(1))
-                assertEquals(expected, dao.note(3)!!.copy(fetchedAt = 0))
+                assertEquals(old, dao.savedPage(1))
+                assertEquals(expected, dao.savedPage(3)!!.copy(fetchedAt = 0))
                 assertEquals(
                     listOf(
                         "GET /api/library",
@@ -1257,8 +1257,8 @@ class PhoneSyncTest {
                 assertTrue(reason.endsWith("…"))
                 assertTrue(error.describe().startsWith(reason.removeSuffix("…")))
                 assertTrue(reason.toByteArray(Charsets.UTF_8).size < Data.MAX_DATA_BYTES)
-                assertEquals("n1", dao.note(1)?.title)
-                assertNull(dao.note(2))
+                assertEquals("n1", dao.savedPage(1)?.title)
+                assertNull(dao.savedPage(2))
             }
     }
 
@@ -1324,7 +1324,7 @@ class PhoneSyncTest {
                 assertEquals(listOf(0 to 1, 1 to 1), progress)
                 assertEquals(PhoneSync.Opened(saved, null), sync.openNote(1))
                 assertEquals(PhoneSync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
-                assertEquals(saved, dao.note(1))
+                assertEquals(saved, dao.savedPage(1))
                 assertEquals(listOf("GET /api/library", "GET /api/library"), server.requests)
             }
         }
@@ -1358,8 +1358,8 @@ class PhoneSyncTest {
             .use { server ->
                 val sync = sync(server.url)
                 assertEquals(PhoneSync.SaveAllResult(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
-                assertEquals(html, dao.note(1)!!.html)
-                assertEquals(newCommit, dao.note(1)!!.snapshotCommitSha)
+                assertEquals(html, dao.savedPage(1)!!.html)
+                assertEquals(newCommit, dao.savedPage(1)!!.snapshotCommitSha)
                 assertEquals(PhoneSync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf("GET /api/library", "GET /api/documents/1/content", imageRequest, "GET /api/library"),
@@ -1441,7 +1441,7 @@ class PhoneSyncTest {
                 assertEquals(displayed, sync.openNote(1).note)
                 assertTrue(server.requests.isEmpty())
                 assertEquals(PhoneSync.SaveAllResult(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
-                val saved = dao.note(1)!!
+                val saved = dao.savedPage(1)!!
                 assertEquals(sha, saved.blobSha)
                 assertEquals(newCommit, saved.snapshotCommitSha)
                 assertEquals(html, saved.html)
@@ -1493,7 +1493,7 @@ class PhoneSyncTest {
                 assertTrue(opened.staleReason.toString(), opened.staleReason != null)
                 assertEquals(200, opened.staleReason?.status)
                 assertEquals("INVALID_RESPONSE", opened.staleReason?.code)
-                assertEquals(saved, dao.note(1))
+                assertEquals(saved, dao.savedPage(1))
                 assertEquals(listOf("GET /api/documents/1/content"), server.requests)
             }
         }
@@ -1667,7 +1667,7 @@ class PhoneSyncTest {
                 dao.repositories().first(),
                 dao.documents(7).first(),
                 dao.documents(9).first(),
-                dao.note(3),
+                dao.savedPage(3),
                 dao.reading(1),
                 dao.bookmarks().first(),
                 dao.notebook().first(),
@@ -1732,7 +1732,7 @@ class PhoneSyncTest {
                     .disconnectPreview(7)
             )
             assertTrue(dao.repositoryIds().isEmpty())
-            assertNull(dao.note(1))
+            assertNull(dao.savedPage(1))
         }
     }
 
@@ -1782,7 +1782,7 @@ class PhoneSyncTest {
                 )
             }
         assertTrue(dao.repositoryIds().isEmpty())
-        assertNull(dao.note(1))
+        assertNull(dao.savedPage(1))
         assertFalse(image.exists())
     }
 
