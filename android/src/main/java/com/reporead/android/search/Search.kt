@@ -63,8 +63,8 @@ internal data class SearchResult(
     val openAt: OpenAt?,
 )
 
-/** The matches listed for a query; [truncated] when a result category reached the global [SEARCH_LIMIT]. */
-internal data class SearchResults(val matches: List<SearchResult>, val truncated: Boolean)
+/** The matches listed for a query; [isTruncated] when a result category reached the global [SEARCH_LIMIT]. */
+internal data class SearchResults(val matches: List<SearchResult>, val isTruncated: Boolean)
 
 /**
  * Searches only what is saved on this phone, which belongs to the signed-in account: note titles and paths in the saved
@@ -72,8 +72,8 @@ internal data class SearchResults(val matches: List<SearchResult>, val truncated
  */
 internal suspend fun search(dao: RepoReadDao, query: String): SearchResults {
     val pattern = likePattern(query)
-    val names = dao.searchNoteNames(pattern, SEARCH_LIMIT)
-    val noteText = dao.searchNoteText(pattern, SEARCH_LIMIT)
+    val names = dao.searchDocumentNames(pattern, SEARCH_LIMIT)
+    val noteText = dao.searchSavedPageText(pattern, SEARCH_LIMIT)
     val highlights = dao.searchHighlights(pattern, SEARCH_LIMIT)
     val results =
         names.map { note ->
@@ -81,7 +81,7 @@ internal suspend fun search(dao: RepoReadDao, query: String): SearchResults {
                 note.documentId,
                 note.title,
                 note.path,
-                if (note.titleMatch) "Title" else "Path",
+                if (note.isTitleMatch) "Title" else "Path",
                 null,
             )
         } +
@@ -116,7 +116,7 @@ internal suspend fun search(dao: RepoReadDao, query: String): SearchResults {
             }
     return SearchResults(
         results,
-        truncated = names.size == SEARCH_LIMIT || noteText.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT,
+        isTruncated = names.size == SEARCH_LIMIT || noteText.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT,
     )
 }
 
@@ -145,7 +145,7 @@ fun SearchScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<SearchResults?>(null) }
     var counts by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    LaunchedEffect(Unit) { counts = dao.savedListCount() to dao.searchableNoteCount() }
+    LaunchedEffect(Unit) { counts = dao.savedListCount() to dao.searchableSavedPageCount() }
     LaunchedEffect(query) {
         results = null
         if (query.isBlank()) return@LaunchedEffect
@@ -169,7 +169,7 @@ fun SearchScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack: () -> Unit) {
                 found.matches.isEmpty() -> EmptyState(noMatches(query.trim(), counts))
                 else ->
                     LazyColumn {
-                        if (found.truncated)
+                        if (found.isTruncated)
                             item {
                                 Text(
                                     "Some matches are omitted; refine the search to see others.",

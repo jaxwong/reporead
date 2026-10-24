@@ -5,6 +5,7 @@ import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.DeleteColumn
 import androidx.room.DeleteTable
+import androidx.room.RenameTable
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.AutoMigrationSpec
@@ -146,20 +147,31 @@ class StructureSearchBlocks : AutoMigrationSpec {
 /** v19: the review session size is the phone's own constant (ADR-13), so the server's copy is no longer stored. */
 @DeleteTable(tableName = "review_limits") class DropReviewLimits : AutoMigrationSpec
 
+/**
+ * v20: the tables take the names of what they hold (code-style vocabulary): a `saved_pages` row is the phone's rendered
+ * copy of one document version, never the note itself, and `search_blocks` are its canonical blocks. Rows and the
+ * cascades from `search_blocks` and `note_links` are kept.
+ */
+@RenameTable.Entries(
+    RenameTable(fromTableName = "notes", toTableName = "saved_pages"),
+    RenameTable(fromTableName = "note_search_blocks", toTableName = "search_blocks"),
+)
+class NameSavedPages : AutoMigrationSpec
+
 @Database(
     entities =
         [
             RepositoryEntity::class,
             DocumentEntity::class,
             SavedPageEntity::class,
-            NoteSearchBlockEntity::class,
+            SearchBlockEntity::class,
             NoteLinkEntity::class,
             ReadingStateEntity::class,
             BookmarkEntity::class,
             AnnotationEntity::class,
             ReviewEntity::class,
         ],
-    version = 19,
+    version = 20,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -179,6 +191,7 @@ class StructureSearchBlocks : AutoMigrationSpec {
             AutoMigration(from = 16, to = 17, spec = StructureSearchBlocks::class),
             AutoMigration(from = 17, to = 18, spec = DropCardConfirmation::class),
             AutoMigration(from = 18, to = 19, spec = DropReviewLimits::class),
+            AutoMigration(from = 19, to = 20, spec = NameSavedPages::class),
         ],
 )
 abstract class RepoReadDatabase : RoomDatabase() {

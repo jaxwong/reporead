@@ -145,7 +145,7 @@ class CommittedMutationTest {
             }
         assertEquals(listOf("DELETE /api/repositories/7"), requests)
         assertEquals(emptyList<RepositoryEntity>(), dao.repositories().first())
-        assertNull(dao.note(1))
+        assertNull(dao.savedPage(1))
     }
 
     @Test

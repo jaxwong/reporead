@@ -28,14 +28,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class DocumentController {
     private static final Logger LOG = LoggerFactory.getLogger(DocumentController.class);
     private final Documents documents;
-    private final NoteVersions noteVersions;
+    private final DocumentVersions documentVersions;
     private final Attachments attachments;
     private final TransactionTemplate snapshot;
 
     public DocumentController(
-            Documents documents, NoteVersions noteVersions, Attachments attachments, TransactionTemplate transaction) {
+            Documents documents,
+            DocumentVersions documentVersions,
+            Attachments attachments,
+            TransactionTemplate transaction) {
         this.documents = documents;
-        this.noteVersions = noteVersions;
+        this.documentVersions = documentVersions;
         this.attachments = attachments;
         this.snapshot = new TransactionTemplate(transaction.getTransactionManager());
         snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -76,42 +79,42 @@ public class DocumentController {
     private record ContentSource(Documents.Located document, List<String> imagePaths) {}
 
     @GetMapping("/api/documents/{id}/content")
-    Content content(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
+    Content content(@AuthenticationPrincipal AppUser user, @PathVariable("id") long documentId) {
         // No GitHub I/O inside the transaction: a refresh cannot mix one checkpoint with another image index.
         var source = snapshot.execute(status -> {
-            var document = present(user, id);
+            var document = present(user, documentId);
             return new ContentSource(document, attachments.paths(document.connectionId()));
         });
         var document = source.document();
-        var noteVersion = noteVersions.render(user, document, document.blobSha());
-        var renderedNote = noteVersion.note();
-        Attachments.bind(renderedNote.page(), document.path(), source.imagePaths());
-        String pageHtml = MarkdownRenderer.pageHtml(renderedNote.page());
+        var documentVersion = documentVersions.render(user, document, document.blobSha());
+        var renderedDocument = documentVersion.document();
+        Attachments.bind(renderedDocument.page(), document.path(), source.imagePaths());
+        String pageHtml = MarkdownRenderer.pageHtml(renderedDocument.page());
         LOG.info(
                 "Document rendered; userId={} documentId={} blobSha={} snapshotCommitSha={} bytes={} blocks={} diagrams={}",
                 user.id(),
-                id,
+                documentId,
                 document.blobSha(),
                 document.commitSha(),
-                noteVersion.bytes(),
-                renderedNote.blocks().size(),
-                renderedNote.diagramCount());
+                documentVersion.bytes(),
+                renderedDocument.blocks().size(),
+                renderedDocument.diagramCount());
         return new Content(
-                id,
+                documentId,
                 document.path(),
                 document.title(),
                 document.blobSha(),
                 document.commitSha(),
                 pageHtml,
-                renderedNote.blocks().stream()
+                renderedDocument.blocks().stream()
                         .map(block -> new SearchBlock(block.id(), block.text()))
                         .toList(),
                 MarkdownRenderer.FORMAT);
     }
 
     /** An owned note that was in the latest complete repository refresh. */
-    private Documents.Located present(AppUser user, long id) {
-        var document = documents.find(user.id(), id).orElseThrow(ApiFailure::notFound);
+    private Documents.Located present(AppUser user, long documentId) {
+        var document = documents.find(user.id(), documentId).orElseThrow(ApiFailure::notFound);
         if (document.deleted()) {
             throw new ApiFailure(
                     Code.DOCUMENT_DELETED, "This note was not present in the latest complete repository refresh.");
@@ -133,7 +136,7 @@ public class DocumentController {
                             schema = @Schema(type = "string", format = "binary")))
     ResponseEntity<byte[]> image(
             @AuthenticationPrincipal AppUser user,
-            @PathVariable long id,
+            @PathVariable("id") long documentId,
             @RequestParam String path,
             @RequestParam String commitSha) {
         if (!Hashes.isGitSha(commitSha)) {
@@ -143,13 +146,13 @@ public class DocumentController {
             throw new ApiFailure(
                     Code.INVALID_IMAGE_PATH, "path must name a normalized png, jpg, gif, webp, or svg image.");
         }
-        var document = present(user, id);
+        var document = present(user, documentId);
         byte[] bytes = attachments.image(user, document, path, commitSha);
         String extension = path.substring(path.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
         LOG.info(
                 "Document image served; userId={} documentId={} snapshotCommitSha={} bytes={}",
                 user.id(),
-                id,
+                documentId,
                 commitSha,
                 bytes.length);
         return ResponseEntity.ok()

@@ -9,12 +9,12 @@ import org.jsoup.Jsoup;
 import org.junit.jupiter.api.Test;
 
 class MarkdownRendererTest {
-    private MarkdownRenderer.RenderedNote render(String source) {
+    private MarkdownRenderer.RenderedDocument render(String source) {
         return MarkdownRenderer.render(source, sha(source), "notes/backend/test.md");
     }
 
-    private org.jsoup.nodes.Document page(MarkdownRenderer.RenderedNote note) {
-        return Jsoup.parse(MarkdownRenderer.pageHtml(note.page()));
+    private org.jsoup.nodes.Document page(MarkdownRenderer.RenderedDocument rendered) {
+        return Jsoup.parse(MarkdownRenderer.pageHtml(rendered.page()));
     }
 
     static String sha(String source) {
@@ -23,8 +23,8 @@ class MarkdownRendererTest {
             var digest = MessageDigest.getInstance("SHA-1");
             digest.update(("blob " + bytes.length + "\0").getBytes(StandardCharsets.US_ASCII));
             return HexFormat.of().formatHex(digest.digest(bytes));
-        } catch (java.security.NoSuchAlgorithmException error) {
-            throw new AssertionError("JDK must provide SHA-1", error);
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new AssertionError("JDK must provide SHA-1", failure);
         }
     }
 

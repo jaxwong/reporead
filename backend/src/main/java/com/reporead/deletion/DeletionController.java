@@ -27,13 +27,14 @@ public class DeletionController {
 
     /** What disconnecting this repository would delete, for the confirmation. */
     @GetMapping("/api/repositories/{id}/stored-data")
-    ConnectionDeletion.Counts storedData(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        return data.count(user.id(), id);
+    ConnectionDeletion.Counts storedData(@AuthenticationPrincipal AppUser user, @PathVariable("id") long connectionId) {
+        return data.count(user.id(), connectionId);
     }
 
     @DeleteMapping("/api/repositories/{id}")
-    ConnectionDeletion.Disconnected disconnect(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        return data.disconnect(user.id(), id);
+    ConnectionDeletion.Disconnected disconnect(
+            @AuthenticationPrincipal AppUser user, @PathVariable("id") long connectionId) {
+        return data.disconnect(user.id(), connectionId);
     }
 
     @DeleteMapping("/api/account")

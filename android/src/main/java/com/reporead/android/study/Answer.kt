@@ -59,7 +59,7 @@ internal fun QuestionPrompt(question: StudyQuestion) {
         Text(question.prompt, style = MaterialTheme.typography.titleLarge)
         for (block in question.material) when (block) {
             is PromptBlock.Paragraph -> Text(block.text)
-            is PromptBlock.Items -> Points(block.items, block.ordered)
+            is PromptBlock.Items -> Points(block.items, block.isOrdered)
             is PromptBlock.Code ->
                 Text(
                     block.text,
@@ -118,7 +118,7 @@ internal fun BankAnswer(
             }
         }
         Part("Interviewer is testing") { Text(question.testing) }
-        Part("A complete answer should") { Points(question.checklist, ordered = false) }
+        Part("A complete answer should") { Points(question.checklist, isOrdered = false) }
         question.worked?.let { worked ->
             Part("Worked answer") {
                 // Hidden links would still take keyboard focus, so the text links only once shown.
@@ -210,11 +210,11 @@ private fun Part(label: String, content: @Composable () -> Unit) {
 
 /** List items, bulleted or numbered. */
 @Composable
-private fun Points(items: List<String>, ordered: Boolean) {
+private fun Points(items: List<String>, isOrdered: Boolean) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items.forEachIndexed { index, item ->
             Row {
-                Text(if (ordered) "${index + 1}." else "•", Modifier.width(24.dp))
+                Text(if (isOrdered) "${index + 1}." else "•", Modifier.width(24.dp))
                 Text(item, Modifier.weight(1f))
             }
         }

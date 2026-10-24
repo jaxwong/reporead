@@ -52,7 +52,7 @@ class RequestLoggingFilter extends OncePerRequestFilter {
                     requestTarget,
                     response.getStatus(),
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
-        } catch (IOException | ServletException | RuntimeException error) {
+        } catch (IOException | ServletException | RuntimeException failure) {
             // A server bug, so ERROR, as Tomcat's stack trace that follows on the same thread is; it answers 500, and
             // the status is not set yet here.
             LOG.error(
@@ -60,8 +60,10 @@ class RequestLoggingFilter extends OncePerRequestFilter {
                     request.getMethod(),
                     requestTarget,
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started),
-                    NestedExceptionUtils.getMostSpecificCause(error).getClass().getSimpleName());
-            throw error;
+                    NestedExceptionUtils.getMostSpecificCause(failure)
+                            .getClass()
+                            .getSimpleName());
+            throw failure;
         } finally {
             MDC.remove(MDC_KEY);
         }

@@ -60,9 +60,9 @@ class DatabaseTimeoutTest {
     private static void acceptAndNeverAnswer(ServerSocket server, List<Socket> held) {
         try {
             while (true) held.add(server.accept());
-        } catch (IOException error) {
+        } catch (IOException ioFailure) {
             // Closing the server socket at the end of the test is how this loop stops; anything else is a test fault.
-            if (!server.isClosed()) throw new UncheckedIOException("silent database socket failed", error);
+            if (!server.isClosed()) throw new UncheckedIOException("silent database socket failed", ioFailure);
         }
     }
 

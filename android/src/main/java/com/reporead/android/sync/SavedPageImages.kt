@@ -23,7 +23,7 @@ internal const val IMAGE_PREFIX = "/repo-image/"
  * lock; Save all uses its per-page lock. [generation] keeps a fetch from writing back what a deletion removed
  * meanwhile. PhoneSync deletes them when their notes go.
  */
-class NoteImages(private val api: Api, filesDir: File) {
+class SavedPageImages(private val api: Api, filesDir: File) {
     private val root = File(filesDir, "images")
 
     /** Held for a cached read, publishing one fetched image, or deletion; never for an HTTP request. */
@@ -63,8 +63,8 @@ class NoteImages(private val api: Api, filesDir: File) {
     fun image(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? =
         try {
             fetch(documentId, snapshotCommitSha, path)
-        } catch (error: ApiException) {
-            DeviceLog.info("Image unavailable; documentId=$documentId code=${error.code}")
+        } catch (failure: ApiException) {
+            DeviceLog.info("Image unavailable; documentId=$documentId code=${failure.code}")
             null
         }
 
@@ -78,10 +78,10 @@ class NoteImages(private val api: Api, filesDir: File) {
             synchronized(lock) {
                 try {
                     if (file.isFile) return file.readBytes()
-                } catch (error: IOException) {
+                } catch (ioFailure: IOException) {
                     DeviceLog.warn(
                         "Cached image unreadable; documentId=$documentId snapshot=$snapshotCommitSha",
-                        error,
+                        ioFailure,
                     )
                     return null
                 }
@@ -102,8 +102,8 @@ class NoteImages(private val api: Api, filesDir: File) {
                 } finally {
                     partial.delete()
                 }
-            } catch (error: IOException) {
-                DeviceLog.warn("Image not cached; documentId=$documentId error=${error.javaClass.simpleName}")
+            } catch (ioFailure: IOException) {
+                DeviceLog.warn("Image not cached; documentId=$documentId error=${ioFailure.javaClass.simpleName}")
             }
         }
         return bytes

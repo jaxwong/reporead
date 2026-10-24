@@ -85,8 +85,8 @@ internal class ReaderViewModel(
         val overlay: ReaderOverlay? = null,
     )
 
-    private val current = MutableStateFlow(State(reattaching = saved.get<AnnotationEntity>(REATTACHING)))
-    val state: StateFlow<State> = current.asStateFlow()
+    private val _state = MutableStateFlow(State(reattaching = saved.get<AnnotationEntity>(REATTACHING)))
+    val state: StateFlow<State> = _state.asStateFlow()
 
     /** The sign-in state the screen last showed; null before it was first shown. */
     private var signedIn: Boolean? = null
@@ -95,18 +95,18 @@ internal class ReaderViewModel(
         open("created")
         saved.get<SubmittedEdit>(EDIT)?.let { draft ->
             DeviceLog.info("Reader edit restored; entry=$entryId mutationId=${draft.mutationId}")
-            current.update { it.copy(changing = true) }
+            _state.update { it.copy(changing = true) }
             viewModelScope.launch {
-                val row = dao.annotation(draft.mutationId)
-                if (row == null || row.note == draft.text) saved[EDIT] = null
-                current.update {
+                val annotation = dao.annotation(draft.mutationId)
+                if (annotation == null || annotation.note == draft.text) saved[EDIT] = null
+                _state.update {
                     it.copy(
                         changing = false,
-                        conflict = row?.takeIf { it.note != draft.text }?.let { ReaderConflict(it, draft.text) },
+                        conflict = annotation?.takeIf { it.note != draft.text }?.let { ReaderConflict(it, draft.text) },
                         message =
                             when {
-                                row == null -> "The edited highlight is no longer on this phone."
-                                row.note == draft.text -> "The previous edit is saved on this phone."
+                                annotation == null -> "The edited highlight is no longer on this phone."
+                                annotation.note == draft.text -> "The previous edit is saved on this phone."
                                 else ->
                                     "The previous edit was interrupted. Check the saved note before submitting again."
                             },
@@ -123,16 +123,20 @@ internal class ReaderViewModel(
                 try {
                     val opened = sync.openNote(documentId)
                     Load.Ready(StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html) }))
-                } catch (error: ApiException) {
-                    Load.Failed(error)
+                } catch (failure: ApiException) {
+                    Load.Failed(failure)
                 }
-            current.update { it.copy(page = page) }
+            _state.update { it.copy(page = page) }
         }
     }
 
     fun retry() {
-        val now = current.value
-        if (now.page !is Load.Failed || !current.compareAndSet(now, now.copy(page = Load.Loading))) return
+        val stateSnapshot = _state.value
+        if (
+            stateSnapshot.page !is Load.Failed ||
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(page = Load.Loading))
+        )
+            return
         open("retry")
     }
 
@@ -150,19 +154,19 @@ internal class ReaderViewModel(
         viewModelScope.launch {
             try {
                 sync.refreshAnnotations(documentId)
-            } catch (error: ApiException) {
-                showMessage("Showing highlights saved on this phone. ${error.describe()}")
+            } catch (failure: ApiException) {
+                showMessage("Showing highlights saved on this phone. ${failure.describe()}")
             }
         }
     }
 
-    fun showMessage(text: String?) = current.update { it.copy(message = text) }
+    fun showMessage(text: String?) = _state.update { it.copy(message = text) }
 
     /** The overlay an operation opened, once, for the screen to show. */
     fun claimOverlay(): ReaderOverlay? {
-        val now = current.value
-        val overlay = now.overlay ?: return null
-        if (!current.compareAndSet(now, now.copy(overlay = null))) return null
+        val stateSnapshot = _state.value
+        val overlay = stateSnapshot.overlay ?: return null
+        if (!_state.compareAndSet(stateSnapshot, stateSnapshot.copy(overlay = null))) return null
         if (overlay is ReaderOverlay.EditNote) {
             DeviceLog.info("Reader edit returned to editor; entry=$entryId mutationId=${overlay.annotation.mutationId}")
             saved[EDIT] = null
@@ -192,101 +196,101 @@ internal class ReaderViewModel(
                                 dao.annotation(saved.mutationId)?.rejection?.let {
                                     "Highlight kept on this phone only; the server refused it: $it"
                                 }
-                            } catch (error: ApiException) {
-                                "Highlight saved on this phone; it will sync later. ${error.describe()}"
+                            } catch (failure: ApiException) {
+                                "Highlight saved on this phone; it will sync later. ${failure.describe()}"
                             }
                 }
             )
         }
     }
 
-    private fun placing(row: AnnotationEntity?) {
-        saved[REATTACHING] = row
-        current.update { it.copy(reattaching = row, message = null) }
+    private fun placing(annotation: AnnotationEntity?) {
+        saved[REATTACHING] = annotation
+        _state.update { it.copy(reattaching = annotation, message = null) }
     }
 
-    fun startReattaching(row: AnnotationEntity) = placing(row)
+    fun startReattaching(annotation: AnnotationEntity) = placing(annotation)
 
     fun stopReattaching() = placing(null)
 
     /** Starts one server change to a highlight ([what]); another while it runs starts nothing. */
-    private fun change(what: String, row: AnnotationEntity, work: suspend () -> String?): Boolean {
-        val now = current.value
+    private fun change(what: String, annotation: AnnotationEntity, work: suspend () -> String?): Boolean {
+        val stateSnapshot = _state.value
         if (
-            now.changing ||
-                now.conflict != null ||
-                now.overlay is ReaderOverlay.EditNote ||
-                !current.compareAndSet(now, now.copy(changing = true, message = null))
+            stateSnapshot.changing ||
+                stateSnapshot.conflict != null ||
+                stateSnapshot.overlay is ReaderOverlay.EditNote ||
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(changing = true, message = null))
         ) {
-            DeviceLog.info("Reader $what not started; entry=$entryId mutationId=${row.mutationId} changing=true")
+            DeviceLog.info("Reader $what not started; entry=$entryId mutationId=${annotation.mutationId} changing=true")
             showMessage("Finish the current highlight change before submitting another.")
             return false
         }
-        DeviceLog.info("Reader $what started; entry=$entryId mutationId=${row.mutationId}")
+        DeviceLog.info("Reader $what started; entry=$entryId mutationId=${annotation.mutationId}")
         viewModelScope.launch {
             val message = work()
-            current.update { it.copy(changing = false, message = message) }
+            _state.update { it.copy(changing = false, message = message) }
         }
         return true
     }
 
     /** Online: the server verifies the new selection against the version it was made on. */
-    fun reattach(row: AnnotationEntity, passage: Passage) =
-        change("reattach", row) {
+    fun reattach(annotation: AnnotationEntity, passage: Passage) =
+        change("reattach", annotation) {
             try {
-                sync.reattachAnnotation(row, passage)
+                sync.reattachAnnotation(annotation, passage)
                 saved[REATTACHING] = null
-                current.update { it.copy(reattaching = null) }
+                _state.update { it.copy(reattaching = null) }
                 null
-            } catch (error: ApiException) {
-                "Not reattached. ${error.describe()}"
+            } catch (failure: ApiException) {
+                "Not reattached. ${failure.describe()}"
             }
         }
 
     // Editing and deleting acknowledged highlights need the server; offline they fail visibly and change nothing.
-    fun editNote(row: AnnotationEntity, note: String?, expectedVersion: Int) =
-        change("edit", row) {
-            saved[EDIT] = SubmittedEdit(row.mutationId, note)
-            DeviceLog.info("Reader edit input retained; entry=$entryId mutationId=${row.mutationId}")
+    fun editNote(annotation: AnnotationEntity, note: String?, expectedVersion: Int) =
+        change("edit", annotation) {
+            saved[EDIT] = SubmittedEdit(annotation.mutationId, note)
+            DeviceLog.info("Reader edit input retained; entry=$entryId mutationId=${annotation.mutationId}")
             try {
-                sync.editAnnotation(row, note, expectedVersion)
-                DeviceLog.info("Reader edit committed; entry=$entryId mutationId=${row.mutationId}")
+                sync.editAnnotation(annotation, note, expectedVersion)
+                DeviceLog.info("Reader edit committed; entry=$entryId mutationId=${annotation.mutationId}")
                 saved[EDIT] = null
                 null
-            } catch (error: ApiException) {
+            } catch (failure: ApiException) {
                 DeviceLog.info(
-                    "Reader edit not committed; entry=$entryId mutationId=${row.mutationId} code=${error.code}"
+                    "Reader edit not committed; entry=$entryId mutationId=${annotation.mutationId} code=${failure.code}"
                 )
-                if (error.code != "ANNOTATION_CONFLICT") {
-                    current.update { it.copy(overlay = ReaderOverlay.EditNote(row, note.orEmpty())) }
-                    "Edit not saved. ${error.describe()}"
+                if (failure.code != "ANNOTATION_CONFLICT") {
+                    _state.update { it.copy(overlay = ReaderOverlay.EditNote(annotation, note.orEmpty())) }
+                    "Edit not saved. ${failure.describe()}"
                 } else
                     try {
-                        sync.refreshAnnotations(row.documentId)
-                        val latest = dao.annotation(row.mutationId)
+                        sync.refreshAnnotations(annotation.documentId)
+                        val latest = dao.annotation(annotation.mutationId)
                         if (latest == null) {
                             saved[EDIT] = null
                             "This highlight was deleted elsewhere."
                         } else {
-                            current.update { it.copy(conflict = ReaderConflict(latest, note)) }
+                            _state.update { it.copy(conflict = ReaderConflict(latest, note)) }
                             null
                         }
                     } catch (refresh: ApiException) {
-                        current.update { it.copy(overlay = ReaderOverlay.EditNote(row, note.orEmpty())) }
+                        _state.update { it.copy(overlay = ReaderOverlay.EditNote(annotation, note.orEmpty())) }
                         "This note was changed elsewhere, and the latest version could not be loaded. ${refresh.describe()}"
                     }
             }
         }
 
     fun dismissConflict() {
-        DeviceLog.info("Reader conflict dismissed; entry=$entryId conflict=${current.value.conflict != null}")
+        DeviceLog.info("Reader conflict dismissed; entry=$entryId conflict=${_state.value.conflict != null}")
         saved[EDIT] = null
-        current.update { it.copy(conflict = null) }
+        _state.update { it.copy(conflict = null) }
     }
 
     fun keepMine() {
-        val conflict = current.value.conflict ?: return
-        current.update { it.copy(conflict = null) }
+        val conflict = _state.value.conflict ?: return
+        _state.update { it.copy(conflict = null) }
         editNote(
             conflict.latestAnnotation,
             conflict.submittedNote,
@@ -294,13 +298,13 @@ internal class ReaderViewModel(
         )
     }
 
-    fun delete(row: AnnotationEntity) =
-        change("delete", row) {
+    fun delete(annotation: AnnotationEntity) =
+        change("delete", annotation) {
             try {
-                sync.deleteAnnotation(row)
+                sync.deleteAnnotation(annotation)
                 null
-            } catch (error: ApiException) {
-                "Not deleted. ${error.describe()}"
+            } catch (failure: ApiException) {
+                "Not deleted. ${failure.describe()}"
             }
         }
 
@@ -327,8 +331,8 @@ internal class ReaderViewModel(
                     showMessage(
                         "No note “${target ?: path}” in this repository's saved list. Refresh the repository if it is new."
                     )
-                1 -> current.update { it.copy(overlay = ReaderOverlay.Preview(matches.first(), heading)) }
-                else -> current.update { it.copy(overlay = ReaderOverlay.LinkChoices(heading, matches)) }
+                1 -> _state.update { it.copy(overlay = ReaderOverlay.Preview(matches.first(), heading)) }
+                else -> _state.update { it.copy(overlay = ReaderOverlay.LinkChoices(heading, matches)) }
             }
         }
     }

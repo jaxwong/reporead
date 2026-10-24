@@ -122,11 +122,11 @@ public class GitHubBrowserSignIn {
                                 chain.doFilter(request, response);
                                 return null;
                             });
-                        } catch (IOException | ServletException | RuntimeException error) {
-                            throw error;
-                        } catch (Exception error) {
+                        } catch (IOException | ServletException | RuntimeException failure) {
+                            throw failure;
+                        } catch (Exception failure) {
                             throw new IllegalStateException(
-                                    "OAuth callback threw an undeclared checked exception", error);
+                                    "OAuth callback threw an undeclared checked exception", failure);
                         }
                     }
                 },
@@ -291,8 +291,8 @@ public class GitHubBrowserSignIn {
         URI uri;
         try {
             uri = new URI(publicUrl);
-        } catch (URISyntaxException error) {
-            throw new IllegalArgumentException("reporead.public-url is not a URL: " + publicUrl, error);
+        } catch (URISyntaxException failure) {
+            throw new IllegalArgumentException("reporead.public-url is not a URL: " + publicUrl, failure);
         }
         boolean loopback = publicUrl.equals("http://127.0.0.1:" + port);
         boolean httpsOrigin = "https".equals(uri.getScheme())

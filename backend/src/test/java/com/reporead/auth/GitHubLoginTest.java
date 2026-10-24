@@ -113,9 +113,9 @@ class GitHubLoginTest extends SharedSpringTest {
                     entered.countDown();
                     try {
                         assertTrue(release.await(10, TimeUnit.SECONDS), "Test must release the callback");
-                    } catch (InterruptedException error) {
+                    } catch (InterruptedException failure) {
                         Thread.currentThread().interrupt();
-                        throw new AssertionError("Test callback interrupted", error);
+                        throw new AssertionError("Test callback interrupted", failure);
                     }
                     return withSuccess(
                                     "{\"access_token\":\"TEST_ONLY_NEW_TOKEN\",\"expires_in\":28800,\"token_type\":\"bearer\"}",

@@ -20,13 +20,13 @@ public class BookmarkController {
 
     /** A bookmark is of the note, whatever its version, so the request has no body. */
     @PutMapping("/api/documents/{id}/bookmark")
-    Bookmarks.Bookmark set(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        return bookmarks.set(user.id(), id);
+    Bookmarks.Bookmark set(@AuthenticationPrincipal AppUser user, @PathVariable("id") long documentId) {
+        return bookmarks.set(user.id(), documentId);
     }
 
     @DeleteMapping("/api/documents/{id}/bookmark")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void clear(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        bookmarks.clear(user.id(), id);
+    void clear(@AuthenticationPrincipal AppUser user, @PathVariable("id") long documentId) {
+        bookmarks.clear(user.id(), documentId);
     }
 }

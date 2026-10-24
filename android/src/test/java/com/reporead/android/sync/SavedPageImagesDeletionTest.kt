@@ -22,7 +22,7 @@ import org.junit.rules.TemporaryFolder
  * What deleting saved images leaves on the phone, with real files in a temporary folder. A folder the app may not write
  * stands in for a file that cannot be deleted; the tests need a user that is not root.
  */
-class NoteImagesDeletionTest {
+class SavedPageImagesDeletionTest {
     @get:Rule val temporary = TemporaryFolder()
 
     private val current = "a".repeat(40)
@@ -30,7 +30,7 @@ class NoteImagesDeletionTest {
     private val readOnly = mutableListOf<File>()
 
     /** Never makes a request: deleting needs no server. */
-    private fun images() = NoteImages(Api("http://test-only.invalid", { StoredSession.Absent }) {}, temporary.root)
+    private fun images() = SavedPageImages(Api("http://test-only.invalid", { StoredSession.Absent }) {}, temporary.root)
 
     private fun image(documentId: Long, snapshotCommitSha: String) =
         File(temporary.root, "images/$documentId/commit-$snapshotCommitSha/key").also {
@@ -55,7 +55,7 @@ class NoteImagesDeletionTest {
      * Fetches one image through a test-only loopback server that holds the request until [whileHeld] has run, as a
      * deletion can run while the reader waits for the server.
      */
-    private fun fetchAcross(whileHeld: (NoteImages) -> Unit) {
+    private fun fetchAcross(whileHeld: (SavedPageImages) -> Unit) {
         val arrived = CountDownLatch(1)
         val release = CountDownLatch(1)
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -68,7 +68,10 @@ class NoteImagesDeletionTest {
         server.start()
         try {
             val images =
-                NoteImages(Api("http://127.0.0.1:${server.address.port}", { StoredSession.Absent }) {}, temporary.root)
+                SavedPageImages(
+                    Api("http://127.0.0.1:${server.address.port}", { StoredSession.Absent }) {},
+                    temporary.root,
+                )
             var bytes: ByteArray? = null
             val fetch = thread { bytes = images.image(1, current, "a.png") }
             try {

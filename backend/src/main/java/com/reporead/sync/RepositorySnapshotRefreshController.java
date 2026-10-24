@@ -21,7 +21,7 @@ public class RepositorySnapshotRefreshController {
     // Stable route used by installed Android versions; it refreshes the GitHub-backed repository snapshot.
     @Operation(operationId = "sync")
     @PostMapping("/api/repositories/{id}/sync")
-    RepositorySyncResult refresh(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        return snapshotRefresh.refresh(user, id);
+    RepositorySyncResult refresh(@AuthenticationPrincipal AppUser user, @PathVariable("id") long connectionId) {
+        return snapshotRefresh.refresh(user, connectionId);
     }
 }

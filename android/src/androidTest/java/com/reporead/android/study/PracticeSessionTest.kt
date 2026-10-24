@@ -348,7 +348,7 @@ class PracticeSessionTest {
     fun thePromptShowsItsMaterialTheAnswerWaitsForRevealAndEachLinkedSectionOpensItsNote() =
         runBlocking<Unit> {
             val dao = store.dao()
-            val note = checkNotNull(dao.note(1))
+            val note = checkNotNull(dao.savedPage(1))
             val worked = "Test-only worked solution (free)."
             val html =
                 testPage(

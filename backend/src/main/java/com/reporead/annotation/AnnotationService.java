@@ -4,9 +4,9 @@ import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
 import com.reporead.Hashes;
 import com.reporead.auth.AppUser;
+import com.reporead.document.DocumentVersions;
 import com.reporead.document.Documents;
 import com.reporead.document.MarkdownRenderer;
-import com.reporead.document.NoteVersions;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.UUID;
@@ -41,14 +41,14 @@ public class AnnotationService {
 
     private final Annotations annotations;
     private final Documents documents;
-    private final NoteVersions noteVersions;
+    private final DocumentVersions documentVersions;
     private final MeterRegistry meters;
 
     public AnnotationService(
-            Annotations annotations, Documents documents, NoteVersions noteVersions, MeterRegistry meters) {
+            Annotations annotations, Documents documents, DocumentVersions documentVersions, MeterRegistry meters) {
         this.annotations = annotations;
         this.documents = documents;
-        this.noteVersions = noteVersions;
+        this.documentVersions = documentVersions;
         this.meters = meters;
     }
 
@@ -90,8 +90,10 @@ public class AnnotationService {
                 .filter(annotation -> !annotation.resolvedBlobSha().equals(currentBlobSha))
                 .toList();
         if (annotationsToResolve.isEmpty()) return false;
-        var currentVersionBlocks =
-                noteVersions.render(user, document, currentBlobSha).note().blocks();
+        var currentVersionBlocks = documentVersions
+                .render(user, document, currentBlobSha)
+                .document()
+                .blocks();
         for (var annotation : annotationsToResolve) {
             var previousLocation = annotation.location();
             var resolution = meters.timer(REANCHOR_DURATION)
@@ -139,7 +141,9 @@ public class AnnotationService {
         }
         var verifiedLocation = verifyLocation(
                 selection,
-                noteVersions.render(user, document, selection.sourceBlobSha()).note());
+                documentVersions
+                        .render(user, document, selection.sourceBlobSha())
+                        .document());
         var creation = annotations.create(
                 user.id(), documentId, mutationId, requestFingerprint, verifiedLocation, note, type, question);
         if (!creation.replayed()) meters.counter(CREATED).increment();
@@ -161,7 +165,9 @@ public class AnnotationService {
                 .orElseThrow(ApiFailure::notFound);
         var verifiedLocation = verifyLocation(
                 selection,
-                noteVersions.render(user, document, selection.sourceBlobSha()).note());
+                documentVersions
+                        .render(user, document, selection.sourceBlobSha())
+                        .document());
         var reattached = annotations.reattach(user.id(), annotationId, expectedVersion, verifiedLocation);
         LOG.info(
                 "Highlight reattached; userId={} documentId={} annotationId={} blobSha={} version={}",
@@ -174,8 +180,9 @@ public class AnnotationService {
     }
 
     /** The selection must name real text in that exact version; context and headings come from the server's render. */
-    static Annotations.Location verifyLocation(Selection selection, MarkdownRenderer.RenderedNote renderedNote) {
-        var selectedBlock = renderedNote.blocks().stream()
+    static Annotations.Location verifyLocation(
+            Selection selection, MarkdownRenderer.RenderedDocument renderedDocument) {
+        var selectedBlock = renderedDocument.blocks().stream()
                 .filter(candidate -> candidate.id().equals(selection.blockId()))
                 .findFirst()
                 .orElseThrow(() -> invalidAnchor("Block " + selection.blockId() + " does not exist in that version."));
@@ -188,7 +195,7 @@ public class AnnotationService {
         }
         return Anchoring.anchorAt(
                 selection.sourceBlobSha(),
-                renderedNote.blocks(),
+                renderedDocument.blocks(),
                 selectedBlock,
                 selection.startOffset(),
                 selection.endOffset());

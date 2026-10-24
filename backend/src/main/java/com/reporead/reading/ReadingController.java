@@ -42,7 +42,7 @@ public class ReadingController {
 
     @PutMapping("/api/documents/{id}/reading-state")
     ReadingStates.State save(
-            @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody SaveRequest body) {
+            @AuthenticationPrincipal AppUser user, @PathVariable("id") long documentId, @RequestBody SaveRequest body) {
         validate(body);
         var anchor = body.anchor();
         Instant now = Instant.now();
@@ -51,7 +51,7 @@ public class ReadingController {
         else if (lastReadAt.isAfter(now)) lastReadAt = now;
         return states.save(
                 user.id(),
-                id,
+                documentId,
                 body.lastReadBlobSha(),
                 body.progressPercent(),
                 new ReadingStates.Anchor(anchor.headingPath(), anchor.textPrefix(), anchor.blockIndex()),

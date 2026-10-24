@@ -113,7 +113,7 @@ flowchart TB
     sync["sync<br/>RepositorySnapshotRefresh: publish GitHub-backed snapshot<br/>ContentMoves: moved-and-edited"]
     annotation["annotation<br/>Annotations, Anchoring,<br/>Bookmarks, Reviews"]
     reading["reading<br/>ReadingStates"]
-    document["document<br/>MarkdownRenderer, NoteVersions,<br/>Attachments"]
+    document["document<br/>MarkdownRenderer, DocumentVersions,<br/>Attachments"]
     repository["repository<br/>connections, per-connection lock"]
     auth["auth<br/>sign-in, app sessions,<br/>bearer auth, GitHub token renewal"]
     github["github<br/>GitHubApi: every GitHub read<br/>GitHubHttpConfiguration: timeouts, size limits"]
@@ -161,7 +161,7 @@ flowchart TB
 | `github` | Every GitHub REST read, with the user's token; the HTTP clients every GitHub call goes through: 15 s timeouts, no redirects, no retries, response size limits (the largest note RepoRead reads), and the count of every GitHub request | `GitHubApi`, `GitHubHttpConfiguration` |
 | `repository` | Which repositories a user may connect (GitHub decides, through the user's token) and has connected; the connection row lock every write shares | `RepositoryConnections` |
 | `sync` | Refreshing and publishing a complete default-branch snapshot; document identity across moves ([ADR-07](adrs.md#adr-07--document-identity-from-complete-snapshots)) | `RepositorySnapshotRefresh`, `ContentMoves` |
-| `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; images and Obsidian embeds | `MarkdownRenderer`, `NoteVersions`, `Attachments` |
+| `document` | Rendering and sanitizing Markdown into reader HTML with canonical block text; fetching a version by blob SHA; images and Obsidian embeds | `MarkdownRenderer`, `DocumentVersions`, `Attachments` |
 | `reading` | Last-read version, position and progress per note; last write wins by the client's time | `ReadingStates` |
 | `annotation` | Highlights, cards and bookmarks; idempotent creation by mutation id; re-anchoring ([ADR-06](adrs.md#adr-06--re-anchor-only-on-measured-evidence-otherwise-orphan)); the immutable review log | `Annotations`, `AnnotationService` (creation, reattachment and re-anchoring against note versions), `Anchoring`, `Bookmarks`, `Reviews` |
 | `deletion` | Disconnecting a repository and deleting the account: what it would delete, and deleting it through each table's owner in one transaction ([ADR-11](adrs.md#adr-11--disconnecting-deletes-everything-stored-for-that-repository-account-deletion-deletes-everything)) | `ConnectionDeletion`, `AccountDeletion`, `DeletionController` |
@@ -351,7 +351,7 @@ flowchart TB
         PhoneSync["sync/PhoneSync<br/>owns every server call<br/>whose answer reaches Room"]
         Store["database/RepoReadDatabase<br/>Room database + DAO"]
         Api["network/Api<br/>typed routes + bounded HTTP"]
-        Images["sync/NoteImages<br/>saved notes' images,<br/>reader reads outside PhoneSync lock"]
+        Images["sync/SavedPageImages<br/>saved pages' images,<br/>reader reads outside PhoneSync lock"]
         Session["auth/SessionStore<br/>Keystore AES-GCM bearer token"]
         Sched["study/ReviewSchedule<br/>pure review scheduler"]
         StudyS["study/StudySession<br/>pure session progress"]
@@ -393,7 +393,7 @@ flowchart TB
 | `network` | `Api`: the only executor of backend paths, with one named function per app-used route, exact success statuses, bounded responses and request/response correspondence; `wire/`: the wire models, generated at build time from `backend/openapi.json` (never committed or edited); `WireRules.kt`: the value rules a generated shape cannot state; `WireJson.kt`: one decoding policy, strict scalar/time serializers and `INVALID_RESPONSE` with its cause. Unknown fields are compatible, missing required-nullable keys are not. `ApiException(status, code)` carries a strictly decoded server error or a local HTTP/I/O failure; any 401 ends the stored session (`SessionStore.endRefused`), which signs the app out wherever the call was made; a stored session it cannot read now fails the request unsent (`SESSION_UNREADABLE`) |
 | `logging` | `DeviceLog`: logcat plus the bounded durable device-log store, whose `pending.jsonl` and `sending.jsonl` filenames and JSON fields remain stable across app updates. `DeviceLogUploadWorker` (in `sync/`, with the other WorkManager jobs) makes at most two upload requests per run (a failed run's batch, then the lines since) and never retries on a backoff; a warning requests a run only when no batch is claimed |
 | `database` | `RepoReadDatabase`: the Room database and its migrations; `Entities.kt`: its tables; `QueryResults.kt`: its query projections and database-local results; `RepoReadDao.kt`: its queries and cross-entity transactions (schema history in `android/schemas/`) |
-| `sync` | `PhoneSync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `NoteImages` retains its file lock and deletion generation, preventing a late image fetch from republishing files after a sweep. An open sweeps after its fetched page; Save all sweeps once after a successful loop under cancellable `locked`, rather than after every fetched page. Failure/cancellation defer cleanup to the next library refresh, Library open or startup. Library replacement, disconnect and startup retain their sweeps. Save all checks one page at a time, including already-current copies, and prefetches its distinct images under the existing per-page PhoneSync lock before progress; WebView image reads remain outside that lock (ADR-19). Only the reader's `NoteImages.image()` catches API failures as unavailable; Save all uses the throwing fetch, `PhoneSync` owns permanent page skips, and the existing worker owns retry/stop for all other API failures. `WireMappings.kt` maps validated wire records; `PhoneSync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `PendingSyncWorker.kt`, `DeviceLogUploadWorker.kt` and `SaveAllNotesWorker.kt` own their independently scheduled WorkManager jobs; `WorkerRetry.kt` owns their shared fixed retry ceiling and backoff. Pending sync and Save all enter `PhoneSync` directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through PhoneSync |
+| `sync` | `PhoneSync`: the process's one local copy, refreshes, opening notes, pending/local changes, annotation/card mutations, disconnect and image sweeps. Its lock orders local mutations and server answers; `committed` protects accepted screen mutations through local commit (ADR-28). `SavedPageImages` retains its file lock and deletion generation, preventing a late image fetch from republishing files after a sweep. An open sweeps after its fetched page; Save all sweeps once after a successful loop under cancellable `locked`, rather than after every fetched page. Failure/cancellation defer cleanup to the next library refresh, Library open or startup. Library replacement, disconnect and startup retain their sweeps. Save all checks one page at a time, including already-current copies, and prefetches its distinct images under the existing per-page PhoneSync lock before progress; WebView image reads remain outside that lock (ADR-19). Only the reader's `SavedPageImages.image()` catches API failures as unavailable; Save all uses the throwing fetch, `PhoneSync` owns permanent page skips, and the existing worker owns retry/stop for all other API failures. `WireMappings.kt` maps validated wire records; `PhoneSync` owns disposition: `refusesItem()` classifies annotation, review and bookmark refusals; the reading send handles only 404 `NOT_FOUND` inline and raises every other failure, including a malformed-save 400. `PendingSyncWorker.kt`, `DeviceLogUploadWorker.kt` and `SaveAllNotesWorker.kt` own their independently scheduled WorkManager jobs; `WorkerRetry.kt` owns their shared fixed retry ceiling and backoff. Pending sync and Save all enter `PhoneSync` directly, without waiting for account operations; repository Stop awaits cancellation. Account operations never clear Room/images or cancel/prune work. Account calls Api for sign-in, sign-out and deletion; Add repository lists through Api and connects through PhoneSync |
 | `library` | Library tabs, Notebook (`Notebook.kt`), the folder screen and folder filters (`Folder.kt`), and Add repository (`Available.kt`); each work-owning screen's ViewModel is in its file (ADR-28) |
 | `study` | Practice (`Practice.kt`) and Review's screen/session owner (`Review.kt`) with their entry ViewModels; `ReviewAnswer.kt` owns answer loading/rendering, and `ReviewOutlook.kt` owns the midnight/time-zone-aware outlook used by Library, Practice and Review completion; the pure review scheduler (`ReviewSchedule.kt`), session progression and note interleaving (`StudySession.kt`), bank recognition (`InterviewBank.kt`) and bank answer views (`Answer.kt`) |
 | `reader` | The reader state/effect owner and ViewModel (`Reader.kt`, including visible bookmark rejection for a disconnected note); its toolbar/system bars (`ReaderToolbar.kt`), note and notes-panel rendering (`ReaderContent.kt`), and saved overlays (`ReaderOverlayHost.kt`); page hosting and isolation with one JSON decode boundary in `ReaderPage.evaluate`; outline, notes, backlinks, link resolution and previews; and LeetCode study-view recognition (`ReaderStudyMode.kt`) |
@@ -410,21 +410,21 @@ Room never decides anything the server owns; it mirrors complete server response
 | Table | Comes from | Pending local changes? |
 | --- | --- | --- |
 | `repositories`, `documents` | Server's complete lists (replaced, never merged), with every other list from one library answer in one transaction | No |
-| `notes` | Latest rendered copy of each opened note, one per document with its blob SHA | No |
-| `note_search_blocks` | Server-issued canonical block IDs/text for each saved page, written and deleted with it | No |
+| `saved_pages` | Latest rendered copy of each opened note, one per document with its blob SHA | No |
+| `search_blocks` | Server-issued canonical block IDs/text for each saved page, written and deleted with it | No |
 | `note_links` | The note links of each saved page, written and deleted with it, for **Linked from** | No |
 | `reading_states`, `bookmarks` | Server lists, merged with local saves | Yes, last write wins by time |
 | `annotations` | Notebook and per-note listings | Yes: creations (with mutation id) and deletions of unacknowledged creations |
 | `review_log` | Server's durable log | Yes: grades (with mutation id) |
 
-The columns, as the latest exported schema (`android/schemas/`) lists them, in its order. Only `note_search_blocks` and `note_links` have foreign keys, to `notes` with delete cascade; every other reference is by id and not enforced by the database. Booleans are stored as 0/1 integers, and an embedded passage is stored as columns prefixed with its field name (`location…`).
+The columns, as the latest exported schema (`android/schemas/`) lists them, in its order. Only `search_blocks` and `note_links` have foreign keys, to `saved_pages` with delete cascade; every other reference is by id and not enforced by the database. Booleans are stored as 0/1 integers, and an embedded passage is stored as columns prefixed with its field name (`location…`).
 
 ```mermaid
 erDiagram
     repositories ||--o{ documents : "has (repositoryId, no FK)"
-    documents ||--o| notes : "saved as (documentId, no FK)"
-    notes ||--o{ note_search_blocks : "canonical blocks (FK, cascade)"
-    notes ||--o{ note_links : "links out (FK, cascade)"
+    documents ||--o| saved_pages : "saved as (documentId, no FK)"
+    saved_pages ||--o{ search_blocks : "canonical blocks (FK, cascade)"
+    saved_pages ||--o{ note_links : "links out (FK, cascade)"
     documents ||--o| reading_states : "read as (no FK)"
     documents ||--o| bookmarks : "bookmarked as (no FK)"
     documents ||--o{ annotations : "annotated by (no FK)"
@@ -445,7 +445,7 @@ erDiagram
         integer changedAt "nullable; epoch ms the refresh found it new or changed"
         integer deleted "the latest complete refresh did not list it"
     }
-    notes {
+    saved_pages {
         integer documentId PK
         text blobSha
         text path
@@ -455,7 +455,7 @@ erDiagram
         integer renderFormat "0 = saved before formats were recorded"
         text snapshotCommitSha "nullable; null = legacy page, images never fetched"
     }
-    note_search_blocks {
+    search_blocks {
         integer documentId PK, FK
         text blockId PK
         integer position "unique with documentId"

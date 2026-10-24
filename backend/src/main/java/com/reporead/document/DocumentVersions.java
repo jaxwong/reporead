@@ -12,20 +12,20 @@ import java.nio.charset.StandardCharsets;
 import org.springframework.stereotype.Component;
 
 /**
- * Renders one exact version of an owned note from GitHub: the single source of canonical block text for both the reader
- * and anchor validation. One GitHub request (the blob by SHA); the bytes must hash to that SHA.
+ * Renders one exact version of an owned document from GitHub: the single source of canonical block text for both the
+ * reader and anchor validation. One GitHub request (the blob by SHA); the bytes must hash to that SHA.
  */
 @Component
-public class NoteVersions {
+public class DocumentVersions {
     private final GitHubApi github;
     private final GitHubTokenLifecycle credentials;
 
-    public NoteVersions(GitHubApi github, GitHubTokenLifecycle credentials) {
+    public DocumentVersions(GitHubApi github, GitHubTokenLifecycle credentials) {
         this.github = github;
         this.credentials = credentials;
     }
 
-    public record Rendered(MarkdownRenderer.RenderedNote note, int bytes) {}
+    public record Rendered(MarkdownRenderer.RenderedDocument document, int bytes) {}
 
     /**
      * A version GitHub no longer has (rewritten history), or one that is not a note RepoRead can read: what callers
@@ -55,7 +55,7 @@ public class NoteVersions {
                     .newDecoder()
                     .decode(ByteBuffer.wrap(bytes))
                     .toString();
-        } catch (CharacterCodingException error) {
+        } catch (CharacterCodingException failure) {
             throw new ApiFailure(Code.UNSUPPORTED_CONTENT, "This note is not valid UTF-8 text.");
         }
         try {

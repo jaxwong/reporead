@@ -61,7 +61,7 @@ internal fun ReaderToolbar(
                 IconButton(enabled = session?.opened == true, onClick = onFind) {
                     AppIcon(R.drawable.ic_search, "Find in note")
                 }
-                if (page.study.recognized) {
+                if (page.study.isRecognized) {
                     TextButton(enabled = session?.opened == true, onClick = onToggleStudy) {
                         Text(if (studying) "Read" else "Study")
                     }

@@ -10,13 +10,13 @@ import com.reporead.android.database.BookmarkEntity
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.NewCardGrade
 import com.reporead.android.database.NewHighlight
-import com.reporead.android.database.NoteSearchBlockEntity
 import com.reporead.android.database.Passage
 import com.reporead.android.database.ReadingStateEntity
 import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.database.RepositoryEntity
 import com.reporead.android.database.ReviewEntity
 import com.reporead.android.database.SavedPageEntity
+import com.reporead.android.database.SearchBlockEntity
 import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
@@ -103,7 +103,7 @@ class PhoneSync(
     private suspend fun <T> committed(work: suspend () -> T): T = withContext(NonCancellable) { locked(work) }
 
     /** Saved notes' images; deleted here whenever their notes go. */
-    val images = NoteImages(api, filesDir)
+    val images = SavedPageImages(api, filesDir)
 
     /** The [paths] a deletion [after] something left, logged; a later sweep deletes them again. */
     private fun logged(after: String, paths: List<File>): List<File> {
@@ -209,13 +209,13 @@ class PhoneSync(
      * more; if that fails it is still the current version, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened = locked {
-        val savedPage = dao.note(documentId)
+        val savedPage = dao.savedPage(documentId)
         val listedDocument = dao.document(documentId)
         val repositoryCommitSha = listedDocument?.let { dao.repositoryCommitSha(it.repositoryId) }
         if (savedPage != null && upToDate(savedPage, listedDocument, repositoryCommitSha))
             return@locked Opened(savedPage, null)
         try {
-            Opened(fetchNote(documentId).also { sweepImages() }, null)
+            Opened(fetchSavedPage(documentId).also { sweepImages() }, null)
         } catch (failure: ApiException) {
             if (savedPage == null) throw failure
             val savedPageIsCurrent = sameVersion(savedPage, listedDocument, repositoryCommitSha)
@@ -230,7 +230,7 @@ class PhoneSync(
      * Fetches and saves the note's current version (one GitHub call on the server); the copy is saved whole or not at
      * all.
      */
-    private suspend fun fetchNote(documentId: Long): SavedPageEntity {
+    private suspend fun fetchSavedPage(documentId: Long): SavedPageEntity {
         val content = api.fetchDocumentContent(documentId)
         val savedPage =
             SavedPageEntity(
@@ -245,9 +245,9 @@ class PhoneSync(
             )
         val searchBlocks =
             content.blocks.mapIndexed { position, block ->
-                NoteSearchBlockEntity(documentId, block.id, position, block.text)
+                SearchBlockEntity(documentId, block.id, position, block.text)
             }
-        dao.saveNote(savedPage, searchBlocks)
+        dao.savePage(savedPage, searchBlocks)
         return savedPage
     }
 
@@ -281,12 +281,12 @@ class PhoneSync(
         listedDocuments.forEachIndexed { index, document ->
             try {
                 locked {
-                    val savedPage = dao.note(document.id)
+                    val savedPage = dao.savedPage(document.id)
                     if (savedPage != null && upToDate(savedPage, document, repositoryCommitSha)) {
                         images.save(savedPage)
                         alreadySaved++
                     } else {
-                        images.save(fetchNote(document.id))
+                        images.save(fetchSavedPage(document.id))
                         fetched++
                     }
                 }

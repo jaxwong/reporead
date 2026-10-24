@@ -40,15 +40,16 @@ import kotlinx.coroutines.withContext
  */
 private data class Backlinks(val notes: List<DocumentEntity>, val saved: Int, val listed: Int)
 
-private fun status(row: AnnotationEntity, displayedBlobSha: String, notShown: Set<String>): String? =
+private fun status(annotation: AnnotationEntity, displayedBlobSha: String, notShown: Set<String>): String? =
     when {
-        row.state == AnnotationState.REFUSED -> "Not saved to the server: ${row.rejection}"
-        row.state == AnnotationState.UNSENT -> "Saved on this phone; waiting to send"
-        row.orphanedIn(displayedBlobSha) ->
-            "The note changed and this passage could not be found reliably. Originally: …${row.prefixText}[${row.exactText}]${row.suffixText}…"
-        row.drawn.blobSha != displayedBlobSha -> "Placed in another version of this note; not shown in the text"
-        row.mutationId in notShown -> "Its text was not found in this version; not shown"
-        row.drawn.exactText != row.exactText -> "Followed an edit of the note; now “${row.drawn.exactText}”"
+        annotation.state == AnnotationState.REFUSED -> "Not saved to the server: ${annotation.rejection}"
+        annotation.state == AnnotationState.UNSENT -> "Saved on this phone; waiting to send"
+        annotation.orphanedIn(displayedBlobSha) ->
+            "The note changed and this passage could not be found reliably. Originally: …${annotation.prefixText}[${annotation.exactText}]${annotation.suffixText}…"
+        annotation.drawn.blobSha != displayedBlobSha -> "Placed in another version of this note; not shown in the text"
+        annotation.mutationId in notShown -> "Its text was not found in this version; not shown"
+        annotation.drawn.exactText != annotation.exactText ->
+            "Followed an edit of the note; now “${annotation.drawn.exactText}”"
         else -> null
     }
 
@@ -87,7 +88,7 @@ internal fun NotesPanel(
             DeviceLog.info(
                 "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}"
             )
-            value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
+            value = Backlinks(found, dao.savedPageCount(note.repositoryId), documents.size)
         }
 
     Column(modifier) {
@@ -96,19 +97,20 @@ internal fun NotesPanel(
             Text("No highlights yet. Select text and choose Highlight or Add note.", Modifier.padding(16.dp))
         }
         LazyColumn {
-            items(annotations, key = { it.mutationId }) { row ->
+            items(annotations, key = { it.mutationId }) { annotation ->
                 AnnotationItem(
-                    row,
-                    shown = row.drawn.blobSha == displayedBlobSha && row.mutationId !in notShown,
+                    annotation,
+                    shown = annotation.drawn.blobSha == displayedBlobSha && annotation.mutationId !in notShown,
                     pageReady = pageReady,
-                    status = status(row, displayedBlobSha, notShown),
+                    status = status(annotation, displayedBlobSha, notShown),
                     block =
-                        if (row.type == AnnotationType.CARD) row.cardBlock(removed, displayedBlobSha, displayedBlobSha)
+                        if (annotation.type == AnnotationType.CARD)
+                            annotation.cardBlock(removed, displayedBlobSha, displayedBlobSha)
                         else null,
-                    onReveal = { onReveal(row) },
-                    onReattach = { onReattach(row) },
-                    onEdit = { onEdit(row) },
-                    onDelete = { onDelete(row) },
+                    onReveal = { onReveal(annotation) },
+                    onReattach = { onReattach(annotation) },
+                    onEdit = { onEdit(annotation) },
+                    onDelete = { onDelete(annotation) },
                 )
                 HorizontalDivider()
             }
@@ -142,7 +144,7 @@ internal fun NotesPanel(
  */
 @Composable
 private fun AnnotationItem(
-    row: AnnotationEntity,
+    annotation: AnnotationEntity,
     shown: Boolean,
     pageReady: Boolean,
     status: String?,
@@ -154,20 +156,20 @@ private fun AnnotationItem(
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(
-            "“${if (row.type == AnnotationType.CARD) row.drawn.exactText else row.exactText}”",
+            "“${if (annotation.type == AnnotationType.CARD) annotation.drawn.exactText else annotation.exactText}”",
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )
-        row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+        annotation.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
         block?.let { Text(it.reason, style = MaterialTheme.typography.labelLarge) }
-        row.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+        annotation.note?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         if (shown) TextButton(enabled = pageReady, onClick = onReveal) { Text("Show") }
         Row {
             // Online: the server verifies the new selection against the version it was made on.
-            if (row.acknowledged && !shown) TextButton(onClick = onReattach) { Text("Reattach") }
-            if (row.acknowledged) TextButton(onClick = onEdit) { Text("Edit note") }
+            if (annotation.acknowledged && !shown) TextButton(onClick = onReattach) { Text("Reattach") }
+            if (annotation.acknowledged) TextButton(onClick = onEdit) { Text("Edit note") }
             TextButton(onClick = onDelete) { Text("Delete") }
         }
     }
@@ -207,21 +209,21 @@ internal fun ConflictDialog(current: AnnotationEntity, mine: String?, onKeepMine
     )
 }
 
-/** Asks before deleting [row], saying what goes with it. */
+/** Asks before deleting [annotation], saying what goes with it. */
 @Composable
-internal fun DeleteDialog(row: AnnotationEntity, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+internal fun DeleteDialog(annotation: AnnotationEntity, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     val goesWithIt =
         when {
-            row.type == AnnotationType.CARD -> "Its question and its review history are deleted too. "
-            row.note != null -> "Its note is deleted too. "
+            annotation.type == AnnotationType.CARD -> "Its question and its review history are deleted too. "
+            annotation.note != null -> "Its note is deleted too. "
             else -> ""
         }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (row.type == AnnotationType.CARD) "Delete this card?" else "Delete this highlight?") },
+        title = { Text(if (annotation.type == AnnotationType.CARD) "Delete this card?" else "Delete this highlight?") },
         text = {
             Text(
-                "“${row.drawn.exactText}”\n\n${goesWithIt}This cannot be undone.",
+                "“${annotation.drawn.exactText}”\n\n${goesWithIt}This cannot be undone.",
                 maxLines = 8,
                 overflow = TextOverflow.Ellipsis,
             )
