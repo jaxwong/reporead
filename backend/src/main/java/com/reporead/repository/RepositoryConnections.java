@@ -80,6 +80,8 @@ public class RepositoryConnections {
 
     /**
      * A repository the user's token reaches through one of the app's installations, and its connection if connected.
+     * {@code outdated}: connected, but GitHub now names the repository or its default branch differently than the
+     * connection does, so its calls fail with REPOSITORY_RENAMED until it is connected again. Never true unconnected.
      */
     public record Available(
             long githubRepositoryId,
@@ -87,7 +89,8 @@ public class RepositoryConnections {
             String fullName,
             boolean privateRepository,
             String defaultBranch,
-            @Nullable Long connectionId) {}
+            @Nullable Long connectionId,
+            boolean outdated) {}
 
     /**
      * Every repository the user can connect: each installation's complete list (1 + installations GitHub requests, at
@@ -95,7 +98,7 @@ public class RepositoryConnections {
      */
     List<Available> available(AppUser user) {
         String token = credentials.githubUserToken(user.githubUserId());
-        var connected = connectedIds(user.id());
+        var connected = connected(user.id());
         var result = new ArrayList<Available>();
         var seen = new HashSet<Long>();
         for (long installationId : github.installations(token)) {
@@ -104,24 +107,43 @@ public class RepositoryConnections {
                     throw new ApiFailure(
                             Code.GITHUB_INVALID_RESPONSE, "GitHub listed one repository in two installations.");
                 }
+                var connection = connected.get(repository.id());
                 result.add(new Available(
                         repository.id(),
                         installationId,
                         repository.fullName(),
                         repository.privateRepository(),
                         repository.defaultBranch(),
-                        connected.get(repository.id())));
+                        connection == null ? null : connection.id(),
+                        connection != null && !connection.namesMatch(repository)));
             }
         }
         return List.copyOf(result);
     }
 
-    /** GitHub repository id → connection id, for marking which available repositories are already connected. */
-    private Map<Long, Long> connectedIds(long userId) {
+    /** A connection's id and the names GitHub gave when it was last connected. */
+    private record Saved(long id, String owner, String name, String defaultBranch) {
+        boolean namesMatch(GitHubApi.Repository repository) {
+            return owner.equals(repository.owner())
+                    && name.equals(repository.name())
+                    && defaultBranch.equals(repository.defaultBranch());
+        }
+    }
+
+    /** GitHub repository id → saved connection, for marking which available repositories are connected or outdated. */
+    private Map<Long, Saved> connected(long userId) {
         return db
-                .sql("SELECT github_repository_id, id FROM repository_connections WHERE user_id = :userId")
+                .sql("""
+                        SELECT github_repository_id, id, owner, name, default_branch FROM repository_connections
+                        WHERE user_id = :userId""")
                 .param("userId", userId)
-                .query((row, n) -> Map.entry(row.getLong("github_repository_id"), row.getLong("id")))
+                .query((row, n) -> Map.entry(
+                        row.getLong("github_repository_id"),
+                        new Saved(
+                                row.getLong("id"),
+                                row.getString("owner"),
+                                row.getString("name"),
+                                row.getString("default_branch"))))
                 .list()
                 .stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));

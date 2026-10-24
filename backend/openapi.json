@@ -1191,7 +1191,7 @@
         }
       },
       "RepositoryConnectionsAvailable" : {
-        "required" : [ "connectionId", "defaultBranch", "fullName", "githubRepositoryId", "installationId", "privateRepository" ],
+        "required" : [ "connectionId", "defaultBranch", "fullName", "githubRepositoryId", "installationId", "outdated", "privateRepository" ],
         "type" : "object",
         "properties" : {
           "connectionId" : {
@@ -1212,6 +1212,9 @@
           "installationId" : {
             "type" : "integer",
             "format" : "int64"
+          },
+          "outdated" : {
+            "type" : "boolean"
           },
           "privateRepository" : {
             "type" : "boolean"

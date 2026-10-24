@@ -145,6 +145,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                     .andExpect(jsonPath("$.repositories[0].privateRepository").value(true))
                     .andExpect(jsonPath("$.repositories[0].defaultBranch").value("main"))
                     .andExpect(jsonPath("$.repositories[0].connectionId").doesNotExist())
+                    .andExpect(jsonPath("$.repositories[0].outdated").value(false))
                     .andExpect(content().string(not(containsString("TOKEN"))))
                     .andExpect(content().string(not(containsString("MUST_NOT_LEAK"))));
         }
@@ -382,7 +383,9 @@ class AvailableRepositoriesTest extends SharedSpringTest {
 
         next();
         expectListing(TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
-        available(alice).andExpect(jsonPath("$.repositories[0].connectionId").value(1));
+        available(alice)
+                .andExpect(jsonPath("$.repositories[0].connectionId").value(1))
+                .andExpect(jsonPath("$.repositories[0].outdated").value(false));
     }
 
     @Test
@@ -395,6 +398,11 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 .update();
         next();
         String renamed = PAGE.replace("test-only/notes", "test-only/renamed").replace("\"main\"", "\"trunk\"");
+        expectListing(TOKEN, withSuccess(renamed, MediaType.APPLICATION_JSON));
+        available(alice)
+                .andExpect(jsonPath("$.repositories[0].connectionId").value(1))
+                .andExpect(jsonPath("$.repositories[0].outdated").value(true));
+        next();
         expect(UPSTREAM, TOKEN, withSuccess(renamed, MediaType.APPLICATION_JSON));
         connect(alice, 11, "{\"installationId\":7}")
                 .andExpect(status().isOk())
@@ -407,6 +415,21 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 db.sql("SELECT count(*) FROM repository_connections")
                         .query(Integer.class)
                         .single());
+        next();
+        expectListing(TOKEN, withSuccess(renamed, MediaType.APPLICATION_JSON));
+        available(alice).andExpect(jsonPath("$.repositories[0].outdated").value(false));
+    }
+
+    /** Either name alone differing is enough: each makes GitHub redirect the connection's calls. */
+    @ParameterizedTest
+    @ValueSource(strings = {"\"test-only/notes\"|\"test-only/renamed\"", "\"main\"|\"trunk\""})
+    void aRenamedRepositoryOrBranchAloneMarksTheConnectionOutdated(String change) throws Exception {
+        expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
+        connect(alice, 11, "{\"installationId\":7}").andExpect(status().isOk());
+        next();
+        String[] from = change.split("\\|");
+        expectListing(TOKEN, withSuccess(PAGE.replace(from[0], from[1]), MediaType.APPLICATION_JSON));
+        available(alice).andExpect(jsonPath("$.repositories[0].outdated").value(true));
     }
 
     @Test
