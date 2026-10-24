@@ -219,6 +219,10 @@ Merged in [PR #106](https://github.com/jaxwong/reporead/pull/106) (ADR-08): the 
 
 [PR #109](https://github.com/jaxwong/reporead/pull/109), by user decision (ADR-13): the phone owns the review session size (`SESSION_LIMIT`, 40) and drops Room's `review_limits` (v19); the server alone checks a grade's range (`ReviewController` and the `review_log.grade` `CHECK`), and the phone's second check is deleted. Verified in the PR: `spotlessCheck lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest` and `:backend:spotlessCheck :backend:test`, exit 0. Device suite on the Pixel 8a (`am instrument`, 2026-10-23, debug APK sha256 e0c19f8f…): `OK (211 tests)`, including `SessionLimitMigrationTest` (v18 to v19). The ADR-24 follow-up, [PR #111](https://github.com/jaxwong/reporead/pull/111), removes the retired `sessionLimit` from the server response and published contract after that release was installed.
 
+## Library bar names the selected tab (2026-10-24)
+
+[PR #112](https://github.com/jaxwong/reporead/pull/112): the Library's top bar shows the selected tab's label instead of "Library" on every tab, and the Notebook is an icon in the bar beside Search instead of a text button above every tab's content. Verified in the PR: `spotlessCheck lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest`, exit 0. The device suite has not run on this change.
+
 ## Naming and ownership (2026-10-21 to 2026-10-22)
 
 Merged in [PR #95](https://github.com/jaxwong/reporead/pull/95), [PR #99](https://github.com/jaxwong/reporead/pull/99), [PR #100](https://github.com/jaxwong/reporead/pull/100) and [PR #103](https://github.com/jaxwong/reporead/pull/103): one [naming guide](code-style.md), Android packages named for their owners (`network`, `logging`, `database`), the device-log flow named alike on the phone and the server, and "sync" split into delivering pending changes and refreshing a repository snapshot. The PRs changed no route, JSON field, table or column; the one approved behaviour change, request targets keeping their query in the server's log, is in ADR-21.
