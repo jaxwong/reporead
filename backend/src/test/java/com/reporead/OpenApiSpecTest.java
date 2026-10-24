@@ -151,10 +151,10 @@ class OpenApiSpecTest {
         if (owner == null) throw new IllegalStateException("Property " + property + " of unpublished schema " + schema);
         try {
             return owner.getDeclaredMethod(property);
-        } catch (NoSuchMethodException error) {
+        } catch (NoSuchMethodException failure) {
             throw new IllegalStateException(
                     "Schema " + schema + " publishes " + property + ", but " + owner + " has no accessor of that name",
-                    error);
+                    failure);
         }
     }
 

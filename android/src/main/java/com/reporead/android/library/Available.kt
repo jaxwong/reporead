@@ -56,18 +56,21 @@ internal class AvailableViewModel(private val api: Api, private val sync: PhoneS
         val connected: RepositoryConnectionsConnection? = null,
     )
 
-    private val current = MutableStateFlow(State())
-    val state: StateFlow<State> = current.asStateFlow()
+    private val _state = MutableStateFlow(State())
+    val state: StateFlow<State> = _state.asStateFlow()
 
     init {
         list("created")
     }
 
     fun retry() {
-        val now = current.value
-        if (now.listing !is Load.Failed || !current.compareAndSet(now, now.copy(listing = Load.Loading))) {
+        val stateSnapshot = _state.value
+        if (
+            stateSnapshot.listing !is Load.Failed ||
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(listing = Load.Loading))
+        ) {
             DeviceLog.info(
-                "Available list not fetched again; entry=$entryId listing=${now.listing.javaClass.simpleName}"
+                "Available list not fetched again; entry=$entryId listing=${stateSnapshot.listing.javaClass.simpleName}"
             )
             return
         }
@@ -80,21 +83,24 @@ internal class AvailableViewModel(private val api: Api, private val sync: PhoneS
             val listing =
                 try {
                     Load.Ready(api.availableRepositories().repositories)
-                } catch (error: ApiException) {
-                    Load.Failed(error)
+                } catch (failure: ApiException) {
+                    Load.Failed(failure)
                 }
-            current.update { it.copy(listing = listing) }
+            _state.update { it.copy(listing = listing) }
         }
     }
 
     fun connect(repository: RepositoryConnectionsAvailable) {
-        val now = current.value
+        val stateSnapshot = _state.value
         if (
-            now.connecting != null ||
-                !current.compareAndSet(now, now.copy(connecting = repository.githubRepositoryId, error = null))
+            stateSnapshot.connecting != null ||
+                !_state.compareAndSet(
+                    stateSnapshot,
+                    stateSnapshot.copy(connecting = repository.githubRepositoryId, error = null),
+                )
         ) {
             DeviceLog.info(
-                "Connect not started; entry=$entryId connecting=${now.connecting} requested=${repository.githubRepositoryId}"
+                "Connect not started; entry=$entryId connecting=${stateSnapshot.connecting} requested=${repository.githubRepositoryId}"
             )
             return
         }
@@ -102,18 +108,18 @@ internal class AvailableViewModel(private val api: Api, private val sync: PhoneS
         viewModelScope.launch {
             try {
                 val connected = sync.connect(repository.githubRepositoryId, repository.installationId)
-                current.update { it.copy(connecting = null, connected = connected) }
+                _state.update { it.copy(connecting = null, connected = connected) }
             } catch (failure: ApiException) {
-                current.update { it.copy(connecting = null, error = failure.describe()) }
+                _state.update { it.copy(connecting = null, error = failure.describe()) }
             }
         }
     }
 
     /** The connected repository, once, for the screen that opens its folder. */
     fun claimConnected(): RepositoryConnectionsConnection? {
-        val now = current.value
-        val connected = now.connected ?: return null
-        return if (current.compareAndSet(now, now.copy(connected = null))) connected else null
+        val stateSnapshot = _state.value
+        val connected = stateSnapshot.connected ?: return null
+        return if (_state.compareAndSet(stateSnapshot, stateSnapshot.copy(connected = null))) connected else null
     }
 }
 

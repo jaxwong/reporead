@@ -294,7 +294,7 @@ public final class MarkdownRenderer {
     }
 
     /** The reader page around the note: CSP, the bundled script and style, and the limits the page enforces. */
-    private static Document page(Document clean, boolean empty, String sourceBlobSha, String documentPath) {
+    private static Document page(Document clean, boolean isEmpty, String sourceBlobSha, String documentPath) {
         var document = Document.createShell(ORIGIN);
         document.outputSettings().prettyPrint(false).charset(StandardCharsets.UTF_8);
         document.head().appendElement("meta").attr("charset", "utf-8");
@@ -320,7 +320,7 @@ public final class MarkdownRenderer {
                 .appendElement("main")
                 .id("note")
                 .appendChildren(new ArrayList<>(clean.body().childNodes()));
-        if (empty) note.appendElement("p").text("This note is empty.");
+        if (isEmpty) note.appendElement("p").text("This note is empty.");
         return document;
     }
 
@@ -382,7 +382,13 @@ public final class MarkdownRenderer {
     }
 
     private record Wikilink(
-            String source, boolean embed, String target, String alias, String name, String heading, String extension) {}
+            String source,
+            boolean isEmbed,
+            String target,
+            String alias,
+            String name,
+            String heading,
+            String extension) {}
 
     /** The source roles of one matched wikilink, before any DOM node is constructed. */
     private static Wikilink parseWikilink(MatchResult match) {
@@ -413,7 +419,7 @@ public final class MarkdownRenderer {
                 if (matcher.start() > untouchedStart)
                     replacement.add(new TextNode(textWithLinks.substring(untouchedStart, matcher.start())));
                 var wikilink = parseWikilink(matcher.toMatchResult());
-                if (wikilink.embed() && IMAGE_TYPES.containsKey(wikilink.extension())) {
+                if (wikilink.isEmbed() && IMAGE_TYPES.containsKey(wikilink.extension())) {
                     replacement.add(buildEmbed(wikilink, ++imageCount <= MAX_IMAGES));
                 } else if (wikilink.name().isEmpty() && wikilink.heading() == null) {
                     replacement.add(new TextNode(wikilink.source()));
@@ -425,7 +431,7 @@ public final class MarkdownRenderer {
                                     wikilink.name().isEmpty()
                                             ? noteLink(null, null, wikilink.heading())
                                             : noteLink("target", wikilink.name(), wikilink.heading()));
-                    link.appendChild(hidden((wikilink.embed() ? "!" : "") + "[["));
+                    link.appendChild(hidden((wikilink.isEmbed() ? "!" : "") + "[["));
                     if (wikilink.alias() != null)
                         link.appendChild(hidden(wikilink.target() + "|")).appendChild(new TextNode(wikilink.alias()));
                     else link.appendChild(new TextNode(wikilink.target()));
@@ -502,11 +508,11 @@ public final class MarkdownRenderer {
 
     /**
      * Wraps each footnote match in {@code text} that {@code accept} takes — a definition marker {@code [^label]:} when
-     * {@code definitions}, otherwise a reference {@code [^label]} (a following colon stays text) — and returns the new
+     * {@code isDefinition}, otherwise a reference {@code [^label]} (a following colon stays text) — and returns the new
      * elements.
      */
     private static List<Element> splitFootnotes(
-            TextNode text, boolean definitions, BiPredicate<String, MatchResult> accept) {
+            TextNode text, boolean isDefinition, BiPredicate<String, MatchResult> accept) {
         String whole = text.getWholeText();
         var matcher = FOOTNOTE.matcher(whole);
         var replacement = new ArrayList<Node>();
@@ -514,10 +520,10 @@ public final class MarkdownRenderer {
         int last = 0;
         while (matcher.find()) {
             if (!accept.test(whole, matcher)) continue;
-            int end = definitions ? matcher.end() : matcher.end(1) + 1;
+            int end = isDefinition ? matcher.end() : matcher.end(1) + 1;
             if (matcher.start() > last) replacement.add(new TextNode(whole.substring(last, matcher.start())));
-            var element = new Element(definitions ? "span" : "sup")
-                    .addClass(definitions ? "fn-def" : "fn-ref")
+            var element = new Element(isDefinition ? "span" : "sup")
+                    .addClass(isDefinition ? "fn-def" : "fn-ref")
                     .attr("data-footnote", matcher.group(1))
                     .appendChild(hidden(whole.substring(matcher.start(), end)));
             replacement.add(element);

@@ -47,7 +47,7 @@ final class Anchoring {
     record Resolved(Method method, Annotations.Location location) {}
 
     record Candidate(
-            MarkdownRenderer.Block block, int start, int end, double quote, double context, boolean sameHeadings) {}
+            MarkdownRenderer.Block block, int start, int end, double quote, double context, boolean hasSameHeadings) {}
 
     /**
      * What one version offers for an anchor, independent of thresholds. {@code position}: the passage at its old block
@@ -195,8 +195,9 @@ final class Anchoring {
     /** One candidate, or the one under the same headings; several equally good candidates are ambiguous. */
     private static Optional<Candidate> single(List<Candidate> candidates) {
         if (candidates.size() == 1) return Optional.of(candidates.getFirst());
-        var sameHeadings = candidates.stream().filter(Candidate::sameHeadings).toList();
-        return sameHeadings.size() == 1 ? Optional.of(sameHeadings.getFirst()) : Optional.empty();
+        var withSameHeadings =
+                candidates.stream().filter(Candidate::hasSameHeadings).toList();
+        return withSameHeadings.size() == 1 ? Optional.of(withSameHeadings.getFirst()) : Optional.empty();
     }
 
     private static Candidate candidate(Annotations.Passage from, MarkdownRenderer.Block block, int start, int end) {

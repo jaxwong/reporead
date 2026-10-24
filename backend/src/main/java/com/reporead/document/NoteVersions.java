@@ -55,7 +55,7 @@ public class NoteVersions {
                     .newDecoder()
                     .decode(ByteBuffer.wrap(bytes))
                     .toString();
-        } catch (CharacterCodingException error) {
+        } catch (CharacterCodingException failure) {
             throw new ApiFailure(Code.UNSUPPORTED_CONTENT, "This note is not valid UTF-8 text.");
         }
         try {

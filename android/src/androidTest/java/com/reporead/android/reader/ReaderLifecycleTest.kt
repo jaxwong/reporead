@@ -145,10 +145,10 @@ class ReaderLifecycleTest {
                 withTimeout(5_000) {
                     while (checkNotNull(store.dao().reading(1)).lastReadAt <= lastSavedAt) delay(10)
                 }
-            } catch (error: TimeoutCancellationException) {
+            } catch (failure: TimeoutCancellationException) {
                 throw AssertionError(
                     "Reader teardown did not save after $lastSavedAt; current=${store.dao().reading(1)}",
-                    error,
+                    failure,
                 )
             }
         }

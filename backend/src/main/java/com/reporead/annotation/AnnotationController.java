@@ -49,8 +49,8 @@ public class AnnotationController {
     record AnnotationList(List<Annotations.Annotation> annotations) {}
 
     @GetMapping("/api/documents/{id}/annotations")
-    AnnotationList list(@AuthenticationPrincipal AppUser user, @PathVariable long id) {
-        return new AnnotationList(service.list(user, id));
+    AnnotationList list(@AuthenticationPrincipal AppUser user, @PathVariable("id") long documentId) {
+        return new AnnotationList(service.list(user, documentId));
     }
 
     /** Owns creation input; omitted type defaults to HIGHLIGHT, and omitted note/question mean no optional text. */
@@ -77,7 +77,9 @@ public class AnnotationController {
             description = "Annotation created",
             content = @Content(schema = @Schema(implementation = Annotations.Annotation.class)))
     ResponseEntity<Annotations.Annotation> create(
-            @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody CreateRequest body) {
+            @AuthenticationPrincipal AppUser user,
+            @PathVariable("id") long documentId,
+            @RequestBody CreateRequest body) {
         UUID mutationId = mutationId(body.mutationId());
         var selection = body.anchor();
         String requested = body.type() == null ? "HIGHLIGHT" : body.type();
@@ -96,7 +98,7 @@ public class AnnotationController {
                             + " surrogate, so a range cannot split a character.");
         }
         var type = card ? Annotations.Type.CARD : Annotations.Type.HIGHLIGHT;
-        var created = service.create(user, id, mutationId, selection, body.note(), type, body.question());
+        var created = service.create(user, documentId, mutationId, selection, body.note(), type, body.question());
         return ResponseEntity.status(created.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
                 .body(created.annotation());
     }
@@ -106,14 +108,16 @@ public class AnnotationController {
     /** The user places an orphaned (or any) highlight on a selection they made in a version of its note. */
     @PostMapping("/api/annotations/{id}/reattach")
     Annotations.Annotation reattach(
-            @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody ReattachRequest body) {
+            @AuthenticationPrincipal AppUser user,
+            @PathVariable("id") long annotationId,
+            @RequestBody ReattachRequest body) {
         if (body.expectedVersion() == null || body.expectedVersion() < 1 || !validSelection(body.anchor())) {
             throw new ApiFailure(
                     Code.INVALID_ANNOTATION,
                     "A reattachment needs expectedVersion and a selection: source blob SHA, block id, and a non-empty UTF-16 range matching exactText (at most "
                             + MAX_TEXT_CHARS + " characters) that does not split a character.");
         }
-        return service.reattach(user, id, body.expectedVersion(), body.anchor());
+        return service.reattach(user, annotationId, body.expectedVersion(), body.anchor());
     }
 
     /** Owns edit input; omitting the optional note clears it just as explicit null does. */
@@ -125,33 +129,35 @@ public class AnnotationController {
 
     @PatchMapping("/api/annotations/{id}")
     Annotations.Annotation edit(
-            @AuthenticationPrincipal AppUser user, @PathVariable long id, @RequestBody EditRequest body) {
+            @AuthenticationPrincipal AppUser user,
+            @PathVariable("id") long annotationId,
+            @RequestBody EditRequest body) {
         if (body.expectedVersion() == null || body.expectedVersion() < 1 || !validNote(body.note())) {
             throw new ApiFailure(
                     Code.INVALID_ANNOTATION,
                     "An edit needs expectedVersion and a note of at most " + MAX_TEXT_CHARS
                             + " characters with no NUL or unpaired surrogate (or null).");
         }
-        return annotations.updateNote(user.id(), id, body.expectedVersion(), body.note());
+        return annotations.updateNote(user.id(), annotationId, body.expectedVersion(), body.note());
     }
 
     @DeleteMapping("/api/annotations/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void delete(
             @AuthenticationPrincipal AppUser user,
-            @PathVariable long id,
+            @PathVariable("id") long annotationId,
             @Parameter(required = true) @RequestParam(required = false) Integer expectedVersion) {
         if (expectedVersion == null || expectedVersion < 1) {
             throw new ApiFailure(Code.INVALID_ANNOTATION, "A deletion needs expectedVersion.");
         }
-        annotations.delete(user.id(), id, expectedVersion);
-        LOG.info("Annotation deleted; userId={} annotationId={}", user.id(), id);
+        annotations.delete(user.id(), annotationId, expectedVersion);
+        LOG.info("Annotation deleted; userId={} annotationId={}", user.id(), annotationId);
     }
 
     private static UUID mutationId(String value) {
         try {
             return UUID.fromString(value == null ? "" : value);
-        } catch (IllegalArgumentException error) {
+        } catch (IllegalArgumentException failure) {
             throw new ApiFailure(Code.INVALID_ANNOTATION, "mutationId must be a client-generated UUID.");
         }
     }

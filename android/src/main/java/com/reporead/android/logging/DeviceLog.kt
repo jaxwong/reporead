@@ -115,9 +115,9 @@ object DeviceLog {
             try {
                 pending.appendText(line(level, bounded))
                 if (pending.length() > STORE_MAX_BYTES) keepNewest(pending)
-            } catch (error: IOException) {
+            } catch (ioFailure: IOException) {
                 // Logcat already has the line; this one is lost to the server.
-                Log.w(TAG, "Device log line not stored; error=${error.javaClass.simpleName}")
+                Log.w(TAG, "Device log line not stored; error=${ioFailure.javaClass.simpleName}")
             }
             if (File(started(), SENDING).exists()) null else requestUploadOnWarning
         }

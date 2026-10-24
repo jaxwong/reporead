@@ -49,8 +49,8 @@ typealias WireBoolean = Boolean
 internal inline fun <reified T : Any> decodeResponse(body: String, status: Int): T =
     try {
         wireJson.decodeFromString<T>(body).also(::checkRules)
-    } catch (error: IllegalArgumentException) {
-        throw invalidResponse(status, error)
+    } catch (failure: IllegalArgumentException) {
+        throw invalidResponse(status, failure)
     }
 
 internal fun invalidResponse(status: Int, cause: Throwable? = null) =
@@ -103,10 +103,10 @@ internal object WireInstant : KSerializer<Instant> {
         val value = decoder.decodeString()
         return try {
             Instant.parse(value).also { it.toEpochMilli() }
-        } catch (error: DateTimeParseException) {
-            throw SerializationException("Expected an ISO instant", error)
-        } catch (error: ArithmeticException) {
-            throw SerializationException("Expected an instant representable as epoch milliseconds", error)
+        } catch (failure: DateTimeParseException) {
+            throw SerializationException("Expected an ISO instant", failure)
+        } catch (failure: ArithmeticException) {
+            throw SerializationException("Expected an instant representable as epoch milliseconds", failure)
         }
     }
 

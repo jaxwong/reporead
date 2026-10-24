@@ -16,15 +16,15 @@ class ReaderStudyModeTest {
 
     @Test
     fun onlyTheFixedLeetcodeHeadingsAreRecognizedIgnoringCaseAndOuterWhitespace() {
-        assertTrue(studyNote(page(heading(0, "  MISTAKES  "))).recognized)
-        assertTrue(studyNote(page(heading(0, "Problem"))).recognized)
-        assertFalse(studyNote(page(heading(0, "Problems") + block(1, "Mistakes", "pre"))).recognized)
+        assertTrue(studyNote(page(heading(0, "  MISTAKES  "))).isRecognized)
+        assertTrue(studyNote(page(heading(0, "Problem"))).isRecognized)
+        assertFalse(studyNote(page(heading(0, "Problems") + block(1, "Mistakes", "pre"))).isRecognized)
         // A bank is practised in Practice, not studied in the reader.
         assertFalse(
             studyNote(page(heading(0, "Foundations") + heading(1, "1. Why?", 3) + block(2, "Canonical answer: X", "p")))
-                .recognized
+                .isRecognized
         )
-        assertFalse(studyNote("").recognized)
+        assertFalse(studyNote("").isRecognized)
     }
 
     @Test

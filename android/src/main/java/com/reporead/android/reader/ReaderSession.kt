@@ -216,7 +216,7 @@ internal class ReaderSession(
         } else if (url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto") {
             try {
                 view.context.startActivity(Intent(Intent.ACTION_VIEW, url).addCategory(Intent.CATEGORY_BROWSABLE))
-            } catch (error: ActivityNotFoundException) {
+            } catch (failure: ActivityNotFoundException) {
                 DeviceLog.warn("No app for an external note link; scheme=${url.scheme}")
                 onMessage(
                     if (url.scheme == "mailto") "No email app is installed to open this link."

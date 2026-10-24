@@ -74,8 +74,8 @@ class ReviewSyncTest {
                     try {
                         sync.sendPendingChanges()
                         fail("Expected a typed 503 failure")
-                    } catch (error: ApiException) {
-                        assertEquals("GITHUB_UNAVAILABLE", error.code)
+                    } catch (failure: ApiException) {
+                        assertEquals("GITHUB_UNAVAILABLE", failure.code)
                     }
                     first.await()
                     assertEquals(5, stored.size)

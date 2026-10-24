@@ -320,8 +320,8 @@ class AnnotationTest extends SharedSpringTest {
                     .map(future -> {
                         try {
                             return future.get();
-                        } catch (Exception error) {
-                            throw new AssertionError(error);
+                        } catch (Exception failure) {
+                            throw new AssertionError(failure);
                         }
                     })
                     .toList();

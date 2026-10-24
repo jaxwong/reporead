@@ -35,8 +35,8 @@ public final class Hashes {
     private static MessageDigest digest(String algorithm) {
         try {
             return MessageDigest.getInstance(algorithm);
-        } catch (NoSuchAlgorithmException error) {
-            throw new IllegalStateException("The JDK must provide " + algorithm, error);
+        } catch (NoSuchAlgorithmException failure) {
+            throw new IllegalStateException("The JDK must provide " + algorithm, failure);
         }
     }
 }

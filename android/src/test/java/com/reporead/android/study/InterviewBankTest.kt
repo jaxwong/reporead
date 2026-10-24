@@ -101,7 +101,7 @@ class InterviewBankTest {
                     listOf(
                         PromptBlock.Paragraph("Evidence:"),
                         PromptBlock.Code("\$ ls\nREADME"),
-                        PromptBlock.Items(listOf("one", "two"), ordered = true),
+                        PromptBlock.Items(listOf("one", "two"), isOrdered = true),
                     ),
                 worked = LinkedText("Bitly (free).", listOf(WebLink("Bitly", "https://example.com/bitly"))),
                 level = "Foundations",

@@ -329,7 +329,7 @@ class RepoReadDatabaseTest {
             },
             found.matches.map { it.openAt },
         )
-        assertFalse(found.truncated)
+        assertFalse(found.isTruncated)
     }
 
     @Test
@@ -351,7 +351,7 @@ class RepoReadDatabaseTest {
         val found = search(dao, "topic")
         assertEquals(SEARCH_LIMIT, found.matches.map { it.documentId }.distinct().size)
         assertEquals(SEARCH_LIMIT, found.matches.size)
-        assertTrue(found.truncated)
+        assertTrue(found.isTruncated)
         assertEquals(emptyList<SearchResult>(), search(dao, "original").matches)
         val written = search(dao, "written").matches.single()
         assertEquals("Renamed" to "now/Renamed.md", written.title to written.path)

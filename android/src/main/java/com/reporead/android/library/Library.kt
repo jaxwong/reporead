@@ -99,8 +99,8 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
         val status: String? = null,
     )
 
-    private val current = MutableStateFlow(State())
-    val state: StateFlow<State> = current.asStateFlow()
+    private val _state = MutableStateFlow(State())
+    val state: StateFlow<State> = _state.asStateFlow()
 
     /** The sign-in state the screen last showed; null before it was first shown. */
     private var shownSignedIn: Boolean? = null
@@ -131,8 +131,11 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
      * Sends pending changes, then reloads the server's library; the background sender leaves the lists alone (ADR-08).
      */
     fun sendChangesAndRefreshLibrary(reason: String = "asked") {
-        val now = current.value
-        if (now.updatingLibrary || !current.compareAndSet(now, now.copy(updatingLibrary = true))) {
+        val stateSnapshot = _state.value
+        if (
+            stateSnapshot.updatingLibrary ||
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(updatingLibrary = true))
+        ) {
             DeviceLog.info("Library update not started; entry=$entryId reason=$reason running=true")
             return
         }
@@ -153,10 +156,10 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
                         )
                         .joinToString(" ")
                         .ifEmpty { null }
-                } catch (error: ApiException) {
-                    "Showing saved data. ${error.describe()}"
+                } catch (failure: ApiException) {
+                    "Showing saved data. ${failure.describe()}"
                 }
-            current.update { it.copy(updatingLibrary = false, status = status) }
+            _state.update { it.copy(updatingLibrary = false, status = status) }
         }
     }
 }

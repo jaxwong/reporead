@@ -700,7 +700,7 @@ class AnchorMeasurement {
                     .append(text, candidate.end(), Math.min(text.length(), candidate.end() + 32))
                     .append(String.format(
                             "…  quote=%.2f context=%.2f sameHeadings=%s%n",
-                            candidate.quote(), candidate.context(), candidate.sameHeadings()));
+                            candidate.quote(), candidate.context(), candidate.hasSameHeadings()));
         });
     }
 }

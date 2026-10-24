@@ -43,14 +43,14 @@ sealed interface AccountState {
  * or background work.
  */
 class Account(private val store: SessionStore, private val api: Api, private val scope: CoroutineScope) {
-    private val current = MutableStateFlow<AccountState>(AccountState.Idle(null))
-    val state: StateFlow<AccountState> = current.asStateFlow()
+    private val _state = MutableStateFlow<AccountState>(AccountState.Idle(null))
+    val state: StateFlow<AccountState> = _state.asStateFlow()
 
     /** Starts [next] only when nothing runs: a second tap, or a sign-in code arriving meanwhile, does nothing. */
     private fun begin(next: AccountState): Boolean {
-        val now = current.value
-        val started = now is AccountState.Idle && current.compareAndSet(now, next)
-        if (!started) DeviceLog.info("Account operation not started; running=$now requested=$next")
+        val stateSnapshot = _state.value
+        val started = stateSnapshot is AccountState.Idle && _state.compareAndSet(stateSnapshot, next)
+        if (!started) DeviceLog.info("Account operation not started; running=$stateSnapshot requested=$next")
         return started
     }
 
@@ -60,13 +60,13 @@ class Account(private val store: SessionStore, private val api: Api, private val
         scope.launch {
             try {
                 api.revokeSession()
-            } catch (error: ApiException) {
-                if (error.status == 401)
-                    DeviceLog.info("Session already ended; status=${error.status} code=${error.code}")
-                else DeviceLog.warn("Session revocation failed; status=${error.status} code=${error.code}")
+            } catch (failure: ApiException) {
+                if (failure.status == 401)
+                    DeviceLog.info("Session already ended; status=${failure.status} code=${failure.code}")
+                else DeviceLog.warn("Session revocation failed; status=${failure.status} code=${failure.code}")
             }
             store.clear()
-            current.value = AccountState.Idle(null)
+            _state.value = AccountState.Idle(null)
         }
     }
 
@@ -76,13 +76,13 @@ class Account(private val store: SessionStore, private val api: Api, private val
         scope.launch {
             try {
                 api.deleteAccount()
-            } catch (error: ApiException) {
-                DeviceLog.warn("Account deletion not confirmed; status=${error.status} code=${error.code}")
-                current.value = AccountState.Idle(AccountNotice.DeletionNotConfirmed(error))
+            } catch (failure: ApiException) {
+                DeviceLog.warn("Account deletion not confirmed; status=${failure.status} code=${failure.code}")
+                _state.value = AccountState.Idle(AccountNotice.DeletionNotConfirmed(failure))
                 return@launch
             }
             store.clear()
-            current.value = AccountState.Idle(AccountNotice.AccountDeleted)
+            _state.value = AccountState.Idle(AccountNotice.AccountDeleted)
         }
     }
 
@@ -99,15 +99,16 @@ class Account(private val store: SessionStore, private val api: Api, private val
                         )
                 store.pendingVerifier = null
                 completeSignIn(code, verifier, api, store)
-                current.value = AccountState.Idle(null)
-            } catch (error: ApiException) {
-                current.value = AccountState.Idle(AccountNotice.SignInFailed(error))
+                _state.value = AccountState.Idle(null)
+            } catch (failure: ApiException) {
+                _state.value = AccountState.Idle(AccountNotice.SignInFailed(failure))
             }
         }
     }
 
     fun dismissNotice() {
-        val now = current.value
-        if (now is AccountState.Idle && now.notice != null) current.compareAndSet(now, AccountState.Idle(null))
+        val stateSnapshot = _state.value
+        if (stateSnapshot is AccountState.Idle && stateSnapshot.notice != null)
+            _state.compareAndSet(stateSnapshot, AccountState.Idle(null))
     }
 }

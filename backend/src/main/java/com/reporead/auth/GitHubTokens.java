@@ -89,7 +89,7 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
                     : new OAuth2RefreshToken(
                             decrypt(row.get().refreshToken(), githubUserId, "refresh"),
                             row.get().refreshTokenIssuedAt());
-        } catch (AEADBadTagException error) {
+        } catch (AEADBadTagException failure) {
             // Kept: a key file named by mistake must not destroy every token; the next sign-in overwrites the row.
             LOG.warn(
                     "Stored GitHub token does not decrypt with the current key; sign-in required; githubUserId={}",
@@ -163,8 +163,8 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
             byte[] stored = Arrays.copyOf(iv, IV_BYTES + sealed.length);
             System.arraycopy(sealed, 0, stored, IV_BYTES, sealed.length);
             return stored;
-        } catch (GeneralSecurityException error) {
-            throw new IllegalStateException("The JDK must provide AES-256-GCM", error);
+        } catch (GeneralSecurityException failure) {
+            throw new IllegalStateException("The JDK must provide AES-256-GCM", failure);
         }
     }
 
@@ -178,10 +178,10 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
             cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, stored, 0, IV_BYTES));
             cipher.updateAAD(associatedData(githubUserId, kind));
             return new String(cipher.doFinal(stored, IV_BYTES, stored.length - IV_BYTES), StandardCharsets.UTF_8);
-        } catch (AEADBadTagException error) {
-            throw error;
-        } catch (GeneralSecurityException error) {
-            throw new IllegalStateException("The JDK must provide AES-256-GCM", error);
+        } catch (AEADBadTagException failure) {
+            throw failure;
+        } catch (GeneralSecurityException failure) {
+            throw new IllegalStateException("The JDK must provide AES-256-GCM", failure);
         }
     }
 

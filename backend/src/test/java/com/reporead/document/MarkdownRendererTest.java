@@ -23,8 +23,8 @@ class MarkdownRendererTest {
             var digest = MessageDigest.getInstance("SHA-1");
             digest.update(("blob " + bytes.length + "\0").getBytes(StandardCharsets.US_ASCII));
             return HexFormat.of().formatHex(digest.digest(bytes));
-        } catch (java.security.NoSuchAlgorithmException error) {
-            throw new AssertionError("JDK must provide SHA-1", error);
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new AssertionError("JDK must provide SHA-1", failure);
         }
     }
 

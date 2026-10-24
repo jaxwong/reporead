@@ -42,7 +42,7 @@ data class PracticePage(
 )
 
 /** A note whose current title or path matches. Body matches are [NoteTextMatch] rows instead. */
-data class NoteNameMatch(val documentId: Long, val title: String, val path: String, val titleMatch: Boolean)
+data class NoteNameMatch(val documentId: Long, val title: String, val path: String, val isTitleMatch: Boolean)
 
 /** One canonical block containing a search phrase, with the exact saved version its [blockId] belongs to. */
 data class NoteTextMatch(
