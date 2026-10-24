@@ -166,8 +166,8 @@ private fun AnnotationItem(
         if (shown) TextButton(enabled = pageReady, onClick = onReveal) { Text("Show") }
         Row {
             // Online: the server verifies the new selection against the version it was made on.
-            if (row.serverId != null && !shown) TextButton(onClick = onReattach) { Text("Reattach") }
-            if (row.serverId != null) TextButton(onClick = onEdit) { Text("Edit note") }
+            if (row.acknowledged && !shown) TextButton(onClick = onReattach) { Text("Reattach") }
+            if (row.acknowledged) TextButton(onClick = onEdit) { Text("Edit note") }
             TextButton(onClick = onDelete) { Text("Delete") }
         }
     }
