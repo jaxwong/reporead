@@ -57,7 +57,7 @@ internal fun LinkPreviewSheet(
 ) {
     val saved by
         produceState<Saved>(Saved.Loading, target.id) {
-            value = dao.note(target.id)?.let { Saved.Copy(it) } ?: Saved.Missing
+            value = dao.savedPage(target.id)?.let { Saved.Copy(it) } ?: Saved.Missing
         }
     var notice by remember(target.id) { mutableStateOf<String?>(null) }
     var failed by remember(target.id) { mutableStateOf(false) }

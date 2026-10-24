@@ -72,8 +72,8 @@ internal data class SearchResults(val matches: List<SearchResult>, val isTruncat
  */
 internal suspend fun search(dao: RepoReadDao, query: String): SearchResults {
     val pattern = likePattern(query)
-    val names = dao.searchNoteNames(pattern, SEARCH_LIMIT)
-    val noteText = dao.searchNoteText(pattern, SEARCH_LIMIT)
+    val names = dao.searchDocumentNames(pattern, SEARCH_LIMIT)
+    val noteText = dao.searchSavedPageText(pattern, SEARCH_LIMIT)
     val highlights = dao.searchHighlights(pattern, SEARCH_LIMIT)
     val results =
         names.map { note ->
@@ -145,7 +145,7 @@ fun SearchScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<SearchResults?>(null) }
     var counts by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    LaunchedEffect(Unit) { counts = dao.savedListCount() to dao.searchableNoteCount() }
+    LaunchedEffect(Unit) { counts = dao.savedListCount() to dao.searchableSavedPageCount() }
     LaunchedEffect(query) {
         results = null
         if (query.isBlank()) return@LaunchedEffect

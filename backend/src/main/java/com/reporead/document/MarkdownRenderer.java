@@ -141,7 +141,7 @@ public final class MarkdownRenderer {
 
     public record Block(String id, String text, List<String> headingPath) {}
     /** One operation's page DOM and canonical facts; image paths bind before the page is serialized. */
-    public record RenderedNote(Document page, List<Block> blocks, int diagramCount) {}
+    public record RenderedDocument(Document page, List<Block> blocks, int diagramCount) {}
 
     public static final class ContentRejected extends IllegalArgumentException {
         public ContentRejected(String message) {
@@ -153,7 +153,7 @@ public final class MarkdownRenderer {
      * {@code documentPath} is the note's repository path: shown as its source label and used to resolve relative
      * images. The phases run in this order; each leaves canonical block text as the next one expects (ADR-05).
      */
-    public static RenderedNote render(String markdown, String sourceBlobSha, String documentPath) {
+    public static RenderedDocument render(String markdown, String sourceBlobSha, String documentPath) {
         checkInput(markdown, sourceBlobSha, documentPath);
         var parsed = parse(markdown);
         var clean = sanitize(parsed);
@@ -162,7 +162,7 @@ public final class MarkdownRenderer {
         markFootnotes(clean);
         tidyBlocks(clean);
         var numbered = numberBlocks(clean);
-        return new RenderedNote(
+        return new RenderedDocument(
                 page(clean, numbered.blocks().isEmpty(), sourceBlobSha, documentPath),
                 numbered.blocks(),
                 numbered.diagrams());

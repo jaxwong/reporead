@@ -23,7 +23,7 @@ internal const val IMAGE_PREFIX = "/repo-image/"
  * lock; Save all uses its per-page lock. [generation] keeps a fetch from writing back what a deletion removed
  * meanwhile. PhoneSync deletes them when their notes go.
  */
-class NoteImages(private val api: Api, filesDir: File) {
+class SavedPageImages(private val api: Api, filesDir: File) {
     private val root = File(filesDir, "images")
 
     /** Held for a cached read, publishing one fetched image, or deletion; never for an HTTP request. */

@@ -9,7 +9,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.BuildConfig
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.network.Api
-import com.reporead.android.sync.NoteImages
+import com.reporead.android.sync.SavedPageImages
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -38,7 +38,7 @@ class IsolatedPageTest {
                 renderFormat = BuildConfig.RENDER_FORMAT,
             )
         val images =
-            NoteImages(
+            SavedPageImages(
                 Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {},
                 File(context.cacheDir, "isolated-page-test"),
             )
@@ -133,7 +133,7 @@ class IsolatedPageTest {
                 renderFormat = BuildConfig.RENDER_FORMAT,
             )
         val images =
-            NoteImages(
+            SavedPageImages(
                 Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {},
                 File(context.cacheDir, "isolated-page-test"),
             )
@@ -195,7 +195,7 @@ class IsolatedPageTest {
                 renderFormat = BuildConfig.RENDER_FORMAT,
             )
         val api = Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {}
-        val images = NoteImages(api, File(context.cacheDir, "isolated-page-test"))
+        val images = SavedPageImages(api, File(context.cacheDir, "isolated-page-test"))
         val shown = CountDownLatch(1)
         val failed = CountDownLatch(1)
         lateinit var page: WebView

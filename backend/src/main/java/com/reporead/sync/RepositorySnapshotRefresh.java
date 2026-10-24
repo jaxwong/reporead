@@ -5,9 +5,9 @@ import com.reporead.ApiFailure.Code;
 import com.reporead.auth.AppUser;
 import com.reporead.auth.GitHubTokenLifecycle;
 import com.reporead.document.Attachments;
+import com.reporead.document.DocumentVersions;
 import com.reporead.document.Documents;
 import com.reporead.document.MarkdownRenderer;
-import com.reporead.document.NoteVersions;
 import com.reporead.github.GitHubApi;
 import com.reporead.repository.RepositoryConnections;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -58,7 +58,7 @@ public class RepositorySnapshotRefresh {
     private final RepositoryConnections connections;
     private final Documents documents;
     private final TransactionTemplate transaction;
-    private final NoteVersions noteVersions;
+    private final DocumentVersions documentVersions;
     private final MeterRegistry meters;
     private final Attachments attachments;
     private final Object contentMoveReadAdmission = new Object();
@@ -69,7 +69,7 @@ public class RepositorySnapshotRefresh {
             RepositoryConnections connections,
             Documents documents,
             TransactionTemplate transaction,
-            NoteVersions noteVersions,
+            DocumentVersions documentVersions,
             MeterRegistry meters,
             Attachments attachments) {
         this.github = github;
@@ -77,7 +77,7 @@ public class RepositorySnapshotRefresh {
         this.connections = connections;
         this.documents = documents;
         this.transaction = transaction;
-        this.noteVersions = noteVersions;
+        this.documentVersions = documentVersions;
         this.meters = meters;
         this.attachments = attachments;
     }
@@ -259,12 +259,12 @@ public class RepositorySnapshotRefresh {
     private Optional<Set<String>> shingles(
             AppUser user, RepositoryConnections.Connection connection, String path, String blobSha) {
         try {
-            return Optional.of(ContentMoves.shingles(noteVersions
+            return Optional.of(ContentMoves.shingles(documentVersions
                     .render(user, connection.owner(), connection.name(), path, blobSha)
-                    .note()
+                    .document()
                     .blocks()));
         } catch (ApiFailure failure) {
-            if (!NoteVersions.versionUnavailable(failure)) throw failure;
+            if (!DocumentVersions.versionUnavailable(failure)) throw failure;
             LOG.info(
                     "Content move candidate skipped; connectionId={} blobSha={} code={}",
                     connection.id(),

@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
 
 /** Test-only loopback server and a scratch folder, never the backend or the app's own files. */
 @RunWith(AndroidJUnit4::class)
-class NoteImagesTest {
+class SavedPageImagesTest {
     private val sha = "a".repeat(40)
     private val filesDir =
         File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "test-only-note-images")
@@ -53,7 +53,8 @@ class NoteImagesTest {
                         "%02x".format(it)
                     }
                 File(legacy, key).writeText("LEGACY_IMAGE_MUST_NOT_BE_READ")
-                val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+                val images =
+                    SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
                 repeat(2) {
                     assertArrayEquals("OLD_PNG".toByteArray(), images.image(1, sha, "a.png"))
                     assertArrayEquals("NEW_PNG".toByteArray(), images.image(1, newer, "a.png"))
@@ -70,7 +71,7 @@ class NoteImagesTest {
         LoopbackServer(emptyMap()).use { server ->
             val directory = File(filesDir, "images/1/$sha").apply { check(mkdirs()) }
             File(directory, "old-key").writeText("OLD_IMAGE")
-            val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+            val images = SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             assertNull(images.image(1, null, "a.png"))
             images.save(SavedPageEntity(1, sha, "a.md", "a", """<main><img src="/repo-image/a.png"></main>""", 0))
             images.sweep(listOf(SavedVersion(1, sha, "a.md", 3, null)))
@@ -84,7 +85,8 @@ class NoteImagesTest {
         val request = "GET /api/documents/1/image?commitSha=$sha&path=a.png"
         LoopbackServer(mapOf(request to (503 to """{"code":"GITHUB_UNAVAILABLE","message":"Test-only unavailable"}""")))
             .use { server ->
-                val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+                val images =
+                    SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
                 assertNull(images.image(1, sha, "a.png"))
                 val note =
                     SavedPageEntity(
@@ -113,7 +115,8 @@ class NoteImagesTest {
                 check(release.await(10, SECONDS)) { "Test never released the image fetch" }
             }
             .use { server ->
-                val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+                val images =
+                    SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
                 val fetching = CompletableFuture.supplyAsync { images.image(1, sha, "a.png") }
                 try {
                     assertTrue(arrived.await(10, SECONDS))
@@ -133,7 +136,7 @@ class NoteImagesTest {
     @Test
     fun anUnreadableCachedImageDoesNotTriggerAnotherFetchStrategy() {
         LoopbackServer(mapOf("GET /api/documents/1/image?commitSha=$sha&path=a.png" to (200 to "PNG"))).use { server ->
-            val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+            val images = SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             assertArrayEquals("PNG".toByteArray(), images.image(1, sha, "a.png"))
             val file = File(filesDir, "images/1/commit-$sha").listFiles()!!.single()
             check(file.setReadable(false, false))
@@ -151,7 +154,7 @@ class NoteImagesTest {
         val payload = "P".repeat(256 * 1024)
         LoopbackServer(mapOf("GET /api/documents/1/image?commitSha=$sha&path=a.png" to (200 to payload))).use { server
             ->
-            val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+            val images = SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             val expected = payload.toByteArray()
             assertArrayEquals(expected, images.image(1, sha, "a.png"))
             val start = CountDownLatch(1)
@@ -172,7 +175,7 @@ class NoteImagesTest {
     @Test
     fun anImageThatCannotBeCachedIsStillShown() {
         LoopbackServer(mapOf("GET /api/documents/1/image?commitSha=$sha&path=a.png" to (200 to "PNG"))).use { server ->
-            val images = NoteImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+            val images = SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             // The version's folder cannot be created: a file has its name, so nothing can be written in it.
             File(filesDir, "images/1").mkdirs()
             File(filesDir, "images/1/commit-$sha").writeText("test-only, not a folder")

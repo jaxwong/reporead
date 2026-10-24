@@ -88,7 +88,7 @@ internal fun NotesPanel(
             DeviceLog.info(
                 "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}"
             )
-            value = Backlinks(found, dao.savedNoteCount(note.repositoryId), documents.size)
+            value = Backlinks(found, dao.savedPageCount(note.repositoryId), documents.size)
         }
 
     Column(modifier) {
