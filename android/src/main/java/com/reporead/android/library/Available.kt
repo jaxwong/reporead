@@ -146,7 +146,10 @@ fun AvailableScreen(api: Api, sync: PhoneSync, entryId: String, onBack: () -> Un
     }
 }
 
-/** A repository with Connect, or Update once connected; [connecting] is the repository being connected, if any. */
+/**
+ * A repository with Connect, or Update once GitHub renamed a connected one; a connected repository with current names
+ * has nothing to do here. [connecting] is the repository being connected, if any.
+ */
 @Composable
 private fun AvailableRow(repository: RepositoryConnectionsAvailable, connecting: Long?, onConnect: () -> Unit) {
     val connected = repository.connectionId != null
@@ -154,17 +157,30 @@ private fun AvailableRow(repository: RepositoryConnectionsAvailable, connecting:
     ListItem(
         leadingContent = { AppIcon(R.drawable.ic_folder, null) },
         headlineContent = { Text(repository.fullName) },
-        supportingContent = { Text(if (connected) "$visibility · Connected" else visibility) },
-        trailingContent = {
-            Button(enabled = connecting == null, onClick = onConnect) {
-                Text(
-                    when {
-                        connecting == repository.githubRepositoryId -> if (connected) "Updating…" else "Connecting…"
-                        connected -> "Update"
-                        else -> "Connect"
-                    }
-                )
-            }
+        supportingContent = {
+            Text(
+                when {
+                    repository.outdated -> "$visibility · Renamed on GitHub"
+                    connected -> "$visibility · Connected"
+                    else -> visibility
+                }
+            )
         },
+        trailingContent =
+            if (connected && !repository.outdated) null
+            else {
+                {
+                    Button(enabled = connecting == null, onClick = onConnect) {
+                        Text(
+                            when {
+                                connecting == repository.githubRepositoryId ->
+                                    if (connected) "Updating…" else "Connecting…"
+                                connected -> "Update"
+                                else -> "Connect"
+                            }
+                        )
+                    }
+                }
+            },
     )
 }

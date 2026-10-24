@@ -1173,6 +1173,38 @@ class AppNavigationTest {
             }
     }
 
+    /**
+     * Update is offered only for a connection GitHub renamed, and connects that one: a connected repository with
+     * current names, listed first, has no button.
+     */
+    @Test
+    fun onlyARenamedConnectionOffersUpdate() {
+        sessions.save("TEST_ONLY_SESSION")
+        val listed =
+            listOf(
+                testAvailable().copy(githubRepositoryId = 12, fullName = "test-only/current", connectionId = 8),
+                testAvailable().copy(connectionId = 7, outdated = true),
+            )
+        val available = "GET /api/repositories/available" to (200 to wire(RepositoryControllerAvailableList(listed)))
+        LoopbackServer(mapOf("GET /api/library" to library(), available, connect)).use { server ->
+            val api = api(server)
+            launchApp(account(api), api)
+            awaitText("Reading")
+            awaitLibraryLoaded(server, 1)
+            click("Repositories")
+            click("Add repository")
+            awaitScreen(
+                "test-only/current",
+                "Private · Connected",
+                "Private · Renamed on GitHub",
+                hidden = listOf("Connect"),
+            )
+            click("Update")
+            awaitFolder()
+            assertEquals(listOf(connect.first), server.requests.filter { it.endsWith("/connect") })
+        }
+    }
+
     private val highlights =
         "GET /api/documents/1/annotations" to (200 to wire(AnnotationControllerAnnotationList(listOf(testHighlight()))))
 
