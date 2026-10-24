@@ -201,9 +201,17 @@ class AppNavigationTest {
         instrumentation.waitForIdleSync()
     }
 
-    /** Whether the Library's [tab] is the selected one; a selected tab is not clickable, so its node is read as is. */
-    private fun selected(tab: String): Boolean =
-        generateSequence(awaitText(tab)) { it.parent }.any(AccessibilityNodeInfo::isSelected)
+    /**
+     * Whether the Library's [tab] is the selected one; a selected tab is not clickable, so its node is read as is. The
+     * top bar's title repeats the selected tab's label, so every node showing the label is checked.
+     */
+    private fun selected(tab: String): Boolean {
+        awaitText(tab)
+        return findNode(root()) { node ->
+            (node.text ?: node.contentDescription)?.toString() == tab &&
+                generateSequence(node) { it.parent }.any(AccessibilityNodeInfo::isSelected)
+        } != null
+    }
 
     /** Waits until every text in [shown] is on screen and none in [hidden] is. */
     private fun awaitScreen(vararg shown: String, hidden: List<String> = emptyList()) = runBlocking {
@@ -230,7 +238,7 @@ class AppNavigationTest {
 
     /** Library → Repositories → the repository → note A with its panel open. */
     private fun openNoteAWithItsPanel() {
-        awaitText("Library")
+        awaitText("Reading")
         click("Repositories")
         click("test-only/notes")
         awaitFolder()
@@ -350,7 +358,7 @@ class AppNavigationTest {
         LoopbackServer(emptyMap()).use { server ->
             val api = api(server)
             launchApp(account(api), api)
-            awaitText("Library")
+            awaitText("Reading")
             click("Search")
             awaitText("Search saved notes")
             setText("Search saved notes", "exact search destination")
@@ -415,7 +423,7 @@ class AppNavigationTest {
         LoopbackServer(emptyMap()).use { server ->
             val api = api(server)
             launchApp(account(api), api)
-            awaitText("Library")
+            awaitText("Reading")
             click("Search")
             awaitText("Search saved notes")
             setText("Search saved notes", "personal navigation marker")
@@ -501,7 +509,7 @@ class AppNavigationTest {
             val file = File(directory, "test-only-preserved.txt").apply { writeText("Test-only saved file") }
             TestHostActivity.restoredState = legacyNavigationState()
             launchApp(account, api)
-            awaitScreen("Library", hidden = listOf("Note A", "Linked from", "Test-only legacy stack"))
+            awaitScreen("Reading", hidden = listOf("Note A", "Linked from", "Test-only legacy stack"))
             assertTrue(selected("Reading"))
             assertEquals(3, dao.documents(7).first().size)
             assertNotNull(dao.note(1))
@@ -560,19 +568,19 @@ class AppNavigationTest {
                 val api = api(server)
                 launchApp(account(api), api)
                 try {
-                    awaitText("Library")
+                    awaitText("Reading")
                     click("Repositories")
                     awaitText("test-only/notes")
                     click("More")
                     click("Delete account…")
                     click("Delete account")
                     assertTrue(arrived.await(10, SECONDS))
-                    awaitScreen("Deleting your RepoRead account…", hidden = listOf("Library"))
+                    awaitScreen("Deleting your RepoRead account…", hidden = listOf("Reading"))
                 } finally {
                     release.countDown()
                 }
                 awaitTextStarting("Couldn't confirm the account deletion")
-                awaitScreen("Library", "test-only/notes")
+                awaitScreen("Reading", "test-only/notes")
                 assertTrue(selected("Repositories"))
                 assertTrue(sessions.hasSession)
             }
@@ -598,7 +606,7 @@ class AppNavigationTest {
             .use { server ->
                 val api = api(server)
                 launchApp(account(api), api)
-                awaitText("Library")
+                awaitText("Reading")
                 click("Repositories")
                 awaitText("test-only/notes")
                 click("More")
@@ -606,20 +614,20 @@ class AppNavigationTest {
                 click("Sign out")
                 try {
                     assertTrue(arrived.await(10, SECONDS))
-                    awaitScreen("Signing out…", hidden = listOf("Library"))
+                    awaitScreen("Signing out…", hidden = listOf("Reading"))
                     scenario!!.recreate()
-                    awaitScreen("Signing out…", hidden = listOf("Library"))
+                    awaitScreen("Signing out…", hidden = listOf("Reading"))
                 } finally {
                     release.countDown()
                 }
-                awaitScreen("Library", hidden = listOf("Signing out…"))
+                awaitScreen("Reading", hidden = listOf("Signing out…"))
                 assertFalse(sessions.hasSession)
                 assertTrue(selected("Repositories"))
                 assertNotNull(runBlocking { dao.note(1) })
                 sessions.pendingVerifier = "test-only-verifier"
                 scenario!!.onActivity { signInCode.value = "TEST_ONLY_CODE" }
                 runBlocking { withTimeout(10_000) { while (!sessions.hasSession) delay(20) } }
-                awaitText("Library")
+                awaitText("Reading")
                 assertTrue(selected("Repositories"))
                 assertFalse(selected("Reading"))
                 assertEquals(1, server.requests.count { it == "DELETE /api/app-auth/session" })
@@ -635,7 +643,7 @@ class AppNavigationTest {
             for ((action, title) in
                 listOf("Sign out…" to "Sign out of RepoRead?", "Delete account…" to "Delete your RepoRead account?")) {
                 launchApp(account(api), api)
-                awaitText("Library")
+                awaitText("Reading")
                 click("More")
                 click(action)
                 awaitText(title)
@@ -648,7 +656,7 @@ class AppNavigationTest {
                 launchApp(account(api), api)
                 awaitText(title)
                 click("Cancel")
-                awaitScreen("Library", hidden = listOf(title))
+                awaitScreen("Reading", hidden = listOf(title))
                 assertTrue(sessions.hasSession)
                 assertNotNull(dao.note(1))
                 scenario!!.close()
@@ -679,7 +687,7 @@ class AppNavigationTest {
                 awaitText("Saved notes and changes stay on this phone. Sending changes waits until you sign in again.")
                 val before = server.requests.toList()
                 click("Cancel")
-                awaitScreen("Library", hidden = listOf("Sign out of RepoRead?"))
+                awaitScreen("Reading", hidden = listOf("Sign out of RepoRead?"))
                 assertNothingMoreSent(server, before)
                 assertEquals(AnnotationState.UNSENT, dao.annotation("unsent")?.state)
                 assertNotNull(dao.note(1))
@@ -693,14 +701,14 @@ class AppNavigationTest {
         LoopbackServer(mapOf("GET /api/library" to library())).use { server ->
             val api = api(server)
             launchApp(account(api), api)
-            awaitText("Library")
+            awaitText("Reading")
             runBlocking { withTimeout(10_000) { while ("GET /api/library" !in server.requests) delay(50) } }
             click("More")
             click("Delete account…")
             awaitMatch("the repositories") { it.contains("your connections (test-only/notes)") }
             val before = server.requests.toList()
             click("Cancel")
-            awaitScreen("Library", hidden = listOf("Delete your RepoRead account?"))
+            awaitScreen("Reading", hidden = listOf("Delete your RepoRead account?"))
             assertNothingMoreSent(server, before)
             assertTrue(sessions.hasSession)
         }
@@ -718,7 +726,7 @@ class AppNavigationTest {
             .use { server ->
                 val api = api(server)
                 launchApp(account(api), api)
-                awaitText("Library")
+                awaitText("Reading")
                 click("Repositories")
                 click("test-only/notes")
                 awaitFolder()
@@ -746,7 +754,7 @@ class AppNavigationTest {
         LoopbackServer(emptyMap()).use { server ->
             val api = api(server)
             launchApp(account(api), api)
-            awaitText("Library")
+            awaitText("Reading")
             click("Repositories")
             click("test-only/notes")
             awaitFolder()
@@ -763,7 +771,7 @@ class AppNavigationTest {
 
     /** Library → Repositories → the repository's folder, once its own library load has finished. */
     private fun openFolder(server: LoopbackServer) {
-        awaitText("Library")
+        awaitText("Reading")
         click("Repositories")
         click("test-only/notes")
         awaitFolder()
@@ -803,15 +811,15 @@ class AppNavigationTest {
         LoopbackServer(mapOf("GET /api/library" to library())).use { server ->
             val api = api(server)
             launchApp(account(api), api)
-            awaitText("Library")
+            awaitText("Reading")
             awaitLibraryLoaded(server, 1)
             scenario!!.recreate()
-            awaitText("Library")
+            awaitText("Reading")
             assertNothingMoreSent(server, listOf("GET /api/library"))
             click("Search")
             awaitText("Search saved notes")
             pressBack()
-            awaitText("Library")
+            awaitText("Reading")
             awaitLibraryLoaded(server, 2)
             assertNothingMoreSent(server, listOf("GET /api/library", "GET /api/library"))
         }
@@ -975,7 +983,7 @@ class AppNavigationTest {
                     hold.awaitArrived()
                     // The screen's own Back: the key could still reach the closing confirmation's window.
                     click("Back")
-                    awaitText("Library")
+                    awaitText("Reading")
                     click("Notebook")
                     awaitTextStarting("Highlights and cards are saved on this phone.")
                 } finally {
@@ -1089,7 +1097,7 @@ class AppNavigationTest {
                 click("Disconnect…")
                 click("Disconnect")
                 withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
-                awaitScreen("Library", hidden = listOf("test-only/notes"))
+                awaitScreen("Reading", hidden = listOf("test-only/notes"))
                 assertEquals(2, server.requests.count { it == "DELETE /api/repositories/7" })
             }
     }
@@ -1110,7 +1118,7 @@ class AppNavigationTest {
             val api = api(server)
             launchApp(account(api), api)
             try {
-                awaitText("Library")
+                awaitText("Reading")
                 awaitLibraryLoaded(server, 1)
                 click("Repositories")
                 click("Add repository")
@@ -1146,21 +1154,21 @@ class AppNavigationTest {
                 val api = api(server)
                 launchApp(account(api), api)
                 try {
-                    awaitText("Library")
+                    awaitText("Reading")
                     withTimeout(10_000) { dao.repositories().first { it.isEmpty() } }
                     click("Repositories")
                     click("Add repository")
                     click("Connect")
                     hold.awaitArrived()
                     pressBack()
-                    awaitText("Library")
+                    awaitText("Reading")
                 } finally {
                     hold.release.countDown()
                 }
                 withTimeout(10_000) { dao.repositories().first { it.isNotEmpty() } }
                 awaitText("test-only/notes")
                 assertNothingMoreSent(server, server.requests.toList())
-                awaitScreen("Library", "test-only/notes", hidden = listOf("deep"))
+                awaitScreen("Reading", "test-only/notes", hidden = listOf("deep"))
                 assertEquals(1, server.requests.count { it == connect.first })
             }
     }
@@ -1377,7 +1385,7 @@ class AppNavigationTest {
                             )
                         )
                 pressBack()
-                awaitScreen("Library", hidden = listOf("deep"))
+                awaitScreen("Reading", hidden = listOf("deep"))
                 awaitLibraryLoaded(server, 3)
                 click("test-only/notes")
                 awaitText("This repository has no Markdown notes.")
@@ -1403,7 +1411,7 @@ class AppNavigationTest {
             .use { server ->
                 val api = api(server)
                 launchApp(account(api), api)
-                awaitText("Library")
+                awaitText("Reading")
                 click("Repositories")
                 click("test-only/notes")
                 awaitFolder()
@@ -1412,7 +1420,7 @@ class AppNavigationTest {
                 click("Disconnect…")
                 awaitText("Disconnect test-only/notes?")
                 click("Disconnect")
-                awaitScreen("Library", hidden = listOf("test-only/notes", "Disconnect test-only/notes?"))
+                awaitScreen("Reading", hidden = listOf("test-only/notes", "Disconnect test-only/notes?"))
                 assertTrue(selected("Repositories"))
                 assertEquals(emptyList<RepositoryEntity>(), dao.repositories().first())
                 awaitBackLeavesTheApp()

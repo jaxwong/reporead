@@ -353,7 +353,7 @@ class AccountTest {
                             (account.state.value as AccountState.Idle).notice is AccountNotice.DeletionNotConfirmed
                         )
                         scenario.recreate()
-                        awaitText("Library")
+                        awaitText("Reading")
                         assertNotNull(
                             "Account-deletion failure notice disappeared on recreation",
                             findText(root(), text),

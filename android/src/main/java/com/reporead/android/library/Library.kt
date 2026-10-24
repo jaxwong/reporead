@@ -193,9 +193,10 @@ fun LibraryScreen(
     Scaffold(
         topBar = {
             AppBar(
-                "Library",
+                tab.label,
                 actions = {
                     IconButton(onClick = { push(Screen.Search) }) { AppIcon(R.drawable.ic_search, "Search") }
+                    IconButton(onClick = { push(Screen.Notebook) }) { AppIcon(R.drawable.ic_sticky_note, "Notebook") }
                     val signOut = MenuAction("Sign out…") { confirmSignOut = true }
                     OverflowMenu(
                         if (signedIn) listOf(signOut, MenuAction("Delete account…") { confirmDeleteAccount = true })
@@ -259,7 +260,6 @@ fun LibraryScreen(
                     }
                 }
             }
-            TextButton(onClick = { push(Screen.Notebook) }) { Text("Notebook") }
             val content: @Composable () -> Unit = {
                 when (tab) {
                     LibraryTab.READING -> ReadingTab(dao, push)
