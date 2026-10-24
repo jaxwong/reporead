@@ -219,8 +219,8 @@ class AppNavigationTest {
         fun extra() = hidden.filter { findText(root(), it) != null }
         try {
             withTimeout(10_000) { while (missing().isNotEmpty() || extra().isNotEmpty()) delay(50) }
-        } catch (error: TimeoutCancellationException) {
-            throw AssertionError("Screen still lacks ${missing()} and shows ${extra()}", error)
+        } catch (failure: TimeoutCancellationException) {
+            throw AssertionError("Screen still lacks ${missing()} and shows ${extra()}", failure)
         }
     }
 

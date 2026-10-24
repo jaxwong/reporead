@@ -148,8 +148,8 @@ public class GitHubTokenLifecycle {
             client = manager.authorize(OAuth2AuthorizeRequest.withClientRegistrationId(GitHubBrowserSignIn.REGISTRATION)
                     .principal(principal)
                     .build());
-        } catch (OAuth2AuthorizationException error) {
-            String refusal = GitHubBrowserSignIn.githubError(error);
+        } catch (OAuth2AuthorizationException failure) {
+            String refusal = GitHubBrowserSignIn.githubError(failure);
             // Only GitHub refusing the refresh token itself makes it useless. Anything else (no answer, 429 or 5xx,
             // or a refusal of this server's own credentials) leaves it good for a later request.
             if (!REFUSED_REFRESH_TOKEN.contains(refusal)) {
@@ -157,7 +157,7 @@ public class GitHubTokenLifecycle {
                         "GitHub token refresh failed; githubUserId={} error={} failureType={}",
                         githubUserId,
                         refusal,
-                        NestedExceptionUtils.getMostSpecificCause(error)
+                        NestedExceptionUtils.getMostSpecificCause(failure)
                                 .getClass()
                                 .getSimpleName());
                 throw new ApiFailure(
@@ -229,16 +229,16 @@ public class GitHubTokenLifecycle {
         try {
             githubUserHttpClient.exchange(request, byte[].class);
             LOG.info("GitHub authorization revoked; githubUserId={}", githubUserId);
-        } catch (RestClientResponseException error) {
+        } catch (RestClientResponseException failure) {
             LOG.warn(
                     "GitHub authorization not revoked; githubUserId={} status={}",
                     githubUserId,
-                    error.getStatusCode().value());
-        } catch (ResourceAccessException error) {
+                    failure.getStatusCode().value());
+        } catch (ResourceAccessException failure) {
             LOG.warn(
                     "GitHub authorization not revoked; githubUserId={} failureType={}",
                     githubUserId,
-                    (error.getCause() == null ? error : error.getCause())
+                    (failure.getCause() == null ? failure : failure.getCause())
                             .getClass()
                             .getSimpleName());
         }

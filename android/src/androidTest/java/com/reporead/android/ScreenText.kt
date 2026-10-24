@@ -50,13 +50,13 @@ private fun awaitNode(description: String, matches: (AccessibilityNodeInfo) -> B
                 }
                 error("Unreachable")
             }
-        } catch (error: TimeoutCancellationException) {
+        } catch (failure: TimeoutCancellationException) {
             fun texts(node: AccessibilityNodeInfo?): List<String> =
                 if (node == null) emptyList()
                 else
                     listOfNotNull(node.text?.toString()) +
                         (0 until node.childCount).flatMap { texts(node.getChild(it)) }
-            throw AssertionError("Timed out waiting for $description; visible texts=${texts(root())}", error)
+            throw AssertionError("Timed out waiting for $description; visible texts=${texts(root())}", failure)
         }
     }
 

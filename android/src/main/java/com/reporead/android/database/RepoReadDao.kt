@@ -204,7 +204,7 @@ interface RepoReadDao {
 
     /** Name-only matches; a note with a body match is omitted because its exact [NoteTextMatch] is more useful. */
     @Query(
-        """SELECT d.id AS documentId, d.title, d.path, d.title LIKE :pattern ESCAPE '\' AS titleMatch
+        """SELECT d.id AS documentId, d.title, d.path, d.title LIKE :pattern ESCAPE '\' AS isTitleMatch
               FROM documents d LEFT JOIN notes n ON n.documentId = d.id
               WHERE (NOT d.deleted OR n.documentId IS NOT NULL)
               AND (d.title LIKE :pattern ESCAPE '\' OR d.path LIKE :pattern ESCAPE '\')

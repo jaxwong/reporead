@@ -36,8 +36,8 @@ public final class TestEnvironment {
             properties.add("reporead.github.client-secret-file", secret::toString);
             var key = secretFile("reporead-test-token-key-", TOKEN_KEY);
             properties.add("reporead.github.token-key-file", key::toString);
-        } catch (IOException error) {
-            throw new ExceptionInInitializerError(error);
+        } catch (IOException ioFailure) {
+            throw new ExceptionInInitializerError(ioFailure);
         }
         properties.add("reporead.github.client-id", () -> "test-only-not-a-github-app");
         // The test-only GitHub users the suite signs in as.
@@ -64,8 +64,8 @@ public final class TestEnvironment {
                         POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
                 var statement = connection.createStatement()) {
             statement.execute("CREATE DATABASE " + name);
-        } catch (SQLException error) {
-            throw new IllegalStateException("Cannot create the test-only database " + name, error);
+        } catch (SQLException failure) {
+            throw new IllegalStateException("Cannot create the test-only database " + name, failure);
         }
         return new DriverManagerDataSource(
                 "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/" + name,

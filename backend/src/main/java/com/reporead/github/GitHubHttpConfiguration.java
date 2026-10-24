@@ -96,8 +96,8 @@ public class GitHubHttpConfiguration {
             ClientHttpResponse response;
             try {
                 response = execution.execute(request, body);
-            } catch (IOException error) {
-                throw failed(error, meters);
+            } catch (IOException ioFailure) {
+                throw failed(ioFailure, meters);
             }
             byte[] bytes;
             try {
@@ -105,9 +105,9 @@ public class GitHubHttpConfiguration {
                 if (bytes.length > maxBytes) {
                     throw new ResponseTooLarge(maxBytes);
                 }
-            } catch (IOException error) {
+            } catch (IOException ioFailure) {
                 response.close();
-                throw failed(error, meters);
+                throw failed(ioFailure, meters);
             }
             meters.counter(GITHUB_REQUESTS, "outcome", (response.getStatusCode().value() / 100) + "xx")
                     .increment();

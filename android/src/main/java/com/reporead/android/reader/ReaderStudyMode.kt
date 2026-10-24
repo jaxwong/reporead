@@ -13,7 +13,7 @@ private val COLLAPSED_HEADINGS =
     setOf("approach", "brute force approach", "optimized approach", "complexities", "mistakes")
 
 /** The reader's Study view of a LeetCode note: the headings whose sections collapse until tapped. */
-internal data class StudyNote(val recognized: Boolean, val collapsedHeadings: List<String>)
+internal data class StudyNote(val isRecognized: Boolean, val collapsedHeadings: List<String>)
 
 internal fun StudyNote.json(): JSONObject = JSONObject().put("collapsedHeadings", JSONArray(collapsedHeadings))
 

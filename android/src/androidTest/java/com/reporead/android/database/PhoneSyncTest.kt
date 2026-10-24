@@ -447,8 +447,8 @@ class PhoneSyncTest {
         try {
             sync("http://127.0.0.1:${closedPort()}").sendPendingChangesAndRefreshLibrary()
             fail("Expected the unreachable server to end the sync")
-        } catch (error: ApiException) {
-            assertEquals("BACKEND_UNAVAILABLE", error.code)
+        } catch (failure: ApiException) {
+            assertEquals("BACKEND_UNAVAILABLE", failure.code)
         }
         assertEquals(1, dao.waitingAnnotations().size)
         assertEquals(1, dao.pendingReading().size)
@@ -1710,8 +1710,8 @@ class PhoneSyncTest {
                 try {
                     sync(server.url).sendPendingChangesAndRefreshLibrary()
                     fail("Expected $code to end the sync")
-                } catch (error: ApiException) {
-                    assertEquals(code, error.code)
+                } catch (failure: ApiException) {
+                    assertEquals(code, failure.code)
                 }
                 assertEquals(listOf("GET /api/library"), server.requests)
             }

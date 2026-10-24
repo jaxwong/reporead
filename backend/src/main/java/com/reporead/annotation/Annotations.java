@@ -160,10 +160,10 @@ public class Annotations {
                 .list();
     }
 
-    Optional<Annotation> find(long userId, long id) {
+    Optional<Annotation> find(long userId, long annotationId) {
         return db.sql(SELECT + " AND a.id = :id")
                 .param("userId", userId)
-                .param("id", id)
+                .param("id", annotationId)
                 .query(this::annotation)
                 .optional();
     }
@@ -245,7 +245,7 @@ public class Annotations {
                         "At most " + MAX_PER_DOCUMENT + " highlights and cards per document and " + MAX_PER_USER
                                 + " per user may be stored; delete existing annotations before creating more.");
             }
-            long id = db.sql("""
+            long annotationId = db.sql("""
                     INSERT INTO annotations (user_id, document_id, type, note, created_at, updated_at, resolved_blob_sha, question,
                                              mutation_id)
                     VALUES (:userId, :documentId, :type, :note, :now, :now, :sha, :question, :mutationId) RETURNING id""")
@@ -263,7 +263,7 @@ public class Annotations {
                     INSERT INTO annotation_anchors (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text,
                                                     start_offset, end_offset, heading_path)
                     VALUES (:id, :sha, :block, :exact, :prefix, :suffix, :start, :end, CAST(:headings AS jsonb))""")
-                    .param("id", id)
+                    .param("id", annotationId)
                     .param("sha", anchor.sourceBlobSha())
                     .param("block", anchor.blockId())
                     .param("exact", anchor.exactText())
@@ -273,37 +273,37 @@ public class Annotations {
                     .param("end", anchor.endOffset())
                     .param("headings", json.writeValueAsString(anchor.headingPath()))
                     .update();
-            writeLocation(id, location);
-            return new Created(find(userId, id).orElseThrow(), false);
+            writeLocation(annotationId, location);
+            return new Created(find(userId, annotationId).orElseThrow(), false);
         });
     }
 
     /** Optimistic update: applies only at {@code expectedVersion}; 409 if another edit landed first, 404 if absent. */
-    Annotation updateNote(long userId, long id, int expectedVersion, String note) {
+    Annotation updateNote(long userId, long annotationId, int expectedVersion, String note) {
         return transaction.execute(tx -> {
-            lockForWrite(userId, id);
+            lockForWrite(userId, annotationId);
             int updated = db.sql("""
                     UPDATE annotations SET note = :note, version = version + 1, updated_at = :now
                     WHERE id = :id AND user_id = :userId AND type IN ('HIGHLIGHT', 'CARD') AND version = :expected""")
                     .param("note", note)
                     .param("now", Timestamp.from(Instant.now()))
-                    .param("id", id)
+                    .param("id", annotationId)
                     .param("userId", userId)
                     .param("expected", expectedVersion)
                     .update();
-            if (updated == 0) throw missingOrConflict(userId, id);
-            return find(userId, id).orElseThrow();
+            if (updated == 0) throw missingOrConflict(userId, annotationId);
+            return find(userId, annotationId).orElseThrow();
         });
     }
 
-    void delete(long userId, long id, int expectedVersion) {
+    void delete(long userId, long annotationId, int expectedVersion) {
         int deleted = db.sql(
                         "DELETE FROM annotations WHERE id = :id AND user_id = :userId AND type IN ('HIGHLIGHT', 'CARD') AND version = :expected")
-                .param("id", id)
+                .param("id", annotationId)
                 .param("userId", userId)
                 .param("expected", expectedVersion)
                 .update();
-        if (deleted == 0) throw missingOrConflict(userId, id);
+        if (deleted == 0) throw missingOrConflict(userId, annotationId);
     }
 
     /**
@@ -333,32 +333,32 @@ public class Annotations {
     }
 
     /** The user's own placement: versioned like a note edit (409 if another change landed first, 404 if absent). */
-    Annotation reattach(long userId, long id, int expectedVersion, Location location) {
+    Annotation reattach(long userId, long annotationId, int expectedVersion, Location location) {
         return transaction.execute(tx -> {
-            lockForWrite(userId, id);
+            lockForWrite(userId, annotationId);
             int updated = db.sql("""
                     UPDATE annotations SET status = 'REANCHORED', resolved_blob_sha = :sha, version = version + 1, updated_at = :now
                     WHERE id = :id AND user_id = :userId AND type IN ('HIGHLIGHT', 'CARD') AND version = :expected""")
                     .param("sha", location.passage().sourceBlobSha())
                     .param("now", Timestamp.from(Instant.now()))
-                    .param("id", id)
+                    .param("id", annotationId)
                     .param("userId", userId)
                     .param("expected", expectedVersion)
                     .update();
-            if (updated == 0) throw missingOrConflict(userId, id);
-            writeLocation(id, location);
-            return find(userId, id).orElseThrow();
+            if (updated == 0) throw missingOrConflict(userId, annotationId);
+            writeLocation(annotationId, location);
+            return find(userId, annotationId).orElseThrow();
         });
     }
 
     /**
-     * Locks the user's card {@code id} for a grade: its note's connection lock, as every write takes, then its row.
-     * Runs inside that write's transaction; 404 if it is not this user's card.
+     * Locks the user's card {@code annotationId} for a grade: its note's connection lock, as every write takes, then
+     * its row. Runs inside that write's transaction; 404 if it is not this user's card.
      */
-    void lockCard(long userId, long id) {
-        lockForWrite(userId, id);
+    void lockCard(long userId, long annotationId) {
+        lockForWrite(userId, annotationId);
         db.sql("SELECT id FROM annotations WHERE id = :id AND user_id = :userId AND type = 'CARD' FOR UPDATE")
-                .param("id", id)
+                .param("id", annotationId)
                 .param("userId", userId)
                 .query(Long.class)
                 .optional()
@@ -366,14 +366,14 @@ public class Annotations {
     }
 
     /**
-     * Holds off a disconnect of the repository that owns the user's highlight or card {@code id} until the calling
-     * write commits, as every write to a note's rows does, so the write can read its result back. Runs inside that
-     * write's transaction; 404 if the annotation is not this user's or was disconnected meanwhile.
+     * Holds off a disconnect of the repository that owns the user's highlight or card {@code annotationId} until the
+     * calling write commits, as every write to a note's rows does, so the write can read its result back. Runs inside
+     * that write's transaction; 404 if the annotation is not this user's or was disconnected meanwhile.
      */
-    private void lockForWrite(long userId, long id) {
+    private void lockForWrite(long userId, long annotationId) {
         long documentId = db.sql(
                         "SELECT document_id FROM annotations WHERE id = :id AND user_id = :userId AND type IN ('HIGHLIGHT', 'CARD')")
-                .param("id", id)
+                .param("id", annotationId)
                 .param("userId", userId)
                 .query(Long.class)
                 .optional()
@@ -381,7 +381,7 @@ public class Annotations {
         connections.lockForDocumentWrite(userId, documentId);
     }
 
-    private void writeLocation(long id, Location location) {
+    private void writeLocation(long annotationId, Location location) {
         var passage = location.passage();
         db.sql("""
                 INSERT INTO annotation_locations (annotation_id, source_blob_sha, block_id, exact_text, prefix_text, suffix_text, start_offset,
@@ -393,7 +393,7 @@ public class Annotations {
                     start_offset = excluded.start_offset, end_offset = excluded.end_offset, heading_path = excluded.heading_path,
                     block_sha = excluded.block_sha, quote_occurrences = excluded.quote_occurrences,
                     rival_context = excluded.rival_context, rival_quote = excluded.rival_quote""")
-                .param("id", id)
+                .param("id", annotationId)
                 .param("sha", passage.sourceBlobSha())
                 .param("block", passage.blockId())
                 .param("exact", passage.exactText())
@@ -416,8 +416,8 @@ public class Annotations {
                 && a.endOffset() == b.endOffset();
     }
 
-    private ApiFailure missingOrConflict(long userId, long id) {
-        if (find(userId, id).isEmpty()) return ApiFailure.notFound();
+    private ApiFailure missingOrConflict(long userId, long annotationId) {
+        if (find(userId, annotationId).isEmpty()) return ApiFailure.notFound();
         return new ApiFailure(
                 Code.ANNOTATION_CONFLICT,
                 "This annotation was changed elsewhere; expectedVersion is not its current version.");

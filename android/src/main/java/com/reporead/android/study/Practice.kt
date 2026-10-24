@@ -253,17 +253,17 @@ internal class PracticeViewModel(
 ) : ViewModel() {
     data class State(val session: StudySession? = null, val saving: Boolean = false, val notice: String? = null)
 
-    private val current = MutableStateFlow(State(session = saved[SESSION]))
-    val state: StateFlow<State> = current.asStateFlow()
+    private val _state = MutableStateFlow(State(session = saved[SESSION]))
+    val state: StateFlow<State> = _state.asStateFlow()
 
-    private fun move(next: StudySession, notice: String? = current.value.notice) {
+    private fun move(next: StudySession, notice: String? = _state.value.notice) {
         saved[SESSION] = next
-        current.update { it.copy(session = next, saving = false, notice = notice) }
+        _state.update { it.copy(session = next, saving = false, notice = notice) }
     }
 
     /** Chooses the session once, from the topic's [questions] that have no card yet ([scheduled]). */
     fun start(questions: List<PracticeQuestion>, scheduled: Set<String>) {
-        if (current.value.session != null) return
+        if (_state.value.session != null) return
         move(
             StudySession(
                 interleaveByNote(questions.filter { it.key !in scheduled }, Random.nextInt()) { it.documentId }
@@ -273,21 +273,28 @@ internal class PracticeViewModel(
     }
 
     fun reveal() {
-        current.value.session?.let { move(it.reveal()) }
+        _state.value.session?.let { move(it.reveal()) }
     }
 
     fun skip() {
-        val now = current.value
-        val session = now.session ?: return
-        if (now.saving) DeviceLog.info("Practice skip not taken; entry=$entryId saving=true") else move(session.skip())
+        val stateSnapshot = _state.value
+        val session = stateSnapshot.session ?: return
+        if (stateSnapshot.saving) DeviceLog.info("Practice skip not taken; entry=$entryId saving=true")
+        else move(session.skip())
     }
 
     /** [again]: graded earlier in this session, so this grade only decides whether it comes back; nothing is saved. */
     fun grade(question: PracticeQuestion, again: Boolean, grade: Int) {
-        val now = current.value
-        val session = now.session ?: return
-        if (now.saving || session.current != question.key || !current.compareAndSet(now, now.copy(saving = true))) {
-            DeviceLog.info("Practice grade not saved again; entry=$entryId saving=${now.saving} key=${question.key}")
+        val stateSnapshot = _state.value
+        val session = stateSnapshot.session ?: return
+        if (
+            stateSnapshot.saving ||
+                session.current != question.key ||
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(saving = true))
+        ) {
+            DeviceLog.info(
+                "Practice grade not saved again; entry=$entryId saving=${stateSnapshot.saving} key=${question.key}"
+            )
             return
         }
         DeviceLog.info("Practice grade started; entry=$entryId key=${question.key} again=$again")

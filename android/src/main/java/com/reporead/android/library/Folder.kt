@@ -139,8 +139,8 @@ internal class FolderViewModel(
         val disconnected: Boolean = false,
     )
 
-    private val current = MutableStateFlow(State())
-    val state: StateFlow<State> = current.asStateFlow()
+    private val _state = MutableStateFlow(State())
+    val state: StateFlow<State> = _state.asStateFlow()
 
     /** The sign-in state the screen last showed; null before it was first shown. */
     private var shownSignedIn: Boolean? = null
@@ -152,14 +152,18 @@ internal class FolderViewModel(
         next: FolderOperation,
         allowed: (FolderOperation) -> Boolean = { it == FolderOperation.Idle },
     ): Boolean {
-        val now = current.value
-        val started = allowed(now.operation) && current.compareAndSet(now, now.copy(operation = next, status = null))
+        val stateSnapshot = _state.value
+        val started =
+            allowed(stateSnapshot.operation) &&
+                _state.compareAndSet(stateSnapshot, stateSnapshot.copy(operation = next, status = null))
         if (!started)
-            DeviceLog.info("Folder operation not started; entry=$entryId running=${now.operation} requested=$next")
+            DeviceLog.info(
+                "Folder operation not started; entry=$entryId running=${stateSnapshot.operation} requested=$next"
+            )
         return started
     }
 
-    private fun finish(update: (State) -> State) = current.update { update(it).copy(operation = FolderOperation.Idle) }
+    private fun finish(update: (State) -> State) = _state.update { update(it).copy(operation = FolderOperation.Idle) }
 
     /**
      * The screen is shown while [signedIn]. The repository root reloads the library when it is first shown, after a
@@ -205,15 +209,18 @@ internal class FolderViewModel(
     }
 
     fun saveAll() {
-        current.update { it.copy(status = null) }
+        _state.update { it.copy(status = null) }
         requestSaveAllNotes(app, screen.repositoryId)
     }
 
     fun stopSaving() {
-        val now = current.value
+        val stateSnapshot = _state.value
         if (
-            now.stoppingSaveAll ||
-                !current.compareAndSet(now, now.copy(stoppingSaveAll = true, status = "Stopping saving notes…"))
+            stateSnapshot.stoppingSaveAll ||
+                !_state.compareAndSet(
+                    stateSnapshot,
+                    stateSnapshot.copy(stoppingSaveAll = true, status = "Stopping saving notes…"),
+                )
         ) {
             DeviceLog.info("Stopping Save all not started again; entry=$entryId")
             return
@@ -223,11 +230,11 @@ internal class FolderViewModel(
                 try {
                     stopSavingNotes(app, screen.repositoryId)
                     "Saving stopped; notes already saved are kept. Saving again fetches only what is missing."
-                } catch (error: SQLiteException) {
-                    DeviceLog.warn("Could not stop Save all; repositoryId=${screen.repositoryId}", error)
-                    "Couldn't stop saving notes (${error.javaClass.simpleName}); try Stop saving notes again."
+                } catch (failure: SQLiteException) {
+                    DeviceLog.warn("Could not stop Save all; repositoryId=${screen.repositoryId}", failure)
+                    "Couldn't stop saving notes (${failure.javaClass.simpleName}); try Stop saving notes again."
                 }
-            current.update { it.copy(stoppingSaveAll = false, status = status) }
+            _state.update { it.copy(stoppingSaveAll = false, status = status) }
         }
     }
 
@@ -240,7 +247,7 @@ internal class FolderViewModel(
                 // Null: the server had already disconnected it, and this phone's copies are now gone too.
                 val preview = sync.disconnectPreview(screen.repositoryId)
                 if (preview == null) finish { it.copy(disconnected = true) }
-                else current.update { it.copy(operation = FolderOperation.Confirming(preview)) }
+                else _state.update { it.copy(operation = FolderOperation.Confirming(preview)) }
             } catch (failure: ApiException) {
                 finish { it.copy(status = "Can't disconnect now. ${failure.describe()}") }
             }
@@ -248,9 +255,9 @@ internal class FolderViewModel(
     }
 
     fun cancelDisconnect() {
-        val now = current.value
-        if (now.operation is FolderOperation.Confirming)
-            current.compareAndSet(now, now.copy(operation = FolderOperation.Idle))
+        val stateSnapshot = _state.value
+        if (stateSnapshot.operation is FolderOperation.Confirming)
+            _state.compareAndSet(stateSnapshot, stateSnapshot.copy(operation = FolderOperation.Idle))
     }
 
     fun disconnect() {
@@ -275,8 +282,9 @@ internal class FolderViewModel(
 
     /** True once, for the screen that returns to the Library after the repository went. */
     fun claimDisconnected(): Boolean {
-        val now = current.value
-        return now.disconnected && current.compareAndSet(now, now.copy(disconnected = false))
+        val stateSnapshot = _state.value
+        return stateSnapshot.disconnected &&
+            _state.compareAndSet(stateSnapshot, stateSnapshot.copy(disconnected = false))
     }
 }
 

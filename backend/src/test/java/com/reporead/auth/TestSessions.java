@@ -42,8 +42,8 @@ public final class TestSessions {
                     .withoutPadding()
                     .encodeToString(
                             MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-        } catch (java.security.NoSuchAlgorithmException error) {
-            throw new AssertionError("JDK must provide SHA-256", error);
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new AssertionError("JDK must provide SHA-256", failure);
         }
     }
 

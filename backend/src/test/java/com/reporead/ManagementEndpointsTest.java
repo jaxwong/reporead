@@ -65,8 +65,8 @@ class ManagementEndpointsTest {
     private static int freePort() {
         try (var socket = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
             return socket.getLocalPort();
-        } catch (IOException error) {
-            throw new UncheckedIOException("No free loopback port for the test management server", error);
+        } catch (IOException ioFailure) {
+            throw new UncheckedIOException("No free loopback port for the test management server", ioFailure);
         }
     }
 

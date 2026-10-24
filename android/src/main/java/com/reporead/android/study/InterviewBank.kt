@@ -39,7 +39,7 @@ internal sealed interface PromptBlock {
     data class Paragraph(val text: String) : PromptBlock
 
     /** A list's top-level items; nested points are not shown. */
-    data class Items(val items: List<String>, val ordered: Boolean) : PromptBlock
+    data class Items(val items: List<String>, val isOrdered: Boolean) : PromptBlock
 
     data class Code(val text: String) : PromptBlock
 }
