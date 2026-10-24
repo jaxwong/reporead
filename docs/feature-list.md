@@ -221,7 +221,7 @@ Merged in [PR #106](https://github.com/jaxwong/reporead/pull/106) (ADR-08): the 
 
 ## Library bar names the selected tab (2026-10-24)
 
-[PR #112](https://github.com/jaxwong/reporead/pull/112): the Library's top bar shows the selected tab's label instead of "Library" on every tab, and the Notebook is an icon in the bar beside Search instead of a text button above every tab's content. Verified in the PR: `spotlessCheck lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest`, exit 0. The device suite has not run on this change.
+[PR #112](https://github.com/jaxwong/reporead/pull/112): the Library's top bar shows the selected tab's label instead of "Library" on every tab, and the Notebook is an icon in the bar beside Search instead of a text button above every tab's content. Verified in the PR: `spotlessCheck lintDebug testDebugUnitTest assembleDebug assembleDebugAndroidTest`, exit 0. Device suite on the Pixel 8a (`am instrument`, 2026-10-24, debug APK sha256 8a94c749…): `OK (211 tests)`; the bar was looked at on the phone.
 
 ## Naming and ownership (2026-10-21 to 2026-10-22)
 
