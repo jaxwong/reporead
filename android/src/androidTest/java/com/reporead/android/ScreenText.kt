@@ -21,7 +21,7 @@ import org.junit.Assert.assertTrue
 internal fun root(): AccessibilityNodeInfo? =
     InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow
 
-private fun findNode(
+internal fun findNode(
     node: AccessibilityNodeInfo?,
     matches: (AccessibilityNodeInfo) -> Boolean,
 ): AccessibilityNodeInfo? {
