@@ -68,6 +68,13 @@ class AnnotationEntityTest {
     }
 
     @Test
+    fun onlyAnAcknowledgedAnnotationCanBeEditedOrReattached() {
+        assertFalse(unsent.acknowledged)
+        assertFalse(unsent.copy(state = AnnotationState.REFUSED, rejection = "capacity").acknowledged)
+        assertTrue(unsent.copy(serverId = 3, state = AnnotationState.ACKNOWLEDGED).acknowledged)
+    }
+
+    @Test
     fun aPendingCreationIsDrawnWhereItWasMade() {
         assertEquals(Passage("a".repeat(40), "b2", 12, 30, "declarative transactions"), unsent.drawn)
         assertFalse(unsent.orphanedIn("a".repeat(40)))

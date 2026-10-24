@@ -191,6 +191,13 @@ data class AnnotationEntity(
     val drawn: Passage
         get() = location ?: Passage(sourceBlobSha, blockId, startOffset, endOffset, exactText)
 
+    /**
+     * The server has its copy, so a note edit or a reattach can be sent (both are server operations). An unsent or
+     * refused creation has nothing on the server to change yet. Every acknowledged row carries its server id.
+     */
+    val acknowledged: Boolean
+        get() = state == AnnotationState.ACKNOWLEDGED
+
     /** The server could not find it reliably in [blobSha]. */
     fun orphanedIn(blobSha: String) = status == AnchorStatus.ORPHANED && resolvedBlobSha == blobSha
 

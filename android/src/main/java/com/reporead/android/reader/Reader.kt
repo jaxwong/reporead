@@ -392,7 +392,7 @@ fun ReaderScreen(
                         val existing = highlightOn(annotations, selection.passage)
                         when {
                             existing == null -> overlay = ReaderOverlay.Note(selection.passage)
-                            existing.serverId != null -> overlay = ReaderOverlay.EditNote(existing)
+                            existing.acknowledged -> overlay = ReaderOverlay.EditNote(existing)
                             else ->
                                 model.showMessage(
                                     "This passage is already highlighted; its note can be edited once the server accepts it."
