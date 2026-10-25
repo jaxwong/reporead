@@ -19,11 +19,16 @@ import com.reporead.android.database.AnnotationEntity
 import com.reporead.android.database.AnnotationState
 import com.reporead.android.database.AnnotationType
 import com.reporead.android.database.DocumentEntity
+import com.reporead.android.database.LoopbackServer
 import com.reporead.android.database.RepoReadDatabase
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.saveNoteWithoutSearch
 import com.reporead.android.findText
 import com.reporead.android.network.Api
+import com.reporead.android.network.testReview
+import com.reporead.android.network.wire
+import com.reporead.android.network.wire.ReviewControllerGradeRequest
+import com.reporead.android.network.wireJson
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.sync.PhoneSync
@@ -39,10 +44,14 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Real native review UI with test-only Room rows; no real account or GitHub writes, and no server is reachable. */
+/**
+ * Real native review UI with test-only Room rows; no real account or GitHub writes, and the only reachable server is a
+ * test-only loopback one.
+ */
 @RunWith(AndroidJUnit4::class)
 class ReviewLifecycleTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private val directory = File(instrumentation.targetContext.cacheDir, "review-lifecycle-test")
     private val sha = "a".repeat(40)
     private val bankPath = "test-only/interview/review.md"
     private lateinit var store: RepoReadDatabase
@@ -78,12 +87,7 @@ class ReviewLifecycleTest {
         )
         dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, bankPath, "Test-only review", bank(sha), 0))
         // No token and a closed local port: a server call fails as unreachable instead of leaving the phone.
-        sync =
-            PhoneSync(
-                Api("http://127.0.0.1:1", { StoredSession.Absent }) {},
-                store,
-                File(instrumentation.targetContext.cacheDir, "review-lifecycle-test"),
-            ) {}
+        sync = PhoneSync(Api("http://127.0.0.1:1", { StoredSession.Absent }) {}, store, directory) {}
         showReview(push = { error("Review fixture must not navigate") })
     }
 
@@ -262,6 +266,10 @@ class ReviewLifecycleTest {
             assertTrue(dao.reviews().first().isEmpty())
         }
 
+    /**
+     * The first grade is sent before the card comes back, and the server keeps its own time for it, a minute behind
+     * this phone's clock and so before the session began; the second grade is still not saved.
+     */
     @Test
     fun aMissedCardComesBackInTheSessionWithoutASecondSavedGrade() =
         runBlocking<Unit> {
@@ -272,6 +280,28 @@ class ReviewLifecycleTest {
                 click("Show answer")
                 click("Again")
                 withTimeout(5_000) { while (dao.pendingReviews().isEmpty()) delay(20) }
+                LoopbackServer.answering(emptyMap()) { _, body ->
+                        val sent = wireJson.decodeFromString<ReviewControllerGradeRequest>(body)
+                        val stored =
+                            testReview()
+                                .copy(
+                                    mutationId = sent.mutationId,
+                                    cardMutationId = "card1",
+                                    grade = sent.grade,
+                                    blobSha = sent.blobSha,
+                                    reviewedAt = sent.reviewedAt.minusSeconds(60),
+                                )
+                        200 to wire(stored)
+                    }
+                    .use { server ->
+                        PhoneSync(
+                                Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {},
+                                store,
+                                directory,
+                            ) {}
+                            .sendPendingChanges()
+                    }
+                assertTrue(dao.pendingReviews().isEmpty())
                 awaitText("1 card left · Test-only review")
                 click("Show answer")
                 awaitText(
