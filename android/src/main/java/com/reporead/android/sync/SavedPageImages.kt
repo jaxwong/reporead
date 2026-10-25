@@ -39,10 +39,12 @@ class SavedPageImages(private val api: Api, filesDir: File) {
     /**
      * Save all's image pass, on a background thread under PhoneSync's per-page lock so the saved snapshot cannot be
      * replaced or disconnected meanwhile. The server emits at most 64 image references; each distinct path is tried
-     * once, sequentially. API failures propagate to PhoneSync, which owns their disposition for this run.
+     * once, sequentially. A saved file is not read: Save all needs it on disk, not its bytes. API failures and a file
+     * that cannot be written (a full disk) propagate, so the page is not counted saved without its images.
      */
     internal suspend fun saveImagesToDisk(note: SavedPageEntity) {
-        if (note.snapshotCommitSha == null) return
+        // Upgraded pages retain their text, but cannot honestly identify any image until fetched again.
+        val snapshotCommitSha = note.snapshotCommitSha ?: return
         val paths =
             Jsoup.parse(note.html)
                 .select("img[src^=$IMAGE_PREFIX]")
@@ -52,33 +54,20 @@ class SavedPageImages(private val api: Api, filesDir: File) {
                 .distinct()
         for (path in paths) {
             currentCoroutineContext().ensureActive()
-            loadOrDownloadAndCache(note.documentId, note.snapshotCommitSha, path)
+            val file = imageFile(note.documentId, snapshotCommitSha, path)
+            val deletionCountAtStart = synchronized(lock) { if (file.isFile) null else deletionCount } ?: continue
+            keep(file, api.noteImage(note.documentId, snapshotCommitSha, path), deletionCountAtStart)
         }
     }
 
     /**
-     * A repository image for the displayed note version: from the cache, else fetched through the backend with the
-     * bearer token (blocking; call from a background thread). Null when it is neither cached nor fetchable.
+     * A repository image for the displayed note version: from its saved file, else fetched through the backend with the
+     * bearer token and saved for next time (blocking; call from a background thread). Null for a legacy page (no
+     * snapshot names the image), an unreadable saved file, or a failed fetch; each is logged.
      */
-    fun loadImageBytes(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? =
-        try {
-            loadOrDownloadAndCache(documentId, snapshotCommitSha, path)
-        } catch (failure: ApiException) {
-            DeviceLog.info("Image unavailable; documentId=$documentId code=${failure.code}")
-            null
-        }
-
-    /**
-     * The image's bytes: from its saved file, else downloaded and saved for next time. [saveImagesToDisk] wants the
-     * file on disk, [loadImageBytes] the bytes. Null when no snapshot names the image (a legacy page) or its saved file
-     * cannot be read.
-     */
-    private fun loadOrDownloadAndCache(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? {
-        // Upgraded pages retain their text, but cannot honestly identify any image until fetched again.
+    fun loadImageBytes(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? {
         if (snapshotCommitSha == null) return null
-        val key = sha256(path)
-        val directory = File(root, "$documentId/${snapshotDirectoryName(snapshotCommitSha)}")
-        val file = File(directory, key)
+        val file = imageFile(documentId, snapshotCommitSha, path)
         val deletionCountAtStart =
             synchronized(lock) {
                 try {
@@ -92,26 +81,43 @@ class SavedPageImages(private val api: Api, filesDir: File) {
                 }
                 deletionCount
             }
-        val bytes = api.noteImage(documentId, snapshotCommitSha, path)
-        synchronized(lock) {
-            // A deletion ran since the request was sent: the page still gets these bytes, but they are not kept.
-            if (deletionCount != deletionCountAtStart) return bytes
-            // A partial file of its own, because two pages can fetch the same image at once. A failed write (a full
-            // disk) leaves the image uncached; the page still gets these bytes.
+        val bytes =
             try {
-                directory.mkdirs()
-                val partial = File.createTempFile(key, ".partial", directory)
-                try {
-                    partial.writeBytes(bytes)
-                    if (!partial.renameTo(file)) throw IOException("Could not publish $partial")
-                } finally {
-                    partial.delete()
-                }
-            } catch (ioFailure: IOException) {
-                DeviceLog.warn("Image not cached; documentId=$documentId error=${ioFailure.javaClass.simpleName}")
+                api.noteImage(documentId, snapshotCommitSha, path)
+            } catch (failure: ApiException) {
+                DeviceLog.info("Image unavailable; documentId=$documentId code=${failure.code}")
+                return null
             }
+        // The reader shows the bytes it has; a failed write (a full disk) only means the next read fetches again.
+        try {
+            keep(file, bytes, deletionCountAtStart)
+        } catch (ioFailure: IOException) {
+            DeviceLog.warn("Image not cached; documentId=$documentId error=${ioFailure.javaClass.simpleName}")
         }
         return bytes
+    }
+
+    private fun imageFile(documentId: Long, snapshotCommitSha: String, path: String) =
+        File(root, "$documentId/${snapshotDirectoryName(snapshotCommitSha)}/${sha256(path)}")
+
+    /**
+     * Writes [bytes] as [file], unless a deletion ran since [deletionCountAtStart]: then they are not kept. Throws when
+     * the file cannot be written.
+     */
+    private fun keep(file: File, bytes: ByteArray, deletionCountAtStart: Long) {
+        synchronized(lock) {
+            if (deletionCount != deletionCountAtStart) return
+            val directory = file.parentFile!!
+            directory.mkdirs()
+            // A partial file of its own, because two pages can fetch the same image at once.
+            val partial = File.createTempFile(file.name, ".partial", directory)
+            try {
+                partial.writeBytes(bytes)
+                if (!partial.renameTo(file)) throw IOException("Could not publish $partial")
+            } finally {
+                partial.delete()
+            }
+        }
     }
 
     /**

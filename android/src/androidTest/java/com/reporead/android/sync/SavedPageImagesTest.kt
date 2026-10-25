@@ -9,6 +9,7 @@ import com.reporead.android.database.SavedVersion
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
@@ -156,6 +157,30 @@ class SavedPageImagesTest {
             File(filesDir, "images/1").mkdirs()
             File(filesDir, "images/1/commit-$sha").writeText("test-only, not a folder")
             assertArrayEquals("PNG".toByteArray(), images.loadImageBytes(1, sha, "a.png"))
+        }
+    }
+
+    /**
+     * Save all exists to put the file on disk: one it cannot write ends the run rather than counting the page saved.
+     */
+    @Test
+    fun saveAllReceivesAnImageWriteFailure() = runBlocking {
+        LoopbackServer(mapOf("GET /api/documents/1/image?commitSha=$sha&path=a.png" to (200 to "PNG"))).use { server ->
+            val images = SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
+            File(filesDir, "images/1").mkdirs()
+            File(filesDir, "images/1/commit-$sha").writeText("test-only, not a folder")
+            val note =
+                SavedPageEntity(
+                    1,
+                    sha,
+                    "a.md",
+                    "a",
+                    """<main><img src="/repo-image/a.png"></main>""",
+                    0,
+                    snapshotCommitSha = sha,
+                )
+            val error = runCatching { images.saveImagesToDisk(note) }.exceptionOrNull()
+            assertTrue("Save all must receive the write failure, got $error", error is IOException)
         }
     }
 }
