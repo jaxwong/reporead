@@ -162,7 +162,7 @@ internal class ReaderViewModel(
         DeviceLog.info("Reader highlights refresh started; entry=$entryId documentId=$documentId reason=$reason")
         viewModelScope.launch {
             try {
-                sync.refreshAnnotations(documentId)
+                sync.sendAndLoadAnnotations(documentId)
             } catch (failure: ApiException) {
                 showMessage("Showing highlights saved on this phone. ${failure.describe()}")
             }
@@ -190,7 +190,7 @@ internal class ReaderViewModel(
     fun save(passage: Passage, note: String?) {
         DeviceLog.info("Reader highlight save started; entry=$entryId documentId=$documentId")
         viewModelScope.launch {
-            val saved = sync.createAnnotation(passage, documentId, note)
+            val saved = sync.saveNewHighlight(passage, documentId, note)
             showMessage(
                 when (saved) {
                     NewHighlight.PageGone -> "Highlight not saved: this note is no longer saved on this phone."
@@ -201,7 +201,7 @@ internal class ReaderViewModel(
                         if (signedIn != true) "Highlight saved on this phone; it is sent after you sign in."
                         else
                             try {
-                                sync.pushAnnotations()
+                                sync.sendAnnotations()
                                 dao.annotation(saved.mutationId)?.rejection?.let {
                                     "Highlight kept on this phone only; the server refused it: $it"
                                 }
@@ -275,7 +275,7 @@ internal class ReaderViewModel(
                     "Edit not saved. ${failure.describe()}"
                 } else
                     try {
-                        sync.refreshAnnotations(annotation.documentId)
+                        sync.sendAndLoadAnnotations(annotation.documentId)
                         val latest = dao.annotation(annotation.mutationId)
                         if (latest == null) {
                             saved[EDIT] = null

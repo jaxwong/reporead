@@ -495,10 +495,10 @@ class PhoneSyncTest {
         sync.setBookmark(1, true)
         assertEquals(2, requested)
         val passage = Passage(sha, "b1", 0, 4, "text")
-        val highlight = (sync.createAnnotation(passage, 1, null) as NewHighlight.Saved).mutationId
+        val highlight = (sync.saveNewHighlight(passage, 1, null) as NewHighlight.Saved).mutationId
         assertEquals(3, requested)
         // A second highlight on the same phrase saves nothing, so there is nothing to send.
-        assertTrue(sync.createAnnotation(passage, 1, null) is NewHighlight.AlreadyHighlighted)
+        assertTrue(sync.saveNewHighlight(passage, 1, null) is NewHighlight.AlreadyHighlighted)
         assertEquals(3, requested)
         sync.deleteAnnotation(dao.annotation(highlight)!!)
         assertEquals(4, requested)
@@ -506,12 +506,12 @@ class PhoneSyncTest {
         assertEquals(NewCardGrade.SAVED, sync.gradeNewCard(passage, 1, "Test-only question?", 4))
         assertEquals(5, requested)
         val card = dao.annotations(1).first().single { it.type == AnnotationType.CARD }.mutationId
-        assertTrue(sync.recordReview(ReviewEntity("grade", card, 4, 1, sha, pending = true)))
+        assertTrue(sync.gradeCard(ReviewEntity("grade", card, 4, 1, sha, pending = true)))
         assertEquals(6, requested)
         sync.deleteAnnotation(dao.annotation(card)!!)
         assertEquals(7, requested)
         // A grade the card no longer accepts saves nothing, so there is nothing to send.
-        assertFalse(sync.recordReview(ReviewEntity("stale", card, 4, 2, sha, pending = true)))
+        assertFalse(sync.gradeCard(ReviewEntity("stale", card, 4, 2, sha, pending = true)))
         assertEquals(7, requested)
     }
 
@@ -522,18 +522,18 @@ class PhoneSyncTest {
         val sync = sync("http://127.0.0.1:${closedPort()}")
         // Block b1 reads "Use declarative transactions here."
         val phrase = Passage(sha, "b1", 4, 28, "declarative transactions")
-        val first = sync.createAnnotation(phrase, 1, null)
+        val first = sync.saveNewHighlight(phrase, 1, null)
         val existing = dao.annotation((first as NewHighlight.Saved).mutationId)!!
-        assertEquals(NewHighlight.AlreadyHighlighted(existing), sync.createAnnotation(phrase, 1, "Test-only note"))
-        assertTrue(sync.createAnnotation(Passage(sha, "b1", 4, 15, "declarative"), 1, null) is NewHighlight.Saved)
+        assertEquals(NewHighlight.AlreadyHighlighted(existing), sync.saveNewHighlight(phrase, 1, "Test-only note"))
+        assertTrue(sync.saveNewHighlight(Passage(sha, "b1", 4, 15, "declarative"), 1, null) is NewHighlight.Saved)
         assertTrue(
-            sync.createAnnotation(Passage(sha, "b1", 16, 33, "transactions here"), 1, null) is NewHighlight.Saved
+            sync.saveNewHighlight(Passage(sha, "b1", 16, 33, "transactions here"), 1, null) is NewHighlight.Saved
         )
         assertEquals(3, dao.annotations(1).first().size)
         // A refused highlight is never sent again, so it leaves its phrase free for one that can be.
         dao.rejectAnnotation(existing.mutationId, "Test-only refusal")
-        assertTrue(sync.createAnnotation(phrase, 1, null) is NewHighlight.Saved)
-        assertTrue(sync.createAnnotation(phrase, 1, null) is NewHighlight.AlreadyHighlighted)
+        assertTrue(sync.saveNewHighlight(phrase, 1, null) is NewHighlight.Saved)
+        assertTrue(sync.saveNewHighlight(phrase, 1, null) is NewHighlight.AlreadyHighlighted)
         assertEquals(4, dao.annotations(1).first().size)
         // Two saves of one new phrase at once: the check and the write are one transaction, so one of them is saved.
         val racing =
@@ -585,7 +585,7 @@ class PhoneSyncTest {
         val request = "POST /api/documents/1/annotations"
         LoopbackServer(mapOf(request to failure(422, "ANNOTATION_LIMIT"))).use { server ->
             repeat(2) {
-                val error = runCatching { sync(server.url).pushAnnotations() }.exceptionOrNull() as ApiException
+                val error = runCatching { sync(server.url).sendAnnotations() }.exceptionOrNull() as ApiException
                 assertEquals("ANNOTATION_LIMIT", error.code)
                 assertEquals(pending, dao.annotation(mutation))
             }
@@ -1738,7 +1738,7 @@ class PhoneSyncTest {
         )
         sync("http://127.0.0.1:1").deleteAnnotation(checkNotNull(dao.annotation(mutation)))
         LoopbackServer(mapOf("POST /api/documents/1/annotations" to failure(500, "ANNOTATION_DELETED"))).use { server ->
-            val error = runCatching { sync(server.url).pushAnnotations() }.exceptionOrNull() as ApiException
+            val error = runCatching { sync(server.url).sendAnnotations() }.exceptionOrNull() as ApiException
             assertEquals(500, error.status)
             assertEquals(AnnotationState.DELETING, dao.annotation(mutation)?.state)
             assertEquals(1, server.requests.size)
@@ -1750,15 +1750,15 @@ class PhoneSyncTest {
                 )
             )
             .use { server ->
-                val error = runCatching { sync(server.url).pushAnnotations() }.exceptionOrNull() as ApiException
+                val error = runCatching { sync(server.url).sendAnnotations() }.exceptionOrNull() as ApiException
                 assertEquals("INVALID_RESPONSE", error.code)
                 assertEquals(AnnotationState.DELETING, dao.annotation(mutation)?.state)
                 assertTrue(dao.annotations(1).first().isEmpty())
                 assertEquals(2, server.requests.size)
             }
         LoopbackServer(mapOf("DELETE /api/annotations/9?expectedVersion=1" to (204 to ""))).use { server ->
-            sync(server.url).pushAnnotations()
-            sync(server.url).pushAnnotations()
+            sync(server.url).sendAnnotations()
+            sync(server.url).sendAnnotations()
             assertNull(dao.annotation(mutation))
             assertEquals(listOf("DELETE /api/annotations/9?expectedVersion=1"), server.requests)
         }
@@ -1823,9 +1823,11 @@ class PhoneSyncTest {
         dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0))
         LoopbackServer(emptyLibrary + mapOf("GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"))).use {
             server ->
-            assertNull(sync(server.url).disconnectPreview(7))
+            assertNull(sync(server.url).sendPendingChangesAndPreviewDisconnect(7))
             assertTrue(dao.repositoryIds().isEmpty())
             assertNull(dao.savedPage(1))
+            // The preview's own load already removed it; the refusal asks for the library no second time.
+            assertEquals(listOf("GET /api/library", "GET /api/repositories/7/stored-data"), server.requests)
         }
     }
 
@@ -1871,7 +1873,7 @@ class PhoneSyncTest {
                 assertFalse(sync.setBookmark(1, true))
                 assertEquals(
                     NewHighlight.PageGone,
-                    sync.createAnnotation(Passage(sha, "b1", 0, 4, "text"), 1, "late note"),
+                    sync.saveNewHighlight(Passage(sha, "b1", 0, 4, "text"), 1, "late note"),
                 )
             }
         assertTrue(dao.repositoryIds().isEmpty())
@@ -1889,7 +1891,7 @@ class PhoneSyncTest {
                 assertTrue(stuck.exists())
             }
             assertTrue(dao.repositoryIds().isEmpty())
-            sync.startUp()
+            sync.sweepImages()
             assertFalse(File(directory, "images/1").exists())
         }
     }
@@ -1900,7 +1902,7 @@ class PhoneSyncTest {
         val kept = image(1)
         val older = image(1, "b".repeat(40))
         val unsaved = image(2)
-        sync("http://127.0.0.1:${closedPort()}").startUp()
+        sync("http://127.0.0.1:${closedPort()}").sweepImages()
         assertTrue(kept.exists())
         assertFalse(older.exists())
         assertFalse(unsaved.exists())

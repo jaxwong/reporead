@@ -143,7 +143,7 @@ internal class ReviewViewModel(
         savedState[SAVED_GRADES] = ArrayList(savedGrades)
         _state.update { it.copy(savedGrades = savedGrades) }
         viewModelScope.launch {
-            if (sync.recordReview(review)) updateSession(session.graded(grade))
+            if (sync.gradeCard(review)) updateSession(session.graded(grade))
             else
                 updateSession(
                     session.skip(),

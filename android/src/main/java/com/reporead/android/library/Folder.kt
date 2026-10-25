@@ -245,7 +245,7 @@ internal class FolderViewModel(
         viewModelScope.launch {
             try {
                 // Null: the server had already disconnected it, and this phone's copies are now gone too.
-                val preview = sync.disconnectPreview(screen.repositoryId)
+                val preview = sync.sendPendingChangesAndPreviewDisconnect(screen.repositoryId)
                 if (preview == null) finish { it.copy(disconnected = true) }
                 else _state.update { it.copy(operation = FolderOperation.Confirming(preview)) }
             } catch (failure: ApiException) {

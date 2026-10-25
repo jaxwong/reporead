@@ -401,7 +401,7 @@ class PracticeSessionTest {
             awaitText("Show answer")
             click("Show answer")
             awaitText("Good")
-            val holding = async(Dispatchers.IO) { sync.createAnnotation(Passage(bankSha, "b0", 0, 4, "Test"), 1, null) }
+            val holding = async(Dispatchers.IO) { sync.saveNewHighlight(Passage(bankSha, "b0", 0, 4, "Test"), 1, null) }
             try {
                 assertTrue(entered.await(5, TimeUnit.SECONDS))
                 click("Good")

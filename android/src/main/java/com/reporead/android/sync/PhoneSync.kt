@@ -111,9 +111,9 @@ class PhoneSync(
      * Room each time, so nothing remembers what to delete. Run wherever a saved page may have gone or been replaced:
      * after a page is saved, after the server's lists replace the saved ones, after a disconnect and at start. Files
      * that could not be deleted are logged, not thrown, because these deletions follow ones that cannot be undone; a
-     * later sweep deletes them again.
+     * later sweep deletes them again. Its caller holds the lock; [sweepImages] takes it.
      */
-    private suspend fun sweepImages() {
+    private suspend fun sweepImagesLocked() {
         val leftover = images.deleteImagesExceptSavedPages(dao.allSavedVersions())
         if (leftover.isNotEmpty()) {
             DeviceLog.warn("Files left on the phone; after=sweeping images count=${leftover.size} paths=$leftover")
@@ -126,8 +126,8 @@ class PhoneSync(
      * read from one database snapshot (ADR-08). It replaces the acknowledged rows, never pending work, in one Room
      * transaction; a failed request or an answer that breaks the contract writes nothing. After the commit it sweeps
      * the images of the notes it forgot — in a repository no longer listed (disconnected on another device, or here
-     * with the answer lost), or referred to by nothing ([sweepImages]). Its caller holds the lock ([locked]), as the
-     * `Locked` suffix says in Android's convention; [loadLibrary] takes it.
+     * with the answer lost), or referred to by nothing ([sweepImagesLocked]). Its caller holds the lock ([locked]), as
+     * the `Locked` suffix says in Android's convention; [loadLibrary] takes it.
      */
     private suspend fun loadLibraryLocked() {
         val snapshot = api.fetchLibrarySnapshot()
@@ -157,7 +157,7 @@ class PhoneSync(
         val annotations = snapshot.notebook.annotations.map { it.toEntity() }
         val reviews = snapshot.notebook.reviews.map { it.toEntity() }
         dao.replaceFromServer(repositoriesWithDocuments, readingStates, bookmarks, annotations, reviews)
-        sweepImages()
+        sweepImagesLocked()
     }
 
     /** Reloads the server's whole library (one request, no GitHub call); pending changes wait for a send. */
@@ -218,7 +218,7 @@ class PhoneSync(
         if (savedPage != null && isUpToDate(savedPage, listedDocument, repositoryCommitSha))
             return@locked Opened(savedPage, null)
         try {
-            Opened(fetchSavedPage(documentId).also { sweepImages() }, null)
+            Opened(fetchAndSavePage(documentId).also { sweepImagesLocked() }, null)
         } catch (failure: ApiException) {
             if (savedPage == null) throw failure
             val savedPageIsCurrent = isSameVersion(savedPage, listedDocument, repositoryCommitSha)
@@ -233,7 +233,7 @@ class PhoneSync(
      * Fetches and saves the note's current version (one GitHub call on the server); the copy is saved whole or not at
      * all.
      */
-    private suspend fun fetchSavedPage(documentId: Long): SavedPageEntity {
+    private suspend fun fetchAndSavePage(documentId: Long): SavedPageEntity {
         val content = api.fetchDocumentContent(documentId)
         val savedPage =
             SavedPageEntity(
@@ -289,7 +289,7 @@ class PhoneSync(
                         images.saveImagesToDisk(savedPage)
                         alreadySaved++
                     } else {
-                        images.saveImagesToDisk(fetchSavedPage(document.id))
+                        images.saveImagesToDisk(fetchAndSavePage(document.id))
                         fetched++
                     }
                 }
@@ -313,7 +313,7 @@ class PhoneSync(
             }
             onProgress(index + 1, listedDocuments.size)
         }
-        locked { sweepImages() }
+        sweepImages()
         DeviceLog.info(
             "Saved all notes; repositoryId=$repositoryId fetched=$fetched alreadySaved=$alreadySaved cannotShow=$cannotShow"
         )
@@ -328,11 +328,11 @@ class PhoneSync(
     data class DisconnectPreview(val stored: ConnectionDeletionCounts, val unsent: Int, val notSent: ApiException?)
 
     /**
-     * Sends pending work, then counts what disconnecting [repositoryId] would delete, for the confirmation. Null when
-     * the server no longer has the repository (an earlier disconnect whose answer was lost, or another device): this
-     * phone's copies are then removed by reloading the server's library.
+     * Sends pending work and loads the server's library, then counts what disconnecting [repositoryId] would delete,
+     * for the confirmation. Null when the server no longer has the repository (an earlier disconnect whose answer was
+     * lost, or another device): that load has already removed this phone's copies.
      */
-    suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = locked {
+    suspend fun sendPendingChangesAndPreviewDisconnect(repositoryId: Long): DisconnectPreview? = locked {
         val pendingChanges = sendPendingChanges().also { loadLibraryLocked() }
         val deletionCounts =
             try {
@@ -340,7 +340,6 @@ class PhoneSync(
             } catch (failure: ApiException) {
                 if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
                 DeviceLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
-                loadLibraryLocked()
                 return@locked null
             }
         DisconnectPreview(deletionCounts, dao.unsentInRepository(repositoryId), pendingChanges.notSent)
@@ -368,7 +367,7 @@ class PhoneSync(
             val documentIds = disconnectResponse.documentIds
             dao.forgetRepository(repositoryId, documentIds)
             DeviceLog.info("Repository disconnected; repositoryId=$repositoryId documents=${documentIds.size}")
-            sweepImages()
+            sweepImagesLocked()
         }
     }
 
@@ -391,9 +390,9 @@ class PhoneSync(
 
     /**
      * Saves a grade as a pending local mutation; false when its card changed meanwhile and nothing was saved (see
-     * recordReview).
+     * RepoReadDao.recordReview).
      */
-    suspend fun recordReview(review: ReviewEntity): Boolean = committed {
+    suspend fun gradeCard(review: ReviewEntity): Boolean = committed {
         dao.recordReview(review).also { if (it) onPendingChangeSaved() }
     }
 
@@ -421,7 +420,7 @@ class PhoneSync(
     private suspend fun sendPendingChanges(): PendingChangesResult {
         val annotationSendFailure =
             try {
-                sendAnnotations()
+                sendAnnotationsLocked()
                 null
             } catch (failure: ApiException) {
                 if (failure.unreachable) throw failure
@@ -480,8 +479,8 @@ class PhoneSync(
      * Nothing is saved on a page disconnected meanwhile or on a phrase already highlighted. Cards are made only by
      * Practice ([gradeNewCard]).
      */
-    suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?): NewHighlight = committed {
-        val saved = dao.saveLocalAnnotation(newAnnotation(passage, documentId, note, null))
+    suspend fun saveNewHighlight(passage: Passage, documentId: Long, note: String?): NewHighlight = committed {
+        val saved = dao.saveLocalAnnotation(buildPendingAnnotation(passage, documentId, note, null))
         when (saved) {
             is NewHighlight.Saved -> onPendingChangeSaved()
             is NewHighlight.AlreadyHighlighted ->
@@ -501,7 +500,7 @@ class PhoneSync(
      */
     suspend fun gradeNewCard(passage: Passage, documentId: Long, question: String, grade: Int): NewCardGrade =
         committed {
-            val card = newAnnotation(passage, documentId, null, question)
+            val card = buildPendingAnnotation(passage, documentId, null, question)
             val review =
                 ReviewEntity(
                     mutationId = UUID.randomUUID().toString(),
@@ -517,7 +516,7 @@ class PhoneSync(
             saveResult
         }
 
-    private fun newAnnotation(
+    private fun buildPendingAnnotation(
         passage: Passage,
         documentId: Long,
         note: String?,
@@ -541,13 +540,14 @@ class PhoneSync(
         )
 
     /**
-     * Sends pending creations; a failure that is not one item's refusal stops it, and the rest wait, unsent, for the
-     * next send. The same mutation id is replayed until the server answers, so a lost acknowledgement cannot create a
-     * duplicate. A refusal is kept on the row and shown; it is not retried.
+     * Sends pending creations and deletions; a failure that is not one item's refusal stops it, and the rest wait,
+     * unsent, for the next send. The same mutation id is replayed until the server answers, so a lost acknowledgement
+     * cannot create a duplicate. A refusal is kept on the row and shown; it is not retried.
      */
-    suspend fun pushAnnotations() = locked { sendAnnotations() }
+    suspend fun sendAnnotations() = locked { sendAnnotationsLocked() }
 
-    private suspend fun sendAnnotations() {
+    /** [sendAnnotations] for a caller that holds the lock. */
+    private suspend fun sendAnnotationsLocked() {
         for (annotation in dao.waitingAnnotations()) {
             val isDeleting = annotation.state == AnnotationState.DELETING
             check(annotation.serverId == null || isDeleting) { "Unsent ${annotation.mutationId} has a server id" }
@@ -628,9 +628,12 @@ class PhoneSync(
         DeviceLog.info("Highlight deleted after its creation was acknowledged; annotationId=$annotationId")
     }
 
-    /** Pending creations are sent first, so the server's list already contains them where possible. */
-    suspend fun refreshAnnotations(documentId: Long) = locked {
-        sendAnnotations()
+    /**
+     * Sends every pending highlight, then loads [documentId]'s from the server, whose list then already contains them
+     * where possible.
+     */
+    suspend fun sendAndLoadAnnotations(documentId: Long) = locked {
+        sendAnnotationsLocked()
         val annotations = api.annotations(documentId).annotations.map { it.toEntity() }
         dao.replaceRemoteAnnotations(documentId, annotations)
     }
@@ -741,12 +744,8 @@ class PhoneSync(
     suspend fun dismissRefusedReviews() = committed { dao.dismissRefusedReviews() }
 
     /**
-     * Once per process, when the app opens: deletes images Room holds no page of, such as those a deletion cut short by
-     * process death left.
+     * [sweepImagesLocked] under the lock: once per process when the app opens, for images a deletion cut short by
+     * process death left, and after Save all.
      */
-    suspend fun startUp() {
-        locked {
-            sweepImages()
-        }
-    }
+    suspend fun sweepImages() = locked { sweepImagesLocked() }
 }

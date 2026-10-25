@@ -64,7 +64,7 @@ class RepoReadApplication : Application() {
     val phoneSync by lazy {
         PhoneSync(api, database, filesDir) { requestPendingChangeSend(this) }
             .also { phoneSync ->
-                scope.launch { phoneSync.startUp() }
+                scope.launch { phoneSync.sweepImages() }
             }
     }
 
