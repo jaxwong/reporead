@@ -195,7 +195,6 @@ class Api(
     private suspend fun noContent(method: String, path: String, requestBody: String? = null): Unit =
         withContext(Dispatchers.IO) {
             execute(method, path, requestBody, MAX_JSON_BYTES, "application/json", setOf(204))
-            Unit
         }
 
     /** The sole HTTP boundary: one attempt, token-aware 401 handling and no durable partial response. */

@@ -75,18 +75,21 @@ internal suspend fun search(dao: RepoReadDao, query: String): SearchResults {
     val names = dao.searchDocumentNames(pattern, SEARCH_LIMIT)
     val noteText = dao.searchSavedPageText(pattern, SEARCH_LIMIT)
     val highlights = dao.searchHighlights(pattern, SEARCH_LIMIT)
-    val results =
-        names.map { note ->
-            SearchResult(
-                note.documentId,
-                note.title,
-                note.path,
-                if (note.isTitleMatch) "Title" else "Path",
-                null,
+    val results = buildList {
+        for (note in names) {
+            add(
+                SearchResult(
+                    note.documentId,
+                    note.title,
+                    note.path,
+                    if (note.isTitleMatch) "Title" else "Path",
+                    null,
+                )
             )
-        } +
-            noteText.map { match ->
-                val start = matchStart(match.text, query)
+        }
+        for (match in noteText) {
+            val start = matchStart(match.text, query)
+            add(
                 SearchResult(
                     match.documentId,
                     match.title,
@@ -102,9 +105,11 @@ internal suspend fun search(dao: RepoReadDao, query: String): SearchResults {
                         )
                     ),
                 )
-            } +
-            highlights.map { highlight ->
-                val inQuote = highlight.exactText.contains(query, ignoreCase = true)
+            )
+        }
+        for (highlight in highlights) {
+            val inQuote = highlight.exactText.contains(query, ignoreCase = true)
+            add(
                 SearchResult(
                     highlight.documentId,
                     highlight.title,
@@ -113,7 +118,9 @@ internal suspend fun search(dao: RepoReadDao, query: String): SearchResults {
                     else "Your note: ${snippet(highlight.note!!, query)}",
                     OpenAt.Highlight(highlight.mutationId),
                 )
-            }
+            )
+        }
+    }
     return SearchResults(
         results,
         isTruncated = names.size == SEARCH_LIMIT || noteText.size == SEARCH_LIMIT || highlights.size == SEARCH_LIMIT,

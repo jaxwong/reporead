@@ -103,7 +103,10 @@ internal class ReaderViewModel(
                 _state.update {
                     it.copy(
                         changing = false,
-                        conflict = annotation?.takeIf { it.note != draft.text }?.let { ReaderConflict(it, draft.text) },
+                        conflict =
+                            if (annotation != null && annotation.note != draft.text)
+                                ReaderConflict(annotation, draft.text)
+                            else null,
                         message =
                             when {
                                 annotation == null -> "The edited highlight is no longer on this phone."
