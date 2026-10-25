@@ -268,8 +268,8 @@ class CommittedMutationTest {
                         listOf(
                             screens.launch { sync.saveReading(reading()) },
                             screens.launch { sync.setBookmark(1, bookmarked = true) },
-                            screens.launch { sync.createAnnotation(Passage(testSha, "b3", 0, 4, "text"), 1, null) },
-                            screens.launch { sync.recordReview(grade()) },
+                            screens.launch { sync.saveNewHighlight(Passage(testSha, "b3", 0, 4, "text"), 1, null) },
+                            screens.launch { sync.gradeCard(grade()) },
                             screens.launch { sync.dismissRefusedReviews() },
                         )
                     // Each is now waiting for the lock the load holds.

@@ -119,7 +119,7 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
             }
         shownSignedIn = signedIn
         left = false
-        if (reason != null) sendChangesAndRefreshLibrary(reason)
+        if (reason != null) sendPendingChangesAndLoadLibrary(reason)
     }
 
     /** The screen left composition for another reason than a configuration change. */
@@ -130,7 +130,7 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
     /**
      * Sends pending changes, then reloads the server's library; the background sender leaves the lists alone (ADR-08).
      */
-    fun sendChangesAndRefreshLibrary(reason: String = "asked") {
+    fun sendPendingChangesAndLoadLibrary(reason: String = "asked") {
         val stateSnapshot = _state.value
         if (
             stateSnapshot.updatingLibrary ||
@@ -258,7 +258,10 @@ fun LibraryScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { model.sendChangesAndRefreshLibrary() }, enabled = !state.updatingLibrary) {
+                    TextButton(
+                        onClick = { model.sendPendingChangesAndLoadLibrary() },
+                        enabled = !state.updatingLibrary,
+                    ) {
                         Text("Send changes")
                     }
                 }
@@ -274,7 +277,7 @@ fun LibraryScreen(
             if (signedIn)
                 PullToRefreshBox(
                     isRefreshing = state.updatingLibrary,
-                    onRefresh = { model.sendChangesAndRefreshLibrary() },
+                    onRefresh = { model.sendPendingChangesAndLoadLibrary() },
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     content()
