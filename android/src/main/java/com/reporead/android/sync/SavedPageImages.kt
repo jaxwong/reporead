@@ -20,7 +20,7 @@ internal const val IMAGE_PREFIX = "/repo-image/"
 /**
  * Saved pages' images, kept per document and snapshot (files/images/<document>/commit-<sha>/<key>) and fetched through
  * the backend with the bearer token when missing. WebView request interception is blocking and outside PhoneSync's
- * lock; Save all uses its per-page lock. [generation] keeps a fetch from writing back what a deletion removed
+ * lock; Save all uses its per-page lock. [deletionCount] keeps a fetch from writing back what a deletion removed
  * meanwhile. PhoneSync deletes them when their notes go.
  */
 class SavedPageImages(private val api: Api, filesDir: File) {
@@ -34,7 +34,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
      * an answer that arrives after a deletion cannot bring a deleted image back. In memory only: a new process starts
      * no fetch before it.
      */
-    private var generation = 0L
+    private var deletionCount = 0L
 
     /**
      * Save all's image pass, on a background thread under PhoneSync's per-page lock so the saved snapshot cannot be
@@ -74,7 +74,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
         val key = sha256(path)
         val directory = File(root, "$documentId/${snapshotDirectoryName(snapshotCommitSha)}")
         val file = File(directory, key)
-        val started =
+        val deletionCountAtStart =
             synchronized(lock) {
                 try {
                     if (file.isFile) return file.readBytes()
@@ -85,12 +85,12 @@ class SavedPageImages(private val api: Api, filesDir: File) {
                     )
                     return null
                 }
-                generation
+                deletionCount
             }
         val bytes = api.noteImage(documentId, snapshotCommitSha, path)
         synchronized(lock) {
             // A deletion ran since the request was sent: the page still gets these bytes, but they are not kept.
-            if (generation != started) return bytes
+            if (deletionCount != deletionCountAtStart) return bytes
             // A partial file of its own, because two pages can fetch the same image at once. A failed write (a full
             // disk) leaves the image uncached; the page still gets these bytes.
             try {
@@ -127,10 +127,12 @@ class SavedPageImages(private val api: Api, filesDir: File) {
         }
     }
 
-    /** Runs [deletion] under [lock] after advancing [generation], so no fetch started before it writes afterwards. */
+    /**
+     * Runs [deletion] under [lock] after advancing [deletionCount], so no fetch started before it writes afterwards.
+     */
     private fun deleting(deletion: () -> List<File>): List<File> =
         synchronized(lock) {
-            generation++
+            deletionCount++
             deletion()
         }
 
