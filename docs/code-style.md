@@ -39,7 +39,9 @@ rendered page. UI text may still say “note” when that is the user's concept.
 - Use `_state` for a private mutable state holder exposed as `state`. Name a captured value `stateSnapshot`, not
   `current` or `now`.
 - Framework-owned types say what role they implement: `Controller`, `Filter`, `Worker`, `Configuration`, `Database` and
-  `Dao`. Avoid `Manager`, `Utils`, `Core` and `Data` as catch-all names.
+  `Dao`. Avoid `Manager`, `Utils`, `Helper`, `Support`, `Core` and `Data` as catch-all names.
+- A subclass of a framework type is named for what it adds, not just for where it is used. `ReaderSelectionWebView`
+  adds the text-selection menu; `ReaderWebView` read as the reader's whole WebView, whose behavior `ReaderSession` owns.
 - A caught expected boundary failure is `failure` or a qualified name such as `ioFailure`; reserve `error()` and
   assertion failures for broken invariants.
 - Short mathematical names such as `i`, `j`, `m` and `n` are appropriate inside a documented algorithm. Do not expand
@@ -47,7 +49,15 @@ rendered page. UI text may still say “note” when that is the user's concept.
 
 ## Files and packages
 
-- A file has one primary owner and its filename names that owner or responsibility.
+- A file has one primary owner and its filename names that owner or responsibility. Check the name against the file
+  list alone: someone who sees only the list should be able to guess what the file contains, and should not expect to
+  find something that is in another file.
+- A file named for a class or composable holds that class or composable. A file of top-level functions shared by several
+  owners is named for the responsibility they share (`ReaderPageHosting.kt`: isolation, resources, the script bridge
+  and the wait for rendering, used by `ReaderSession` and `IsolatedPage`). It is not named for a thing it does not
+  contain: `ReaderPage.kt` read as a screen or composable.
+- A screen's ViewModel and its screen composable share the screen's file (`Library.kt`, `Reader.kt`). Moving one
+  screen's ViewModel into its own file would make that screen the only one laid out differently.
 - A package name says what it owns. Do not introduce a generic layer solely to group unrelated shared code.
 - One independently scheduled job has one worker file.
 - A Compose screen owns state and effects. Extract a sibling composable when a toolbar, content region or overlay host
@@ -66,7 +76,9 @@ rendered page. UI text may still say “note” when that is the user's concept.
 
 ## Comments
 
-- File and type comments state ownership, invariants and exclusions.
+- File and type comments state ownership, invariants and exclusions. A comment that names another file or type as an
+  owner must match that code (`Reader.kt` said `ReaderSession` owned the script bridge, which is in
+  `ReaderPageHosting.kt`). A rename or move greps for the old name in comments as well as in code.
 - Comments explain why a constraint exists, not what the next line already says.
 - If a comment is needed to explain what an identifier means, first rename the identifier.
 
