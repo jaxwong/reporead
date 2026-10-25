@@ -56,7 +56,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
             currentCoroutineContext().ensureActive()
             val file = imageFile(note.documentId, snapshotCommitSha, path)
             val deletionCountAtStart = synchronized(lock) { if (file.isFile) null else deletionCount } ?: continue
-            keep(file, api.noteImage(note.documentId, snapshotCommitSha, path), deletionCountAtStart)
+            writeUnlessDeletedSince(file, api.noteImage(note.documentId, snapshotCommitSha, path), deletionCountAtStart)
         }
     }
 
@@ -90,7 +90,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
             }
         // The reader shows the bytes it has; a failed write (a full disk) only means the next read fetches again.
         try {
-            keep(file, bytes, deletionCountAtStart)
+            writeUnlessDeletedSince(file, bytes, deletionCountAtStart)
         } catch (ioFailure: IOException) {
             DeviceLog.warn("Image not cached; documentId=$documentId error=${ioFailure.javaClass.simpleName}")
         }
@@ -104,7 +104,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
      * Writes [bytes] as [file], unless a deletion ran since [deletionCountAtStart]: then they are not kept. Throws when
      * the file cannot be written.
      */
-    private fun keep(file: File, bytes: ByteArray, deletionCountAtStart: Long) {
+    private fun writeUnlessDeletedSince(file: File, bytes: ByteArray, deletionCountAtStart: Long) {
         synchronized(lock) {
             if (deletionCount != deletionCountAtStart) return
             val directory = file.parentFile!!

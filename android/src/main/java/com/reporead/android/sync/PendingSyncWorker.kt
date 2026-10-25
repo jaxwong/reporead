@@ -1,4 +1,4 @@
-// Owns: the queued upload of pending Room changes; not device-log upload or saved-page prefetch.
+// Owns: the queued upload of pending Room changes; not device-log upload or Save all.
 
 package com.reporead.android.sync
 
