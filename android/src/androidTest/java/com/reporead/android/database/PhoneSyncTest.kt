@@ -422,7 +422,7 @@ class PhoneSyncTest {
             }
             .use { server ->
                 val sync = sync(server.url)
-                assertNull(sync.sendPendingChanges()!!.notSent)
+                assertNull(sync.sendPendingChangesIfAny()!!.notSent)
                 assertEquals(AnnotationState.REFUSED, dao.annotation("refused-card")?.state)
                 assertEquals("Test-only INVALID_ANCHOR", dao.annotation("refused-card")?.rejection)
                 assertNull(dao.annotation("deleted-elsewhere"))
@@ -436,7 +436,7 @@ class PhoneSyncTest {
                     ),
                     dao.reviews().first().associate { it.mutationId to it.rejection },
                 )
-                assertNull(sync.sendPendingChanges())
+                assertNull(sync.sendPendingChangesIfAny())
                 sync.deleteAnnotation(dao.annotation("refused-card")!!)
                 sync.deleteAnnotation(dao.annotation("card")!!)
                 assertNull(dao.annotation("refused-card"))
@@ -1692,7 +1692,7 @@ class PhoneSyncTest {
                 ::accepted,
             )
             .use { server ->
-                val error = runCatching { sync(server.url).sendPendingChanges() }.exceptionOrNull() as ApiException
+                val error = runCatching { sync(server.url).sendPendingChangesIfAny() }.exceptionOrNull() as ApiException
                 assertEquals("GITHUB_UNAVAILABLE", error.code)
                 assertEquals(
                     listOf("grade-2", "grade-3", "grade-2-later"),
@@ -1704,7 +1704,7 @@ class PhoneSyncTest {
                 )
             }
         LoopbackServer.answering(emptyMap(), ::accepted).use { server ->
-            sync(server.url).sendPendingChanges()
+            sync(server.url).sendPendingChangesIfAny()
             assertTrue(dao.pendingReviews().isEmpty())
             assertEquals(
                 listOf(
@@ -1719,8 +1719,8 @@ class PhoneSyncTest {
         dao.saveReview(ReviewEntity("grade-1", "card-1", 4, 1, sha, pending = true))
         LoopbackServer.answering(emptyMap(), ::accepted).use { server ->
             val sync = sync(server.url)
-            sync.sendPendingChanges()
-            assertNull(sync.sendPendingChanges())
+            sync.sendPendingChangesIfAny()
+            assertNull(sync.sendPendingChangesIfAny())
             assertEquals(listOf("POST /api/annotations/1/reviews"), server.requests)
             assertEquals(
                 "grade-1",

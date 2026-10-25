@@ -299,7 +299,7 @@ class ReviewLifecycleTest {
                                 store,
                                 directory,
                             ) {}
-                            .sendPendingChanges()
+                            .sendPendingChangesIfAny()
                     }
                 assertTrue(dao.pendingReviews().isEmpty())
                 awaitText("1 card left · Test-only review")
