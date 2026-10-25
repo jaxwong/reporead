@@ -1,5 +1,5 @@
-// Owns: Reader screen orchestration, its entry's work and saved overlays; ReaderSession owns the page bridge and
-// readiness.
+// Owns: Reader screen orchestration, its entry's work and saved overlays; ReaderSession owns the displayed page and
+// when it is ready, and ReaderPageHosting.kt owns the page's isolation, resources and script bridge.
 
 package com.reporead.android.reader
 

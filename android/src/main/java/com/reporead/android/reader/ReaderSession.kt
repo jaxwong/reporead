@@ -151,7 +151,7 @@ internal class ReaderSession(
     private var swipeScroll = 0
 
     fun createView(context: Context): WebView =
-        ReaderWebView(context, isReattaching, ::onSelectionAction).apply {
+        ReaderSelectionWebView(context, isReattaching, ::onSelectionAction).apply {
             isolateReaderPage()
             alpha = 0f
             webViewClient = PageClient(readerAssets(context))
@@ -246,7 +246,7 @@ internal class ReaderSession(
     // The touch listener only watches: it returns false, so the page still handles every touch, clicks and
     // accessibility actions included.
     @SuppressLint("ClickableViewAccessibility")
-    private fun trackScrolling(webView: ReaderWebView) {
+    private fun trackScrolling(webView: ReaderSelectionWebView) {
         val barsThreshold = (BARS_SCROLL_DP * webView.resources.displayMetrics.density).toInt()
         webView.setOnTouchListener { view, event ->
             when (event.actionMasked) {
