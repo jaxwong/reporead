@@ -17,12 +17,13 @@ internal enum class SelectionAction(val id: Int, val label: String) {
 }
 
 /**
- * Adds the reader's actions to the WebView's native text-selection menu. The selection itself is read by native code
- * through evaluateJavascript; the page gains no way to call native code. [onAction] receives the action and a callback
- * that closes the menu once the selection has been read.
+ * Adds the reader's actions to the WebView's native text-selection menu; that menu is all this subclass adds, because
+ * only the View can wrap its action mode. ReaderSession owns everything else the reader's WebView does. The selection
+ * itself is read by native code through evaluateJavascript; the page gains no way to call native code. [onAction]
+ * receives the action and a callback that closes the menu once the selection has been read.
  */
 @SuppressLint("ViewConstructor") // Instantiated only from Compose AndroidView; never inflated by layout tools.
-internal class ReaderWebView(
+internal class ReaderSelectionWebView(
     context: Context,
     private val isReattaching: () -> Boolean,
     private val onAction: (action: SelectionAction, finish: () -> Unit) -> Unit,
