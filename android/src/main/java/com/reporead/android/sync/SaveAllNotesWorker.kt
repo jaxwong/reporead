@@ -1,4 +1,4 @@
-// Owns: the queued prefetch of every saved page and its progress projection.
+// Owns: the queued Save all of a repository's notes and its progress projection.
 
 package com.reporead.android.sync
 
@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.map
 
 private fun saveAllName(repositoryId: Long) = "save-all-notes-$repositoryId"
 
+// WorkManager persists these keys with each run's input, progress and outcome; keep the strings stable so a run
+// recorded before an app update still reads back (TOTAL_NOTES keeps its earlier name, "toFetch").
 private const val REPOSITORY = "repositoryId"
 private const val DONE = "done"
 private const val TOTAL_NOTES = "toFetch"
@@ -71,16 +73,16 @@ class SaveAllNotesWorker(context: Context, params: WorkerParameters) : Coroutine
 }
 
 /**
- * One Save all run ([PhoneSync.saveAllNotes]), reporting its progress through [report]. A run Android stops part-way
- * (after about 10 minutes, or when the network goes) is started again by WorkManager, and each run fetches only the
- * notes not yet saved. Failures are tried again as the background sync's are; the last says how far it got. A write the
- * phone's storage refuses ends the run at once, saying so. [attempt] counts from 0.
+ * One Save all run ([PhoneSync.saveAllNotes]), reporting its progress through [onProgress]. A run Android stops
+ * part-way (after about 10 minutes, or when the network goes) is started again by WorkManager, and each run fetches
+ * only the notes not yet saved. Failures are tried again as the background sync's are; the last says how far it got. A
+ * write the phone's storage refuses ends the run at once, saying so. [attempt] counts from 0.
  */
 internal suspend fun saveAllInBackground(
     sync: PhoneSync,
     repositoryId: Long,
     attempt: Int,
-    report: suspend (Data) -> Unit,
+    onProgress: suspend (Data) -> Unit,
 ): Result {
     var done = 0
     var totalNotes = 0
@@ -89,7 +91,7 @@ internal suspend fun saveAllInBackground(
             sync.saveAllNotes(repositoryId) { doneNow, totalNotesNow ->
                 done = doneNow
                 totalNotes = totalNotesNow
-                report(workDataOf(DONE to done, TOTAL_NOTES to totalNotes))
+                onProgress(workDataOf(DONE to done, TOTAL_NOTES to totalNotes))
             }
         } catch (failure: ApiException) {
             if (shouldRetry("Saving all notes", failure, attempt)) return Result.retry()
