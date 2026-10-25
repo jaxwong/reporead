@@ -78,7 +78,7 @@ class ReaderStudyModeDeviceTest {
         }
         assertTrue("Study fixture did not finish within 25 seconds", ready.await(25, TimeUnit.SECONDS))
         assertEquals("ready", state)
-        checkScript("window.reporead.configureStudy(${studyNote(html).json()}); return true;")
+        checkScript("window.reporead.configureStudy(${analyzeStudyMode(html).json()}); return true;")
     }
 
     private fun checkScript(script: String) {

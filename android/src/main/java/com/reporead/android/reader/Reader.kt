@@ -51,10 +51,10 @@ import kotlinx.coroutines.withContext
 private const val FIND_TYPING_PAUSE_MS = 150L
 
 /** The displayed copy and its study model are published together, so reloads cannot use a previous version's blocks. */
-internal data class StudyPage(val opened: PhoneSync.Opened, val study: StudyNote)
+internal data class OpenedReaderPage(val opened: PhoneSync.Opened, val study: StudyModeAnalysis)
 
 /** What a reader entry keeps for process restoration. */
-private const val REATTACHING = "reattaching"
+private const val ANNOTATION_TO_REATTACH = "annotationToReattach"
 private const val EDIT = "edit"
 
 /** Only the user's submitted input is restored; the annotation is read again, and no mutation is replayed. */
@@ -74,10 +74,10 @@ internal class ReaderViewModel(
     private val entryId: String,
 ) : ViewModel() {
     data class State(
-        val page: Load<StudyPage> = Load.Loading,
+        val page: Load<OpenedReaderPage> = Load.Loading,
         val message: String? = null,
         /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach. */
-        val reattaching: AnnotationEntity? = null,
+        val annotationToReattach: AnnotationEntity? = null,
         /** A highlight operation runs; one at a time. */
         val changing: Boolean = false,
         val conflict: ReaderConflict? = null,
@@ -85,7 +85,8 @@ internal class ReaderViewModel(
         val overlay: ReaderOverlay? = null,
     )
 
-    private val _state = MutableStateFlow(State(reattaching = saved.get<AnnotationEntity>(REATTACHING)))
+    private val _state =
+        MutableStateFlow(State(annotationToReattach = saved.get<AnnotationEntity>(ANNOTATION_TO_REATTACH)))
     val state: StateFlow<State> = _state.asStateFlow()
 
     /** The sign-in state the screen last showed; null before it was first shown. */
@@ -122,7 +123,12 @@ internal class ReaderViewModel(
             val page =
                 try {
                     val opened = sync.openNote(documentId)
-                    Load.Ready(StudyPage(opened, withContext(Dispatchers.Default) { studyNote(opened.note.html) }))
+                    Load.Ready(
+                        OpenedReaderPage(
+                            opened,
+                            withContext(Dispatchers.Default) { analyzeStudyMode(opened.note.html) },
+                        )
+                    )
                 } catch (failure: ApiException) {
                     Load.Failed(failure)
                 }
@@ -205,8 +211,8 @@ internal class ReaderViewModel(
     }
 
     private fun placing(annotation: AnnotationEntity?) {
-        saved[REATTACHING] = annotation
-        _state.update { it.copy(reattaching = annotation, message = null) }
+        saved[ANNOTATION_TO_REATTACH] = annotation
+        _state.update { it.copy(annotationToReattach = annotation, message = null) }
     }
 
     fun startReattaching(annotation: AnnotationEntity) = placing(annotation)
@@ -239,8 +245,8 @@ internal class ReaderViewModel(
         change("reattach", annotation) {
             try {
                 sync.reattachAnnotation(annotation, passage)
-                saved[REATTACHING] = null
-                _state.update { it.copy(reattaching = null) }
+                saved[ANNOTATION_TO_REATTACH] = null
+                _state.update { it.copy(annotationToReattach = null) }
                 null
             } catch (failure: ApiException) {
                 "Not reattached. ${failure.describe()}"
@@ -382,7 +388,7 @@ fun ReaderScreen(
 
     fun useSelection(selection: Selection, action: SelectionAction) {
         // The menu was built for the state at the time; Cancel may have ended that mode since.
-        val placing = state.reattaching
+        val placing = state.annotationToReattach
         when (selection) {
             Selection.None -> model.showMessage("Select some text first.")
             is Selection.Unusable -> model.showMessage(selection.reason)
@@ -427,7 +433,7 @@ fun ReaderScreen(
                     study = ready.study,
                     studying = { studying },
                     onNoteLink = model::followNoteLink,
-                    reattaching = { state.reattaching != null },
+                    isReattaching = { state.annotationToReattach != null },
                     onMessage = model::showMessage,
                     onSelection = ::useSelection,
                 )
