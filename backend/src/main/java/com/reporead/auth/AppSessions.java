@@ -178,10 +178,9 @@ public class AppSessions {
      */
     int revoke(String token, long userId) {
         return transaction.execute(status -> {
-            if (TOKEN.matcher(token).matches())
-                db.sql("DELETE FROM app_sessions WHERE token_hash = :hash")
-                        .param("hash", hash(token))
-                        .update();
+            db.sql("DELETE FROM app_sessions WHERE token_hash = :hash")
+                    .param("hash", hash(token))
+                    .update();
             int remaining = db.sql("SELECT count(*) FROM app_sessions WHERE user_id = :userId AND expires_at > :now")
                     .param("userId", userId)
                     .param("now", Timestamp.from(Instant.now()))

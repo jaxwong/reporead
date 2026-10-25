@@ -106,7 +106,7 @@ public class AnnotationService {
             LOG.info(
                     "Highlight resolved; userId={} documentId={} annotationId={} from={} to={} outcome={} applied={}",
                     user.id(),
-                    document.id(),
+                    document.documentId(),
                     annotation.id(),
                     previousLocation.passage().sourceBlobSha(),
                     currentBlobSha,
@@ -172,7 +172,7 @@ public class AnnotationService {
         LOG.info(
                 "Highlight reattached; userId={} documentId={} annotationId={} blobSha={} version={}",
                 user.id(),
-                document.id(),
+                document.documentId(),
                 annotationId,
                 verifiedLocation.passage().sourceBlobSha(),
                 reattached.version());

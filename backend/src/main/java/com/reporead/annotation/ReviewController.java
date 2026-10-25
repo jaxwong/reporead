@@ -29,9 +29,9 @@ public class ReviewController {
     @PostMapping("/api/annotations/{id}/reviews")
     Reviews.Review grade(
             @AuthenticationPrincipal AppUser user, @PathVariable("id") long cardId, @RequestBody GradeRequest body) {
-        UUID mutation;
+        UUID reviewMutationId;
         try {
-            mutation = UUID.fromString(body.mutationId() == null ? "" : body.mutationId());
+            reviewMutationId = UUID.fromString(body.mutationId() == null ? "" : body.mutationId());
         } catch (IllegalArgumentException failure) {
             throw invalid("mutationId must be a UUID.");
         }
@@ -43,14 +43,15 @@ public class ReviewController {
                 || !Hashes.isGitSha(body.blobSha())) {
             throw invalid("A review needs grade 0–5, a millisecond reviewedAt, and the verified answer's blob SHA.");
         }
-        var result = reviews.grade(user.id(), cardId, mutation, body.grade(), body.reviewedAt(), body.blobSha());
+        var review =
+                reviews.grade(user.id(), cardId, reviewMutationId, body.grade(), body.reviewedAt(), body.blobSha());
         LOG.info(
                 "Review stored or replayed; userId={} annotationId={} mutationId={} grade={}",
                 user.id(),
                 cardId,
-                mutation,
+                reviewMutationId,
                 body.grade());
-        return result;
+        return review;
     }
 
     private static ApiFailure invalid(String message) {

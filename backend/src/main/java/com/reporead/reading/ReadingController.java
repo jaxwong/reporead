@@ -60,7 +60,7 @@ public class ReadingController {
 
     private static void validate(SaveRequest body) {
         var anchor = body.anchor();
-        boolean valid = Hashes.isGitSha(body.lastReadBlobSha())
+        boolean isValid = Hashes.isGitSha(body.lastReadBlobSha())
                 && body.progressPercent() != null
                 && body.progressPercent() >= 0
                 && body.progressPercent() <= 100
@@ -70,7 +70,7 @@ public class ReadingController {
                 && anchor.headingPath().stream().allMatch(heading -> heading != null && StoredText.storable(heading))
                 && (anchor.textPrefix() == null || StoredText.storable(anchor.textPrefix()))
                 && anchor.blockIndex() != null;
-        if (!valid) {
+        if (!isValid) {
             throw new ApiFailure(
                     Code.INVALID_REQUEST,
                     "Reading state requires a blob SHA, progress 0-100, lastReadAt, and an anchor with a string heading path and integer block index; anchor text cannot contain NUL or an unpaired surrogate.");

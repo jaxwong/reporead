@@ -57,7 +57,7 @@ public class DeviceLogIngestController {
     }
 
     private static void validate(UploadRequest body) {
-        boolean valid = body.lines() != null
+        boolean isValid = body.lines() != null
                 && !body.lines().isEmpty()
                 && body.lines().stream()
                         .allMatch(line -> line != null
@@ -66,7 +66,7 @@ public class DeviceLogIngestController {
                                 && APP_VERSION.matcher(line.appVersion()).matches()
                                 && line.level() != null
                                 && line.message() != null);
-        if (!valid) {
+        if (!isValid) {
             throw new ApiFailure(
                     Code.INVALID_REQUEST,
                     "A device log upload requires at least one line, each with a time, an app version (1-64 letters, digits, '.', '+' or '-'), a level and a message.");

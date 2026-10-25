@@ -29,9 +29,9 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Every GitHub REST read RepoRead makes, each with a signed-in user's GitHub App user token from GitHubTokenLifecycle.
- * Each method makes exactly one GET request: no retries, pagination, redirects, or installation-token fallback. GitHub
- * owns authorization: user-token endpoints only return repositories the user and installation can both access.
+ * Repository GitHub REST reads, each with a signed-in user's GitHub App user token from GitHubTokenLifecycle. Each
+ * method makes exactly one GET request: no retries, pagination, redirects, or installation-token fallback. GitHub owns
+ * authorization: user-token endpoints only return repositories the user and installation can both access.
  */
 @Component
 public class GitHubApi {
@@ -39,8 +39,6 @@ public class GitHubApi {
     static final int MAX_INSTALLATIONS = 10;
     static final int MAX_REPOSITORIES = 100;
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9._-]+");
-    private static final MediaType JSON = MediaType.parseMediaType("application/vnd.github+json");
-    private static final MediaType RAW = MediaType.parseMediaType("application/vnd.github.raw+json");
 
     private final RestTemplate githubUserHttpClient;
     private final RestTemplate githubTreeHttpClient;
@@ -59,7 +57,12 @@ public class GitHubApi {
     }
 
     public record Repository(
-            long id, long installationId, String owner, String name, boolean privateRepository, String defaultBranch) {
+            long githubRepositoryId,
+            long installationId,
+            String owner,
+            String name,
+            boolean privateRepository,
+            String defaultBranch) {
         public String fullName() {
             return owner + "/" + name;
         }
@@ -76,7 +79,7 @@ public class GitHubApi {
                         githubUserHttpClient,
                         uri("/user/installations?per_page=100"),
                         token,
-                        JSON,
+                        GitHubHttpConfiguration.JSON,
                         GitHubApi::accessDenied,
                         GitHubApi::responseLimit,
                         GitHubApi::redirected),
@@ -86,7 +89,9 @@ public class GitHubApi {
                 "installations",
                 MAX_INSTALLATIONS,
                 Code.GITHUB_INSTALLATION_LIMIT,
-                "RepoRead supports at most 10 accessible GitHub App installations; nothing was published.");
+                "RepoRead supports at most "
+                        + MAX_INSTALLATIONS
+                        + " accessible GitHub App installations; nothing was published.");
         var installationIds = new ArrayList<Long>();
         for (var installationNode : installationNodes) {
             long installationId = positiveLong(installationNode, "id", "installation");
@@ -106,7 +111,7 @@ public class GitHubApi {
                         githubUserHttpClient,
                         uri("/user/installations/" + installationId + "/repositories?per_page=" + MAX_REPOSITORIES),
                         token,
-                        JSON,
+                        GitHubHttpConfiguration.JSON,
                         GitHubApi::accessDenied,
                         GitHubApi::responseLimit,
                         GitHubApi::redirected),
@@ -116,7 +121,9 @@ public class GitHubApi {
                 "repositories",
                 MAX_REPOSITORIES,
                 Code.GITHUB_REPOSITORY_LIMIT,
-                "RepoRead requires a complete list of at most 100 repositories per installation; no next page was fetched.");
+                "RepoRead requires a complete list of at most "
+                        + MAX_REPOSITORIES
+                        + " repositories per installation; no next page was fetched.");
         var repositories = new ArrayList<Repository>();
         var repositoryIds = new HashSet<Long>();
         for (var repositoryNode : repositoryNodes) {
@@ -151,7 +158,7 @@ public class GitHubApi {
                         githubUserHttpClient,
                         uri("/repos/{owner}/{name}/branches/{branch}", owner, name, branchName),
                         token,
-                        JSON,
+                        GitHubHttpConfiguration.JSON,
                         () -> new ApiFailure(
                                 Code.DEFAULT_BRANCH_NOT_FOUND,
                                 "The default branch was not found: the repository may be empty or no longer accessible, or its default branch was renamed (connecting the repository again records the current one)."),
@@ -176,7 +183,7 @@ public class GitHubApi {
                         githubTreeHttpClient,
                         uri("/repos/{owner}/{name}/git/trees/{sha}?recursive=1", owner, name, treeSha),
                         token,
-                        JSON,
+                        GitHubHttpConfiguration.JSON,
                         GitHubApi::accessDenied,
                         GitHubApi::responseLimit,
                         GitHubApi::renamed),
@@ -211,7 +218,7 @@ public class GitHubApi {
                 githubUserHttpClient,
                 uri("/repos/{owner}/{name}/git/blobs/{sha}", owner, name, sha),
                 token,
-                RAW,
+                GitHubHttpConfiguration.RAW,
                 () -> new ApiFailure(
                         Code.SOURCE_NOT_FOUND, "GitHub no longer has this note version; refresh the repository."),
                 () -> new ApiFailure(
@@ -236,7 +243,8 @@ public class GitHubApi {
         var segments = new ArrayList<String>();
         for (String segment : path.split("/"))
             segments.add(UriUtils.encodePathSegment(segment, StandardCharsets.UTF_8));
-        var uri = URI.create("https://api.github.com/repos/" + UriUtils.encodePathSegment(owner, StandardCharsets.UTF_8)
+        var uri = URI.create(GitHubHttpConfiguration.API_ORIGIN + "/repos/"
+                + UriUtils.encodePathSegment(owner, StandardCharsets.UTF_8)
                 + "/"
                 + UriUtils.encodePathSegment(name, StandardCharsets.UTF_8) + "/contents/" + String.join("/", segments)
                 + "?ref=" + UriUtils.encodeQueryParam(commitSha, StandardCharsets.UTF_8));
@@ -244,9 +252,13 @@ public class GitHubApi {
                 githubImageHttpClient,
                 uri,
                 token,
-                RAW,
+                GitHubHttpConfiguration.RAW,
                 () -> new ApiFailure(Code.IMAGE_NOT_FOUND, "This image is not in the repository at the note's commit."),
-                () -> new ApiFailure(Code.UNSUPPORTED_CONTENT, "This image exceeds the 5 MiB reader limit."),
+                () -> new ApiFailure(
+                        Code.UNSUPPORTED_CONTENT,
+                        "This image exceeds the "
+                                + GitHubHttpConfiguration.MAX_IMAGE_RESPONSE_BYTES / 1_048_576
+                                + " MiB reader limit."),
                 GitHubApi::renamed);
         LOG.info("GitHub image read; bytes={}", bytes.length);
         return bytes;
@@ -254,7 +266,7 @@ public class GitHubApi {
 
     private static URI uri(String template, Object... variables) {
         // Encoding the template first strictly encodes each variable, including '/' in branch names.
-        return UriComponentsBuilder.fromUriString("https://api.github.com" + template)
+        return UriComponentsBuilder.fromUriString(GitHubHttpConfiguration.API_ORIGIN + template)
                 .encode()
                 .buildAndExpand(variables)
                 .toUri();

@@ -33,9 +33,9 @@ final class AppSignInSuccess implements AuthenticationSuccessHandler {
         SecurityContextHolder.clearContext();
         String codeChallenge = PendingAppSignIn.finish(request);
         var user = (OAuth2User) authentication.getPrincipal();
-        Object id = user.getAttribute("id");
+        Object githubUserId = user.getAttribute("id");
         Object login = user.getAttribute("login");
-        if (!(id instanceof Number number)
+        if (!(githubUserId instanceof Number number)
                 || number.longValue() <= 0
                 || !(login instanceof String name)
                 || name.isBlank()) {

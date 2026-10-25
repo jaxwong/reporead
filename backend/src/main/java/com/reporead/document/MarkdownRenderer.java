@@ -79,9 +79,7 @@ public final class MarkdownRenderer {
     private static final Pattern FOOTNOTE = Pattern.compile("\\[\\^([^\\[\\]\\s]+)\\](:?)");
 
     public static final int MAX_BLOCKS = 4_096;
-    /**
-     * Heading path entries are cut to this many UTF-16 units; the reading endpoint accepts exactly what pages carry.
-     */
+    /** Heading path entries emitted by rendered pages are cut to this many UTF-16 units to bound saved reader state. */
     public static final int MAX_HEADING_CHARS = 500;
 
     private static final String BLOCK_SELECTOR = "p,h1,h2,h3,h4,h5,h6,pre,td,th,li";
@@ -345,11 +343,11 @@ public final class MarkdownRenderer {
     private static void rewriteMarkdownLinks(Document clean, String documentPath) {
         for (var link : clean.select("a[href]")) {
             String href = link.attr("href");
-            boolean absolute = href.startsWith("//") || SCHEME.matcher(href).matches();
-            if (href.startsWith("#") || (absolute && leavesTheApp(href))) continue;
+            boolean isAbsolute = href.startsWith("//") || SCHEME.matcher(href).matches();
+            if (href.startsWith("#") || (isAbsolute && leavesTheApp(href))) continue;
             String[] pathAndFragment = href.split("#", 2);
             var repositoryTarget =
-                    !absolute && pathAndFragment[0].toLowerCase(Locale.ROOT).endsWith(".md")
+                    !isAbsolute && pathAndFragment[0].toLowerCase(Locale.ROOT).endsWith(".md")
                             ? repositoryPath(documentPath, pathAndFragment[0])
                             : Optional.<String>empty();
             if (repositoryTarget.isEmpty()) {
@@ -482,13 +480,13 @@ public final class MarkdownRenderer {
             if (!nodeText(paragraph).matches("(?s)\\[\\^[^\\[\\]\\s]+\\]:.*")) continue;
             for (var text : List.copyOf(paragraph.textNodes())) {
                 var previous = text.previousSibling();
-                boolean afterSpace = previous == null || nodeText(previous).matches("(?s).*\\s");
+                boolean isAfterSpace = previous == null || nodeText(previous).matches("(?s).*\\s");
                 definitions.addAll(splitFootnotes(
                         text,
                         true,
                         (whole, match) -> !match.group(2).isEmpty()
                                 && (match.start() == 0
-                                        ? afterSpace
+                                        ? isAfterSpace
                                         : Character.isWhitespace(whole.charAt(match.start() - 1)))));
             }
         }

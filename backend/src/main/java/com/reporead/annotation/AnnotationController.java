@@ -83,9 +83,9 @@ public class AnnotationController {
         UUID mutationId = mutationId(body.mutationId());
         var selection = body.anchor();
         String requested = body.type() == null ? "HIGHLIGHT" : body.type();
-        boolean card = requested.equals("CARD");
-        if (!(requested.equals("HIGHLIGHT") || card)
-                || (card
+        boolean isCard = requested.equals("CARD");
+        if (!(requested.equals("HIGHLIGHT") || isCard)
+                || (isCard
                         ? body.question() == null || body.question().isBlank() || !validNote(body.question())
                         : body.question() != null)
                 || !validSelection(selection)
@@ -97,7 +97,7 @@ public class AnnotationController {
                             + " characters, and a non-blank question for type CARD; no text can contain NUL or an unpaired"
                             + " surrogate, so a range cannot split a character.");
         }
-        var type = card ? Annotations.Type.CARD : Annotations.Type.HIGHLIGHT;
+        var type = isCard ? Annotations.Type.CARD : Annotations.Type.HIGHLIGHT;
         var created = service.create(user, documentId, mutationId, selection, body.note(), type, body.question());
         return ResponseEntity.status(created.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
                 .body(created.annotation());

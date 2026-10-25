@@ -59,6 +59,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Configuration
 public class GitHubBrowserSignIn {
     static final String REGISTRATION = "github";
+    static final String AUTHORIZATION_BASE_PATH = "/oauth2/authorization";
+    static final String AUTHORIZATION_PATH = AUTHORIZATION_BASE_PATH + "/" + REGISTRATION;
     /** Browser sessions that can exist at once (see boundedSignInSessions). */
     static final int MAX_SIGN_IN_SESSIONS = 100;
 
@@ -76,7 +78,7 @@ public class GitHubBrowserSignIn {
                 .redirectUri(callback)
                 .authorizationUri("https://github.com/login/oauth/authorize")
                 .tokenUri("https://github.com/login/oauth/access_token")
-                .userInfoUri("https://api.github.com/user")
+                .userInfoUri(GitHubHttpConfiguration.API_ORIGIN + "/user")
                 .userNameAttributeName("id")
                 .clientName("RepoRead GitHub App")
                 .build();
@@ -100,7 +102,7 @@ public class GitHubBrowserSignIn {
             throws Exception {
         // An authorization-code registration requires a proof key by default, so the resolver adds PKCE (S256) itself.
         var resolver =
-                startedByTheApp(new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization"));
+                startedByTheApp(new DefaultOAuth2AuthorizationRequestResolver(registrations, AUTHORIZATION_BASE_PATH));
 
         // Admission must precede token exchange, not just token storage: deleting a grant invalidates newly issued
         // tokens too. The browser's user is not known yet, so GitHubTokenLifecycle's one process gate is used.
@@ -156,12 +158,12 @@ public class GitHubBrowserSignIn {
                                 endpoint.userService(request -> allowedOnly(githubUserInfo.loadUser(request), allowed)))
                         .successHandler(
                                 new AppSignInSuccess(sessions, PendingAppSignIn.appRedirect(properties.publicUrl())))
-                        .failureHandler((request, response, error) -> {
+                        .failureHandler((request, response, failure) -> {
                             // The OAuth error code says which step failed (state, code exchange, user, allow-list).
                             LOG.warn(
                                     "GitHub sign-in rejected; failureType={} error={}",
-                                    error.getClass().getSimpleName(),
-                                    githubError(error));
+                                    failure.getClass().getSimpleName(),
+                                    githubError(failure));
                             response.sendRedirect("/auth/failed");
                         }));
         return http.build();
@@ -293,14 +295,14 @@ public class GitHubBrowserSignIn {
         } catch (URISyntaxException failure) {
             throw new IllegalArgumentException("reporead.public-url is not a URL: " + publicUrl, failure);
         }
-        boolean loopback = publicUrl.equals("http://127.0.0.1:" + port);
-        boolean httpsOrigin = "https".equals(uri.getScheme())
+        boolean isLoopback = publicUrl.equals("http://127.0.0.1:" + port);
+        boolean isHttpsOrigin = "https".equals(uri.getScheme())
                 && uri.getHost() != null
                 && uri.getRawUserInfo() == null
                 && uri.getRawPath().isEmpty()
                 && uri.getRawQuery() == null
                 && uri.getRawFragment() == null;
-        if (!loopback && !httpsOrigin) {
+        if (!isLoopback && !isHttpsOrigin) {
             throw new IllegalArgumentException("reporead.public-url must be http://127.0.0.1:" + port
                     + " (adb reverse) or an https:// origin without a path, not: " + publicUrl);
         }

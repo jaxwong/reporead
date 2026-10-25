@@ -45,7 +45,7 @@ public class Documents {
     public record Existing(long id, String path, String blobSha, boolean deleted) {}
     /** {@code commitSha}: the connection's last published commit, which the document is at unless {@code deleted}. */
     public record Located(
-            long id,
+            long documentId,
             String path,
             String title,
             String blobSha,
@@ -61,7 +61,7 @@ public class Documents {
      * deleted, never removed. An unchanged document's row is not rewritten. {@code contentMoves} were decided before
      * the lock and apply only if both their sides are still unmatched in the locked rows. A note that is new, has a new
      * blob, or is back after being deleted records {@code syncedAt} as its content change, except in a connection's
-     * first snapshot ({@code previouslySynced} false), where RepoRead has seen nothing change. Callers must hold the
+     * first snapshot ({@code wasPreviouslySynced} false), where RepoRead has seen nothing change. Callers must hold the
      * connection's sync lock inside a transaction. Returns the moves applied.
      */
     public List<Move> publishSnapshot(
@@ -69,15 +69,15 @@ public class Documents {
             List<SourceFile> snapshotFiles,
             Instant syncedAt,
             List<Move> contentMoves,
-            boolean previouslySynced) {
+            boolean wasPreviouslySynced) {
         var unmatched = unmatched(existing(connectionId), snapshotFiles);
         var moves = new ArrayList<>(unmatched.exact());
         for (var move : contentMoves) {
-            boolean documentStillVanished = unmatched.vanished().stream()
+            boolean isDocumentStillVanished = unmatched.vanished().stream()
                     .anyMatch(row -> row.id() == move.documentId() && row.path().equals(move.fromPath()));
-            boolean targetStillFresh =
+            boolean isTargetStillFresh =
                     unmatched.fresh().stream().anyMatch(file -> file.path().equals(move.toPath()));
-            if (documentStillVanished && targetStillFresh) moves.add(move);
+            if (isDocumentStillVanished && isTargetStillFresh) moves.add(move);
         }
         // One statement for every move, as for the paths below; a move's target is a path no document holds.
         db.sql("""
@@ -93,25 +93,25 @@ public class Documents {
         String[] paths = snapshotFiles.stream().map(SourceFile::path).toArray(String[]::new);
         String[] titles = snapshotFiles.stream().map(file -> title(file.path())).toArray(String[]::new);
         String[] blobs = snapshotFiles.stream().map(SourceFile::blobSha).toArray(String[]::new);
-        var now = Timestamp.from(syncedAt);
+        var syncedTimestamp = Timestamp.from(syncedAt);
         db.sql("""
                 INSERT INTO documents (repository_connection_id, path, title, current_blob_sha, content_changed_at)
                 SELECT :connectionId, source.path, source.title, source.blob, CAST(:firstSeenChange AS timestamptz)
                 FROM unnest(:paths::text[], :titles::text[], :blobs::text[]) AS source (path, title, blob)
                 ON CONFLICT (repository_connection_id, path) DO UPDATE
-                SET current_blob_sha = excluded.current_blob_sha, deleted_at = NULL, content_changed_at = :now
+                SET current_blob_sha = excluded.current_blob_sha, deleted_at = NULL, content_changed_at = :syncedAt
                 WHERE documents.current_blob_sha <> excluded.current_blob_sha OR documents.deleted_at IS NOT NULL""")
                 .param("connectionId", connectionId)
-                .param("now", now)
-                .param("firstSeenChange", previouslySynced ? now : null)
+                .param("syncedAt", syncedTimestamp)
+                .param("firstSeenChange", wasPreviouslySynced ? syncedTimestamp : null)
                 .param("paths", paths)
                 .param("titles", titles)
                 .param("blobs", blobs)
                 .update();
         db.sql("""
-                UPDATE documents SET deleted_at = :now
+                UPDATE documents SET deleted_at = :syncedAt
                 WHERE repository_connection_id = :connectionId AND deleted_at IS NULL AND NOT (path = any(:paths::text[]))""")
-                .param("now", now)
+                .param("syncedAt", syncedTimestamp)
                 .param("connectionId", connectionId)
                 .param("paths", paths)
                 .update();
@@ -233,7 +233,7 @@ public class Documents {
     /** Finds a document only if it belongs to one of this user's connections. */
     public Optional<Located> find(long userId, long documentId) {
         return db.sql("""
-                SELECT d.id, d.path, d.title, d.current_blob_sha AS blob_sha, c.last_synced_commit_sha AS commit_sha,
+                SELECT d.id AS document_id, d.path, d.title, d.current_blob_sha AS blob_sha, c.last_synced_commit_sha AS commit_sha,
                        d.deleted_at IS NOT NULL AS deleted, c.owner, c.name AS repository_name, c.id AS connection_id
                 FROM documents d JOIN repository_connections c ON c.id = d.repository_connection_id
                 WHERE d.id = :id AND c.user_id = :userId""")

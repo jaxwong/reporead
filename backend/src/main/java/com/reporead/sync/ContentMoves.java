@@ -12,7 +12,8 @@ import java.util.Set;
 /**
  * Recognizes a note that was moved and edited between two syncs. Pure: the caller supplies rendered versions. Constants
  * come from MoveMeasurement on a real notes repository (see docs/adrs.md, ADR-07): real moves with edits scored at
- * least 0.54 and had at least 229 shingles; unrelated notes with at least 10 shingles scored at most 0.198.
+ * least 0.54; on the 2026-10-22 rerun the most similar pair of different notes, both with at least 50 shingles, scored
+ * 0.482.
  */
 final class ContentMoves {
     static final double MIN_SIMILARITY = 0.5;
