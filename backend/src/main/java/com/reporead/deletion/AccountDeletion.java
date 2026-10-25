@@ -52,7 +52,7 @@ public class AccountDeletion {
      * installed on GitHub until the user uninstalls it.
      */
     Deleted delete(AppUser user, String sessionToken) {
-        return credentials.deletingAccount(sessionToken, user, () -> deleteAdmitted(user));
+        return credentials.deleteAccount(sessionToken, user, () -> deleteAdmitted(user));
     }
 
     /** Runs inside lifecycle admission; returns after commit so GitHubTokenLifecycle can safely revoke the grant. */

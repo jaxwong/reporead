@@ -9,9 +9,9 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.webkit.WebViewAssetLoader
+import com.reporead.android.BuildConfig
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.logging.DeviceLog
-import com.reporead.android.sync.IMAGE_PREFIX
 import com.reporead.android.sync.SavedPageImages
 import java.io.ByteArrayInputStream
 import kotlin.coroutines.resume
@@ -100,11 +100,11 @@ internal fun readerResource(
         val bytes =
             when {
                 type == null -> null
-                path.startsWith(IMAGE_PREFIX) ->
+                path.startsWith(BuildConfig.IMAGE_PREFIX) ->
                     images.loadImageBytes(
                         savedPage.documentId,
                         savedPage.snapshotCommitSha,
-                        path.removePrefix(IMAGE_PREFIX),
+                        path.removePrefix(BuildConfig.IMAGE_PREFIX),
                     )
                 else -> null
             }

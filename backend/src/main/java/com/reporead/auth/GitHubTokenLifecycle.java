@@ -61,10 +61,11 @@ public class GitHubTokenLifecycle {
     }
 
     /**
-     * Serializes credential/session lifecycle before any user/repository transaction. All GitHub reads obtain their
-     * token outside their publishing transaction, so deletion never waits for SQL held by a waiter on this gate.
+     * Serializes credential/session lifecycle before any user/repository transaction. Admits one change at a time. All
+     * GitHub reads obtain their token outside their publishing transaction, so deletion never waits for SQL held by a
+     * waiter on this gate.
      */
-    <T, E extends Exception> T changing(Change<T, E> change) throws E {
+    <T, E extends Exception> T admit(Change<T, E> change) throws E {
         if (!Thread.holdsLock(lifecycle) && TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("Credential lifecycle must be entered before a database transaction");
         }
@@ -75,7 +76,7 @@ public class GitHubTokenLifecycle {
 
     /** Rechecks admission after waiting: an earlier authenticated request cannot change a later account lifetime. */
     <T> T withSession(String token, AppUser user, Supplier<T> change) {
-        return changing(() -> {
+        return admit(() -> {
             sessions.authenticate(token)
                     .filter(current -> current.id() == user.id())
                     .orElseThrow(() -> new ApiFailure(Code.SIGN_IN_REQUIRED, "This app session is no longer current."));
@@ -84,7 +85,7 @@ public class GitHubTokenLifecycle {
     }
 
     /** Coordinates capture, committed account deletion and only then grant revocation under one admission. */
-    public <T> T deletingAccount(String sessionToken, AppUser user, Supplier<T> delete) {
+    public <T> T deleteAccount(String sessionToken, AppUser user, Supplier<T> delete) {
         return withSession(sessionToken, user, () -> {
             var token = tokenToRevoke(user.githubUserId());
             T deleted = delete.get();
@@ -137,7 +138,7 @@ public class GitHubTokenLifecycle {
      * overwrite a new sign-in or resurrect a removed token. This is one process by design (ADR-14).
      */
     public String githubUserToken(long githubUserId) {
-        return changing(() -> currentToken(githubUserId));
+        return admit(() -> currentToken(githubUserId));
     }
 
     /** Called under the lifecycle gate; the manager's success handler writes the one encrypted token store. */
@@ -184,7 +185,7 @@ public class GitHubTokenLifecycle {
      * is deleted anyway.
      */
     void revokeAndForget(long githubUserId) {
-        changing(() -> {
+        admit(() -> {
             tokenToRevoke(githubUserId).ifPresent(token -> revoke(githubUserId, token));
             forget(githubUserId);
             return null;

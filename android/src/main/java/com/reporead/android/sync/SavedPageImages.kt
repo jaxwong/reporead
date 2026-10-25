@@ -3,6 +3,7 @@
 package com.reporead.android.sync
 
 import androidx.core.net.toUri
+import com.reporead.android.BuildConfig
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.SavedVersion
 import com.reporead.android.logging.DeviceLog
@@ -14,8 +15,6 @@ import java.security.MessageDigest
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.jsoup.Jsoup
-
-internal const val IMAGE_PREFIX = "/repo-image/"
 
 /**
  * Saved pages' images, kept per document and snapshot (files/images/<document>/commit-<sha>/<key>) and fetched through
@@ -47,9 +46,9 @@ class SavedPageImages(private val api: Api, filesDir: File) {
         val snapshotCommitSha = savedPage.snapshotCommitSha ?: return
         val paths =
             Jsoup.parse(savedPage.html)
-                .select("img[src^=$IMAGE_PREFIX]")
+                .select("img[src^=${BuildConfig.IMAGE_PREFIX}]")
                 .map { image ->
-                    image.attr("src").toUri().path!!.removePrefix(IMAGE_PREFIX)
+                    image.attr("src").toUri().path!!.removePrefix(BuildConfig.IMAGE_PREFIX)
                 }
                 .distinct()
         for (path in paths) {
