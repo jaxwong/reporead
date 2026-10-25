@@ -187,6 +187,17 @@ class AccountTest {
         }
     }
 
+    /** A 401 ends the session it was sent with, but not a newer sign-in that replaced it while the request ran. */
+    @Test
+    fun aRefusalEndsOnlyTheSessionItWasSentWith() {
+        sessions.save("TEST_ONLY_NEWER")
+        sessions.endRefused("TEST_ONLY_REPLACED")
+        sessions.endRefused(null)
+        assertEquals(StoredSession.Readable("TEST_ONLY_NEWER"), sessions.read())
+        sessions.endRefused("TEST_ONLY_NEWER")
+        assertEquals(StoredSession.Absent, sessions.read())
+    }
+
     @Test
     fun deletionKeepsThePhonesCopyInEveryOutcome() = runBlocking {
         val confirmed = 200 to """{"repositories":1,"readingStates":1,"bookmarks":1,"highlights":1,"cards":1}"""

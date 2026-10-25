@@ -3,6 +3,7 @@ package com.reporead.sync;
 import static com.reporead.sync.RepositorySnapshotRefresh.CONCURRENT_BLOB_READS;
 import static com.reporead.sync.RepositorySnapshotRefresh.DOCUMENTS_SYNCED;
 import static com.reporead.sync.RepositorySnapshotRefresh.MAX_CONTENT_MOVE_CANDIDATES;
+import static com.reporead.sync.RepositorySnapshotRefresh.MAX_DOCUMENTS;
 import static com.reporead.sync.RepositorySnapshotRefresh.SNAPSHOT_REFRESHES;
 import static org.hamcrest.Matchers.contains;
 import static org.junit.jupiter.api.Assertions.*;
@@ -15,14 +16,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.jayway.jsonpath.JsonPath;
+import com.reporead.ApiFailure;
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.auth.TestSessions;
+import com.reporead.github.GitHubApi;
 import com.reporead.github.GitHubHttpConfiguration;
 import jakarta.servlet.ServletException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -264,6 +268,28 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
                 meters.counter(SNAPSHOT_REFRESHES, "outcome", "failure", "code", "GITHUB_TREE_INCOMPLETE")
                         .count());
         assertEquals(documents + 1, meters.counter(DOCUMENTS_SYNCED).count());
+    }
+
+    /** The tree's other refusals, before anything is written: a note listed twice, and more notes than the limit. */
+    @Test
+    void aTreeListingANoteTwiceOrMoreNotesThanTheLimitIsRefused() {
+        var entries = new ArrayList<GitHubApi.TreeEntry>();
+        for (int i = 0; i < MAX_DOCUMENTS; i++)
+            entries.add(new GitHubApi.TreeEntry(i + ".md", "100644", "blob", BLOB_1));
+        // Only Markdown files count towards the limit.
+        entries.add(new GitHubApi.TreeEntry("image.png", "100644", "blob", BLOB_2));
+        assertEquals(
+                MAX_DOCUMENTS,
+                RepositorySnapshotRefresh.markdownDocuments(entries).size());
+        entries.add(new GitHubApi.TreeEntry("one-more.md", "100644", "blob", BLOB_1));
+        assertEquals(
+                ApiFailure.Code.DOCUMENT_LIMIT,
+                assertThrows(ApiFailure.class, () -> RepositorySnapshotRefresh.markdownDocuments(entries)).code);
+        var note = new GitHubApi.TreeEntry("intro.md", "100644", "blob", BLOB_1);
+        assertEquals(
+                ApiFailure.Code.GITHUB_INVALID_RESPONSE,
+                assertThrows(ApiFailure.class, () -> RepositorySnapshotRefresh.markdownDocuments(List.of(note, note)))
+                        .code);
     }
 
     @Test
