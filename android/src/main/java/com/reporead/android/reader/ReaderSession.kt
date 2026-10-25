@@ -73,7 +73,7 @@ internal class ReaderSession(
     private val openAt: OpenAt?,
     /** The page has opened at [openAt], found or not; never called for null. */
     private val onOpenedAtTarget: () -> Unit,
-    private val study: StudyNote,
+    private val study: StudyModeAnalysis,
     private val studying: () -> Boolean,
     /**
      * A tapped link to another note: an Obsidian [target] name or a repository [path], and an optional heading. A link
@@ -81,7 +81,7 @@ internal class ReaderSession(
      */
     private val onNoteLink: (target: String?, path: String?, heading: String?) -> Unit,
     /** Whether a highlight is being reattached, which changes the selection menu. */
-    private val reattaching: () -> Boolean,
+    private val isReattaching: () -> Boolean,
     /** A short message about something the page could not do (a link, the browser, rendering). */
     private val onMessage: (String) -> Unit,
     /** The selection when a selection action is chosen, and that action. */
@@ -151,7 +151,7 @@ internal class ReaderSession(
     private var swipeScroll = 0
 
     fun createView(context: Context): WebView =
-        ReaderWebView(context, reattaching, ::onSelectionAction).apply {
+        ReaderWebView(context, isReattaching, ::onSelectionAction).apply {
             isolateReaderPage()
             alpha = 0f
             webViewClient = PageClient(readerAssets(context))

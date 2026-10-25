@@ -35,7 +35,7 @@ import com.reporead.android.ui.AppIcon
 @Composable
 internal fun ReaderToolbar(
     title: String,
-    page: StudyPage?,
+    page: OpenedReaderPage?,
     session: ReaderSession?,
     annotations: List<AnnotationEntity>,
     bookmark: BookmarkEntity?,

@@ -13,11 +13,11 @@ private val COLLAPSED_HEADINGS =
     setOf("approach", "brute force approach", "optimized approach", "complexities", "mistakes")
 
 /** The reader's Study view of a LeetCode note: the headings whose sections collapse until tapped. */
-internal data class StudyNote(val isRecognized: Boolean, val collapsedHeadings: List<String>)
+internal data class StudyModeAnalysis(val isRecognized: Boolean, val collapsedHeadings: List<String>)
 
-internal fun StudyNote.json(): JSONObject = JSONObject().put("collapsedHeadings", JSONArray(collapsedHeadings))
+internal fun StudyModeAnalysis.json(): JSONObject = JSONObject().put("collapsedHeadings", JSONArray(collapsedHeadings))
 
-internal fun studyNote(html: String): StudyNote {
+internal fun analyzeStudyMode(html: String): StudyModeAnalysis {
     val collapsed = mutableListOf<String>()
     var leetcode = false
     for (heading in Jsoup.parse(html).select("#note [data-block-id]").filter { isHeading(it) }) {
@@ -29,7 +29,7 @@ internal fun studyNote(html: String): StudyNote {
             "problem" -> leetcode = true
         }
     }
-    return StudyNote(leetcode, collapsed)
+    return StudyModeAnalysis(leetcode, collapsed)
 }
 
 private fun isHeading(block: Element): Boolean =

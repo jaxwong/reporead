@@ -24,7 +24,7 @@ internal enum class SelectionAction(val id: Int, val label: String) {
 @SuppressLint("ViewConstructor") // Instantiated only from Compose AndroidView; never inflated by layout tools.
 internal class ReaderWebView(
     context: Context,
-    private val reattaching: () -> Boolean,
+    private val isReattaching: () -> Boolean,
     private val onAction: (action: SelectionAction, finish: () -> Unit) -> Unit,
 ) : WebView(context) {
     override fun startActionMode(callback: ActionMode.Callback, type: Int): ActionMode? =
@@ -35,7 +35,7 @@ internal class ReaderWebView(
             val created = wrapped.onCreateActionMode(mode, menu)
             val actions =
                 when {
-                    reattaching() -> listOf(SelectionAction.REATTACH)
+                    isReattaching() -> listOf(SelectionAction.REATTACH)
                     else -> listOf(SelectionAction.HIGHLIGHT, SelectionAction.ADD_NOTE)
                 }
             actions.forEachIndexed { order, action -> menu.add(Menu.NONE, action.id, order, action.label) }

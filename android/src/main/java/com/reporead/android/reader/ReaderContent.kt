@@ -41,7 +41,7 @@ internal fun ColumnScope.ReaderContent(
         opened.staleReason?.let { ReaderNotice("Showing your saved copy. ${it.describe()}") }
         session.restoreNotice?.let { ReaderNotice(it) }
         state.message?.let { ReaderNotice(it) }
-        state.reattaching?.let { annotation ->
+        state.annotationToReattach?.let { annotation ->
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
