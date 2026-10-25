@@ -51,7 +51,7 @@ class ApiException(
     val requestId: String? = null,
 ) : Exception(message, cause) {
     /** The server did not answer, so no other request can reach it now either; a later try may. */
-    val unreachable: Boolean
+    val isUnreachable: Boolean
         get() = code == "BACKEND_UNAVAILABLE"
 }
 
@@ -68,8 +68,6 @@ private data class ErrorResponse(val code: String, val message: String) {
 }
 
 private const val MAX_JSON_BYTES = 8 * 1024 * 1024
-/** The backend's own image ceiling is 5 MiB; anything larger here is a contract violation. */
-const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 /** One request per public route call, no retries; only this class can execute a backend path. */
 class Api(
@@ -157,18 +155,25 @@ class Api(
     suspend fun uploadDeviceLogBatch(request: DeviceLogIngestControllerUploadRequest) =
         noContent("POST", "/api/app-logs", wireJson.encodeToString(request))
 
-    suspend fun recordReview(cardId: Long, request: ReviewControllerGradeRequest): ReviewsReview =
+    suspend fun recordReview(
+        cardId: Long,
+        cardMutationId: String,
+        request: ReviewControllerGradeRequest,
+    ): ReviewsReview =
         executeJsonRequest("POST", "/api/annotations/$cardId/reviews", wireJson.encodeToString(request)) {
-            it.mutationId == request.mutationId && it.grade == request.grade && it.blobSha == request.blobSha
+            it.cardMutationId == cardMutationId &&
+                it.mutationId == request.mutationId &&
+                it.grade == request.grade &&
+                it.blobSha == request.blobSha
         }
 
     /** Blocking for WebView resource interception, which already runs on a background thread. */
-    fun noteImage(documentId: Long, commitSha: String, path: String): ByteArray =
+    fun documentImage(documentId: Long, commitSha: String, path: String): ByteArray =
         execute(
                 "GET",
                 "/api/documents/$documentId/image?commitSha=${query(commitSha)}&path=${query(path)}",
                 null,
-                MAX_IMAGE_BYTES,
+                BuildConfig.IMAGE_MAX_RESPONSE_BYTES,
                 "*/*",
                 setOf(200),
             )

@@ -31,6 +31,19 @@ import com.reporead.android.database.RepoReadDao
 import com.reporead.android.ui.AppBar
 import com.reporead.android.ui.EmptyState
 import com.reporead.android.ui.StatusLine
+import com.reporead.android.ui.folderOf
+
+internal fun inFolder(path: String, folder: String) = folder.isEmpty() || path.startsWith("$folder/")
+
+/** Distinct ancestor folders of the note [paths], parents before their descendants. */
+internal fun ancestorFolders(paths: List<String>): List<String> =
+    paths
+        .flatMap { path ->
+            val parts = folderOf(path).split('/').filter { it.isNotEmpty() }
+            parts.indices.map { parts.take(it + 1).joinToString("/") }
+        }
+        .distinct()
+        .sortedBy { it.replace('/', '\u0000') }
 
 @Composable
 private fun Filter(label: String, choices: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
@@ -109,20 +122,20 @@ internal fun NotebookScreen(
 /** One highlight or card: its note's path, question, passage, own note, and why it needs attention, if it does. */
 @Composable
 private fun NotebookEntry(item: NotebookItem, onOpen: () -> Unit) {
-    val row = item.annotation
+    val annotation = item.annotation
     val reason =
         when {
-            row.type == AnnotationType.CARD ->
-                row.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)?.reason
-            row.status == AnchorStatus.ORPHANED -> "Orphaned passage"
+            annotation.type == AnnotationType.CARD ->
+                annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha)?.reason
+            annotation.status == AnchorStatus.ORPHANED -> "Orphaned passage"
             else -> null
         }
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Text(item.path, style = MaterialTheme.typography.labelMedium)
-        row.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-        Text(row.drawn.exactText)
-        row.note?.let { Text(it) }
-        StatusLine(listOfNotNull(reason, row.rejection).joinToString(": ").ifEmpty { null })
+        annotation.question?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+        Text(annotation.drawn.exactText)
+        annotation.note?.let { Text(it) }
+        StatusLine(listOfNotNull(reason, annotation.rejection).joinToString(": ").ifEmpty { null })
         TextButton(onClick = onOpen) { Text("Open passage") }
     }
 }

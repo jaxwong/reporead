@@ -70,7 +70,7 @@ internal class ReviewViewModel(
          * session's, whatever time the server gave them.
          */
         val savedGrades: Set<String> = emptySet(),
-        val saving: Boolean = false,
+        val isSaving: Boolean = false,
         val notice: String? = null,
     )
 
@@ -85,7 +85,7 @@ internal class ReviewViewModel(
 
     private fun updateSession(nextSession: StudySession, notice: String? = _state.value.notice) {
         savedState[SESSION] = nextSession
-        _state.update { it.copy(session = nextSession, saving = false, notice = notice) }
+        _state.update { it.copy(session = nextSession, isSaving = false, notice = notice) }
     }
 
     /** Chooses the session once, from the cards due now. */
@@ -107,7 +107,7 @@ internal class ReviewViewModel(
     fun skip() {
         val stateSnapshot = _state.value
         val session = stateSnapshot.session ?: return
-        if (stateSnapshot.saving) DeviceLog.info("Review skip not taken; entry=$entryId saving=true")
+        if (stateSnapshot.isSaving) DeviceLog.info("Review skip not taken; entry=$entryId saving=true")
         else updateSession(session.skip())
     }
 
@@ -124,7 +124,7 @@ internal class ReviewViewModel(
             updateSession(session.graded(grade))
             return
         }
-        if (stateSnapshot.saving || !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(saving = true))) {
+        if (stateSnapshot.isSaving || !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(isSaving = true))) {
             DeviceLog.info("Review grade not saved again; entry=$entryId mutationId=${annotation.mutationId}")
             return
         }
@@ -273,7 +273,7 @@ internal fun ReviewScreen(
             SessionHeader(
                 listOfNotNull("${counted(session.queue.size, "card")} left", card?.title).joinToString(" · "),
                 skip = "Skip",
-                enabled = !state.saving,
+                enabled = !state.isSaving,
                 onSkip = viewModel::skip,
             )
             if (card == null) {
@@ -320,7 +320,7 @@ internal fun ReviewScreen(
                     }
                     val scheduleStep = scheduleReviews(annotation, reviewLog, ZoneId.systemDefault()).step
                     GradeBar(
-                        enabled = visible && !state.saving,
+                        enabled = visible && !state.isSaving,
                         gaps = if (wasAskedAgain) null else gaps(scheduleStep),
                     ) { grade ->
                         viewModel.grade(annotation, bankQuestion.blobSha, wasAskedAgain, grade)

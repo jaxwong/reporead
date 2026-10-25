@@ -102,7 +102,15 @@ internal fun logProcessExits(activityManager: ActivityManager, lastLoggedExitFil
         val message = "Process exited; at=${Instant.ofEpochMilli(exit.timestamp)} $exit"
         if (exit.reason in FAILED_EXITS) DeviceLog.warn(message) else DeviceLog.info(message)
     }
-    newExits.maxOfOrNull { it.timestamp }?.let { lastLoggedExitFile.writeText(it.toString()) }
+    newExits
+        .maxOfOrNull { it.timestamp }
+        ?.let { newestExitAt ->
+            val updated = File(lastLoggedExitFile.parentFile, "${lastLoggedExitFile.name}.updated")
+            updated.writeText(newestExitAt.toString())
+            check(updated.renameTo(lastLoggedExitFile)) {
+                "Cannot replace process-exit checkpoint $lastLoggedExitFile with $updated"
+            }
+        }
 }
 
 private val FAILED_EXITS =

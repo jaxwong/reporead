@@ -17,6 +17,8 @@ import com.reporead.android.click
 import com.reporead.android.control
 import com.reporead.android.database.AnnotationEntity
 import com.reporead.android.database.AnnotationState
+import com.reporead.android.database.AnnotationType
+import com.reporead.android.database.CardBlock
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.Passage
 import com.reporead.android.database.RepoReadDatabase
@@ -197,6 +199,34 @@ class ReaderLifecycleTest {
             while (checkNotNull(store.dao().reading(1)).lastReadAt <= lastSavedAt) delay(20)
         }
         readerReady = false
+    }
+
+    /** The notes panel says a card waits for the current note to be saved, as Review and Notebook do. */
+    @Test
+    fun aCardOnANoteListedInANewerVersionSaysToSaveIt(): Unit = runBlocking {
+        val dao = store.dao()
+        dao.saveAnnotation(
+            AnnotationEntity(
+                mutationId = "test-only-card",
+                serverId = 6,
+                documentId = 1,
+                sourceBlobSha = sha,
+                blockId = "b2",
+                startOffset = 0,
+                endOffset = 9,
+                exactText = "Test-only",
+                note = null,
+                version = 1,
+                createdAt = 0,
+                state = AnnotationState.ACKNOWLEDGED,
+                type = AnnotationType.CARD,
+                question = "Test-only question?",
+            )
+        )
+        // The server now lists a newer version than the copy on screen.
+        dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "test-only/lifecycle.md", title, "c".repeat(40))))
+        click("Highlights and notes")
+        awaitText(CardBlock.NOT_SAVED.reason)
     }
 
     @Test

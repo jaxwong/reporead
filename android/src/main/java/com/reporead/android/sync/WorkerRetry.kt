@@ -19,8 +19,8 @@ private const val MAX_ATTEMPTS = 10
  * stopped the run.
  */
 internal fun shouldRetry(operation: String, failure: ApiException, attempt: Int): Boolean {
-    val retryable = failure.unreachable || failure.status >= 500
-    val willRetry = retryable && attempt + 1 < MAX_ATTEMPTS
+    val canRetry = failure.isUnreachable || failure.status >= 500
+    val willRetry = canRetry && attempt + 1 < MAX_ATTEMPTS
     DeviceLog.warn("$operation failed; attempt=$attempt status=${failure.status} code=${failure.code} retry=$willRetry")
     return willRetry
 }

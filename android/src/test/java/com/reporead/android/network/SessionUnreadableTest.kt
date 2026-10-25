@@ -20,7 +20,7 @@ class SessionUnreadableTest {
                 error("Nothing was sent, so nothing was refused")
             }
 
-        val error = assertThrows(ApiException::class.java) { api.noteImage(1, "a".repeat(40), "a.png") }
+        val error = assertThrows(ApiException::class.java) { api.documentImage(1, "a".repeat(40), "a.png") }
 
         assertEquals(0, error.status)
         assertEquals("SESSION_UNREADABLE", error.code)

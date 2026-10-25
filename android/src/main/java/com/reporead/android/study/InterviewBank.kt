@@ -1,5 +1,6 @@
 package com.reporead.android.study
 
+import com.reporead.android.database.NOTE_LINK_PATH
 import com.reporead.android.reader.noteLinkParameters
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
@@ -44,8 +45,8 @@ internal sealed interface PromptBlock {
     data class Code(val text: String) : PromptBlock
 }
 
-/** A web link inside [LinkedText]: its [text] as shown and where it goes. */
-internal data class WebLink(val text: String, val url: String)
+/** A web link inside [LinkedText]: where it goes and the [range] of the shown text it covers. */
+internal data class WebLink(val url: String, val range: IntRange)
 
 /** Text as shown with the web links in it, as a bank writes a Worked answer. */
 internal data class LinkedText(val text: String, val links: List<WebLink>)
@@ -229,10 +230,7 @@ private fun parseQuestion(heading: Element, blocks: List<Element>, level: String
     if (checklist.select("li ul, li ol").isNotEmpty()) return QuestionParseResult.Invalid("the checklist nests bullets")
     val worked =
         labels[WORKED]?.let { block ->
-            val links =
-                block.select("a[href^='https://'], a[href^='http://']").map { WebLink(shownText(it), it.attr("href")) }
-            if (links.isEmpty()) return QuestionParseResult.Invalid("“$WORKED” links nothing")
-            LinkedText(labelled(block, WORKED), links)
+            linkedText(block, WORKED) ?: return QuestionParseResult.Invalid("“$WORKED” links nothing")
         }
     val canonicalAnswer =
         StudyAnswer(
@@ -271,10 +269,49 @@ private fun promptBlock(block: Element): PromptBlock =
 private fun answerLinks(line: Element): List<AnswerLink> =
     line.select("a[href]").mapNotNull { link ->
         val href = link.attr("href")
-        if (!href.startsWith("/note-link?")) return@mapNotNull null
+        if (!href.startsWith("$NOTE_LINK_PATH?")) return@mapNotNull null
         val parameters = noteLinkParameters(href.substringAfter('?'))
         AnswerLink(parameters["target"], parameters["path"], parameters["heading"], shownText(link))
     }
+
+/**
+ * [labelled]'s text of [block], with the range of each web link in it as the page placed it, so a link text that also
+ * appears elsewhere links where it was written. Null when no link shows any of its text.
+ */
+private fun linkedText(block: Element, label: String): LinkedText? {
+    val fullText = StringBuilder()
+    val links = mutableListOf<WebLink>()
+    fun visit(node: Node) {
+        when {
+            node is TextNode -> fullText.append(node.wholeText)
+            node is Element && node.hasClass("wl-hidden") -> Unit
+            node is Element -> {
+                val start = fullText.length
+                node.childNodes().forEach(::visit)
+                val href = node.attr("href")
+                if (node.tagName() == "a" && (href.startsWith("https://") || href.startsWith("http://")))
+                    links += WebLink(href, start until fullText.length)
+            }
+            else -> node.childNodes().forEach(::visit)
+        }
+    }
+    visit(block)
+    // As labelled: trim, remove the label, trim again.
+    var start = fullText.indexOfFirst { !it.isWhitespace() }.takeIf { it >= 0 } ?: fullText.length
+    if (fullText.startsWith(label, start)) start += label.length
+    while (start < fullText.length && fullText[start].isWhitespace()) start++
+    val end = maxOf(start, fullText.indexOfLast { !it.isWhitespace() } + 1)
+    // A link's spaces at the edge of the text are trimmed with it; the link keeps the rest.
+    val shownLinks = links.mapNotNull { link ->
+        val shown = maxOf(link.range.first, start) until minOf(link.range.last + 1, end)
+        if (shown.isEmpty()) null else link.copy(range = (shown.first - start)..(shown.last - start))
+    }
+    if (shownLinks.isEmpty()) return null
+    return LinkedText(
+        fullText.substring(start, end),
+        shownLinks,
+    )
+}
 
 /**
  * What a reader sees of [element]: its text without the hidden source of note links and footnotes (`.wl-hidden`) and,

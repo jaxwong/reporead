@@ -68,8 +68,8 @@ internal fun NotesPanel(
     onOpenNote: (DocumentEntity) -> Unit,
     modifier: Modifier,
 ) {
-    // Whether this note left its repository, which a card's status names.
-    val removed by produceState(false, documentId) { value = dao.document(documentId)?.deleted == true }
+    // The listed note's current version and whether it left its repository, which a card's status names.
+    val document by produceState<DocumentEntity?>(null, documentId) { value = dao.document(documentId) }
     // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
     val backlinks by
         produceState<Backlinks?>(null, documentId) {
@@ -105,7 +105,7 @@ internal fun NotesPanel(
                     status = status(annotation, displayedBlobSha, notShown),
                     block =
                         if (annotation.type == AnnotationType.CARD)
-                            annotation.cardBlock(removed, displayedBlobSha, displayedBlobSha)
+                            document?.let { annotation.cardBlock(it.deleted, it.blobSha, displayedBlobSha) }
                         else null,
                     onReveal = { onReveal(annotation) },
                     onReattach = { onReattach(annotation) },

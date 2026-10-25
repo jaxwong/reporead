@@ -18,10 +18,10 @@ sealed interface AccountNotice {
     data object AccountDeleted : AccountNotice
 
     /** The server did not confirm deletion; a 401 says nothing about whether the account exists. */
-    data class DeletionNotConfirmed(val error: ApiException) : AccountNotice
+    data class DeletionNotConfirmed(val failure: ApiException) : AccountNotice
 
     /** Keeps the failed sign-in outcome until the user dismisses it; it does not own session persistence. */
-    data class SignInFailed(val error: ApiException) : AccountNotice
+    data class SignInFailed(val failure: ApiException) : AccountNotice
 }
 
 /** What the account is doing; one operation runs at a time. */
@@ -49,9 +49,9 @@ class Account(private val store: SessionStore, private val api: Api, private val
     /** Starts [next] only when nothing runs: a second tap, or a sign-in code arriving meanwhile, does nothing. */
     private fun begin(next: AccountState): Boolean {
         val stateSnapshot = _state.value
-        val started = stateSnapshot is AccountState.Idle && _state.compareAndSet(stateSnapshot, next)
-        if (!started) DeviceLog.info("Account operation not started; running=$stateSnapshot requested=$next")
-        return started
+        val wasStarted = stateSnapshot is AccountState.Idle && _state.compareAndSet(stateSnapshot, next)
+        if (!wasStarted) DeviceLog.info("Account operation not started; running=$stateSnapshot requested=$next")
+        return wasStarted
     }
 
     /** Failed revocation is logged, not retried; the server session expires within 30 days. */

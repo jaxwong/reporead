@@ -25,6 +25,7 @@ internal sealed interface ReaderOverlay : Serializable {
     data class EditNote(
         val annotation: AnnotationEntity,
         val initial: String = annotation.note.orEmpty(),
+        val failure: String? = null,
     ) : ReaderOverlay
 
     /** Keeps the exact annotation whose deletion is awaiting confirmation. */
@@ -111,7 +112,7 @@ internal fun ReaderOverlayHost(
                 title = "Edit note",
                 quote = shown.annotation.exactText,
                 initial = shown.initial,
-                status = state.message,
+                status = shown.failure,
                 onDismiss = { close(shown) },
                 onSave = { text ->
                     if (

@@ -77,7 +77,7 @@ private fun seenChanged(note: ChangedNote) =
 /** Renders a refused-operation snapshot; no UI sentence is carried by the synchronization result. */
 internal fun RefusedChange.describe(): String {
     val note = title?.let { "“$it”" } ?: "a note no longer in your lists"
-    return "The bookmark on $note (${error.describe()})"
+    return "The bookmark on $note (${failure.describe()})"
 }
 
 /** Owns the library's tab labels and icons, not synchronization state. */
@@ -95,7 +95,7 @@ private enum class LibraryTab(val label: String, val icon: Int) {
  */
 internal class LibraryViewModel(private val sync: PhoneSync, private val entryId: String) : ViewModel() {
     data class State(
-        val updatingLibrary: Boolean = false,
+        val isUpdatingLibrary: Boolean = false,
         val status: String? = null,
     )
 
@@ -133,8 +133,8 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
     fun sendPendingChangesAndLoadLibrary(reason: String = "asked") {
         val stateSnapshot = _state.value
         if (
-            stateSnapshot.updatingLibrary ||
-                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(updatingLibrary = true))
+            stateSnapshot.isUpdatingLibrary ||
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(isUpdatingLibrary = true))
         ) {
             DeviceLog.info("Library update not started; entry=$entryId reason=$reason running=true")
             return
@@ -151,7 +151,7 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
                             sent.refused
                                 .takeIf { it.isNotEmpty() }
                                 ?.let {
-                                    "The server refused: ${it.joinToString("; ") { item -> item.describe() }}. A refused place stays on this phone."
+                                    "The server refused: ${it.joinToString("; ") { item -> item.describe() }}. The phone undid the refused change."
                                 },
                         )
                         .joinToString(" ")
@@ -159,7 +159,7 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
                 } catch (failure: ApiException) {
                     "Showing saved data. ${failure.describe()}"
                 }
-            _state.update { it.copy(updatingLibrary = false, status = status) }
+            _state.update { it.copy(isUpdatingLibrary = false, status = status) }
         }
     }
 }
@@ -260,7 +260,7 @@ fun LibraryScreen(
                     )
                     TextButton(
                         onClick = { model.sendPendingChangesAndLoadLibrary() },
-                        enabled = !state.updatingLibrary,
+                        enabled = !state.isUpdatingLibrary,
                     ) {
                         Text("Send changes")
                     }
@@ -276,7 +276,7 @@ fun LibraryScreen(
             }
             if (signedIn)
                 PullToRefreshBox(
-                    isRefreshing = state.updatingLibrary,
+                    isRefreshing = state.isUpdatingLibrary,
                     onRefresh = { model.sendPendingChangesAndLoadLibrary() },
                     modifier = Modifier.fillMaxSize(),
                 ) {

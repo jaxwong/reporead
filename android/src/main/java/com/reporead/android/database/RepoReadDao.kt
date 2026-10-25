@@ -116,8 +116,7 @@ interface RepoReadDao {
     suspend fun savedPage(documentId: Long): SavedPageEntity?
 
     /** Every saved page's version: the only images worth keeping (SavedPageImages.deleteImagesExceptSavedPages). */
-    @Query("SELECT documentId, blobSha, path, renderFormat, snapshotCommitSha FROM saved_pages")
-    suspend fun allSavedVersions(): List<SavedVersion>
+    @Query("SELECT documentId, snapshotCommitSha FROM saved_pages") suspend fun allSavedVersions(): List<SavedVersion>
 
     /**
      * The listed notes in a folder named `interview`, each with its saved page only when that page is the listed
@@ -422,13 +421,13 @@ interface RepoReadDao {
     /** Forgets grades the server refused; they never reached it and the schedule already ignores them. */
     @Query("DELETE FROM review_log WHERE rejection IS NOT NULL") suspend fun dismissRefusedReviews()
 
-    @Query("DELETE FROM review_log WHERE cardMutationId = :mutationId")
-    suspend fun deleteCardReviews(mutationId: String)
+    @Query("DELETE FROM review_log WHERE cardMutationId = :cardMutationId")
+    suspend fun deleteCardReviews(cardMutationId: String)
 
     @Query(
-        "DELETE FROM review_log WHERE cardMutationId IN (SELECT mutationId FROM annotations WHERE documentId IN (:ids))"
+        "DELETE FROM review_log WHERE cardMutationId IN (SELECT mutationId FROM annotations WHERE documentId IN (:documentIds))"
     )
-    suspend fun deleteReviewsOnDocuments(ids: List<Long>)
+    suspend fun deleteReviewsOnDocuments(documentIds: List<Long>)
 
     @Query("DELETE FROM review_log WHERE NOT pending") suspend fun clearAcknowledgedReviews()
 
@@ -477,9 +476,12 @@ interface RepoReadDao {
      */
     @Transaction
     suspend fun saveServerAnnotation(row: AnnotationEntity) {
-        val deleting = annotation(row.mutationId)?.state == AnnotationState.DELETING
+        val isDeleting = annotation(row.mutationId)?.state == AnnotationState.DELETING
         saveAnnotation(
-            row.copy(state = if (deleting) AnnotationState.DELETING else AnnotationState.ACKNOWLEDGED, rejection = null)
+            row.copy(
+                state = if (isDeleting) AnnotationState.DELETING else AnnotationState.ACKNOWLEDGED,
+                rejection = null,
+            )
         )
     }
 

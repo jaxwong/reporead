@@ -16,7 +16,7 @@ import com.reporead.android.network.describe
 sealed interface Load<out T> {
     data object Loading : Load<Nothing>
 
-    data class Failed(val error: ApiException) : Load<Nothing>
+    data class Failed(val failure: ApiException) : Load<Nothing>
 
     data class Ready<T>(val value: T) : Load<T>
 }
@@ -27,7 +27,7 @@ fun <T> LoadContent(load: Load<T>, onRetry: () -> Unit, content: @Composable (T)
         Load.Loading -> CircularProgressIndicator(Modifier.padding(24.dp))
         is Load.Failed ->
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(load.error.describe())
+                Text(load.failure.describe())
                 Button(onClick = onRetry) { Text("Try again") }
             }
         is Load.Ready -> content(load.value)

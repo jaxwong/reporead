@@ -13,8 +13,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * A native preview/answer page owns its rendering lifetime. Destroying it or losing its renderer cancels polling,
- * script results and native draw waits before any later result can touch the released page. The host owns visibility.
+ * A native link-preview page owns its rendering lifetime. Destroying it or losing its renderer cancels polling, script
+ * results and native draw waits before any later result can touch the released page. The host owns visibility.
  */
 internal open class IsolatedPage(context: Context) : WebView(context) {
     private val rendering = MainScope()

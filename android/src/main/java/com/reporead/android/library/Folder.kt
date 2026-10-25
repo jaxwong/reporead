@@ -49,7 +49,6 @@ import com.reporead.android.ui.MenuAction
 import com.reporead.android.ui.OverflowMenu
 import com.reporead.android.ui.StatusLine
 import com.reporead.android.ui.counted
-import com.reporead.android.ui.folderOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,21 +64,6 @@ internal fun children(documents: List<DocumentEntity>, folder: String): Pair<Lis
     val notes = inside.filter { '/' !in it.path.removePrefix(prefix) }.sortedBy { it.title.lowercase() }
     return folders to notes
 }
-
-internal fun inFolder(path: String, folder: String): Boolean {
-    val prefix = folder.trim().trim('/')
-    return prefix.isEmpty() || path.startsWith("$prefix/")
-}
-
-/** Distinct ancestor folders of the note [paths], parents before their descendants. */
-internal fun ancestorFolders(paths: List<String>): List<String> =
-    paths
-        .flatMap { path ->
-            val parts = folderOf(path).split('/').filter { it.isNotEmpty() }
-            parts.indices.map { parts.take(it + 1).joinToString("/") }
-        }
-        .distinct()
-        .sortedBy { it.replace('/', '\u0000') }
 
 /** What Save all is doing or did last, for the status line. */
 private fun describe(saving: SavingNotes): String =
@@ -134,7 +118,7 @@ internal class FolderViewModel(
         val status: String? = null,
         /** This screen has loaded the library, so an empty list is the server's, not one never saved here. */
         val listed: Boolean = false,
-        val stoppingSaveAll: Boolean = false,
+        val isStoppingSaveAll: Boolean = false,
         /** The repository is gone; the screen returns to the Library once ([claimDisconnected]). */
         val disconnected: Boolean = false,
     )
@@ -153,14 +137,14 @@ internal class FolderViewModel(
         allowed: (FolderOperation) -> Boolean = { it == FolderOperation.Idle },
     ): Boolean {
         val stateSnapshot = _state.value
-        val started =
+        val wasStarted =
             allowed(stateSnapshot.operation) &&
                 _state.compareAndSet(stateSnapshot, stateSnapshot.copy(operation = next, status = null))
-        if (!started)
+        if (!wasStarted)
             DeviceLog.info(
                 "Folder operation not started; entry=$entryId running=${stateSnapshot.operation} requested=$next"
             )
-        return started
+        return wasStarted
     }
 
     private fun finish(update: (State) -> State) = _state.update { update(it).copy(operation = FolderOperation.Idle) }
@@ -193,7 +177,7 @@ internal class FolderViewModel(
             sync.refreshRepositoryFromGitHub(screen.repositoryId)
         }
 
-    private fun refresh(reason: String, failed: String, work: suspend () -> Unit) {
+    private fun refresh(reason: String, failureMessage: String, work: suspend () -> Unit) {
         if (!begin(FolderOperation.Refreshing)) return
         DeviceLog.info("Folder refresh started; entry=$entryId repositoryId=${screen.repositoryId} reason=$reason")
         viewModelScope.launch {
@@ -202,7 +186,7 @@ internal class FolderViewModel(
                     work()
                     null
                 } catch (failure: ApiException) {
-                    "$failed ${failure.describe()}"
+                    "$failureMessage ${failure.describe()}"
                 }
             finish { it.copy(status = status, listed = it.listed || status == null) }
         }
@@ -216,10 +200,10 @@ internal class FolderViewModel(
     fun stopSaving() {
         val stateSnapshot = _state.value
         if (
-            stateSnapshot.stoppingSaveAll ||
+            stateSnapshot.isStoppingSaveAll ||
                 !_state.compareAndSet(
                     stateSnapshot,
-                    stateSnapshot.copy(stoppingSaveAll = true, status = "Stopping saving notes…"),
+                    stateSnapshot.copy(isStoppingSaveAll = true, status = "Stopping saving notes…"),
                 )
         ) {
             DeviceLog.info("Stopping Save all not started again; entry=$entryId")
@@ -234,7 +218,7 @@ internal class FolderViewModel(
                     DeviceLog.warn("Could not stop Save all; repositoryId=${screen.repositoryId}", failure)
                     "Couldn't stop saving notes (${failure.javaClass.simpleName}); try Stop saving notes again."
                 }
-            _state.update { it.copy(stoppingSaveAll = false, status = status) }
+            _state.update { it.copy(isStoppingSaveAll = false, status = status) }
         }
     }
 
@@ -244,7 +228,7 @@ internal class FolderViewModel(
         DeviceLog.info("Disconnect preview started; entry=$entryId repositoryId=${screen.repositoryId}")
         viewModelScope.launch {
             try {
-                // Null: the server had already disconnected it, and this phone's copies are now gone too.
+                // Null: the server no longer has it; the Library load after this screen closes removes local copies.
                 val preview = sync.sendPendingChangesAndPreviewDisconnect(screen.repositoryId)
                 if (preview == null) finish { it.copy(disconnected = true) }
                 else _state.update { it.copy(operation = FolderOperation.Confirming(preview)) }
@@ -315,8 +299,8 @@ fun FolderScreen(
         remember(screen.repositoryId) { savingNotes(context, screen.repositoryId) }.collectAsStateWithLifecycle(null)
     val savingNow = saving is SavingNotes.Waiting || saving is SavingNotes.Running
     val documents by dao.documents(screen.repositoryId).collectAsStateWithLifecycle(null)
-    val repository by dao.repositories().collectAsStateWithLifecycle(emptyList())
-    val neverRefreshed = repository.firstOrNull { it.id == screen.repositoryId }?.lastSyncedCommitSha == null
+    val repositories by dao.repositories().collectAsStateWithLifecycle(emptyList())
+    val neverRefreshed = repositories.firstOrNull { it.id == screen.repositoryId }?.lastSyncedCommitSha == null
     val root = screen.path.isEmpty()
     val operation = state.operation
     val running = operation == FolderOperation.Refreshing || operation == FolderOperation.Disconnecting

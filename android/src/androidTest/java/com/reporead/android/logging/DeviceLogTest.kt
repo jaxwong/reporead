@@ -147,4 +147,13 @@ class DeviceLogTest {
 
         assertEquals(listOf("Reader ready; documentId=7"), batch().map { it.message })
     }
+
+    @Test
+    fun aLineStoredAfterAnUnfinishedOneIsSentOnItsOwn() {
+        DeviceLog.info("Reader ready; documentId=7")
+        File(store, "pending.jsonl").appendText("""{"at":"2026-10-21T06:02:11Z","appVersion":"0.1.1","lev""")
+        DeviceLog.info("Reader ready; documentId=8")
+
+        assertEquals(listOf("Reader ready; documentId=7", "Reader ready; documentId=8"), batch().map { it.message })
+    }
 }

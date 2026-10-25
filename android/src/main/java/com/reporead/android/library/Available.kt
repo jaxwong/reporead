@@ -50,10 +50,10 @@ internal class AvailableViewModel(private val api: Api, private val sync: PhoneS
     data class State(
         val listing: Load<List<RepositoryConnectionsAvailable>> = Load.Loading,
         /** The repository being connected; one at a time. */
-        val connecting: Long? = null,
+        val connectingRepositoryId: Long? = null,
         val error: String? = null,
         /** Connected and saved here; the screen opens its folder once ([claimConnected]). */
-        val connected: RepositoryConnectionsConnection? = null,
+        val connectedRepository: RepositoryConnectionsConnection? = null,
     )
 
     private val _state = MutableStateFlow(State())
@@ -93,24 +93,24 @@ internal class AvailableViewModel(private val api: Api, private val sync: PhoneS
     fun connect(repository: RepositoryConnectionsAvailable) {
         val stateSnapshot = _state.value
         if (
-            stateSnapshot.connecting != null ||
+            stateSnapshot.connectingRepositoryId != null ||
                 !_state.compareAndSet(
                     stateSnapshot,
-                    stateSnapshot.copy(connecting = repository.githubRepositoryId, error = null),
+                    stateSnapshot.copy(connectingRepositoryId = repository.githubRepositoryId, error = null),
                 )
         ) {
             DeviceLog.info(
-                "Connect not started; entry=$entryId connecting=${stateSnapshot.connecting} requested=${repository.githubRepositoryId}"
+                "Connect not started; entry=$entryId connectingRepositoryId=${stateSnapshot.connectingRepositoryId} requested=${repository.githubRepositoryId}"
             )
             return
         }
         DeviceLog.info("Connect started; entry=$entryId githubRepositoryId=${repository.githubRepositoryId}")
         viewModelScope.launch {
             try {
-                val connected = sync.connect(repository.githubRepositoryId, repository.installationId)
-                _state.update { it.copy(connecting = null, connected = connected) }
+                val connection = sync.connect(repository.githubRepositoryId, repository.installationId)
+                _state.update { it.copy(connectingRepositoryId = null, connectedRepository = connection) }
             } catch (failure: ApiException) {
-                _state.update { it.copy(connecting = null, error = failure.describe()) }
+                _state.update { it.copy(connectingRepositoryId = null, error = failure.describe()) }
             }
         }
     }
@@ -118,8 +118,10 @@ internal class AvailableViewModel(private val api: Api, private val sync: PhoneS
     /** The connected repository, once, for the screen that opens its folder. */
     fun claimConnected(): RepositoryConnectionsConnection? {
         val stateSnapshot = _state.value
-        val connected = stateSnapshot.connected ?: return null
-        return if (_state.compareAndSet(stateSnapshot, stateSnapshot.copy(connected = null))) connected else null
+        val connectedRepository = stateSnapshot.connectedRepository ?: return null
+        return if (_state.compareAndSet(stateSnapshot, stateSnapshot.copy(connectedRepository = null)))
+            connectedRepository
+        else null
     }
 }
 
@@ -127,7 +129,7 @@ internal class AvailableViewModel(private val api: Api, private val sync: PhoneS
 fun AvailableScreen(api: Api, sync: PhoneSync, entryId: String, onBack: () -> Unit, onConnected: (Screen) -> Unit) {
     val model = viewModel { AvailableViewModel(api, sync, entryId) }
     val state by model.state.collectAsStateWithLifecycle()
-    if (state.connected != null)
+    if (state.connectedRepository != null)
         LifecycleResumeEffect(Unit) {
             model.claimConnected()?.let { onConnected(Screen.Folder(it.id, it.fullName, "")) }
             onPauseOrDispose {}
@@ -144,7 +146,11 @@ fun AvailableScreen(api: Api, sync: PhoneSync, entryId: String, onBack: () -> Un
                 else
                     LazyColumn {
                         items(repositories, key = { it.githubRepositoryId }) { repository ->
-                            AvailableRow(repository, state.connecting, onConnect = { model.connect(repository) })
+                            AvailableRow(
+                                repository,
+                                state.connectingRepositoryId,
+                                onConnect = { model.connect(repository) },
+                            )
                         }
                     }
             }
@@ -154,11 +160,15 @@ fun AvailableScreen(api: Api, sync: PhoneSync, entryId: String, onBack: () -> Un
 
 /**
  * A repository with Connect, or Update once GitHub renamed a connected one; a connected repository with current names
- * has nothing to do here. [connecting] is the repository being connected, if any.
+ * has nothing to do here. [connectingRepositoryId] names the repository being connected, if any.
  */
 @Composable
-private fun AvailableRow(repository: RepositoryConnectionsAvailable, connecting: Long?, onConnect: () -> Unit) {
-    val connected = repository.connectionId != null
+private fun AvailableRow(
+    repository: RepositoryConnectionsAvailable,
+    connectingRepositoryId: Long?,
+    onConnect: () -> Unit,
+) {
+    val isConnected = repository.connectionId != null
     val visibility = if (repository.privateRepository) "Private" else "Public"
     ListItem(
         leadingContent = { AppIcon(R.drawable.ic_folder, null) },
@@ -167,21 +177,21 @@ private fun AvailableRow(repository: RepositoryConnectionsAvailable, connecting:
             Text(
                 when {
                     repository.outdated -> "$visibility · Renamed on GitHub"
-                    connected -> "$visibility · Connected"
+                    isConnected -> "$visibility · Connected"
                     else -> visibility
                 }
             )
         },
         trailingContent =
-            if (connected && !repository.outdated) null
+            if (isConnected && !repository.outdated) null
             else {
                 {
-                    Button(enabled = connecting == null, onClick = onConnect) {
+                    Button(enabled = connectingRepositoryId == null, onClick = onConnect) {
                         Text(
                             when {
-                                connecting == repository.githubRepositoryId ->
-                                    if (connected) "Updating…" else "Connecting…"
-                                connected -> "Update"
+                                connectingRepositoryId == repository.githubRepositoryId ->
+                                    if (isConnected) "Updating…" else "Connecting…"
+                                isConnected -> "Update"
                                 else -> "Connect"
                             }
                         )

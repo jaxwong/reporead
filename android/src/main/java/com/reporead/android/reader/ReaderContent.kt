@@ -65,9 +65,9 @@ internal fun ColumnScope.ReaderContent(
             }
         if (notesOpen) {
             NotesPanel(
-                opened.note.documentId,
+                opened.savedPage.documentId,
                 annotations,
-                opened.note.blobSha,
+                opened.savedPage.blobSha,
                 session.notShown,
                 session.opened,
                 dao,

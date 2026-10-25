@@ -1,5 +1,6 @@
 package com.reporead.android.auth
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.security.KeyStoreException
@@ -140,7 +141,8 @@ class SessionStore(context: Context, name: String = PREFS) {
     }
 
     /** Ends the session on disk before returning, so process death cannot leave this phone signed in. */
-    fun clear() = commit("remove the stored session") { remove("token") }
+    @SuppressLint("UseKtx") // KTX edit(commit = true) {} drops commit()'s result: whether the removal reached the disk.
+    fun clear() = check(prefs.edit().remove("token").commit()) { "Could not remove the stored session in $PREFS" }
 
     /**
      * The server refused [sent] (a 401): ends the session unless a newer sign-in replaced it while that request ran.
@@ -160,9 +162,6 @@ class SessionStore(context: Context, name: String = PREFS) {
         awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
         .distinctUntilChanged()
-
-    private fun commit(what: String, change: SharedPreferences.Editor.() -> Unit) =
-        check(prefs.edit().apply(change).commit()) { "Could not $what in $PREFS" }
 
     var pendingVerifier: String?
         get() = prefs.getString("verifier", null)

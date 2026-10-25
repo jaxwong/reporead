@@ -145,7 +145,7 @@ class PhoneSyncTest {
         LoopbackServer(mapOf("GET /api/documents/1/content" to content(1))).use { server ->
             val sync = sync(server.url)
             val first = sync.openNote(1)
-            assertEquals(BuildConfig.RENDER_FORMAT, first.note.renderFormat)
+            assertEquals(BuildConfig.RENDER_FORMAT, first.savedPage.renderFormat)
             assertNull(first.staleReason)
             assertEquals(first, sync.openNote(1))
             assertEquals(listOf("GET /api/documents/1/content"), server.requests)
@@ -158,7 +158,7 @@ class PhoneSyncTest {
         val old = SavedPageEntity(1, sha, "a.md", "a", "<main>kept</main>", 0, 3, sha)
         dao.saveNoteWithoutSearch(old)
         val opened = sync("http://127.0.0.1:${closedPort()}").openNote(1)
-        assertEquals(old, opened.note)
+        assertEquals(old, opened.savedPage)
         assertNull(opened.staleReason)
         assertEquals(old, dao.savedPage(1))
     }
@@ -170,7 +170,7 @@ class PhoneSyncTest {
         dao.saveNoteWithoutSearch(old)
         LoopbackServer(mapOf("GET /api/documents/1/content" to failure(422, "UNSUPPORTED_CONTENT"))).use { server ->
             val opened = sync(server.url).openNote(1)
-            assertEquals(old, opened.note)
+            assertEquals(old, opened.savedPage)
             assertEquals("UNSUPPORTED_CONTENT", opened.staleReason?.code)
             assertEquals(old, dao.savedPage(1))
             assertEquals(listOf("GET /api/documents/1/content"), server.requests)
@@ -280,8 +280,8 @@ class PhoneSyncTest {
             val refused = result.refused.single()
             assertEquals(1L, refused.documentId)
             assertEquals("Bookmarked note", refused.title)
-            assertEquals(404, refused.error.status)
-            assertEquals("NOT_FOUND", refused.error.code)
+            assertEquals(404, refused.failure.status)
+            assertEquals("NOT_FOUND", refused.failure.code)
             assertNull(result.notSent)
             assertNull(dao.bookmark(1).first())
             assertNull(sync.sendPendingChangesIfAny())
@@ -1447,8 +1447,8 @@ class PhoneSyncTest {
                 LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer))).use { server ->
                     val sync = sync(server.url)
                     val opened = sync.openNote(1)
-                    assertEquals(newCommit, opened.note.snapshotCommitSha)
-                    assertEquals(html, opened.note.html)
+                    assertEquals(newCommit, opened.savedPage.snapshotCommitSha)
+                    assertEquals(html, opened.savedPage.html)
                     assertNull(opened.staleReason)
                     assertEquals(opened, sync.openNote(1))
                     assertEquals(listOf("GET /api/documents/1/content"), server.requests)
@@ -1498,7 +1498,7 @@ class PhoneSyncTest {
             )
             .use { server ->
                 val sync = sync(server.url)
-                assertEquals(displayed, sync.openNote(1).note)
+                assertEquals(displayed, sync.openNote(1).savedPage)
                 assertTrue(server.requests.isEmpty())
                 assertEquals(PhoneSync.SaveAllResult(1, 0, 0), sync.saveAllNotes(7) { _, _ -> })
                 val saved = dao.savedPage(1)!!
@@ -1506,7 +1506,7 @@ class PhoneSyncTest {
                 assertEquals(newCommit, saved.snapshotCommitSha)
                 assertEquals(html, saved.html)
                 assertFalse(oldImage.exists())
-                assertEquals(saved, sync.openNote(1).note)
+                assertEquals(saved, sync.openNote(1).savedPage)
                 assertEquals(PhoneSync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf(
@@ -1539,7 +1539,7 @@ class PhoneSyncTest {
         val answer = wire(testContent().copy(snapshotCommitSha = "INVALID"))
         LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer))).use { server ->
             val opened = sync(server.url).openNote(1)
-            assertEquals(saved, opened.note)
+            assertEquals(saved, opened.savedPage)
             assertTrue(opened.staleReason.toString(), opened.staleReason != null)
             assertEquals(200, opened.staleReason?.status)
             assertEquals("INVALID_RESPONSE", opened.staleReason?.code)
