@@ -640,7 +640,7 @@ sequenceDiagram
     API-->>P: 201 annotation (or 422 ANNOTATION_LIMIT, no insertion)
     P->>P: mark acknowledged
 
-    Note over P,API: Library open / sendPendingChangesAndRefreshLibrary, in this order
+    Note over P,API: Library open / sendPendingChangesAndLoadLibrary, in this order
     P->>API: 1. pending highlight and card creations (need GitHub, so they wait if it fails)
     P->>API: 2. pending grades
     P->>API: 3. pending reading positions

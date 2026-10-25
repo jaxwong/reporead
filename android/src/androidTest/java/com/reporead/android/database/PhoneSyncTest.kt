@@ -183,7 +183,7 @@ class PhoneSyncTest {
         dao.saveReading(pending)
         dao.saveBookmark(BookmarkEntity(2, bookmarked = true, pending = true, changedAt = 5))
         LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to failure(400, "INVALID_REQUEST"))).use { server ->
-            val error = runCatching { sync(server.url).sendPendingChanges() }.exceptionOrNull()
+            val error = runCatching { sync(server.url).sendPendingChangesIfAny() }.exceptionOrNull()
             assertTrue("Expected a loud 400, got $error", error is ApiException && error.status == 400)
             assertEquals(pending, dao.reading(1))
             assertEquals(1, dao.pendingBookmarks().size)
@@ -213,7 +213,7 @@ class PhoneSyncTest {
             )
             .use { server ->
                 val sync = sync(server.url)
-                val result = sync.sendPendingChanges()!!
+                val result = sync.sendPendingChangesIfAny()!!
                 assertTrue(result.refused.isEmpty())
                 assertNull(result.notSent)
                 assertFalse(dao.reading(1)!!.pending)
@@ -222,7 +222,7 @@ class PhoneSyncTest {
                     wireJson.parseToJsonElement(anchor),
                     wireJson.parseToJsonElement(dao.reading(1)!!.anchorJson),
                 )
-                assertNull(sync.sendPendingChanges())
+                assertNull(sync.sendPendingChangesIfAny())
                 assertEquals(
                     listOf(
                         "PUT /api/documents/1/reading-state",
@@ -239,9 +239,9 @@ class PhoneSyncTest {
         assertEquals(0, dao.unsentChangeCount().first())
         LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to serverReading))).use { server ->
             val sync = sync(server.url)
-            assertTrue(sync.sendPendingChanges()!!.refused.isEmpty())
+            assertTrue(sync.sendPendingChangesIfAny()!!.refused.isEmpty())
             assertTrue(dao.pendingReading().isEmpty())
-            assertNull(sync.sendPendingChanges())
+            assertNull(sync.sendPendingChangesIfAny())
             assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
         }
     }
@@ -259,10 +259,10 @@ class PhoneSyncTest {
             )
             .use { server ->
                 val sync = sync(server.url)
-                assertTrue(sync.sendPendingChanges()!!.refused.isEmpty())
+                assertTrue(sync.sendPendingChangesIfAny()!!.refused.isEmpty())
                 assertTrue(dao.pendingReading().isEmpty())
                 assertTrue(dao.pendingBookmarks().isEmpty())
-                assertNull(sync.sendPendingChanges())
+                assertNull(sync.sendPendingChangesIfAny())
                 assertEquals(
                     listOf("PUT /api/documents/1/reading-state", "PUT /api/documents/2/bookmark"),
                     server.requests,
@@ -276,7 +276,7 @@ class PhoneSyncTest {
         dao.saveBookmark(BookmarkEntity(1, bookmarked = true, pending = true, changedAt = 5))
         LoopbackServer(mapOf("PUT /api/documents/1/bookmark" to failure(404, "NOT_FOUND"))).use { server ->
             val sync = sync(server.url)
-            val result = sync.sendPendingChanges()!!
+            val result = sync.sendPendingChangesIfAny()!!
             val refused = result.refused.single()
             assertEquals(1L, refused.documentId)
             assertEquals("Bookmarked note", refused.title)
@@ -284,7 +284,7 @@ class PhoneSyncTest {
             assertEquals("NOT_FOUND", refused.error.code)
             assertNull(result.notSent)
             assertNull(dao.bookmark(1).first())
-            assertNull(sync.sendPendingChanges())
+            assertNull(sync.sendPendingChangesIfAny())
             assertEquals(listOf("PUT /api/documents/1/bookmark"), server.requests)
         }
     }
@@ -322,7 +322,7 @@ class PhoneSyncTest {
                     )
             )
             .use { server ->
-                val result = sync(server.url).sendPendingChangesAndRefreshLibrary()
+                val result = sync(server.url).sendPendingChangesAndLoadLibrary()
                 assertEquals("GITHUB_ACCESS_DENIED", result.notSent?.code)
                 // One creation attempt ends the GitHub-backed step; the grade waits for its card; the reading position
                 // is sent.
@@ -356,7 +356,7 @@ class PhoneSyncTest {
                     )
             )
             .use { server ->
-                val result = sync(server.url).sendPendingChangesAndRefreshLibrary()
+                val result = sync(server.url).sendPendingChangesAndLoadLibrary()
                 assertNull(result.notSent)
                 assertEquals(
                     listOf(
@@ -467,7 +467,7 @@ class PhoneSyncTest {
         )
         dao.saveReading(reading(1))
         try {
-            sync("http://127.0.0.1:${closedPort()}").sendPendingChangesAndRefreshLibrary()
+            sync("http://127.0.0.1:${closedPort()}").sendPendingChangesAndLoadLibrary()
             fail("Expected the unreachable server to end the sync")
         } catch (failure: ApiException) {
             assertEquals("BACKEND_UNAVAILABLE", failure.code)
@@ -1561,7 +1561,7 @@ class PhoneSyncTest {
                 )
             )
             .use { server ->
-                sync(server.url).sendPendingChangesAndRefreshLibrary()
+                sync(server.url).sendPendingChangesAndLoadLibrary()
                 assertEquals(listOf("GET /api/library"), server.requests)
                 assertEquals(listOf(1L), dao.documents(7).first().map { it.id })
                 assertEquals(
@@ -1578,7 +1578,7 @@ class PhoneSyncTest {
         dao.saveReading(pending)
         val anotherNote = wire(testReading().copy(documentId = 2))
         LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to anotherNote))).use { server ->
-            val error = runCatching { sync(server.url).sendPendingChanges() }.exceptionOrNull()
+            val error = runCatching { sync(server.url).sendPendingChangesIfAny() }.exceptionOrNull()
             assertTrue(
                 "Expected INVALID_RESPONSE, got $error",
                 error is ApiException && error.code == "INVALID_RESPONSE",
@@ -1600,7 +1600,7 @@ class PhoneSyncTest {
             val pending = BookmarkEntity(1, bookmarked = true, pending = true, changedAt = 5)
             dao.saveBookmark(pending)
             LoopbackServer(mapOf("PUT /api/documents/1/bookmark" to (status to body))).use { server ->
-                val error = runCatching { sync(server.url).sendPendingChanges() }.exceptionOrNull()
+                val error = runCatching { sync(server.url).sendPendingChangesIfAny() }.exceptionOrNull()
                 assertTrue("Expected an uncertain failure, got $error", error is ApiException)
                 assertEquals(listOf(pending), dao.pendingBookmarks())
                 assertEquals(listOf("PUT /api/documents/1/bookmark"), server.requests)
@@ -1633,7 +1633,7 @@ class PhoneSyncTest {
         val body =
             """{"mutationId":"test-only-grade","cardMutationId":"test-only-other-card","grade":4,"reviewedAt":"1970-01-01T00:00:01Z","blobSha":"$sha"}"""
         LoopbackServer(mapOf("POST /api/annotations/9/reviews" to (200 to body))).use { server ->
-            val error = runCatching { sync(server.url).sendPendingChanges() }.exceptionOrNull() as ApiException
+            val error = runCatching { sync(server.url).sendPendingChangesIfAny() }.exceptionOrNull() as ApiException
             assertEquals("INVALID_RESPONSE", error.code)
             assertEquals(listOf(pending), dao.pendingReviews())
             assertEquals(listOf("POST /api/annotations/9/reviews"), server.requests)
@@ -1643,8 +1643,8 @@ class PhoneSyncTest {
                 .replace("test-only-other-card", "test-only-card")
                 .replace("1970-01-01T00:00:01Z", "1970-01-01T00:00:00Z")
         LoopbackServer(mapOf("POST /api/annotations/9/reviews" to (200 to clamped))).use { server ->
-            sync(server.url).sendPendingChanges()
-            sync(server.url).sendPendingChanges()
+            sync(server.url).sendPendingChangesIfAny()
+            sync(server.url).sendPendingChangesIfAny()
             assertTrue(dao.pendingReviews().isEmpty())
             assertEquals(listOf(pending.copy(reviewedAt = 0, pending = false)), dao.reviews().first())
             assertEquals(listOf("POST /api/annotations/9/reviews"), server.requests)
@@ -1804,7 +1804,7 @@ class PhoneSyncTest {
             )) {
             LoopbackServer(mapOf("GET /api/library" to answer)).use { server ->
                 try {
-                    sync(server.url).sendPendingChangesAndRefreshLibrary()
+                    sync(server.url).sendPendingChangesAndLoadLibrary()
                     fail("Expected $code to end the sync")
                 } catch (failure: ApiException) {
                     assertEquals(code, failure.code)

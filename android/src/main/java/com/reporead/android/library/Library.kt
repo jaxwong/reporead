@@ -89,7 +89,7 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 }
 
 /**
- * The Library's send-and-refresh operation, kept by its back-stack entry ([entryId]): a rotation neither stops nor
+ * The Library's send-and-load operation, kept by its back-stack entry ([entryId]): a rotation neither stops nor
  * repeats it, and what it reported stays shown. Leaving the Library cancels an operation still running; sent changes
  * commit what the server answered (PhoneSync).
  */
@@ -143,7 +143,7 @@ internal class LibraryViewModel(private val sync: PhoneSync, private val entryId
         viewModelScope.launch {
             val status =
                 try {
-                    val sent = sync.sendPendingChangesAndRefreshLibrary()
+                    val sent = sync.sendPendingChangesAndLoadLibrary()
                     listOfNotNull(
                             sent.notSent?.let {
                                 "New highlights and cards stay on this phone for now. ${it.describe()}"
