@@ -12,22 +12,10 @@ import java.time.temporal.ChronoUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 
 /** Stored GitHub tokens. Every token and key here is test-only; no GitHub call. */
 class GitHubTokensTest extends SharedSpringTest {
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    JdbcClient db;
-
     @Autowired
     RepoReadProperties properties;
 
@@ -122,11 +110,12 @@ class GitHubTokensTest extends SharedSpringTest {
         assertThrows(IllegalArgumentException.class, () -> clients.loadAuthorizedClient("github", "0"));
     }
 
+    /** Each of these is a valid secret file (SecretFiles), so only the key's own format check refuses it. */
     @Test
-    void theKeyFileMustHoldExactly32HexBytes() throws IOException {
+    void theKeyFileMustHoldExactly32HexBytes() {
         for (String bad : new String[] {"7e57".repeat(15), "7E57".repeat(16), "zz".repeat(32), "7e57".repeat(17)}) {
-            var file = TestEnvironment.secretFile("reporead-test-token-key-", bad);
-            assertThrows(IOException.class, () -> GitHubTokens.readKey(file), bad);
+            var refused = assertThrows(IOException.class, () -> restartedWithKey(bad), bad);
+            assertTrue(refused.getMessage().startsWith("GitHub token key file must hold 64 lowercase hex"), bad);
         }
     }
 }

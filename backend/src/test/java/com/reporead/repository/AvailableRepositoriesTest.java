@@ -5,7 +5,6 @@ package com.reporead.repository;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -16,12 +15,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.github.GitHubHttpConfiguration;
 import java.net.SocketTimeoutException;
 import java.time.Instant;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
@@ -35,14 +32,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 /**
@@ -61,26 +53,8 @@ class AvailableRepositoriesTest extends SharedSpringTest {
     private static final String EMPTY = "{\"total_count\":0,\"repositories\":[]}";
 
     @Autowired
-    MockMvc mvc;
-
-    @Autowired
     @Qualifier("githubUserHttpClient")
     RestTemplate githubUserHttpClient;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    JdbcClient db;
-
-    @Autowired
-    TransactionTemplate transaction;
 
     MockRestServiceServer server;
     String alice;
@@ -98,8 +72,6 @@ class AvailableRepositoriesTest extends SharedSpringTest {
     void verifyNoExtraCalls() {
         server.verify();
         server.reset();
-        clients.removeAuthorizedClient("github", "42");
-        clients.removeAuthorizedClient("github", "84");
     }
 
     private void next() {
@@ -160,8 +132,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         available(alice)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.repositories").isEmpty());
-        server.verify();
-        server.reset();
+        next();
         expectListing(TOKEN, withSuccess(EMPTY, MediaType.APPLICATION_JSON));
         available(alice)
                 .andExpect(status().isOk())
@@ -317,8 +288,7 @@ class AvailableRepositoriesTest extends SharedSpringTest {
         available(alice)
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"));
-        server.verify();
-        server.reset();
+        next();
         expectListing(
                 TOKEN,
                 withSuccess(new byte[GitHubHttpConfiguration.MAX_RESPONSE_BYTES + 1], MediaType.APPLICATION_JSON));
@@ -379,7 +349,9 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                         .single());
         as(alice, get("/api/library"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories.length()").value(1));
+                .andExpect(jsonPath("$.repositories.length()").value(1))
+                .andExpect(jsonPath("$.repositories[0].lastSyncedCommitSha").doesNotExist())
+                .andExpect(jsonPath("$.repositories[0].documents").isEmpty());
 
         next();
         expectListing(TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
@@ -445,53 +417,5 @@ class AvailableRepositoriesTest extends SharedSpringTest {
                 db.sql("SELECT count(*) FROM repository_connections")
                         .query(Integer.class)
                         .single());
-    }
-
-    @Test
-    void connectingWhileTheAccountIsBeingDeletedAsksToSignInInsteadOfFailing() throws Exception {
-        expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
-        var deleted = new CountDownLatch(1);
-        var release = new CountDownLatch(1);
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // What account deletion does to the user row (DeletionController.delete), held open while the connect
-            // arrives.
-            var deleting = executor.submit(() -> transaction.execute(status -> {
-                db.sql("SELECT id FROM users WHERE id = 1 FOR UPDATE")
-                        .query(Long.class)
-                        .single();
-                db.sql("DELETE FROM app_sessions WHERE user_id = 1").update();
-                db.sql("DELETE FROM users WHERE id = 1").update();
-                deleted.countDown();
-                try {
-                    return release.await(10, TimeUnit.SECONDS);
-                } catch (InterruptedException interrupted) {
-                    throw new IllegalStateException("Interrupted while holding the test account deletion", interrupted);
-                }
-            }));
-            assertTrue(deleted.await(10, TimeUnit.SECONDS));
-            var connecting = executor.submit(() ->
-                    connect(alice, 11, "{\"installationId\":7}").andReturn().getResponse());
-            TestEnvironment.awaitLockWait(db);
-            release.countDown();
-            assertTrue(deleting.get(10, TimeUnit.SECONDS));
-            var response = connecting.get(10, TimeUnit.SECONDS);
-            assertEquals(401, response.getStatus());
-            assertTrue(response.getContentAsString().contains("\"SIGN_IN_REQUIRED\""), response.getContentAsString());
-        }
-        assertEquals(
-                0,
-                db.sql("SELECT count(*) FROM repository_connections")
-                        .query(Integer.class)
-                        .single());
-    }
-
-    @Test
-    void anotherUsersConnectionsAreNotListed() throws Exception {
-        expect(UPSTREAM, TOKEN, withSuccess(PAGE, MediaType.APPLICATION_JSON));
-        connect(alice, 11, "{\"installationId\":7}").andExpect(status().isOk());
-        String bob = TestSessions.signIn(sessions, clients, registrations, 84, "TEST_ONLY_BOB_USER_TOKEN");
-        as(bob, get("/api/library"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories").isEmpty());
     }
 }

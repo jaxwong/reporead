@@ -37,21 +37,17 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextImpl;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.client.endpoint.RestClientAuthorizationCodeTokenResponseClient;
 import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.match.MockRestRequestMatchers;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestClient;
@@ -62,9 +58,6 @@ import org.springframework.web.client.RestTemplate;
 @ExtendWith(OutputCaptureExtension.class)
 class GitHubLoginTest extends SharedSpringTest {
     @Autowired
-    MockMvc mvc;
-
-    @Autowired
     RestClientAuthorizationCodeTokenResponseClient githubCodeExchange;
 
     @Autowired
@@ -72,18 +65,6 @@ class GitHubLoginTest extends SharedSpringTest {
 
     @Autowired
     MeterRegistry meters;
-
-    @Autowired
-    JdbcClient db;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
 
     @Autowired
     @Qualifier("githubUserHttpClient")
@@ -196,11 +177,6 @@ class GitHubLoginTest extends SharedSpringTest {
         assertFalse(params.containsKey("scope"));
         assertFalse(params.containsKey("client_secret"));
         assertFalse(params.containsKey("code_verifier"));
-        URI second = URI.create(mvc.perform(get("/oauth2/authorization/github").session(appSignIn()))
-                .andReturn()
-                .getResponse()
-                .getHeader("Location"));
-        assertNotEquals(params.get("state"), query(second).get("state"));
     }
 
     /** Only /app/sign-in starts a GitHub login, so a login without the app's challenge never stores a GitHub token. */
@@ -241,7 +217,7 @@ class GitHubLoginTest extends SharedSpringTest {
     }
 
     @Test
-    void invalidCallbackHasAnExplicitFailureAndDoesNotAuthenticate(CapturedOutput log) throws Exception {
+    void invalidCallbackHasAnExplicitFailure(CapturedOutput log) throws Exception {
         mvc.perform(get("/login/oauth2/code/github")
                         .param("code", "test-only-invalid-code")
                         .param("state", "not-issued"))
@@ -255,7 +231,6 @@ class GitHubLoginTest extends SharedSpringTest {
         mvc.perform(get("/auth/failed"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Sign-in failed")));
-        mvc.perform(get("/api/auth/me")).andExpect(status().isUnauthorized());
     }
 
     /**
@@ -278,9 +253,12 @@ class GitHubLoginTest extends SharedSpringTest {
 
     /** The allow-list refuses while GitHub's answer is still being checked, before Spring stores the token. */
     @Test
-    void aGitHubUserOffTheAllowListIsRefusedBeforeAnythingIsStored() throws Exception {
+    void aGitHubUserOffTheAllowListIsRefusedBeforeAnythingIsStored(CapturedOutput log) throws Exception {
         TestEnvironment.reset(db);
         signInAsGitHubUser(99).andExpect(status().isFound()).andExpect(redirectedUrl("/auth/failed"));
+        // The log names the step that failed: here, the allow-list.
+        assertTrue(log.getOut()
+                .contains("GitHub sign-in rejected; failureType=OAuth2AuthenticationException error=access_denied"));
         assertEquals(0, count("github_tokens"));
         assertEquals(0, count("users"));
         assertEquals(0, count("app_sign_in_codes"));

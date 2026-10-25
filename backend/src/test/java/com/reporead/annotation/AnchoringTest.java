@@ -185,12 +185,12 @@ class AnchoringTest {
         assertTrue(resolve(from, blocks("Intro " + long1.replaceFirst("word", "ward") + " outro.", PROXIES))
                 .isEmpty());
 
+        // One block more than the bound shares the passage's words. Every copy is an equally good fuzzy match, and
+        // only the first is under the passage's heading, so unbounded matching would pick it.
         var many = new ArrayList<Object>();
         for (int i = 0; i <= Anchoring.MAX_FUZZY_BLOCKS; i++) {
-            many.add(
-                    "By default, Spring implements declarative transaction using a proxy around the target bean, variant "
-                            + i + ".");
-            many.add(PROXIES);
+            many.add(PROXY.replace("declarative transactions", "declarative transaction"));
+            many.add(i == 0 ? PROXIES : List.of("Spring", "Section " + i));
         }
         var crowded = blocks(many.toArray());
         var fromCrowded = anchor(blocks(PROXY, PROXIES), 0, "implements declarative transactions using a proxy");

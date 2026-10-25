@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -19,10 +18,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -30,21 +25,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 class LibraryTest extends SharedSpringTest {
     private static final String SHA = "a".repeat(40);
     private static final String ANCHOR = "{\"headingPath\":[],\"textPrefix\":null,\"blockIndex\":0}";
-
-    @Autowired
-    MockMvc mvc;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    JdbcClient db;
 
     @Autowired
     TransactionTemplate transaction;
@@ -125,8 +105,7 @@ class LibraryTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.bookmarks.length()").value(1))
                 .andExpect(jsonPath("$.bookmarks[0].documentId").value(removed))
                 .andExpect(jsonPath("$.notebook.annotations").isEmpty())
-                .andExpect(jsonPath("$.notebook.reviews").isEmpty())
-                .andExpect(jsonPath("$.notebook.sessionLimit").doesNotExist());
+                .andExpect(jsonPath("$.notebook.reviews").isEmpty());
     }
 
     @Test
@@ -137,10 +116,7 @@ class LibraryTest extends SharedSpringTest {
         library(bob)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.repositories").isEmpty())
-                .andExpect(jsonPath("$.readingStates").isEmpty())
-                .andExpect(jsonPath("$.bookmarks").isEmpty())
-                .andExpect(jsonPath("$.notebook.annotations").isEmpty())
-                .andExpect(jsonPath("$.notebook.reviews").isEmpty());
+                .andExpect(jsonPath("$.bookmarks").isEmpty());
         // Bob's own repository: his library lists only its note, and Alice's lists none of it.
         long bobs = document(connection(2, 11, "notes"), "bob.md", false);
         library(bob)

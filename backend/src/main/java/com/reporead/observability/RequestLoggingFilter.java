@@ -27,7 +27,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class RequestLoggingFilter extends OncePerRequestFilter {
-    static final String HEADER = "X-Request-Id";
+    private static final String HEADER = "X-Request-Id";
     static final String MDC_KEY = "requestId";
     private static final Set<String> REDACTED_QUERY_PATHS =
             Set.of(AppAuthController.GITHUB_CALLBACK_PATH, AppAuthController.SIGNED_IN_PATH);

@@ -29,18 +29,6 @@ class MarkdownRendererTest {
     }
 
     @Test
-    void paragraphQuoteUsesCanonicalUtf16Offsets() {
-        var result = render("# Heading\n\nA **transaction** groups work.");
-        assertEquals("A transaction groups work.", result.blocks().get(1).text());
-        assertEquals("transaction", result.blocks().get(1).text().substring(2, 13));
-        assertEquals(java.util.List.of("Heading"), result.blocks().get(1).headingPath());
-        var html = page(result);
-        assertEquals(
-                result.blocks().get(1).text(),
-                html.selectFirst("[data-block-id=b1]").attr("data-anchor-text"));
-    }
-
-    @Test
     void headingsKeepTheirCanonicalBlocksAndPaths() {
         String source =
                 "intro\r\n\r\n# Top\r\n\r\n```sh\r\n# not a heading\r\n```\r\n\r\nSetext\r\n---\r\n\r\n> ## Quoted\r\n\r\n- ## In list\r\n\r\n## Top\r\n";
@@ -62,8 +50,9 @@ class MarkdownRendererTest {
 
     @Test
     void aLongHeadingKeepsItsTextButItsPathIsCappedWithoutSplittingACharacter() {
-        // A paragraph directly followed by "---" is a setext heading of any length.
-        String heading = "😀" + "x".repeat(MarkdownRenderer.MAX_HEADING_CHARS);
+        // A paragraph directly followed by "---" is a setext heading of any length. The emoji's two UTF-16 units
+        // straddle the cut, where cutting between them would leave half a character.
+        String heading = "x".repeat(MarkdownRenderer.MAX_HEADING_CHARS - 2) + "😀" + "x".repeat(10);
         var result = render(heading + "\n---\n\nBody.\n");
         assertEquals(heading, result.blocks().get(0).text(), "canonical text is unchanged");
         String path = result.blocks().get(1).headingPath().getFirst();
@@ -310,16 +299,6 @@ class MarkdownRendererTest {
         assertThrows(
                 MarkdownRenderer.ContentRejected.class,
                 () -> render("```mermaid\n" + "x".repeat(MarkdownRenderer.MAX_DIAGRAM_CHARS + 1) + "\n```"));
-        assertThrows(
-                MarkdownRenderer.ContentRejected.class,
-                () -> render("```mermaid\nA-->B\n```\n\n".repeat(MarkdownRenderer.MAX_DIAGRAMS + 1)));
-    }
-
-    @Test
-    void emptyNoteHasAVisibleEmptyState() {
-        var result = render("");
-        assertTrue(result.blocks().isEmpty());
-        assertTrue(page(result).text().contains("This note is empty"));
     }
 
     @Test

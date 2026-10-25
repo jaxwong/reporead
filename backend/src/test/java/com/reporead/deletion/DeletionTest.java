@@ -15,7 +15,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import com.reporead.annotation.Annotations;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.repository.RepositoryConnections;
 import java.util.List;
@@ -30,11 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
@@ -44,23 +39,8 @@ class DeletionTest extends SharedSpringTest {
     private static final String SHA = "a".repeat(40);
 
     @Autowired
-    MockMvc mvc;
-
-    @Autowired
     @Qualifier("githubUserHttpClient")
     RestTemplate githubUserHttpClient;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    JdbcClient db;
 
     @Autowired
     TransactionTemplate transaction;
@@ -111,8 +91,6 @@ class DeletionTest extends SharedSpringTest {
     @AfterEach
     void verifyGitHubCalls() {
         github.verify();
-        clients.removeAuthorizedClient("github", "42");
-        clients.removeAuthorizedClient("github", "84");
     }
 
     private long connection(long userId, long githubRepositoryId, String name) {

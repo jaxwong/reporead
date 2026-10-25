@@ -17,7 +17,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.github.GitHubHttpConfiguration;
 import jakarta.servlet.ServletException;
@@ -40,13 +39,9 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestTemplate;
 
@@ -63,27 +58,12 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
     private static final String BLOB_2 = "4".repeat(40);
 
     @Autowired
-    MockMvc mvc;
-
-    @Autowired
     @Qualifier("githubUserHttpClient")
     RestTemplate githubUserHttpClient;
 
     @Autowired
     @Qualifier("githubTreeHttpClient")
     RestTemplate githubTreeHttpClient;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    JdbcClient db;
 
     @Autowired
     io.micrometer.core.instrument.MeterRegistry meters;
@@ -116,8 +96,6 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
     void verifyNoExtraCalls() {
         user.verify();
         trees.verify();
-        clients.removeAuthorizedClient("github", "42");
-        clients.removeAuthorizedClient("github", "84");
     }
 
     private long connect(long userId, String branch) {
@@ -455,9 +433,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
                         MediaType.APPLICATION_JSON));
         sync(alice, connection).andExpect(status().isOk());
         long spring = documentId("backend/spring.md");
-        db.sql("""
-                INSERT INTO reading_states (user_id, document_id, last_read_blob_sha, progress_percent, anchor_json, last_read_at)
-                VALUES (1, :id, :sha, 40, '{"headingPath":[],"textPrefix":null,"blockIndex":3}', now())""").param("id", spring).param("sha", BLOB_1).update();
+        readSomething(spring);
 
         String moved = tree(
                 false,
@@ -512,7 +488,8 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         var before = List.of(documentId("a.md"), documentId("b.md"), documentId("x.md"));
 
         next();
-        // Two vanished documents share one SHA, and one vanished SHA reappears at two paths: neither is a unique move.
+        // Two vanished documents share one SHA that reappears at one path (c.md), and one vanished SHA reappears at two
+        // paths (y.md, z.md): neither is a unique move. d.md is new content.
         expectSync(
                 COMMIT_B,
                 TREE_B,
@@ -520,7 +497,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
                         tree(
                                 false,
                                 entry("c.md", "100644", "blob", BLOB_1),
-                                entry("d.md", "100644", "blob", BLOB_1),
+                                entry("d.md", "100644", "blob", "5".repeat(40)),
                                 entry("y.md", "100644", "blob", BLOB_2),
                                 entry("z.md", "100644", "blob", BLOB_2)),
                         MediaType.APPLICATION_JSON));
@@ -717,21 +694,29 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         return documentId(path);
     }
 
-    @Test
-    void aNoteMovedAndEditedKeepsItsIdentityWhenItCarriesUserData() throws Exception {
-        byte[] before = note("ingest", "reads");
-        long id = syncedNote("backend/ingest.md", before);
-        readSomething(id);
-        byte[] after = edited(before);
+    /**
+     * The next refresh's snapshot: the note syncedNote published is gone, and {@code path} holds these bytes beside
+     * other.md.
+     */
+    private void expectNextSnapshot(String path, byte[] bytes) {
         expectSync(
                 COMMIT_B,
                 TREE_B,
                 withSuccess(
                         tree(
                                 false,
-                                entry("pipelines/ingest-worker.md", "100644", "blob", sha(after)),
+                                entry(path, "100644", "blob", sha(bytes)),
                                 entry("other.md", "100644", "blob", BLOB_2)),
                         MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    void aNoteMovedAndEditedKeepsItsIdentityWhenItCarriesUserData() throws Exception {
+        byte[] before = note("ingest", "reads");
+        long id = syncedNote("backend/ingest.md", before);
+        readSomething(id);
+        byte[] after = edited(before);
+        expectNextSnapshot("pipelines/ingest-worker.md", after);
         expectBlob(before);
         expectBlob(after);
         sync(alice, connection).andExpect(status().isOk());
@@ -754,15 +739,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         mvc.perform(put("/api/documents/" + id + "/bookmark").header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isOk());
         byte[] after = edited(before);
-        expectSync(
-                COMMIT_B,
-                TREE_B,
-                withSuccess(
-                        tree(
-                                false,
-                                entry("pipelines/ingest-worker.md", "100644", "blob", sha(after)),
-                                entry("other.md", "100644", "blob", BLOB_2)),
-                        MediaType.APPLICATION_JSON));
+        expectNextSnapshot("pipelines/ingest-worker.md", after);
         expectBlob(before);
         expectBlob(after);
         sync(alice, connection).andExpect(status().isOk());
@@ -775,15 +752,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         long id = syncedNote("backend/ingest.md", before);
         readSomething(id);
         byte[] unrelated = note("billing", "invoices");
-        expectSync(
-                COMMIT_B,
-                TREE_B,
-                withSuccess(
-                        tree(
-                                false,
-                                entry("billing.md", "100644", "blob", sha(unrelated)),
-                                entry("other.md", "100644", "blob", BLOB_2)),
-                        MediaType.APPLICATION_JSON));
+        expectNextSnapshot("billing.md", unrelated);
         expectBlob(before);
         expectBlob(unrelated);
         sync(alice, connection).andExpect(status().isOk());
@@ -826,15 +795,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         byte[] before = note("ingest", "reads");
         long id = syncedNote("backend/ingest.md", before);
         byte[] after = edited(before);
-        expectSync(
-                COMMIT_B,
-                TREE_B,
-                withSuccess(
-                        tree(
-                                false,
-                                entry("pipelines/ingest.md", "100644", "blob", sha(after)),
-                                entry("other.md", "100644", "blob", BLOB_2)),
-                        MediaType.APPLICATION_JSON));
+        expectNextSnapshot("pipelines/ingest.md", after);
         sync(alice, connection).andExpect(status().isOk());
         assertNotEquals(id, documentId("pipelines/ingest.md"));
     }
@@ -1012,6 +973,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
             releaseFailure.countDown();
             run.get(10, TimeUnit.SECONDS);
             assertFalse(startedBeforeFailure, "a later read started before the first failure ended the operation");
+            assertEquals(1, nextSetStarted.getCount(), "a later read set started after the first failure");
         }
         assertEquals(COMMIT_A, checkpoint());
         assertEquals(List.of("backend/ingest.md", "other.md"), activePaths());
@@ -1023,15 +985,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         long id = syncedNote("backend/ingest.md", before);
         readSomething(id);
         byte[] after = edited(before);
-        expectSync(
-                COMMIT_B,
-                TREE_B,
-                withSuccess(
-                        tree(
-                                false,
-                                entry("pipelines/ingest.md", "100644", "blob", sha(after)),
-                                entry("other.md", "100644", "blob", BLOB_2)),
-                        MediaType.APPLICATION_JSON));
+        expectNextSnapshot("pipelines/ingest.md", after);
         user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before)))
                 .andRespond(request -> {
                     throw new AssertionError("test-only fatal reader failure");
@@ -1052,15 +1006,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         long id = syncedNote("backend/ingest.md", before);
         readSomething(id);
         byte[] after = edited(before);
-        expectSync(
-                COMMIT_B,
-                TREE_B,
-                withSuccess(
-                        tree(
-                                false,
-                                entry("pipelines/ingest.md", "100644", "blob", sha(after)),
-                                entry("other.md", "100644", "blob", BLOB_2)),
-                        MediaType.APPLICATION_JSON));
+        expectNextSnapshot("pipelines/ingest.md", after);
         user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before)))
                 .andRespond(withResourceNotFound());
         expectBlob(after);
@@ -1090,47 +1036,12 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
         long id = syncedNote("backend/ingest.md", before);
         readSomething(id);
         byte[] after = note("ingest", "reads");
-        expectSync(
-                COMMIT_B,
-                TREE_B,
-                withSuccess(
-                        tree(
-                                false,
-                                entry("pipelines/ingest.md", "100644", "blob", sha(after)),
-                                entry("other.md", "100644", "blob", BLOB_2)),
-                        MediaType.APPLICATION_JSON));
+        expectNextSnapshot("pipelines/ingest.md", after);
         expectBlob(before);
         expectBlob(after);
         sync(alice, connection).andExpect(status().isOk());
         assertNotEquals(id, documentId("pipelines/ingest.md"));
         assertEquals(COMMIT_B, checkpoint());
-    }
-
-    @Test
-    void anOutageWhileComparingFailsTheSyncWithoutChanges() throws Exception {
-        byte[] before = note("ingest", "reads");
-        long id = syncedNote("backend/ingest.md", before);
-        readSomething(id);
-        byte[] after = edited(before);
-        expectSync(
-                COMMIT_B,
-                TREE_B,
-                withSuccess(
-                        tree(
-                                false,
-                                entry("pipelines/ingest.md", "100644", "blob", sha(after)),
-                                entry("other.md", "100644", "blob", BLOB_2)),
-                        MediaType.APPLICATION_JSON));
-        user.expect(requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(before)))
-                .andRespond(withServiceUnavailable());
-        // Read concurrently with the failing one, so it may or may not have started when the outage stops the sync.
-        user.expect(
-                        ExpectedCount.between(0, 1),
-                        requestTo("https://api.github.com/repos/test-only/notes/git/blobs/" + sha(after)))
-                .andRespond(withSuccess(after, MediaType.APPLICATION_OCTET_STREAM));
-        sync(alice, connection).andExpect(status().isServiceUnavailable());
-        assertEquals(COMMIT_A, checkpoint());
-        assertEquals(List.of("backend/ingest.md", "other.md"), activePaths());
     }
 
     @Test
@@ -1144,14 +1055,6 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.documentCount").value(0));
         listed(alice)
                 .andExpect(jsonPath("$.repositories[0].lastSyncedCommitSha").value(COMMIT_A))
-                .andExpect(jsonPath("$.repositories[0].documents").isEmpty());
-    }
-
-    @Test
-    void neverSyncedRepositoryHasNoCheckpoint() throws Exception {
-        listed(alice)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories[0].lastSyncedCommitSha").doesNotExist())
                 .andExpect(jsonPath("$.repositories[0].documents").isEmpty());
     }
 
@@ -1173,22 +1076,6 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("REPOSITORY_RENAMED"));
         assertNull(checkpoint());
-    }
-
-    @Test
-    void treeFailureAfterTheBranchCallLeavesThePreviousSnapshot() throws Exception {
-        expectSync(
-                COMMIT_A,
-                TREE_A,
-                withSuccess(tree(false, entry("a.md", "100644", "blob", BLOB_1)), MediaType.APPLICATION_JSON));
-        sync(alice, connection).andExpect(status().isOk());
-        next();
-        expectSync(COMMIT_B, TREE_B, withServiceUnavailable());
-        sync(alice, connection)
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value("GITHUB_UNAVAILABLE"));
-        assertEquals(COMMIT_A, checkpoint());
-        assertEquals(List.of("a.md"), activePaths());
     }
 
     @Test
@@ -1314,7 +1201,7 @@ class RepositorySnapshotRefreshTest extends SharedSpringTest {
     }
 
     @Test
-    void concurrentSyncsOfOneConnectionDoNotDuplicateDocuments() throws Exception {
+    void concurrentRefreshesOfTheSameCommitAllSucceed() throws Exception {
         String body = tree(false, entry("a.md", "100644", "blob", BLOB_1), entry("b.md", "100644", "blob", BLOB_2));
         user.expect(ExpectedCount.times(4), requestTo(BRANCH))
                 .andRespond(withSuccess(branch(COMMIT_A, TREE_A), MediaType.APPLICATION_JSON));

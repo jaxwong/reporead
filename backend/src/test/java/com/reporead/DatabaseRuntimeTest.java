@@ -14,7 +14,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.QueryTimeoutException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -23,9 +22,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 class DatabaseRuntimeTest extends SharedSpringTest {
     @Autowired
     DataSource dataSource;
-
-    @Autowired
-    JdbcClient db;
 
     @Autowired
     JdbcTemplate configured;

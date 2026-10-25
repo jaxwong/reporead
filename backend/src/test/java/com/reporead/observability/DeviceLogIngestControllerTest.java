@@ -6,40 +6,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 /** The app's log lines reach the server's log, apart from its own lines and unable to pose as them. */
 @ExtendWith(OutputCaptureExtension.class)
 class DeviceLogIngestControllerTest extends SharedSpringTest {
-    @Autowired
-    MockMvc mvc;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    JdbcClient db;
-
     String bearer;
 
     @BeforeEach
@@ -64,46 +43,36 @@ class DeviceLogIngestControllerTest extends SharedSpringTest {
                 + "\",\"message\":\"" + message + "\"}";
     }
 
+    /**
+     * A batch can hold lines an older run left, sent by the updated app; each still names the version that logged it.
+     */
     @Test
-    void eachLineIsLoggedAtItsLevelWithThePhonesTime(CapturedOutput log) throws Exception {
+    void eachLineIsLoggedAtItsLevelWithItsVersionAndThePhonesTime(CapturedOutput log) throws Exception {
         upload("{\"lines\":["
-                        + line("INFO", "Reader ready; documentId=7")
+                        + line("0.1.432", "INFO", "Reader ready; documentId=7")
                         + ","
-                        + line("WARN", "Backend refused; status=404 code=NOT_FOUND requestId=test-only-id")
+                        + line("0.1.433", "WARN", "Backend refused; status=404 code=NOT_FOUND requestId=test-only-id")
                         + "]}")
                 .andExpect(status().isNoContent());
 
         String lines = log.getAll();
-        assertTrue(deviceLogLine(lines, " INFO ", "Reader ready; documentId=7"), lines);
+        assertTrue(deviceLogLine(lines, " INFO ", "0.1.432", "Reader ready; documentId=7"), lines);
         assertTrue(
-                deviceLogLine(lines, " WARN ", "Backend refused; status=404 code=NOT_FOUND requestId=test-only-id"),
+                deviceLogLine(
+                        lines,
+                        " WARN ",
+                        "0.1.433",
+                        "Backend refused; status=404 code=NOT_FOUND requestId=test-only-id"),
                 lines);
     }
 
-    /** Whether [log] has the device's line [message] at [level], under the ingest logger, with its version and time. */
-    private static boolean deviceLogLine(String log, String level, String message) {
+    /** Whether [log] has the device's line [message] at [level], under the ingest logger, with [version] and time. */
+    private static boolean deviceLogLine(String log, String level, String version, String message) {
         return log.lines()
                 .anyMatch(line -> line.contains(level)
                         && line.contains("DeviceLogIngestController ")
-                        && line.endsWith(
-                                ": Device log line; userId=1 version=0.1.433 at=2026-10-21T06:02:11.123Z " + message));
-    }
-
-    /** Lines an older run left are sent by the updated app, and still name the version that logged them. */
-    @Test
-    void eachLineNamesTheVersionThatLoggedIt(CapturedOutput log) throws Exception {
-        upload("{\"lines\":[" + line("0.1.432", "INFO", "Reader ready; documentId=7") + ","
-                        + line("0.1.433", "INFO", "Signed in") + "]}")
-                .andExpect(status().isNoContent());
-
-        String lines = log.getAll();
-        assertTrue(
-                lines.contains(
-                        "Device log line; userId=1 version=0.1.432 at=2026-10-21T06:02:11.123Z Reader ready; documentId=7"),
-                lines);
-        assertTrue(
-                lines.contains("Device log line; userId=1 version=0.1.433 at=2026-10-21T06:02:11.123Z Signed in"),
-                lines);
+                        && line.endsWith(": Device log line; userId=1 version=" + version
+                                + " at=2026-10-21T06:02:11.123Z " + message));
     }
 
     @Test

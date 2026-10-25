@@ -8,16 +8,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.reporead.SharedSpringTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
 
 /** The release app's verified sign-in link: the statement Android checks, and the page for a browser that keeps it. */
 class AppLinkTest extends SharedSpringTest {
-    @Autowired
-    MockMvc mvc;
-
     @Test
     void theStatementLetsOnlyTheReleaseAppSignedWithItsKeyOpenTheLink() throws Exception {
         mvc.perform(get("/.well-known/assetlinks.json"))
