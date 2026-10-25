@@ -17,7 +17,9 @@ import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import java.time.Duration
 
-// WorkManager persists both identifiers. Keep them stable so already-queued work still runs after an app update.
+// WorkManager persists this name and the worker's class name. Keep the name stable so a send queued before an app
+// update is replaced, not doubled. A renamed class cannot start a send queued under its old name; its changes then go
+// with the next change or Library open.
 private const val WORK_NAME = "sync-local-changes"
 
 /** A burst of reading saves (one per scroll stop) becomes one sync. */
@@ -29,7 +31,7 @@ private val SETTLE: Duration = Duration.ofSeconds(5)
  */
 internal fun requestPendingChangeSend(context: Context) {
     val request =
-        OneTimeWorkRequestBuilder<SyncWorker>()
+        OneTimeWorkRequestBuilder<PendingSyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setInitialDelay(SETTLE)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, FIRST_BACKOFF)
@@ -37,7 +39,7 @@ internal fun requestPendingChangeSend(context: Context) {
     WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
 }
 
-class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+class PendingSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result =
         sendPendingChangesInBackground((applicationContext as RepoReadApplication).phoneSync, runAttemptCount)
 }
