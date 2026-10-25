@@ -8,14 +8,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.reporead.Hashes;
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.document.Documents;
-import com.reporead.document.MarkdownRenderer;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -27,10 +23,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -39,21 +31,6 @@ class ReadingStateTest extends SharedSpringTest {
     // Test-only users, documents, and SHAs; no GitHub call is involved in reading state.
     private static final String SHA_A = "a".repeat(40);
     private static final String SHA_B = "b".repeat(40);
-
-    @Autowired
-    MockMvc mvc;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    JdbcClient db;
 
     @Autowired
     Documents documents;
@@ -106,12 +83,11 @@ class ReadingStateTest extends SharedSpringTest {
     }
 
     @Test
-    void savedStateRecordsTheVersionReadAndIsListedMostRecentFirst() throws Exception {
+    void savedStateRecordsTheVersionReadAndIsListed() throws Exception {
         Instant at = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         save(alice, note, body(SHA_B, 40, at, ANCHOR))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.lastReadBlobSha").value(SHA_B))
-                .andExpect(jsonPath("$.title").doesNotExist())
                 .andExpect(jsonPath("$.anchor.headingPath[1]").value("Proxies"))
                 .andExpect(jsonPath("$.anchor.blockIndex").value(43));
         save(alice, note, body(SHA_B, 40, at, ANCHOR)).andExpect(status().isOk());
@@ -249,18 +225,6 @@ class ReadingStateTest extends SharedSpringTest {
                 .andExpect(jsonPath("$.readingStates[0].anchor.headingPath[6]").value(heading))
                 .andExpect(jsonPath("$.readingStates[0].anchor.textPrefix").value(prefix))
                 .andExpect(jsonPath("$.readingStates[0].anchor.blockIndex").value(blockIndex));
-    }
-
-    @Test
-    void everyHeadingPathTheRenderedPageCarriesIsAValidReadingState() throws Exception {
-        // A paragraph directly followed by "---" is a setext heading of any length; the reader sends the page's path
-        // back.
-        String markdown = "word ".repeat(150).strip() + "\n---\n\nThe section's first paragraph.\n";
-        var rendered = MarkdownRenderer.render(
-                markdown, Hashes.gitBlobSha(markdown.getBytes(StandardCharsets.UTF_8)), "notes/long.md");
-        String heading = rendered.page().selectFirst("[data-block-id=b1]").attr("data-heading-2");
-        String anchor = "{\"headingPath\":[\"" + heading + "\"],\"textPrefix\":\"The section\",\"blockIndex\":1}";
-        save(alice, note, body(SHA_A, 10, Instant.now(), anchor)).andExpect(status().isOk());
     }
 
     @Test

@@ -29,10 +29,12 @@ class DatabaseTimeoutTest {
             var tokenKey = TestEnvironment.secretFile("reporead-test-token-key-", TestEnvironment.TOKEN_KEY);
 
             // Command-line arguments outrank application.properties, whose values are unresolved placeholders here.
+            // Every required setting is given, so the database is the only thing startup can fail on.
             String[] args = {
                 "--server.port=0",
                 "--management.server.port=0",
                 "--reporead.public-url=https://reporead.test",
+                "--reporead.allowed-github-user-ids=42",
                 "--reporead.github.client-id=test-only-not-a-github-app",
                 "--reporead.github.client-secret-file=" + secret,
                 "--reporead.github.token-key-file=" + tokenKey,
@@ -51,7 +53,9 @@ class DatabaseTimeoutTest {
             assertTrue(
                     causes(error).stream().anyMatch(cause -> cause instanceof java.sql.SQLException),
                     () -> "expected an SQLException in the cause chain, got: " + causes(error));
-            assertTrue(took.compareTo(Duration.ofSeconds(30)) < 0, () -> "startup took " + took + " to fail");
+            // Without the 10 s login deadline, the other deadlines still end startup, after 28 s when measured on
+            // 2026-10-25; under 20 s shows the login deadline ended it.
+            assertTrue(took.compareTo(Duration.ofSeconds(20)) < 0, () -> "startup took " + took + " to fail");
         } finally {
             for (var socket : held) socket.close();
         }

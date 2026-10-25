@@ -50,7 +50,7 @@ public class GitHubTokens implements OAuth2AuthorizedClientService {
         this.key = readKey(properties.github().tokenKeyFile());
     }
 
-    static SecretKey readKey(Path file) throws IOException {
+    private static SecretKey readKey(Path file) throws IOException {
         String hex = SecretFiles.read(file);
         if (!hex.matches("[0-9a-f]{64}")) {
             throw new IOException(

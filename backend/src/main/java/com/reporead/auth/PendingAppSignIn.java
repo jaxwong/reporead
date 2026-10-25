@@ -8,7 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * GitHubBrowserSignIn lets only such a session start a GitHub login, and AppSignInSuccess finishes it.
  */
 final class PendingAppSignIn {
-    static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
+    private static final String CHALLENGE_ATTRIBUTE = "reporead.appCodeChallenge";
 
     private PendingAppSignIn() {}
 

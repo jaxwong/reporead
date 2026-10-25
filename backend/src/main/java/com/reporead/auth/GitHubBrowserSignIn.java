@@ -209,7 +209,7 @@ public class GitHubBrowserSignIn {
      * Fails the sign-in of a GitHub user this server does not serve while GitHub's answer is still being checked, so
      * Spring stores no GitHub token for them and no RepoRead account is created; the browser is sent to /auth/failed.
      */
-    static OAuth2User allowedOnly(OAuth2User user, AllowedUsers allowed) {
+    private static OAuth2User allowedOnly(OAuth2User user, AllowedUsers allowed) {
         Object id = user.getAttribute("id");
         if (id instanceof Number number && allowed.allows(number.longValue())) return user;
         LOG.warn("GitHub sign-in refused: not an allowed user; githubUserId={}", id);

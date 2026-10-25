@@ -62,10 +62,6 @@ public final class TestSessions {
         return sessions.exchange(code, verifier).orElseThrow().accessToken();
     }
 
-    /**
-     * Stores a GitHub token as the OAuth callback would; refreshToken may be null, as for a token GitHub never
-     * refreshes.
-     */
     /** Expects RepoRead to revoke its GitHub authorization with this user token, authenticated as the test-only App. */
     public static void expectAuthorizationRevoked(
             MockRestServiceServer github, String userToken, ResponseCreator response) {
@@ -79,6 +75,10 @@ public final class TestSessions {
                 .andRespond(response);
     }
 
+    /**
+     * Stores a GitHub token as the OAuth callback would; refreshToken may be null, as for a token GitHub never
+     * refreshes.
+     */
     public static void saveGitHubToken(
             OAuth2AuthorizedClientService clients,
             ClientRegistrationRepository registrations,

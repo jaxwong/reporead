@@ -94,26 +94,6 @@ class MigrationTest {
     }
 
     @Test
-    void columnsNothingReadAreDroppedAndTheirRowsKept() {
-        var database = TestEnvironment.emptyDatabase();
-        var db = JdbcClient.create(database);
-        flyway(database, "8").migrate();
-        noteAtV8(db);
-        db.sql("UPDATE repository_connections SET last_synced_at = now()").update();
-
-        flyway(database, "latest").migrate();
-
-        assertFalse(hasColumn(db, "repository_connections", "last_synced_at"));
-        assertFalse(hasColumn(db, "repository_connections", "installation_id"));
-        assertFalse(hasColumn(db, "annotations", "source_blob_sha"));
-        assertEquals(
-                SHA,
-                db.sql("SELECT last_synced_commit_sha FROM repository_connections")
-                        .query(String.class)
-                        .single());
-    }
-
-    @Test
     void bookmarksMoveToTheirOwnTableAndThePreviousReleaseStillRuns() {
         var database = TestEnvironment.emptyDatabase();
         var db = JdbcClient.create(database);

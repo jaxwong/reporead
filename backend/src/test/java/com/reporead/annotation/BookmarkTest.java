@@ -6,35 +6,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 class BookmarkTest extends SharedSpringTest {
     private static final String SHA = "a".repeat(40);
-
-    @Autowired
-    MockMvc mvc;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    JdbcClient db;
 
     String alice;
     long note;

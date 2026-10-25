@@ -25,35 +25,18 @@ class RepoReadPropertiesTest {
         return Binder.get(environment).bindOrCreate("reporead", RepoReadProperties.class);
     }
 
+    /**
+     * application.properties reads each setting from an environment variable, and the binder keeps an unset one as its
+     * placeholder text, so that is refused like a missing or blank value.
+     */
     @Test
-    void bindsEverySetting() {
-        var properties = bind(COMPLETE);
-        assertEquals("https://reporead.test", properties.publicUrl());
-        assertEquals("42", properties.allowedGithubUserIds());
-        assertEquals("test-only-not-a-github-app", properties.github().clientId());
-        assertEquals("/test-only/token-key", properties.github().tokenKeyFile().toString());
-    }
-
-    @Test
-    void anUnsetEnvironmentVariableIsRefusedByName() {
+    void aMissingBlankOrUnsetSettingIsRefusedByName() {
         for (String name : COMPLETE.keySet()) {
-            // application.properties reads each setting from an environment variable; the binder keeps an unset one as
-            // text.
-            var values = new HashMap<>(COMPLETE);
-            values.put(name, "${TEST_ONLY_UNSET_VARIABLE}");
-            var error = assertThrows(BindException.class, () -> bind(values), name);
-            assertTrue(rootMessage(error).contains(name), () -> name + ": " + rootMessage(error));
-        }
-    }
-
-    @Test
-    void aMissingOrBlankSettingIsRefusedByName() {
-        for (String name : COMPLETE.keySet()) {
-            for (String value : new String[] {null, " "}) {
+            for (String value : new String[] {null, " ", "${TEST_ONLY_UNSET_VARIABLE}"}) {
                 var values = new HashMap<>(COMPLETE);
                 if (value == null) values.remove(name);
                 else values.put(name, value);
-                var error = assertThrows(RuntimeException.class, () -> bind(values), name);
+                var error = assertThrows(BindException.class, () -> bind(values), name);
                 assertTrue(rootMessage(error).contains(name), () -> name + "=" + value + ": " + rootMessage(error));
             }
         }

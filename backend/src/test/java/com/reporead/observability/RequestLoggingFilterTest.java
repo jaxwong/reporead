@@ -90,8 +90,9 @@ class RequestLoggingFilterTest {
         return http.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    /** The header the app reads (Api.kt), named here rather than taken from the filter, so renaming it fails. */
     private static String requestId(HttpResponse<String> response) {
-        String id = response.headers().firstValue(RequestLoggingFilter.HEADER).orElseThrow();
+        String id = response.headers().firstValue("X-Request-Id").orElseThrow();
         assertTrue(ID.matcher(id).matches(), id);
         return id;
     }

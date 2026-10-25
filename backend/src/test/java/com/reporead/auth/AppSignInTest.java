@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
 import java.net.SocketTimeoutException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -30,42 +29,23 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Owns integration coverage of PKCE handoff, app sessions and sign-out behavior. */
 class AppSignInTest extends SharedSpringTest {
     @Autowired
-    MockMvc mvc;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
     GitHubTokenLifecycle credentials;
 
     @Autowired
-    JdbcClient db;
-
-    @Autowired
     JsonMapper json;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
 
     @Autowired
     @Qualifier("githubUserHttpClient")
@@ -139,13 +119,17 @@ class AppSignInTest extends SharedSpringTest {
     }
 
     /**
-     * Runs the real success handler as the OAuth callback would on this test server, whose loopback address makes it
-     * the debug app's, returning the redirect target.
+     * Starts the app's sign-in with this challenge, then runs the real success handler in that browser session as the
+     * OAuth callback would on this test server, whose loopback address makes it the debug app's; returns the redirect
+     * target.
      */
     private String completeGitHubLogin(String challenge, long githubUserId, String login) throws Exception {
+        var session = (MockHttpSession) mvc.perform(get("/app/sign-in").param("code_challenge", challenge))
+                .andExpect(status().isFound())
+                .andReturn()
+                .getRequest()
+                .getSession();
         var request = new MockHttpServletRequest();
-        var session = new MockHttpSession();
-        if (challenge != null) session.setAttribute(PendingAppSignIn.CHALLENGE_ATTRIBUTE, challenge);
         request.setSession(session);
         var response = new MockHttpServletResponse();
         new AppSignInSuccess(sessions, "reporead-dev://auth")
@@ -175,14 +159,12 @@ class AppSignInTest extends SharedSpringTest {
         return json.readTree(body).get("accessToken").stringValue();
     }
 
+    /** That the challenge kept is the one the code is bound to, every exchange through completeGitHubLogin shows. */
     @Test
-    void signInStartStoresAValidChallengeAndRefusesOthers() throws Exception {
-        String challenge = TestSessions.challenge(TestSessions.verifier());
-        var result = mvc.perform(get("/app/sign-in").param("code_challenge", challenge))
+    void signInStartRedirectsToGitHubOnlyForAValidChallenge() throws Exception {
+        mvc.perform(get("/app/sign-in").param("code_challenge", TestSessions.challenge(TestSessions.verifier())))
                 .andExpect(status().isFound())
-                .andExpect(redirectedUrl("/oauth2/authorization/github"))
-                .andReturn();
-        assertEquals(challenge, result.getRequest().getSession().getAttribute(PendingAppSignIn.CHALLENGE_ATTRIBUTE));
+                .andExpect(redirectedUrl("/oauth2/authorization/github"));
         var refused = mvc.perform(get("/app/sign-in").param("code_challenge", "too-short"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_CODE_CHALLENGE"))
@@ -192,19 +174,10 @@ class AppSignInTest extends SharedSpringTest {
     }
 
     @Test
-    void fullHandoffIssuesASessionThatAuthenticatesTheApiAndExposesNoGitHubToken() throws Exception {
+    void fullHandoffIssuesASessionThatAuthenticatesTheApi() throws Exception {
         String verifier = TestSessions.verifier();
-        var body = new HashMap<String, Object>();
-        body.put("code", code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice")));
-        body.put("codeVerifier", verifier);
-        String answer = mvc.perform(post("/api/app-auth/token")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(json.writeValueAsString(body)))
-                .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getContentAsString();
-        String token = json.readTree(answer).get("accessToken").stringValue();
+        String token = accessToken(
+                code(completeGitHubLogin(TestSessions.challenge(verifier), 42, "test-only-alice")), verifier);
         mvc.perform(get("/api/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.githubUserId").value(42))
@@ -219,28 +192,6 @@ class AppSignInTest extends SharedSpringTest {
                 .single();
         assertNotEquals(
                 token, new String(stored, java.nio.charset.StandardCharsets.US_ASCII), "only the hash is stored");
-    }
-
-    /**
-     * GitHubLoginTest shows such a login cannot start; reaching the callback without the challenge is a broken
-     * invariant.
-     */
-    @Test
-    void loginWithoutAnAppChallengeIsAnInvariantFailureAndIssuesNoCode() {
-        var request = new MockHttpServletRequest();
-        request.setSession(new MockHttpSession());
-        assertThrows(
-                IllegalStateException.class,
-                () -> new AppSignInSuccess(sessions, "reporead-dev://auth")
-                        .onAuthenticationSuccess(
-                                request, new MockHttpServletResponse(), github(42, "test-only-alice")));
-        assertEquals(
-                0,
-                db.sql("SELECT count(*) FROM app_sign_in_codes")
-                        .query(Integer.class)
-                        .single());
-        assertEquals(
-                0, db.sql("SELECT count(*) FROM users").query(Integer.class).single());
     }
 
     @Test

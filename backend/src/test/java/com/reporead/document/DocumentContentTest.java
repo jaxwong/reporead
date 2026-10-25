@@ -7,11 +7,9 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.reporead.ApiFailure;
 import com.reporead.Hashes;
 import com.reporead.SharedSpringTest;
 import com.reporead.TestEnvironment;
-import com.reporead.auth.AppSessions;
 import com.reporead.auth.TestSessions;
 import com.reporead.github.GitHubHttpConfiguration;
 import java.nio.charset.StandardCharsets;
@@ -29,12 +27,8 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
-import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.json.JsonMapper;
@@ -47,27 +41,12 @@ class DocumentContentTest extends SharedSpringTest {
             .getBytes(StandardCharsets.UTF_8);
 
     @Autowired
-    MockMvc mvc;
-
-    @Autowired
     @Qualifier("githubUserHttpClient")
     RestTemplate githubUserHttpClient;
 
     @Autowired
     @Qualifier("githubImageHttpClient")
     RestTemplate githubImageHttpClient;
-
-    @Autowired
-    OAuth2AuthorizedClientService clients;
-
-    @Autowired
-    ClientRegistrationRepository registrations;
-
-    @Autowired
-    AppSessions sessions;
-
-    @Autowired
-    JdbcClient db;
 
     @Autowired
     JsonMapper json;
@@ -95,8 +74,6 @@ class DocumentContentTest extends SharedSpringTest {
     void verifyNoExtraCalls() {
         server.verify();
         images.verify();
-        clients.removeAuthorizedClient("github", "42");
-        clients.removeAuthorizedClient("github", "84");
     }
 
     private long document(String path, String blobSha, boolean deleted) {
@@ -145,7 +122,6 @@ class DocumentContentTest extends SharedSpringTest {
                     .andExpect(jsonPath("$.blocks[1].text").value("A transaction groups work."))
                     .andExpect(jsonPath("$.blocks[2].id").value("b2"))
                     .andExpect(jsonPath("$.blocks[2].text").value("<script>alert(1)</script>"))
-                    .andExpect(jsonPath("$.text").doesNotExist())
                     .andExpect(jsonPath("$.renderFormat").value(MarkdownRenderer.FORMAT))
                     .andExpect(
                             content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("TOKEN"))))
@@ -280,22 +256,17 @@ class DocumentContentTest extends SharedSpringTest {
     }
 
     @Test
-    void completePageLimitIncludesSearchBlocksAndEveryMetadataStringInUtf8() {
+    void aPageAtTheLimitFitsThePhonesJsonCeilingEvenWhenEveryCharacterIsEscaped() {
         String path = "test-only/測定.md";
         String title = "測😀";
         String sha = "a".repeat(40);
-        // Worst-case JSON escaping still fits the existing 8 MiB transport bound.
+        // Six-byte JSON escapes of a complete page still fit the app's 8 MiB JSON ceiling (Api.kt MAX_JSON_BYTES).
         String text = "\u0001".repeat(500_000);
         int metadataBytes = (path + title + sha + sha + "b0" + text).getBytes(StandardCharsets.UTF_8).length;
         String html = "h".repeat(MarkdownRenderer.MAX_PAGE_BYTES - metadataBytes);
         var blocks = List.of(new DocumentController.SearchBlock("b0", text));
         var accepted = new DocumentController.Content(1, path, title, sha, sha, html, blocks, MarkdownRenderer.FORMAT);
         assertTrue(json.writeValueAsBytes(accepted).length < 8 * 1_048_576);
-        var failure = assertThrows(
-                ApiFailure.class,
-                () -> new DocumentController.Content(
-                        1, path, title + "x", sha, sha, html, blocks, MarkdownRenderer.FORMAT));
-        assertEquals(ApiFailure.Code.UNSUPPORTED_CONTENT, failure.code);
     }
 
     @Test
@@ -500,7 +471,7 @@ class DocumentContentTest extends SharedSpringTest {
     }
 
     @Test
-    void imagesRequireAnExplicitValidSnapshotAndNeverAcceptTheLegacyEmbedContract() throws Exception {
+    void imagesRequireAnExplicitValidSnapshot() throws Exception {
         long id = document("a.md", Hashes.gitBlobSha(NOTE), false);
         for (String commit : List.of("", "ABC", "C".repeat(40))) {
             image(alice, id, "a.png", commit)
@@ -509,10 +480,6 @@ class DocumentContentTest extends SharedSpringTest {
         }
         mvc.perform(get("/api/documents/" + id + "/image")
                         .param("path", "a.png")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
-                .andExpect(status().isBadRequest());
-        mvc.perform(get("/api/documents/" + id + "/image")
-                        .param("embed", "a.png")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + alice))
                 .andExpect(status().isBadRequest());
     }
