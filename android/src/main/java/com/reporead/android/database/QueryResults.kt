@@ -20,13 +20,11 @@ data class ChangedNote(
 /** A saved page's identity without its HTML, used to retain only that snapshot's images. */
 data class SavedVersion(
     val documentId: Long,
-    val blobSha: String,
-    val path: String,
-    val renderFormat: Int,
     val snapshotCommitSha: String?,
 )
 
-private val NOTE_LINK_QUERY = Regex("""href="/note-link\?([^"]*)"""")
+internal const val NOTE_LINK_PATH = "/note-link"
+private val NOTE_LINK_QUERY = Regex("""href="$NOTE_LINK_PATH\?([^"]*)"""")
 
 /** The query of each /note-link in a saved page, in page order, as the reader receives it when the link is tapped. */
 fun noteLinkQueries(html: String): List<String> =

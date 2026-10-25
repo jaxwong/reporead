@@ -61,9 +61,7 @@ class SavedPageImagesTest {
                     assertArrayEquals("NEW_PNG".toByteArray(), images.loadImageBytes(1, newer, "a.png"))
                 }
                 assertTrue(server.requests.toString(), server.requests.size == 2)
-                images.deleteImagesExceptSavedPages(
-                    listOf(SavedVersion(1, sha, "a.md", 3, sha), SavedVersion(1, sha, "a.md", 3, newer))
-                )
+                images.deleteImagesExceptSavedPages(listOf(SavedVersion(1, sha), SavedVersion(1, newer)))
                 assertTrue(!legacy.exists())
                 assertTrue(File(filesDir, "images/1/commit-$sha").listFiles()!!.none { it.name.endsWith(".partial") })
             }
@@ -79,7 +77,7 @@ class SavedPageImagesTest {
             images.saveImagesToDisk(
                 SavedPageEntity(1, sha, "a.md", "a", """<main><img src="/repo-image/a.png"></main>""", 0)
             )
-            images.deleteImagesExceptSavedPages(listOf(SavedVersion(1, sha, "a.md", 3, null)))
+            images.deleteImagesExceptSavedPages(listOf(SavedVersion(1, null)))
             assertTrue(!directory.exists())
             assertTrue(server.requests.isEmpty())
         }

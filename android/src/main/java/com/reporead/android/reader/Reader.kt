@@ -79,7 +79,7 @@ internal class ReaderViewModel(
         /** The highlight the user is placing by selecting its passage; the selection menu then offers only Reattach. */
         val annotationToReattach: AnnotationEntity? = null,
         /** A highlight operation runs; one at a time. */
-        val changing: Boolean = false,
+        val isChanging: Boolean = false,
         val conflict: ReaderConflict? = null,
         /** A followed link or recovered editor, taken once by the screen ([claimOverlay]). */
         val overlay: ReaderOverlay? = null,
@@ -90,19 +90,19 @@ internal class ReaderViewModel(
     val state: StateFlow<State> = _state.asStateFlow()
 
     /** The sign-in state the screen last showed; null before it was first shown. */
-    private var signedIn: Boolean? = null
+    private var shownSignedIn: Boolean? = null
 
     init {
         open("created")
         saved.get<SubmittedEdit>(EDIT)?.let { draft ->
             DeviceLog.info("Reader edit restored; entry=$entryId mutationId=${draft.mutationId}")
-            _state.update { it.copy(changing = true) }
+            _state.update { it.copy(isChanging = true) }
             viewModelScope.launch {
                 val annotation = dao.annotation(draft.mutationId)
                 if (annotation == null || annotation.note == draft.text) saved[EDIT] = null
                 _state.update {
                     it.copy(
-                        changing = false,
+                        isChanging = false,
                         conflict =
                             if (annotation != null && annotation.note != draft.text)
                                 ReaderConflict(annotation, draft.text)
@@ -129,7 +129,7 @@ internal class ReaderViewModel(
                     Load.Ready(
                         OpenedReaderPage(
                             opened,
-                            withContext(Dispatchers.Default) { analyzeStudyMode(opened.note.html) },
+                            withContext(Dispatchers.Default) { analyzeStudyMode(opened.savedPage.html) },
                         )
                     )
                 } catch (failure: ApiException) {
@@ -153,8 +153,8 @@ internal class ReaderViewModel(
      * The screen is shown while [signedIn]: the highlights are refreshed when it is first shown and after a sign-in.
      */
     fun shown(signedIn: Boolean) {
-        val was = this.signedIn
-        this.signedIn = signedIn
+        val was = shownSignedIn
+        shownSignedIn = signedIn
         if (signedIn && was != true) refreshHighlights(if (was == null) "created" else "signedIn")
     }
 
@@ -190,19 +190,19 @@ internal class ReaderViewModel(
     fun save(passage: Passage, note: String?) {
         DeviceLog.info("Reader highlight save started; entry=$entryId documentId=$documentId")
         viewModelScope.launch {
-            val saved = sync.saveNewHighlight(passage, documentId, note)
+            val saveResult = sync.saveNewHighlight(passage, documentId, note)
             showMessage(
-                when (saved) {
+                when (saveResult) {
                     NewHighlight.PageGone -> "Highlight not saved: this note is no longer saved on this phone."
                     is NewHighlight.AlreadyHighlighted ->
                         if (note == null) "This passage is already highlighted."
                         else "Note not saved: this passage is already highlighted. Edit its note instead."
                     is NewHighlight.Saved ->
-                        if (signedIn != true) "Highlight saved on this phone; it is sent after you sign in."
+                        if (shownSignedIn != true) "Highlight saved on this phone; it is sent after you sign in."
                         else
                             try {
                                 sync.sendAnnotations()
-                                dao.annotation(saved.mutationId)?.rejection?.let {
+                                dao.annotation(saveResult.mutationId)?.rejection?.let {
                                     "Highlight kept on this phone only; the server refused it: $it"
                                 }
                             } catch (failure: ApiException) {
@@ -213,23 +213,23 @@ internal class ReaderViewModel(
         }
     }
 
-    private fun placing(annotation: AnnotationEntity?) {
+    private fun setAnnotationToReattach(annotation: AnnotationEntity?) {
         saved[ANNOTATION_TO_REATTACH] = annotation
         _state.update { it.copy(annotationToReattach = annotation, message = null) }
     }
 
-    fun startReattaching(annotation: AnnotationEntity) = placing(annotation)
+    fun startReattaching(annotation: AnnotationEntity) = setAnnotationToReattach(annotation)
 
-    fun stopReattaching() = placing(null)
+    fun stopReattaching() = setAnnotationToReattach(null)
 
     /** Starts one server change to a highlight ([what]); another while it runs starts nothing. */
     private fun change(what: String, annotation: AnnotationEntity, work: suspend () -> String?): Boolean {
         val stateSnapshot = _state.value
         if (
-            stateSnapshot.changing ||
+            stateSnapshot.isChanging ||
                 stateSnapshot.conflict != null ||
                 stateSnapshot.overlay is ReaderOverlay.EditNote ||
-                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(changing = true, message = null))
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(isChanging = true, message = null))
         ) {
             DeviceLog.info("Reader $what not started; entry=$entryId mutationId=${annotation.mutationId} changing=true")
             showMessage("Finish the current highlight change before submitting another.")
@@ -238,7 +238,7 @@ internal class ReaderViewModel(
         DeviceLog.info("Reader $what started; entry=$entryId mutationId=${annotation.mutationId}")
         viewModelScope.launch {
             val message = work()
-            _state.update { it.copy(changing = false, message = message) }
+            _state.update { it.copy(isChanging = false, message = message) }
         }
         return true
     }
@@ -271,8 +271,11 @@ internal class ReaderViewModel(
                     "Reader edit not committed; entry=$entryId mutationId=${annotation.mutationId} code=${failure.code}"
                 )
                 if (failure.code != "ANNOTATION_CONFLICT") {
-                    _state.update { it.copy(overlay = ReaderOverlay.EditNote(annotation, note.orEmpty())) }
-                    "Edit not saved. ${failure.describe()}"
+                    val message = "Edit not saved. ${failure.describe()}"
+                    _state.update {
+                        it.copy(overlay = ReaderOverlay.EditNote(annotation, note.orEmpty(), failure = message))
+                    }
+                    null
                 } else
                     try {
                         sync.sendAndLoadAnnotations(annotation.documentId)
@@ -284,9 +287,13 @@ internal class ReaderViewModel(
                             _state.update { it.copy(conflict = ReaderConflict(latest, note)) }
                             null
                         }
-                    } catch (refresh: ApiException) {
-                        _state.update { it.copy(overlay = ReaderOverlay.EditNote(annotation, note.orEmpty())) }
-                        "This note was changed elsewhere, and the latest version could not be loaded. ${refresh.describe()}"
+                    } catch (refreshFailure: ApiException) {
+                        val message =
+                            "This note was changed elsewhere, and the latest version could not be loaded. ${refreshFailure.describe()}"
+                        _state.update {
+                            it.copy(overlay = ReaderOverlay.EditNote(annotation, note.orEmpty(), failure = message))
+                        }
+                        null
                     }
             }
         }
@@ -391,14 +398,14 @@ fun ReaderScreen(
 
     fun useSelection(selection: Selection, action: SelectionAction) {
         // The menu was built for the state at the time; Cancel may have ended that mode since.
-        val placing = state.annotationToReattach
+        val annotationToReattach = state.annotationToReattach
         when (selection) {
             Selection.None -> model.showMessage("Select some text first.")
             is Selection.Unusable -> model.showMessage(selection.reason)
             is Selection.InBlock ->
                 when (action) {
                     SelectionAction.REATTACH ->
-                        if (placing != null) model.reattach(placing, selection.passage)
+                        if (annotationToReattach != null) model.reattach(annotationToReattach, selection.passage)
                         else model.showMessage("Reattaching was cancelled; choose Reattach again in Notes.")
                     // A note for a phrase that is already highlighted goes into that highlight's note.
                     SelectionAction.ADD_NOTE -> {
@@ -419,11 +426,11 @@ fun ReaderScreen(
 
     // One session per displayed copy: it owns that page's view and everything the page reports.
     val session =
-        remember(page?.opened?.note) {
+        remember(page?.opened?.savedPage) {
             page?.let { ready ->
                 val opened = ready.opened
                 ReaderSession(
-                    opened.note,
+                    opened.savedPage,
                     sync,
                     dao,
                     appScope,

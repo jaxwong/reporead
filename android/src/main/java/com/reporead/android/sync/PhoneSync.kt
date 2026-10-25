@@ -21,7 +21,6 @@ import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
-import com.reporead.android.network.invalidResponse
 import com.reporead.android.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.network.wire.AnnotationControllerReattachRequest
@@ -71,7 +70,7 @@ internal fun ApiException.refusesItem(): Boolean =
 data class PendingChangesResult(val refused: List<RefusedChange>, val notSent: ApiException?)
 
 /** The title is the document owner's snapshot at refusal, before a subsequent library replacement can remove it. */
-data class RefusedChange(val documentId: Long, val title: String?, val error: ApiException)
+data class RefusedChange(val documentId: Long, val title: String?, val failure: ApiException)
 
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
@@ -183,7 +182,7 @@ class PhoneSync(
     }
 
     /** Owns an open operation's saved page and optional fetch failure; the reader words the stale-copy notice. */
-    data class Opened(val note: SavedPageEntity, val staleReason: ApiException?)
+    data class Opened(val savedPage: SavedPageEntity, val staleReason: ApiException?)
 
     /**
      * The saved copy matches a listed note's blob and path. Only repository images and blocked embeds also need the
@@ -333,7 +332,7 @@ class PhoneSync(
     /**
      * Sends pending work and loads the server's library, then counts what disconnecting [repositoryId] would delete,
      * for the confirmation. Null when the server no longer has the repository (an earlier disconnect whose answer was
-     * lost, or another device): that load has already removed this phone's copies.
+     * lost, or another device). A later library load removes copies after another device's disconnect.
      */
     suspend fun sendPendingChangesAndPreviewDisconnect(repositoryId: Long): DisconnectPreview? = locked {
         val pendingChanges = sendPendingChangesLocked().also { loadLibraryLocked() }
@@ -426,7 +425,7 @@ class PhoneSync(
                 sendAnnotationsLocked()
                 null
             } catch (failure: ApiException) {
-                if (failure.unreachable) throw failure
+                if (failure.isUnreachable) throw failure
                 failure
             }
         sendReviewsLocked()
@@ -723,6 +722,7 @@ class PhoneSync(
                 try {
                     api.recordReview(
                         cardId,
+                        review.cardMutationId,
                         ReviewControllerGradeRequest(
                             mutationId = review.mutationId,
                             grade = review.grade,
@@ -738,7 +738,6 @@ class PhoneSync(
                     )
                     continue
                 }
-            if (acceptedReview.cardMutationId != review.cardMutationId) throw invalidResponse(200)
             dao.saveReview(acceptedReview.toEntity())
         }
     }

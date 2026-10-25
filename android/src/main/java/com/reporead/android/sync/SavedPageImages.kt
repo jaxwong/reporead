@@ -42,11 +42,11 @@ class SavedPageImages(private val api: Api, filesDir: File) {
      * once, sequentially. A saved file is not read: Save all needs it on disk, not its bytes. API failures and a file
      * that cannot be written (a full disk) propagate, so the page is not counted saved without its images.
      */
-    internal suspend fun saveImagesToDisk(note: SavedPageEntity) {
+    internal suspend fun saveImagesToDisk(savedPage: SavedPageEntity) {
         // Upgraded pages retain their text, but cannot honestly identify any image until fetched again.
-        val snapshotCommitSha = note.snapshotCommitSha ?: return
+        val snapshotCommitSha = savedPage.snapshotCommitSha ?: return
         val paths =
-            Jsoup.parse(note.html)
+            Jsoup.parse(savedPage.html)
                 .select("img[src^=$IMAGE_PREFIX]")
                 .map { image ->
                     image.attr("src").toUri().path!!.removePrefix(IMAGE_PREFIX)
@@ -54,9 +54,13 @@ class SavedPageImages(private val api: Api, filesDir: File) {
                 .distinct()
         for (path in paths) {
             currentCoroutineContext().ensureActive()
-            val file = imageFile(note.documentId, snapshotCommitSha, path)
+            val file = imageFile(savedPage.documentId, snapshotCommitSha, path)
             val deletionCountAtStart = synchronized(lock) { if (file.isFile) null else deletionCount } ?: continue
-            writeUnlessDeletedSince(file, api.noteImage(note.documentId, snapshotCommitSha, path), deletionCountAtStart)
+            writeUnlessDeletedSince(
+                file,
+                api.documentImage(savedPage.documentId, snapshotCommitSha, path),
+                deletionCountAtStart,
+            )
         }
     }
 
@@ -83,7 +87,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
             }
         val bytes =
             try {
-                api.noteImage(documentId, snapshotCommitSha, path)
+                api.documentImage(documentId, snapshotCommitSha, path)
             } catch (failure: ApiException) {
                 DeviceLog.info("Image unavailable; documentId=$documentId code=${failure.code}")
                 return null

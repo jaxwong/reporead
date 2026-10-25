@@ -109,14 +109,14 @@ private fun noticeText(notice: AccountNotice): String =
         AccountNotice.AccountDeleted ->
             "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
         is AccountNotice.DeletionNotConfirmed ->
-            if (notice.error.status == 401)
+            if (notice.failure.status == 401)
                 // A lost answer to an earlier deletion also ends the session; the two look the same.
                 "Couldn't confirm: this phone is no longer signed in. If you already deleted your account, it is gone; " +
                     "sign in to check. Saved notes and changes stay on this phone."
             // The server may have deleted it with the answer lost; trying again then gets the 401 above.
             else
-                "Couldn't confirm the account deletion. Saved notes and changes stay on this phone; try again. ${notice.error.describe()}"
-        is AccountNotice.SignInFailed -> notice.error.describe()
+                "Couldn't confirm the account deletion. Saved notes and changes stay on this phone; try again. ${notice.failure.describe()}"
+        is AccountNotice.SignInFailed -> notice.failure.describe()
     }
 
 @Composable
@@ -194,12 +194,12 @@ fun RepoReadApp(
     val saved = savedRepositories ?: return
     val notice = (accountState as? AccountState.Idle)?.notice
     // Account operations cover the entries without resetting them. Saved notes remain readable signed out.
-    val showAccount =
+    val shouldShowAccount =
         when (accountState) {
             is AccountState.Idle -> !signedIn && (saved.isEmpty() || notice != null)
             else -> true
         }
-    if (showAccount) {
+    if (shouldShowAccount) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("RepoRead", style = MaterialTheme.typography.headlineMedium)
             Text("Read your GitHub notes. RepoRead only reads repositories you grant to its GitHub App.")

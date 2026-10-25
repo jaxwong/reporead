@@ -251,14 +251,14 @@ internal class PracticeViewModel(
     private val saved: SavedStateHandle,
     private val entryId: String,
 ) : ViewModel() {
-    data class State(val session: StudySession? = null, val saving: Boolean = false, val notice: String? = null)
+    data class State(val session: StudySession? = null, val isSaving: Boolean = false, val notice: String? = null)
 
     private val _state = MutableStateFlow(State(session = saved[SESSION]))
     val state: StateFlow<State> = _state.asStateFlow()
 
     private fun move(next: StudySession, notice: String? = _state.value.notice) {
         saved[SESSION] = next
-        _state.update { it.copy(session = next, saving = false, notice = notice) }
+        _state.update { it.copy(session = next, isSaving = false, notice = notice) }
     }
 
     /** Chooses the session once, from the topic's [questions] that have no card yet ([scheduled]). */
@@ -279,27 +279,29 @@ internal class PracticeViewModel(
     fun skip() {
         val stateSnapshot = _state.value
         val session = stateSnapshot.session ?: return
-        if (stateSnapshot.saving) DeviceLog.info("Practice skip not taken; entry=$entryId saving=true")
+        if (stateSnapshot.isSaving) DeviceLog.info("Practice skip not taken; entry=$entryId saving=true")
         else move(session.skip())
     }
 
-    /** [again]: graded earlier in this session, so this grade only decides whether it comes back; nothing is saved. */
-    fun grade(question: PracticeQuestion, again: Boolean, grade: Int) {
+    /**
+     * [wasAskedAgain]: graded earlier in this session, so this grade only decides whether it returns; nothing saves.
+     */
+    fun grade(question: PracticeQuestion, wasAskedAgain: Boolean, grade: Int) {
         val stateSnapshot = _state.value
         val session = stateSnapshot.session ?: return
         if (
-            stateSnapshot.saving ||
+            stateSnapshot.isSaving ||
                 session.current != question.key ||
-                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(saving = true))
+                !_state.compareAndSet(stateSnapshot, stateSnapshot.copy(isSaving = true))
         ) {
             DeviceLog.info(
-                "Practice grade not saved again; entry=$entryId saving=${stateSnapshot.saving} key=${question.key}"
+                "Practice grade not saved again; entry=$entryId saving=${stateSnapshot.isSaving} key=${question.key}"
             )
             return
         }
-        DeviceLog.info("Practice grade started; entry=$entryId key=${question.key} again=$again")
+        DeviceLog.info("Practice grade started; entry=$entryId key=${question.key} again=$wasAskedAgain")
         viewModelScope.launch {
-            val problem = if (again) null else gradeNewQuestion(sync, question, grade)
+            val problem = if (wasAskedAgain) null else gradeNewQuestion(sync, question, grade)
             move(if (problem == null) session.graded(grade) else session.skip(), problem)
         }
     }
@@ -339,20 +341,20 @@ internal fun PracticeScreen(
             Modifier.padding(padding).fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val asked = state.session
-            if (asked == null || questions == null || scheduled == null) {
+            val session = state.session
+            if (session == null || questions == null || scheduled == null) {
                 Text("Reading questions from saved notes…")
                 return@Column
             }
             StatusLine(state.notice)
             // A session question that has a card here was graded in this session: the cards made, not a counter.
-            val key = asked.current
+            val key = session.current
             if (key == null) {
                 Text(
-                    if (asked.started.isEmpty())
+                    if (session.started.isEmpty())
                         "No new questions here: each question in its up-to-date banks already has a card. They come back under Review when due."
                     else
-                        "Session complete: ${counted(asked.completed(scheduled), "question")} graded. They come back under Review when due."
+                        "Session complete: ${counted(session.completed(scheduled), "question")} graded. They come back under Review when due."
                 )
                 TextButton(onClick = onBack) { Text("Finish") }
                 return@Column
@@ -360,13 +362,13 @@ internal fun PracticeScreen(
             val question = questions.firstOrNull { it.key == key }
             SessionHeader(
                 listOfNotNull(
-                        counted(asked.queue.size, "question") + " left",
+                        counted(session.queue.size, "question") + " left",
                         question?.question?.level,
                         question?.title,
                     )
                     .joinToString(" · "),
                 skip = if (question == null) "Next" else "Skip",
-                enabled = !state.saving,
+                enabled = !state.isSaving,
                 onSkip = model::skip,
             )
             if (question == null) {
@@ -376,10 +378,10 @@ internal fun PracticeScreen(
                 return@Column
             }
             QuestionPrompt(question.question)
-            val again = key in scheduled
+            val wasAskedAgain = key in scheduled
             key(question.key) {
-                AnswerSlot(asked.revealed, model::reveal) { visible, onPrepared ->
-                    if (again) AskedAgain()
+                AnswerSlot(session.revealed, model::reveal) { visible, onPrepared ->
+                    if (wasAskedAgain) AskedAgain()
                     BankAnswer(
                         question.question,
                         visible,
@@ -390,9 +392,11 @@ internal fun PracticeScreen(
                         push,
                         onPrepared,
                     )
-                    GradeBar(enabled = visible && !state.saving, gaps = if (again) null else gaps(FIRST_STEP)) { grade
-                        ->
-                        model.grade(question, again, grade)
+                    GradeBar(
+                        enabled = visible && !state.isSaving,
+                        gaps = if (wasAskedAgain) null else gaps(FIRST_STEP),
+                    ) { grade ->
+                        model.grade(question, wasAskedAgain, grade)
                     }
                 }
             }

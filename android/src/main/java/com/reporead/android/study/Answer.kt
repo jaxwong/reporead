@@ -127,8 +127,7 @@ internal fun BankAnswer(
                         append(worked.text)
                         if (visible)
                             for (link in worked.links) {
-                                val start = worked.text.indexOf(link.text)
-                                if (start >= 0) addLink(LinkAnnotation.Url(link.url), start, start + link.text.length)
+                                addLink(LinkAnnotation.Url(link.url), link.range.first, link.range.last + 1)
                             }
                     }
                 )

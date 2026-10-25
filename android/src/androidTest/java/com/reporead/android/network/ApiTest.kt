@@ -147,13 +147,13 @@ class ApiTest {
             }
         assertEquals("INVALID_RESPONSE", answered.code)
         assertEquals(200, answered.status)
-        assertFalse(answered.unreachable)
+        assertFalse(answered.isUnreachable)
         val closedPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
         val silent =
             runCatching { Api("http://127.0.0.1:$closedPort", { StoredSession.Absent }) {}.fetchLibrarySnapshot() }
                 .exceptionOrNull() as ApiException
         assertEquals(0, silent.status)
-        assertTrue(silent.unreachable)
+        assertTrue(silent.isUnreachable)
     }
 
     @Test
@@ -203,7 +203,7 @@ class ApiTest {
                         api.repositoryDeletionCounts(7),
                         api.disconnectRepository(7),
                         api.fetchDocumentContent(1),
-                        api.noteImage(1, testCommit, "img/a b.png").also {
+                        api.documentImage(1, testCommit, "img/a b.png").also {
                             assertEquals("TEST_ONLY_BYTES", it.toString(Charsets.UTF_8))
                         },
                         api.saveReading(1, reading(50, testAt)),
@@ -214,7 +214,7 @@ class ApiTest {
                         api.editAnnotation(9, edit),
                         api.deleteAnnotation(9, 1),
                         api.reattachAnnotation(9, reattach),
-                        api.recordReview(10, grade),
+                        api.recordReview(10, testReview().cardMutationId, grade),
                         api.uploadDeviceLogBatch(
                             DeviceLogIngestControllerUploadRequest(
                                 lines =
@@ -383,7 +383,7 @@ class ApiTest {
                 Triple(
                     "POST /api/annotations/10/reviews",
                     wire(testReview().copy(grade = 3)),
-                    { it.recordReview(10, grade) },
+                    { it.recordReview(10, testReview().cardMutationId, grade) },
                 ),
             )
         for ((route, body, call) in cases) {

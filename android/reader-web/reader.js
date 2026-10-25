@@ -38,11 +38,11 @@ async function render() {
     let svg;
     try {
       ({svg} = await mermaid.render(`diagram-${source.dataset.blockId}`, source.dataset.anchorText));
-    } catch (error) {
+    } catch (failure) {
       status.diagramErrors++;
       diagram.className = 'diagram-error';
       diagram.textContent = `Diagram ${source.dataset.blockId} could not be rendered. Its source is available below.`;
-      console.error(`Mermaid failed for ${source.dataset.blockId}: ${error?.name || 'diagram-input-error'}`);
+      console.error(`Mermaid failed for ${source.dataset.blockId}: ${failure?.name || 'diagram-input-error'}`);
       continue;
     }
     diagram.innerHTML = svg;
@@ -457,7 +457,7 @@ document.addEventListener('click', event => {
   if (!window.reporead.showHeading(wanted)) showSheetMessage(`No heading “${wanted}” in this note.`);
 });
 
-/* Study.kt owns recognition (LeetCode sections). The page only lays out its model, without changing any block's text. */
+/* ReaderStudyMode.kt owns recognition. The page only lays out its model, without changing any block's text. */
 function revealStudyBlock(block) {
   for (let section = block.closest('.study-section'); section; section = section.parentElement.closest('.study-section')) {
     section.classList.add('study-revealed');

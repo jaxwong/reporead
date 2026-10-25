@@ -266,7 +266,7 @@ class AccountTest {
         LoopbackServer(emptyMap()).use { server ->
             val account = account(server.url)
             account.signIn("TEST_ONLY_UNSOLICITED_CODE")
-            assertEquals("SIGN_IN_NOT_STARTED", (account.settled().notice as AccountNotice.SignInFailed).error.code)
+            assertEquals("SIGN_IN_NOT_STARTED", (account.settled().notice as AccountNotice.SignInFailed).failure.code)
             assertFalse(sessions.hasSession)
             assertPhoneKept()
             assertEquals(emptyList<String>(), server.requests)

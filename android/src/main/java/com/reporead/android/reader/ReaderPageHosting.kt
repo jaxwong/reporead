@@ -22,7 +22,7 @@ import org.json.JSONTokener
 
 /*
  * One owner for how a rendered note page is hosted, shared by the reader (ReaderSession) and the pages shown beside it
- * (IsolatedPage: a link preview, a bank answer): the same isolation, the same resources, the same script bridge, and
+ * (IsolatedPage: a link preview): the same isolation, the same resources, the same script bridge, and
  * the same wait for rendering.
  */
 

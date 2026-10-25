@@ -99,8 +99,7 @@ class SavedPageImagesDeletionTest {
         assertFalse(File(temporary.root, "images/1").exists())
     }
 
-    private fun saved(documentId: Long, snapshotCommitSha: String) =
-        SavedVersion(documentId, "c".repeat(40), "test-only.md", 3, snapshotCommitSha)
+    private fun saved(documentId: Long, snapshotCommitSha: String) = SavedVersion(documentId, snapshotCommitSha)
 
     /** What is left under images/, as document/version folders. */
     private fun versionsLeft() =

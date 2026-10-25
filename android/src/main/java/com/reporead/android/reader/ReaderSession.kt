@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.webkit.WebViewAssetLoader
 import com.reporead.android.OpenAt
 import com.reporead.android.database.AnnotationEntity
+import com.reporead.android.database.NOTE_LINK_PATH
 import com.reporead.android.database.Passage
 import com.reporead.android.database.ReadingStateEntity
 import com.reporead.android.database.RepoReadDao
@@ -36,7 +37,6 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val NOTE_LINK = "/note-link"
 /** The reader page's Copy link on a code block (reader.js addCodeTools); the text is then read with codeText(). */
 private const val COPY_CODE = "/copy-code"
 private const val SAVE_AFTER_SCROLL_MS = 700L
@@ -210,7 +210,7 @@ internal class ReaderSession(
     private fun openLink(view: WebView, url: Uri) {
         if (url.host == ASSET_HOST) {
             when (url.path) {
-                NOTE_LINK -> openNoteLink(url)
+                NOTE_LINK_PATH -> openNoteLink(url)
                 COPY_CODE -> url.getQueryParameter("block")?.let { appScope.launch { copyCode(it) } }
             }
         } else if (url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto") {
@@ -395,7 +395,7 @@ internal class ReaderSession(
         val anchor = position.getJSONObject("anchor")
         val block = anchor.getInt("blockIndex")
         topBlock = block
-        val row =
+        val readingState =
             ReadingStateEntity(
                 note.documentId,
                 note.blobSha,
@@ -404,9 +404,9 @@ internal class ReaderSession(
                 System.currentTimeMillis(),
                 pending = true,
             )
-        if (sync.saveReading(row))
+        if (sync.saveReading(readingState))
             DeviceLog.debug(
-                "Reading position saved; documentId=${note.documentId} percent=${row.progressPercent} block=$block " +
+                "Reading position saved; documentId=${note.documentId} percent=${readingState.progressPercent} block=$block " +
                     "viewHeight=${view.height}"
             )
     }

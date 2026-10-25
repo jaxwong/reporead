@@ -7,6 +7,7 @@ import android.util.Log
 import com.reporead.android.BuildConfig
 import java.io.File
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.time.Instant
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -113,6 +114,7 @@ object DeviceLog {
                 else message.take(MAX_LINE_CHARS) + "… (${message.length - MAX_LINE_CHARS} characters cut)"
             val pending = File(started(), PENDING)
             try {
+                cutUnfinishedLine(pending)
                 pending.appendText(line(level, bounded))
                 if (pending.length() > STORE_MAX_BYTES) keepNewest(pending)
             } catch (ioFailure: IOException) {
@@ -121,6 +123,23 @@ object DeviceLog {
             }
             if (File(started(), SENDING).exists()) null else requestUploadOnWarning
         }
+
+    /**
+     * Cuts a last line stored without its newline (a write a full disk or the process's end cut short), so every line
+     * starts on its own and none joins into one the server cannot read.
+     */
+    private fun cutUnfinishedLine(pending: File) {
+        if (pending.length() == 0L) return
+        RandomAccessFile(pending, "rw").use { file ->
+            var end = file.length()
+            while (end > 0) {
+                file.seek(end - 1)
+                if (file.read() == '\n'.code) break
+                end--
+            }
+            file.setLength(end)
+        }
+    }
 
     /** Keeps the newest lines within half the cap, so trimming is rare, and says how many older lines went. */
     private fun keepNewest(pending: File) {

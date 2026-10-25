@@ -101,7 +101,7 @@ class InterviewBankTest {
                         PromptBlock.Code("\$ ls\nREADME"),
                         PromptBlock.Items(listOf("one", "two"), isOrdered = true),
                     ),
-                worked = LinkedText("Bitly (free).", listOf(WebLink("Bitly", "https://example.com/bitly"))),
+                worked = LinkedText("Bitly (free).", listOf(WebLink("https://example.com/bitly", 0..4))),
                 level = "Foundations",
             ),
             acid,
@@ -110,6 +110,39 @@ class InterviewBankTest {
         assertEquals("Diagnosis", diagnosis.level)
         assertEquals("It is 2.", diagnosis.shortAnswer)
         assertNull(diagnosis.worked)
+    }
+
+    @Test
+    fun workedAnswerLinksKeepTheirAuthoredRangesAmongRepeatedPlainText() {
+        val worked =
+            """<p data-block-id="w1" data-anchor-text="Worked answer: Read then Read and Read."><strong>Worked answer:</strong> Read then <a href="https://example.com/first">Read</a> and <a href="https://example.com/second">Read</a>.</p>"""
+        val parsed = parseInterviewBank(page(question(1, "Why?", parts(1).also { it.add(3, worked) })))
+
+        assertEquals(
+            LinkedText(
+                "Read then Read and Read.",
+                listOf(
+                    WebLink("https://example.com/first", 10..13),
+                    WebLink("https://example.com/second", 19..22),
+                ),
+            ),
+            parsed.questions.single().worked,
+        )
+    }
+
+    @Test
+    fun aWorkedAnswerLinkStaysInsideTheTrimmedText() {
+        val worked =
+            """<p data-block-id="w1" data-anchor-text="Worked answer: See docs"><strong>Worked answer:</strong><a href="https://example.com/start"> See</a> <a href="https://example.com/end">docs </a></p>"""
+        val parsed = parseInterviewBank(page(question(1, "Why?", parts(1).also { it.add(3, worked) })))
+
+        assertEquals(
+            LinkedText(
+                "See docs",
+                listOf(WebLink("https://example.com/start", 0..2), WebLink("https://example.com/end", 4..7)),
+            ),
+            parsed.questions.single().worked,
+        )
     }
 
     @Test

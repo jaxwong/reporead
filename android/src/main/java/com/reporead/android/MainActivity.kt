@@ -18,8 +18,8 @@ import com.reporead.android.logging.DeviceLog
 import com.reporead.android.sync.requestDeviceLogUpload
 
 internal const val NAVIGATION_STATE_FORMAT_KEY = "navigationStateFormat"
-/** Older formats may contain serialized classes whose package or type name no longer exists. */
-internal const val NAVIGATION_STATE_FORMAT = 5
+/** Older formats may contain serialized classes whose package, type name or shape no longer exists. */
+internal const val NAVIGATION_STATE_FORMAT = 6
 
 /**
  * Compose keys saved UI state by position, so the old string-list stack cannot be read as Navigation 3 state. Drop

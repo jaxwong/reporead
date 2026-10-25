@@ -37,6 +37,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -111,6 +112,29 @@ class ReaderViewModelTest {
         }
     }
 
+    /** A failed edit reopens its editor with its own reason; the screen-wide notice is not where that reason goes. */
+    @Test
+    fun aFailedEditReturnsToItsEditorWithItsReason() = runBlocking {
+        val unreachable = Api("http://127.0.0.1:1", { StoredSession.Readable("TEST_ONLY_SESSION") }) {}
+        val sync = PhoneSync(unreachable, store, directory) {}
+        val dao = store.dao()
+        val highlight = checkNotNull(dao.annotation(TEST_HIGHLIGHT_MUTATION))
+        val model =
+            withContext(Dispatchers.Main) {
+                val factory = viewModelFactory {
+                    initializer { ReaderViewModel(sync, dao, SavedStateHandle(), 1, "test-only-entry") }
+                }
+                ViewModelProvider.create(owners, factory)[ReaderViewModel::class].also {
+                    it.editNote(highlight, "Test-only edit", highlight.version)
+                }
+            }
+        withTimeout(10_000) { while (model.state.value.isChanging || model.state.value.overlay == null) delay(20) }
+        val editor = model.state.value.overlay as ReaderOverlay.EditNote
+        assertEquals("Test-only edit", editor.initial)
+        assertTrue(editor.failure.toString(), editor.failure.orEmpty().startsWith("Edit not saved. "))
+        assertNull(model.state.value.message)
+    }
+
     /** T14: a second change while one runs starts nothing; once it has finished, the next one runs. */
     @Test
     fun oneServerChangeToAHighlightRunsAtATime() = runBlocking {
@@ -149,7 +173,7 @@ class ReaderViewModelTest {
                 } finally {
                     release.countDown()
                 }
-                withTimeout(10_000) { while (model.state.value.changing) delay(20) }
+                withTimeout(10_000) { while (model.state.value.isChanging) delay(20) }
                 assertEquals(listOf("PATCH /api/annotations/9"), server.requests)
                 assertEquals("Test-only first", dao.annotation(TEST_HIGHLIGHT_MUTATION)?.note)
                 // The second run: a change asked for after the first finished runs.

@@ -111,6 +111,20 @@ val requestMaxBytes =
         }
         .get()
 
+// The server owns the repository-image cap; the app's fetch gate derives it from that declaration.
+val imageMaxResponseBytes =
+    providers.fileContents(
+            rootProject.layout.projectDirectory.file(
+                "backend/src/main/java/com/reporead/github/GitHubHttpConfiguration.java"
+            )
+        )
+        .asText
+        .map { source ->
+            Regex("""MAX_IMAGE_RESPONSE_BYTES = ([0-9_ *]+);""").find(source)?.groupValues?.get(1)
+                ?: error("GitHubHttpConfiguration.java has no line `MAX_IMAGE_RESPONSE_BYTES = <digits and *>;`")
+        }
+        .get()
+
 val signingStore = providers.gradleProperty("reporead.signing.storeFile").orNull
 val signingPasswordFile = providers.gradleProperty("reporead.signing.passwordFile").orNull
 
@@ -134,6 +148,7 @@ android {
         buildConfigField("int", "LIBRARY_MAX_RESPONSE_BYTES", libraryMaxResponseBytes)
         buildConfigField("int", "RENDER_FORMAT", renderFormat)
         buildConfigField("int", "REQUEST_MAX_BYTES", requestMaxBytes)
+        buildConfigField("int", "IMAGE_MAX_RESPONSE_BYTES", imageMaxResponseBytes)
     }
 
     signingConfigs {
