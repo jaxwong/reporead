@@ -125,14 +125,15 @@ class FeatureRemovalMigrationTest {
                 assertEquals(AnnotationState.ACKNOWLEDGED, dao.annotation("highlight")!!.state)
                 assertEquals(listOf(ReviewEntity("grade", "card", 2, 8, sha, pending = true)), dao.reviews().first())
                 SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                    assertEquals(19, db.version)
+                    assertEquals(currentSchemaVersion(), db.version)
                     db.rawQuery("PRAGMA foreign_key_check", null).use { assertFalse(it.moveToFirst()) }
                     db.rawQuery("SELECT name FROM sqlite_master WHERE name = 'change_baselines'", null).use {
                         assertFalse(it.moveToFirst())
                     }
-                    db.rawQuery("PRAGMA table_info(notes)", null).use { columns ->
+                    db.rawQuery("PRAGMA table_info(saved_pages)", null).use { columns ->
                         val names = mutableSetOf<String>()
                         while (columns.moveToNext()) names += columns.getString(1)
+                        assertTrue("saved_pages must have columns", names.isNotEmpty())
                         assertFalse("searchText column must be removed", "searchText" in names)
                     }
                 }
