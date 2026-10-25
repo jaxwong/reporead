@@ -76,14 +76,15 @@ data class RefusedChange(val documentId: Long, val title: String?, val error: Ap
 /**
  * Owns how the offline cache and the backend meet. A failed call ends that operation and leaves the previous complete
  * cache untouched. Pending-change delivery is distinct from [refreshRepositoryFromGitHub], which asks the backend to
- * reconcile a repository snapshot. Nothing here retries; every local change calls [requestPendingChangeSend], which
- * asks WorkManager for a background pending-change send (PendingSyncWorker.kt, ADR-08).
+ * reconcile a repository snapshot. Nothing here retries; every local change calls [onPendingChangeSaved], which the app
+ * answers by asking WorkManager for a background pending-change send (requestPendingChangeSend in PendingSyncWorker.kt,
+ * ADR-08).
  */
 class PhoneSync(
     private val api: Api,
     store: RepoReadDatabase,
     filesDir: File,
-    private val requestPendingChangeSend: () -> Unit,
+    private val onPendingChangeSaved: () -> Unit,
 ) {
     private val dao = store.dao()
 
@@ -331,7 +332,7 @@ class PhoneSync(
      * phone's copies are then removed by reloading the server's library.
      */
     suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = locked {
-        val pendingChanges = sendPending().also { loadLibrary() }
+        val pendingChanges = sendPendingChanges().also { loadLibrary() }
         val deletionCounts =
             try {
                 api.repositoryDeletionCounts(repositoryId)
@@ -373,7 +374,7 @@ class PhoneSync(
     /** Only the reader calls this, with the version it actually displayed. False for a disconnected note. */
     suspend fun saveReading(readingState: ReadingStateEntity): Boolean = committed {
         dao.saveDisplayedReading(readingState.copy(pending = true)).also { wasSaved ->
-            if (wasSaved) requestPendingChangeSend()
+            if (wasSaved) onPendingChangeSaved()
             else DeviceLog.info("Reading position not saved; note gone; documentId=${readingState.documentId}")
         }
     }
@@ -382,7 +383,7 @@ class PhoneSync(
     suspend fun setBookmark(documentId: Long, bookmarked: Boolean): Boolean = committed {
         dao.saveLocalBookmark(BookmarkEntity(documentId, bookmarked, pending = true, System.currentTimeMillis()))
             .also { wasSaved ->
-                if (wasSaved) requestPendingChangeSend()
+                if (wasSaved) onPendingChangeSaved()
                 else DeviceLog.info("Bookmark not saved; note gone; documentId=$documentId")
             }
     }
@@ -392,23 +393,23 @@ class PhoneSync(
      * recordReview).
      */
     suspend fun recordReview(review: ReviewEntity): Boolean = committed {
-        dao.recordReview(review).also { if (it) requestPendingChangeSend() }
+        dao.recordReview(review).also { if (it) onPendingChangeSaved() }
     }
 
     /**
-     * The Library's send-and-refresh operation: sends what waits ([sendPending]), then loads the server's library
+     * The Library's send-and-load operation: sends what waits ([sendPendingChanges]), then loads the server's library
      * ([loadLibrary]).
      */
-    suspend fun sendPendingChangesAndRefreshLibrary(): PendingChangesResult = locked {
-        sendPending().also { loadLibrary() }
+    suspend fun sendPendingChangesAndLoadLibrary(): PendingChangesResult = locked {
+        sendPendingChanges().also { loadLibrary() }
     }
 
     /**
      * The background sender: sends what waits, and nothing when nothing does (null); each send saves the server's
      * answer, so the lists are left to the screens.
      */
-    suspend fun sendPendingChanges(): PendingChangesResult? = locked {
-        if (dao.unsentChangeCount().first() == 0 && dao.pendingReading().isEmpty()) null else sendPending()
+    suspend fun sendPendingChangesIfAny(): PendingChangesResult? = locked {
+        if (dao.unsentChangeCount().first() == 0 && dao.pendingReading().isEmpty()) null else sendPendingChanges()
     }
 
     /**
@@ -416,7 +417,7 @@ class PhoneSync(
      * access to it, fails they wait, and the database-only work still runs (ADR-03). A refused item is marked and the
      * run goes on; any other failure ends the run with unacknowledged changes still pending.
      */
-    private suspend fun sendPending(): PendingChangesResult {
+    private suspend fun sendPendingChanges(): PendingChangesResult {
         val annotationSendFailure =
             try {
                 sendAnnotations()
@@ -481,7 +482,7 @@ class PhoneSync(
     suspend fun createAnnotation(passage: Passage, documentId: Long, note: String?): NewHighlight = committed {
         val saved = dao.saveLocalAnnotation(newAnnotation(passage, documentId, note, null))
         when (saved) {
-            is NewHighlight.Saved -> requestPendingChangeSend()
+            is NewHighlight.Saved -> onPendingChangeSaved()
             is NewHighlight.AlreadyHighlighted ->
                 DeviceLog.info(
                     "Highlight not saved; phrase already highlighted; documentId=$documentId existing=${saved.existing.mutationId}"
@@ -510,7 +511,7 @@ class PhoneSync(
                     pending = true,
                 )
             val saveResult = dao.saveCardWithFirstReview(card, review)
-            if (saveResult == NewCardGrade.SAVED) requestPendingChangeSend()
+            if (saveResult == NewCardGrade.SAVED) onPendingChangeSaved()
             DeviceLog.info("Practice grade; documentId=$documentId mutationId=${card.mutationId} outcome=$saveResult")
             saveResult
         }
@@ -693,7 +694,7 @@ class PhoneSync(
             AnnotationState.REFUSED -> dao.removeAnnotation(annotation.mutationId)
             AnnotationState.UNSENT -> {
                 dao.markDeleting(annotation.mutationId)
-                requestPendingChangeSend()
+                onPendingChangeSaved()
             }
             AnnotationState.DELETING ->
                 error("Highlight ${annotation.mutationId} is already being deleted; it is not shown")

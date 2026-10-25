@@ -45,14 +45,14 @@ class PendingSyncWorker(context: Context, params: WorkerParameters) : CoroutineW
 }
 
 /**
- * One background send: sends what waits, as library open does, but loads no lists (PhoneSync.sendPendingChanges). An
- * unreachable server, a 5xx, or GitHub unavailable is tried again by WorkManager; anything else (signed out, access
+ * One background send: sends what waits, as library open does, but loads no lists (PhoneSync.sendPendingChangesIfAny).
+ * An unreachable server, a 5xx, or GitHub unavailable is tried again by WorkManager; anything else (signed out, access
  * denied) waits for the next change or library open, which show it. [attempt] counts from 0.
  */
 internal suspend fun sendPendingChangesInBackground(phoneSync: PhoneSync, attempt: Int): Result {
     val sendResult =
         try {
-            phoneSync.sendPendingChanges()
+            phoneSync.sendPendingChangesIfAny()
         } catch (failure: ApiException) {
             return if (shouldRetry("Pending-change sender", failure, attempt)) Result.retry() else Result.failure()
         }
