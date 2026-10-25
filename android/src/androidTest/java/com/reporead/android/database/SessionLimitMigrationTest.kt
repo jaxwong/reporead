@@ -36,7 +36,7 @@ class SessionLimitMigrationTest {
             assertEquals("Test-only question?", dao.annotation("card")?.question)
             assertEquals(listOf(ReviewEntity("grade", "card", 4, 6, sha, pending = true)), dao.reviews().first())
             SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                assertEquals(19, db.version)
+                assertEquals(currentSchemaVersion(), db.version)
                 db.rawQuery("SELECT name FROM sqlite_master WHERE name = 'review_limits'", null).use {
                     assertFalse(it.moveToFirst())
                 }

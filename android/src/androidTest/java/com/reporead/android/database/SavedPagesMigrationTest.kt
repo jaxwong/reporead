@@ -37,7 +37,7 @@ class SavedPagesMigrationTest {
             assertEquals(listOf("b0"), dao.searchSavedPageText("%Needle%", 10).map { it.blockId })
             assertEquals(listOf(NoteLinkEntity(1, 0, "path=b.md")), dao.noteLinks(1))
             SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-                assertEquals(20, db.version)
+                assertEquals(currentSchemaVersion(), db.version)
                 db.rawQuery(
                         "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('notes', 'note_search_blocks')",
                         null,

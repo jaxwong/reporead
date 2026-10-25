@@ -6,6 +6,21 @@ import java.util.UUID
 import org.json.JSONObject
 
 /**
+ * Test-only: the version Room migrates to, as the newest exported schema names it (Room writes one file per
+ * `@Database(version)`), so a migration test never hard-codes a version the next schema change would make wrong.
+ */
+internal fun currentSchemaVersion(): Int =
+    checkNotNull(
+            InstrumentationRegistry.getInstrumentation()
+                .context
+                .assets
+                .list("com.reporead.android.database.RepoReadDatabase")
+        ) {
+            "Exported Room schemas are missing from the androidTest assets"
+        }
+        .maxOf { it.removeSuffix(".json").toInt() }
+
+/**
  * Test-only: builds a database at the exported schema [version], lets [fill] add rows, then opens it with the current
  * schema, which runs every production migration since [version], and hands its DAO to [verify]. The database is deleted
  * afterwards.
