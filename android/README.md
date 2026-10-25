@@ -92,7 +92,8 @@ ViewModels; the production screens' work now belongs to their entry owners (ADR-
 format 1's incompatible Compose-owned session/UI state. Audit PR1 advances it to 3 because format 2 may contain the
 retired figure destination. The study-package moves advance it to 4 because saved sessions name the former
 `library.StudySession` class. This database type/package move advances it to 5 because reader overlays may serialize
-the former entity class names. Navigation, drafts and in-progress sessions reset once; Room, files and pending
+the former entity class names. The 2026-10-25 audit advances it to 6 because the Edit note overlay now carries its
+own failure text, which changes its serialized form. Navigation, drafts and in-progress sessions reset once; Room, files and pending
 mutations are untouched.
 [ADR-27](../docs/adrs.md#adr-27--navigation-3-owns-the-back-stack-saved-screen-state-belongs-to-its-entry-and-its-format)
 and ADR-28 record decisions and executed evidence.
