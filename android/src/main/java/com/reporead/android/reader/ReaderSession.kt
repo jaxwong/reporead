@@ -60,8 +60,8 @@ internal sealed interface Selection {
 }
 
 /**
- * One displayed note version in an isolated WebView. Repository content gets no credentials, no JavaScript bridge, and
- * no network, file, or content access; native code reads and restores the position through evaluateJavascript only.
+ * One displayed note version in the reader's WebView, from loading to release: where it opens, the saved position,
+ * highlights, find, links and selections. ReaderPageHosting.kt owns how the page is isolated and scripted.
  */
 internal class ReaderSession(
     private val note: SavedPageEntity,
