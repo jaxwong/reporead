@@ -56,8 +56,8 @@ class SavedPageImagesTest {
                 val images =
                     SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
                 repeat(2) {
-                    assertArrayEquals("OLD_PNG".toByteArray(), images.image(1, sha, "a.png"))
-                    assertArrayEquals("NEW_PNG".toByteArray(), images.image(1, newer, "a.png"))
+                    assertArrayEquals("OLD_PNG".toByteArray(), images.loadImageBytes(1, sha, "a.png"))
+                    assertArrayEquals("NEW_PNG".toByteArray(), images.loadImageBytes(1, newer, "a.png"))
                 }
                 assertTrue(server.requests.toString(), server.requests.size == 2)
                 images.sweep(listOf(SavedVersion(1, sha, "a.md", 3, sha), SavedVersion(1, sha, "a.md", 3, newer)))
@@ -72,8 +72,10 @@ class SavedPageImagesTest {
             val directory = File(filesDir, "images/1/$sha").apply { check(mkdirs()) }
             File(directory, "old-key").writeText("OLD_IMAGE")
             val images = SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
-            assertNull(images.image(1, null, "a.png"))
-            images.save(SavedPageEntity(1, sha, "a.md", "a", """<main><img src="/repo-image/a.png"></main>""", 0))
+            assertNull(images.loadImageBytes(1, null, "a.png"))
+            images.saveImagesToDisk(
+                SavedPageEntity(1, sha, "a.md", "a", """<main><img src="/repo-image/a.png"></main>""", 0)
+            )
             images.sweep(listOf(SavedVersion(1, sha, "a.md", 3, null)))
             assertTrue(!directory.exists())
             assertTrue(server.requests.isEmpty())
@@ -87,7 +89,7 @@ class SavedPageImagesTest {
             .use { server ->
                 val images =
                     SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
-                assertNull(images.image(1, sha, "a.png"))
+                assertNull(images.loadImageBytes(1, sha, "a.png"))
                 val note =
                     SavedPageEntity(
                         1,
@@ -98,7 +100,7 @@ class SavedPageImagesTest {
                         0,
                         snapshotCommitSha = sha,
                     )
-                val error = runCatching { images.save(note) }.exceptionOrNull()
+                val error = runCatching { images.saveImagesToDisk(note) }.exceptionOrNull()
                 assertTrue("Save all must receive the image failure", error is ApiException)
                 assertEquals("GITHUB_UNAVAILABLE", (error as ApiException).code)
                 assertEquals(listOf(request, request), server.requests)
@@ -109,11 +111,11 @@ class SavedPageImagesTest {
     fun anUnreadableCachedImageDoesNotTriggerAnotherFetchStrategy() {
         LoopbackServer(mapOf("GET /api/documents/1/image?commitSha=$sha&path=a.png" to (200 to "PNG"))).use { server ->
             val images = SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
-            assertArrayEquals("PNG".toByteArray(), images.image(1, sha, "a.png"))
+            assertArrayEquals("PNG".toByteArray(), images.loadImageBytes(1, sha, "a.png"))
             val file = File(filesDir, "images/1/commit-$sha").listFiles()!!.single()
             check(file.setReadable(false, false))
             try {
-                assertNull(images.image(1, sha, "a.png"))
+                assertNull(images.loadImageBytes(1, sha, "a.png"))
                 assertTrue(server.requests.toString(), server.requests.size == 1)
             } finally {
                 check(file.setReadable(true, true))
@@ -128,11 +130,11 @@ class SavedPageImagesTest {
             ->
             val images = SavedPageImages(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, filesDir)
             val expected = payload.toByteArray()
-            assertArrayEquals(expected, images.image(1, sha, "a.png"))
+            assertArrayEquals(expected, images.loadImageBytes(1, sha, "a.png"))
             val start = CountDownLatch(1)
             val reading = CompletableFuture.runAsync {
                 check(start.await(10, SECONDS))
-                repeat(100) { assertArrayEquals(expected, images.image(1, sha, "a.png")) }
+                repeat(100) { assertArrayEquals(expected, images.loadImageBytes(1, sha, "a.png")) }
             }
             val sweeping = CompletableFuture.runAsync {
                 start.countDown()
@@ -151,7 +153,7 @@ class SavedPageImagesTest {
             // The version's folder cannot be created: a file has its name, so nothing can be written in it.
             File(filesDir, "images/1").mkdirs()
             File(filesDir, "images/1/commit-$sha").writeText("test-only, not a folder")
-            assertArrayEquals("PNG".toByteArray(), images.image(1, sha, "a.png"))
+            assertArrayEquals("PNG".toByteArray(), images.loadImageBytes(1, sha, "a.png"))
         }
     }
 }

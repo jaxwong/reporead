@@ -73,7 +73,7 @@ class SavedPageImagesDeletionTest {
                     temporary.root,
                 )
             var bytes: ByteArray? = null
-            val fetch = thread { bytes = images.image(1, current, "a.png") }
+            val fetch = thread { bytes = images.loadImageBytes(1, current, "a.png") }
             try {
                 check(arrived.await(10, SECONDS)) { "The fetch never reached the server" }
                 whileHeld(images)

@@ -284,10 +284,10 @@ class PhoneSync(
                 locked {
                     val savedPage = dao.savedPage(document.id)
                     if (savedPage != null && upToDate(savedPage, document, repositoryCommitSha)) {
-                        images.save(savedPage)
+                        images.saveImagesToDisk(savedPage)
                         alreadySaved++
                     } else {
-                        images.save(fetchSavedPage(document.id))
+                        images.saveImagesToDisk(fetchSavedPage(document.id))
                         fetched++
                     }
                 }
