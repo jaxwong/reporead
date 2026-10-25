@@ -7,8 +7,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InterviewBankTest {
-    private val bank = "core/databases/interview/07-transactions.md"
-
     private fun heading(id: String, name: String, level: Int = 3) =
         """<h$level data-block-id="$id" data-anchor-text="$name">$name</h$level>"""
 
@@ -74,7 +72,7 @@ class InterviewBankTest {
                     heading("h2", "Diagnosis", 2) +
                     question(2, "2. Why 503?")
             )
-        val parsed = parseInterviewBank(html, bank)
+        val parsed = parseInterviewBank(html)
         assertEquals(emptyList<BankProblem>(), parsed.unrecognized)
         val (acid, diagnosis) = parsed.questions
         assertEquals(
@@ -128,7 +126,7 @@ class InterviewBankTest {
                     "</ul></li></ol>" +
                     parts(1, "Canonical path:").joinToString("")
             )
-        val question = parseInterviewBank(html, bank).questions.single()
+        val question = parseInterviewBank(html).questions.single()
         assertEquals(listOf("Which key?", "What expires?"), question.followUps)
         assertEquals("After you add a cache\n\n1. Which key?\n2. What expires?", question.prompt)
         assertEquals(listOf(PromptBlock.Paragraph("Assume one region.")), question.material)
@@ -187,7 +185,7 @@ class InterviewBankTest {
             )
         for ((rule, breaks) in cases) {
             val blocks = parts(1).also(breaks)
-            val parsed = parseInterviewBank(page(question(1, "1. Why?", blocks)), bank)
+            val parsed = parseInterviewBank(page(question(1, "1. Why?", blocks)))
             assertEquals(rule, emptyList<StudyQuestion>(), parsed.questions)
             assertEquals(rule, listOf(BankProblem("q1", "1. Why? — $rule")), parsed.unrecognized)
         }
@@ -201,8 +199,7 @@ class InterviewBankTest {
                 page(
                     question(1, "Why?", parts(1).also { it[4] = paragraph("a1", "Canonical answer: Plain") }) +
                         paragraph("a2", "Canonical answer: Plain")
-                ),
-                bank,
+                )
             )
         assertEquals(listOf(BankProblem("q1", "Why? — no Canonical line")), parsed.unrecognized)
     }
@@ -211,8 +208,7 @@ class InterviewBankTest {
     fun aCanonicalLineUnderNoQuestionIsListedToo() {
         val parsed =
             parseInterviewBank(
-                page(heading("h0", "Applied questions", 2) + line("a0", "Canonical answer:", "target=x" to "X")),
-                bank,
+                page(heading("h0", "Applied questions", 2) + line("a0", "Canonical answer:", "target=x" to "X"))
             )
         assertEquals(emptyList<StudyQuestion>(), parsed.questions)
         assertEquals(listOf(BankProblem("a0", "Canonical answer: X")), parsed.unrecognized)
@@ -221,10 +217,7 @@ class InterviewBankTest {
     @Test
     fun repeatedHeadingsKeepTheirOwnBlocksRatherThanTheFirstMatchingText() {
         val parsed =
-            parseInterviewBank(
-                page(question(1, "Repeated") + heading("r2", "Repeated") + heading("r3", "Repeated")),
-                bank,
-            )
+            parseInterviewBank(page(question(1, "Repeated") + heading("r2", "Repeated") + heading("r3", "Repeated")))
         assertEquals(listOf("q1"), parsed.questions.map { it.blockId })
         assertEquals(
             listOf(
@@ -247,21 +240,15 @@ class InterviewBankTest {
                             parts(2).also { it[4] = line("a2", "Canonical answer:", "target=z" to "Section 1") },
                         ) +
                         question(3, "Different?")
-                ),
-                bank,
+                )
             )
         assertEquals(listOf("First?", "Different?"), parsed.questions.map { it.text })
         assertEquals(listOf(BankProblem("q2", "Second? — repeats a Canonical line")), parsed.unrecognized)
     }
 
     @Test
-    fun questionsComeOnlyFromNotesInAnInterviewFolder() {
-        val html = page(heading("h0", "Applied questions", 2) + question(1, "1. A bank question?"))
-        assertEquals(1, parseInterviewBank(html, "interview/one.md").questions.size)
-        for (path in listOf("core/databases/07-transactions.md", "core/interview.md", "core/interviews/one.md")) {
-            assertEquals(path, InterviewBank(emptyList(), emptyList()), parseInterviewBank(html, path))
-        }
-        assertEquals(InterviewBank(emptyList(), emptyList()), parseInterviewBank("", bank))
+    fun aPageWithoutItsNoteHoldsNoQuestions() {
+        assertEquals(InterviewBank(emptyList(), emptyList()), parseInterviewBank(""))
     }
 
     @Test
@@ -289,8 +276,7 @@ class InterviewBankTest {
                 "<span class=\"wl-hidden\">]]</span></a></p>"
         val question =
             parseInterviewBank(
-                    page(heading("h0", "Foundations", 2) + linked + parts(1).dropLast(1).joinToString("") + line),
-                    bank,
+                    page(heading("h0", "Foundations", 2) + linked + parts(1).dropLast(1).joinToString("") + line)
                 )
                 .questions
                 .single()

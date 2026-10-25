@@ -23,7 +23,8 @@ class InterviewBankCorpus {
         val problems = mutableListOf<String>()
         for (file in root.walkTopDown().filter { it.isFile && it.name.endsWith(".md.html") }) {
             val path = file.relativeTo(root).invariantSeparatorsPath.removeSuffix(".html")
-            val bank = parseInterviewBank(file.readText(), path)
+            if (!isInterviewBank(path)) continue
+            val bank = parseInterviewBank(file.readText())
             bank.unrecognized.forEach { problems += "$path: not a question: ${it.text}" }
             if (bank.questions.isEmpty()) continue
             counts.merge(path.substringBeforeLast('/'), bank.questions.size, Int::plus)
