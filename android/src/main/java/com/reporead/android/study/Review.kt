@@ -49,9 +49,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Where a review session's progress, and when it started, are kept for process restoration. */
+/** Where a review session's progress, and the grades it saved, are kept for process restoration. */
 private const val SESSION = "session"
-private const val STARTED_AT = "startedAt"
+private const val SAVED_GRADES = "savedGrades"
 
 /**
  * One review session, kept by its back-stack entry ([entryId]) and restored with it ([savedState]): the due cards it
@@ -65,14 +65,22 @@ internal class ReviewViewModel(
 ) : ViewModel() {
     data class State(
         val session: StudySession? = null,
-        /** When the session started; the grades saved since are this session's. */
-        val startedAt: Long = 0,
+        /**
+         * The mutation ids of the grades this session asked to save. The review log's rows with these ids are this
+         * session's, whatever time the server gave them.
+         */
+        val savedGrades: Set<String> = emptySet(),
         val saving: Boolean = false,
         val notice: String? = null,
     )
 
     private val _state =
-        MutableStateFlow(State(session = savedState[SESSION], startedAt = savedState.get<Long>(STARTED_AT) ?: 0))
+        MutableStateFlow(
+            State(
+                session = savedState[SESSION],
+                savedGrades = savedState.get<ArrayList<String>>(SAVED_GRADES).orEmpty().toSet(),
+            )
+        )
     val state: StateFlow<State> = _state.asStateFlow()
 
     private fun updateSession(nextSession: StudySession, notice: String? = _state.value.notice) {
@@ -83,12 +91,9 @@ internal class ReviewViewModel(
     /** Chooses the session once, from the cards due now. */
     fun start(cards: List<NotebookItem>, reviewLog: List<ReviewEntity>) {
         if (_state.value.session != null) return
-        val startedAt = System.currentTimeMillis()
-        savedState[STARTED_AT] = startedAt
-        _state.update { it.copy(startedAt = startedAt) }
         updateSession(
             StudySession(
-                dueSession(cards, reviewLog, startedAt, Random.nextInt(), ZoneId.systemDefault()).map {
+                dueSession(cards, reviewLog, System.currentTimeMillis(), Random.nextInt(), ZoneId.systemDefault()).map {
                     it.annotation.mutationId
                 }
             )
@@ -133,6 +138,10 @@ internal class ReviewViewModel(
                 blobSha = answeredBlobSha,
                 pending = true,
             )
+        // Kept before the save starts, so a session restored after the grade was stored still knows it as its own.
+        val savedGrades = _state.value.savedGrades + review.mutationId
+        savedState[SAVED_GRADES] = ArrayList(savedGrades)
+        _state.update { it.copy(savedGrades = savedGrades) }
         viewModelScope.launch {
             if (sync.recordReview(review)) updateSession(session.graded(grade))
             else
@@ -244,7 +253,7 @@ internal fun ReviewScreen(
             // The cards this session saved a grade for, from the log.
             val gradedCardIds =
                 reviewLog
-                    .filter { it.rejection == null && it.reviewedAt >= state.startedAt }
+                    .filter { it.rejection == null && it.mutationId in state.savedGrades }
                     .map { it.cardMutationId }
                     .toSet()
             val currentCardId = session.current
