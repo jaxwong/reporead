@@ -40,6 +40,9 @@ import kotlinx.coroutines.withContext
  */
 private data class Backlinks(val notes: List<DocumentEntity>, val saved: Int, val listed: Int)
 
+/** The listed note (null when it is in no list) and, once found, the saved notes that link to it. */
+private class Listing(val document: DocumentEntity?, val backlinks: Backlinks?)
+
 private fun status(annotation: AnnotationEntity, displayedBlobSha: String, notShown: Set<String>): String? =
     when {
         annotation.state == AnnotationState.REFUSED -> "Not saved to the server: ${annotation.rejection}"
@@ -68,28 +71,32 @@ internal fun NotesPanel(
     onOpenNote: (DocumentEntity) -> Unit,
     modifier: Modifier,
 ) {
-    // The listed note's current version and whether it left its repository, which a card's status names.
-    val document by produceState<DocumentEntity?>(null, documentId) { value = dao.document(documentId) }
-    // Computed on the phone from the saved copies' links, so it works offline and covers only notes saved here.
-    val backlinks by
-        produceState<Backlinks?>(null, documentId) {
-            val note = dao.document(documentId)
-            if (note == null) {
-                value = Backlinks(emptyList(), 0, 0)
+    // The listed note's current version and whether it left its repository, which a card's status names, first; then
+    // the notes linking here, computed on the phone from the saved copies' links, so it works offline and covers only
+    // notes saved here.
+    val listing by
+        produceState<Listing?>(null, documentId) {
+            val document = dao.document(documentId)
+            if (document == null) {
+                value = Listing(null, Backlinks(emptyList(), 0, 0))
                 return@produceState
             }
-            val documents = dao.listedDocuments(note.repositoryId)
+            value = Listing(document, null)
+            val documents = dao.listedDocuments(document.repositoryId)
             val started = System.currentTimeMillis()
             val links =
-                dao.noteLinks(note.repositoryId).groupBy({ it.documentId }, { it.query }).mapValues { (_, queries) ->
+                dao.noteLinks(document.repositoryId).groupBy({ it.documentId }, { it.query }).mapValues { (_, queries)
+                    ->
                     queries.mapNotNull(::noteLinkTarget)
                 }
-            val found = withContext(Dispatchers.Default) { linkedFrom(note, documents, links) }
+            val found = withContext(Dispatchers.Default) { linkedFrom(document, documents, links) }
             DeviceLog.info(
                 "Linked from found; documentId=$documentId pagesWithLinks=${links.size} found=${found.size} ms=${System.currentTimeMillis() - started}"
             )
-            value = Backlinks(found, dao.savedPageCount(note.repositoryId), documents.size)
+            value = Listing(document, Backlinks(found, dao.savedPageCount(document.repositoryId), documents.size))
         }
+    val document = listing?.document
+    val backlinks = listing?.backlinks
 
     Column(modifier) {
         HorizontalDivider()

@@ -55,14 +55,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Immediate subfolders and notes of [folder] ("" is the repository root), derived from the document paths. */
-internal fun children(documents: List<DocumentEntity>, folder: String): Pair<List<String>, List<DocumentEntity>> {
+/** The immediate [folders] and [notes] of one folder, derived from the document paths. */
+internal data class FolderChildren(val folders: List<String>, val notes: List<DocumentEntity>)
+
+/** Immediate subfolders and notes of [folder] ("" is the repository root). */
+internal fun children(documents: List<DocumentEntity>, folder: String): FolderChildren {
     val prefix = if (folder.isEmpty()) "" else "$folder/"
     val inside = documents.filter { it.path.startsWith(prefix) }
     val folders =
         inside.mapNotNull { it.path.removePrefix(prefix).substringBefore('/', "").ifEmpty { null } }.distinct().sorted()
     val notes = inside.filter { '/' !in it.path.removePrefix(prefix) }.sortedBy { it.title.lowercase() }
-    return folders to notes
+    return FolderChildren(folders, notes)
 }
 
 /** What Save all is doing or did last, for the status line. */

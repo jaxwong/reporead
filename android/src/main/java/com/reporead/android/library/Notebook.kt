@@ -45,12 +45,15 @@ internal fun ancestorFolders(paths: List<String>): List<String> =
         .distinct()
         .sortedBy { it.replace('/', '\u0000') }
 
+/** One choice of a [Filter]: the [key] the filter holds and the [text] shown for it. */
+private data class FilterChoice(val key: String, val text: String)
+
 @Composable
-private fun Filter(label: String, choices: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
+private fun Filter(label: String, choices: List<FilterChoice>, selected: String, onSelect: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Column {
         TextButton(onClick = { open = true }) {
-            Text("$label: ${choices.firstOrNull { it.first == selected }?.second ?: selected}")
+            Text("$label: ${choices.firstOrNull { it.key == selected }?.text ?: selected}")
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             for ((key, text) in choices) DropdownMenuItem(
@@ -75,15 +78,18 @@ internal fun NotebookScreen(
     var document by rememberSaveable { mutableStateOf("") }
     var orphaned by rememberSaveable { mutableStateOf(false) }
     val folders =
-        remember(items) { listOf("" to "All folders") + ancestorFolders(items.map { it.path }).map { it to it } }
+        remember(items) {
+            listOf(FilterChoice("", "All folders")) +
+                ancestorFolders(items.map { it.path }).map { FilterChoice(it, it) }
+        }
     val notes =
         remember(items, folder) {
-            listOf("" to "All notes") +
+            listOf(FilterChoice("", "All notes")) +
                 items
                     .filter { inFolder(it.path, folder) }
                     .distinctBy { it.annotation.documentId }
                     .sortedBy { it.path }
-                    .map { it.annotation.documentId.toString() to it.path }
+                    .map { FilterChoice(it.annotation.documentId.toString(), it.path) }
         }
     val filtered = items.filter {
         inFolder(it.path, folder) &&

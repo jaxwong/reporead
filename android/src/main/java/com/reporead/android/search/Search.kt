@@ -136,10 +136,13 @@ private fun searchScope(listed: Int, texts: Int): String =
             " Notes not saved here are found by title and path only; a repository's menu has Save all notes on this phone."
         else ""
 
+/** What search can cover: [texts] saved pages among [listed] listed notes. */
+private data class SearchScope(val listed: Int, val texts: Int)
+
 /** No match for [query]; when not every note is saved, says that the others were searched by name only. */
-private fun noMatches(query: String, counts: Pair<Int, Int>?): String =
+private fun noMatches(query: String, scope: SearchScope?): String =
     "No saved note matches “$query”." +
-        counts
+        scope
             ?.let { (listed, texts) ->
                 if (texts < listed)
                     " Only $texts of $listed notes are saved on this phone, so only those are searched by their text."
@@ -151,8 +154,8 @@ private fun noMatches(query: String, counts: Pair<Int, Int>?): String =
 fun SearchScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var results by remember { mutableStateOf<SearchResults?>(null) }
-    var counts by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-    LaunchedEffect(Unit) { counts = dao.savedListCount() to dao.searchableSavedPageCount() }
+    var scope by remember { mutableStateOf<SearchScope?>(null) }
+    LaunchedEffect(Unit) { scope = SearchScope(dao.savedListCount(), dao.searchableSavedPageCount()) }
     LaunchedEffect(query) {
         results = null
         if (query.isBlank()) return@LaunchedEffect
@@ -171,9 +174,9 @@ fun SearchScreen(dao: RepoReadDao, push: (Screen) -> Unit, onBack: () -> Unit) {
             )
             val found = results
             when {
-                query.isBlank() -> EmptyState(counts?.let { (listed, texts) -> searchScope(listed, texts) }.orEmpty())
+                query.isBlank() -> EmptyState(scope?.let { (listed, texts) -> searchScope(listed, texts) }.orEmpty())
                 found == null -> Unit
-                found.matches.isEmpty() -> EmptyState(noMatches(query.trim(), counts))
+                found.matches.isEmpty() -> EmptyState(noMatches(query.trim(), scope))
                 else ->
                     LazyColumn {
                         if (found.isTruncated)

@@ -385,7 +385,7 @@ interface RepoReadDao {
         ) {
             "Invalid first review ${review.mutationId} for card ${card.mutationId}"
         }
-        if ((card.documentId to card.exactText) in scheduledLines(notebook().first()))
+        if (ScheduledLine(card.documentId, card.exactText) in scheduledLines(notebook().first()))
             return NewCardGrade.ALREADY_SCHEDULED
         val savedPage = savedPage(card.documentId) ?: return NewCardGrade.NOT_SAVED
         val document = document(card.documentId) ?: return NewCardGrade.NOT_SAVED
@@ -488,8 +488,8 @@ interface RepoReadDao {
     @Query("UPDATE annotations SET state = 'DELETING' WHERE mutationId = :mutationId")
     suspend fun setDeleting(mutationId: String)
 
-    @Query("DELETE FROM review_log WHERE cardMutationId = :mutationId AND pending")
-    suspend fun deletePendingCardReviews(mutationId: String)
+    @Query("DELETE FROM review_log WHERE cardMutationId = :cardMutationId AND pending")
+    suspend fun deletePendingCardReviews(cardMutationId: String)
 
     /**
      * The user deleted a creation the server has not acknowledged: hide it now and send the deletion at the next sync.

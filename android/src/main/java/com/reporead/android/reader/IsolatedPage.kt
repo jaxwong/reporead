@@ -22,7 +22,7 @@ internal open class IsolatedPage(context: Context) : WebView(context) {
     /** Loads one saved page; nothing navigates. A missing [script] target is reported, never replaced by another. */
     fun show(
         images: SavedPageImages,
-        note: SavedPageEntity,
+        savedPage: SavedPageEntity,
         name: String,
         script: String?,
         onFailed: () -> Unit,
@@ -35,13 +35,13 @@ internal open class IsolatedPage(context: Context) : WebView(context) {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
 
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                    readerResource(assets, images, note, request.url)
+                    readerResource(assets, images, savedPage, request.url)
 
                 override fun onPageFinished(view: WebView, url: String) {
                     rendering.launch {
                         val state = awaitRendered(view)
                         if (state != "ready") {
-                            DeviceLog.warn("$name did not render; documentId=${note.documentId} state=$state")
+                            DeviceLog.warn("$name did not render; documentId=${savedPage.documentId} state=$state")
                             onFailed()
                         } else onReady(script == null || view.evaluate(script) == true)
                     }
@@ -49,13 +49,13 @@ internal open class IsolatedPage(context: Context) : WebView(context) {
 
                 // Returning false would end the app with the page's renderer (a crash, or system reclamation).
                 override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                    DeviceLog.warn("$name stopped; documentId=${note.documentId} crashed=${detail.didCrash()}")
+                    DeviceLog.warn("$name stopped; documentId=${savedPage.documentId} crashed=${detail.didCrash()}")
                     rendering.cancel()
                     onFailed()
                     return true
                 }
             }
-        loadDataWithBaseURL("$ASSET_ORIGIN/", note.html, "text/html", "UTF-8", null)
+        loadDataWithBaseURL("$ASSET_ORIGIN/", savedPage.html, "text/html", "UTF-8", null)
     }
 
     override fun destroy() {

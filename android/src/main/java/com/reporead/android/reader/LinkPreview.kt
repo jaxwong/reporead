@@ -37,7 +37,7 @@ private sealed interface Saved {
 
     data object Missing : Saved
 
-    data class Copy(val note: SavedPageEntity) : Saved
+    data class Copy(val savedPage: SavedPageEntity) : Saved
 }
 
 /**
@@ -86,13 +86,13 @@ internal fun LinkPreviewSheet(
                     )
                 is Saved.Copy -> {
                     val older =
-                        if (copy.note.blobSha != target.blobSha) "The saved copy is an older version of this note."
+                        if (copy.savedPage.blobSha != target.blobSha) "The saved copy is an older version of this note."
                         else null
                     for (line in listOfNotNull(older, notice)) Text(line, style = MaterialTheme.typography.bodySmall)
                     if (!failed)
                         AndroidView(
                             factory = { context ->
-                                previewView(context, sync, copy.note, heading, onNotice = { notice = it }) {
+                                previewView(context, sync, copy.savedPage, heading, onNotice = { notice = it }) {
                                     failed = true
                                 }
                             },
@@ -112,7 +112,7 @@ internal fun LinkPreviewSheet(
 private fun previewView(
     context: Context,
     sync: PhoneSync,
-    note: SavedPageEntity,
+    savedPage: SavedPageEntity,
     heading: String?,
     onNotice: (String) -> Unit,
     onFailed: () -> Unit,
@@ -121,7 +121,7 @@ private fun previewView(
         alpha = 0f
         show(
             sync.images,
-            note,
+            savedPage,
             "Link preview",
             heading?.let { "window.reporead.showHeading(${JSONObject.quote(it)})" },
             onFailed = {

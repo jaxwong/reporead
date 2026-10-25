@@ -27,6 +27,7 @@ import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 
 private const val DEVICE_LOG_WORK = "upload-app-log"
 private const val EXITS_SEEN = "app-exits-seen"
@@ -69,11 +70,10 @@ internal suspend fun uploadDeviceLogBatches(api: Api, signedIn: Boolean): Result
     if (!signedIn) return Result.success()
     repeat(2) {
         val lines = withContext(Dispatchers.IO) { DeviceLog.claimPendingBatch() } ?: return Result.success()
-        if (lines.isNotEmpty()) {
+        val stored = lines.mapNotNull(::storedLine)
+        if (stored.isNotEmpty()) {
             try {
-                api.uploadDeviceLogBatch(
-                    DeviceLogIngestControllerUploadRequest(lines.map { wireJson.decodeFromString<DeviceLogLine>(it) })
-                )
+                api.uploadDeviceLogBatch(DeviceLogIngestControllerUploadRequest(stored))
             } catch (failure: ApiException) {
                 if (!(failure.status == 400 && failure.code == "INVALID_REQUEST")) {
                     DeviceLog.warn(
@@ -90,13 +90,27 @@ internal suspend fun uploadDeviceLogBatches(api: Api, signedIn: Boolean): Result
 }
 
 /**
+ * One stored line as the server reads it. A line the store joined to another (a build before 2026-10-25 could leave a
+ * line unfinished) cannot be read and would fail its batch on every run, so it is dropped, with a warning in its place.
+ */
+private fun storedLine(line: String): DeviceLogLine? =
+    try {
+        wireJson.decodeFromString<DeviceLogLine>(line)
+    } catch (notOneLine: SerializationException) {
+        DeviceLog.warn("Device log line dropped; not one stored line; chars=${line.length}")
+        null
+    }
+
+/**
  * Android's record of why this app's processes ended (the app's and its page renderers'), as device-log lines: ANRs,
  * native crashes and system kills, which no handler in the app sees. ApplicationExitInfo names the process, the reason,
  * the status, the importance, the memory and the description itself; [at] is its time to the millisecond. Each exit is
  * logged once; [lastLoggedExitFile] holds the newest logged exit's time.
  */
 internal fun logProcessExits(activityManager: ActivityManager, lastLoggedExitFile: File) {
-    val lastLoggedAt = if (lastLoggedExitFile.isFile) lastLoggedExitFile.readText().toLong() else 0L
+    val checkpoint = if (lastLoggedExitFile.isFile) lastLoggedExitFile.readText() else ""
+    // Empty: never written, or a build before 2026-10-25 cut its write short; those exits are logged once more.
+    val lastLoggedAt = if (checkpoint.isEmpty()) 0L else checkpoint.toLong()
     val newExits = activityManager.getHistoricalProcessExitReasons(null, 0, 0).filter { it.timestamp > lastLoggedAt }
     for (exit in newExits.sortedBy { it.timestamp }) {
         val message = "Process exited; at=${Instant.ofEpochMilli(exit.timestamp)} $exit"

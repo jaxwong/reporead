@@ -59,17 +59,20 @@ internal fun scheduleReviews(card: AnnotationEntity, log: List<ReviewEntity>, zo
             ReviewSchedule(day.plusDays(STEPS[step]).atStartOfDay(zone).toInstant().toEpochMilli(), step)
         }
 
+/** A reviewable [card] and when it is next due. */
+private data class DueCard(val card: NotebookItem, val dueAt: Long)
+
 /**
  * When each reviewable card is next due. The log is grouped by card once: each card's own grades, not the whole log.
  */
-private fun dueTimes(
+private fun dueCards(
     items: List<NotebookItem>,
     reviews: List<ReviewEntity>,
     zone: ZoneId,
-): List<Pair<NotebookItem, Long>> {
+): List<DueCard> {
     val byCard = reviews.groupBy { it.cardMutationId }
     return items.filter(::reviewable).map {
-        it to scheduleReviews(it.annotation, byCard[it.annotation.mutationId].orEmpty(), zone).dueAt
+        DueCard(it, scheduleReviews(it.annotation, byCard[it.annotation.mutationId].orEmpty(), zone).dueAt)
     }
 }
 
@@ -84,7 +87,7 @@ internal fun dueSession(
     seed: Int,
     zone: ZoneId,
 ): List<NotebookItem> {
-    val due = dueTimes(items, reviews, zone).filter { it.second <= now }.map { it.first }
+    val due = dueCards(items, reviews, zone).filter { it.dueAt <= now }.map { it.card }
     return interleaveByNote(due, seed) { it.annotation.documentId }.take(SESSION_LIMIT)
 }
 
@@ -98,7 +101,7 @@ internal fun dueByTopic(
     now: Long,
     zone: ZoneId,
 ): Map<String, Int> =
-    dueTimes(cards, reviewLog, zone)
+    dueCards(cards, reviewLog, zone)
         .filter { (_, dueAt) -> dueAt <= now }
         .mapNotNull { (card) -> interviewTopic(card.path) }
         .groupingBy { it }
@@ -124,15 +127,15 @@ internal fun reviewOutlook(
     now: Long,
     zone: ZoneId,
 ): ReviewOutlook {
-    val times = dueTimes(items, reviews, zone)
-    val due = times.filter { it.second <= now }
-    val laterDays = times.filter { it.second > now }.map { Instant.ofEpochMilli(it.second).atZone(zone).toLocalDate() }
+    val times = dueCards(items, reviews, zone)
+    val due = times.filter { it.dueAt <= now }
+    val laterDays = times.filter { it.dueAt > now }.map { Instant.ofEpochMilli(it.dueAt).atZone(zone).toLocalDate() }
     val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
     val next = laterDays.minOrNull()
     return ReviewOutlook(
         today,
         due.size,
-        due.count { (item) -> item.annotation.cardBlock(item.deleted, item.currentBlobSha, item.savedBlobSha) != null },
+        due.count { (card) -> card.annotation.cardBlock(card.deleted, card.currentBlobSha, card.savedBlobSha) != null },
         next,
         laterDays.count { it == next },
         laterDays.count { it <= today.plusDays(7) },

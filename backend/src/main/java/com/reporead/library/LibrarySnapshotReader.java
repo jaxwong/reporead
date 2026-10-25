@@ -10,8 +10,8 @@ import com.reporead.repository.RepositoryConnections;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -35,11 +35,7 @@ public class LibrarySnapshotReader {
     private final Reviews reviews;
     private final JsonMapper json;
 
-    /**
-     * One read-only REPEATABLE READ transaction: PostgreSQL takes its snapshot at the first query, so every later query
-     * sees the database as that one did, and a write committed meanwhile is wholly in the next read, never partly in
-     * this one.
-     */
+    /** The whole library from one database snapshot (TransactionConfiguration.snapshotRead). */
     private final TransactionTemplate snapshot;
 
     public LibrarySnapshotReader(
@@ -49,16 +45,14 @@ public class LibrarySnapshotReader {
             Bookmarks bookmarks,
             Reviews reviews,
             JsonMapper json,
-            TransactionTemplate transaction) {
+            @Qualifier("snapshotRead") TransactionTemplate snapshotRead) {
         this.connections = connections;
         this.documents = documents;
         this.readingStates = readingStates;
         this.bookmarks = bookmarks;
         this.reviews = reviews;
         this.json = json;
-        this.snapshot = new TransactionTemplate(transaction.getTransactionManager());
-        snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
-        snapshot.setReadOnly(true);
+        this.snapshot = snapshotRead;
     }
 
     /**

@@ -40,7 +40,7 @@ class FolderTest {
 
     @Test
     fun emptyLibraryAndMissingFolderAreEmpty() {
-        assertEquals(emptyList<String>() to emptyList<DocumentEntity>(), children(emptyList(), ""))
-        assertEquals(emptyList<String>() to emptyList<DocumentEntity>(), children(documents, "missing"))
+        assertEquals(FolderChildren(emptyList(), emptyList()), children(emptyList(), ""))
+        assertEquals(FolderChildren(emptyList(), emptyList()), children(documents, "missing"))
     }
 }

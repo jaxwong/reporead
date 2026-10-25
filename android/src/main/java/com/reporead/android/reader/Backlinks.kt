@@ -2,15 +2,18 @@ package com.reporead.android.reader
 
 import com.reporead.android.database.DocumentEntity
 
+/** Where a saved page's note link points: an Obsidian [target] name or a repository [path]. */
+internal data class NoteLinkTarget(val target: String?, val path: String?)
+
 /**
- * Where a saved page's note link points, as (target, path), decoded as the reader decodes a tapped link
- * ([noteLinkParameters]); null for a link to a heading of the same note, which has neither.
+ * Where a saved page's note link points, decoded as the reader decodes a tapped link ([noteLinkParameters]); null for a
+ * link to a heading of the same note, which has neither.
  */
-internal fun noteLinkTarget(query: String): Pair<String?, String?>? {
+internal fun noteLinkTarget(query: String): NoteLinkTarget? {
     val parameters = noteLinkParameters(query)
     val target = parameters["target"]
     val path = parameters["path"]
-    return if (target == null && path == null) null else target to path
+    return if (target == null && path == null) null else NoteLinkTarget(target, path)
 }
 
 /**
@@ -21,7 +24,7 @@ internal fun noteLinkTarget(query: String): Pair<String?, String?>? {
 internal fun linkedFrom(
     note: DocumentEntity,
     documents: List<DocumentEntity>,
-    links: Map<Long, List<Pair<String?, String?>>>,
+    links: Map<Long, List<NoteLinkTarget>>,
 ): List<DocumentEntity> {
     val byId = documents.associateBy { it.id }
     return links

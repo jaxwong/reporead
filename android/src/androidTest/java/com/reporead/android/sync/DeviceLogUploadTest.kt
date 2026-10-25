@@ -156,6 +156,37 @@ class DeviceLogUploadTest {
         assertEquals(1, DeviceLog.claimPendingBatch().orEmpty().size)
     }
 
+    @Test
+    fun aLineTheStoreJoinedIsDroppedWithAWarningAndTheRestUpload() = runBlocking {
+        fun stored(message: String) =
+            """{"at":"2026-10-21T06:02:11.123Z","appVersion":"0.1.432","level":"INFO","message":"$message"}"""
+        File(store, "pending.jsonl")
+            .writeText(stored("First") + "\n" + stored("Cut sh") + stored("Third") + "\n" + stored("Fourth") + "\n")
+
+        LoopbackServer(mapOf("POST /api/app-logs" to (204 to ""))).use { server ->
+            assertEquals(Result.success(), uploadDeviceLogBatches(api(server.url), signedIn = true))
+            val (batch, warnings) = sentBatches(server)
+            assertEquals(listOf("First", "Fourth"), batch.map { it.message })
+            assertEquals(DeviceLogLine.Level.WARN, warnings.single().level)
+            assertTrue(warnings.toString(), warnings.single().message.startsWith("Device log line dropped;"))
+        }
+        assertNull(DeviceLog.claimPendingBatch())
+    }
+
+    /** An older build could leave the checkpoint empty; it reads as no exit logged, and the exits are logged again. */
+    @Test
+    fun anEmptyExitCheckpointReadsAsNoExitLogged() {
+        val activities = context.getSystemService(ActivityManager::class.java)
+        val exits = activities.getHistoricalProcessExitReasons(null, 0, 0)
+        val seen = File(store, "exits-seen")
+        seen.writeText("")
+
+        logProcessExits(activities, seen)
+
+        assertEquals(exits.size, claimedLines().count { it.message.contains("Process exited; at=") })
+        assertEquals(exits.maxOfOrNull { it.timestamp }?.toString() ?: "", seen.readText())
+    }
+
     /** Android's own exit records, as this phone holds them for the test's app: each logged once, by its own text. */
     @Test
     fun eachProcessExitIsLoggedOnceWithAndroidsDescription() {

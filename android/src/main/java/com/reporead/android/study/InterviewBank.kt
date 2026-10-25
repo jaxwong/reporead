@@ -49,7 +49,28 @@ internal sealed interface PromptBlock {
 internal data class WebLink(val url: String, val range: IntRange)
 
 /** Text as shown with the web links in it, as a bank writes a Worked answer. */
-internal data class LinkedText(val text: String, val links: List<WebLink>)
+internal data class LinkedText(val text: String, val links: List<WebLink>) {
+    /**
+     * Without the whitespace around [text]; a link's spaces at the edge are trimmed with it, the link keeps the rest.
+     */
+    fun trimmed(): LinkedText {
+        val start = text.indexOfFirst { !it.isWhitespace() }.takeIf { it >= 0 } ?: text.length
+        return part(start, maxOf(start, text.indexOfLast { !it.isWhitespace() } + 1))
+    }
+
+    /** What follows [label] at the start of [text], trimmed; all of it when the text does not start with the label. */
+    fun after(label: String): LinkedText =
+        if (text.startsWith(label)) part(label.length, text.length).trimmed() else this
+
+    private fun part(start: Int, end: Int) =
+        LinkedText(
+            text.substring(start, end),
+            links.mapNotNull { link ->
+                val kept = maxOf(link.range.first, start) until minOf(link.range.last + 1, end)
+                if (kept.isEmpty()) null else link.copy(range = (kept.first - start)..(kept.last - start))
+            },
+        )
+}
 
 /**
  * One bank question, as the bank contract shapes it. [material] is shown with the heading before the answer;
@@ -159,7 +180,14 @@ private fun label(block: Element): String? =
         ?.takeIf { it.endsWith(":") }
 
 /** What follows a labelled paragraph's [label]. */
-private fun labelled(block: Element, label: String): String = shownText(block).removePrefix(label).trim()
+private fun labelled(block: Element, label: String): String = shown(block).after(label).text
+
+/**
+ * [labelled]'s text of [block] with the range of each web link in it as the page placed it, so a link text that also
+ * appears elsewhere links where it was written. Null when no link shows any of its text.
+ */
+private fun linkedText(block: Element, label: String): LinkedText? =
+    shown(block).after(label).takeIf { it.links.isNotEmpty() }
 
 private sealed interface QuestionParseResult {
     data class Parsed(val question: StudyQuestion) : QuestionParseResult
@@ -274,59 +302,33 @@ private fun answerLinks(line: Element): List<AnswerLink> =
         AnswerLink(parameters["target"], parameters["path"], parameters["heading"], shownText(link))
     }
 
+/** [shown]'s text alone. */
+private fun shownText(element: Element, skipNestedLists: Boolean = false): String = shown(element, skipNestedLists).text
+
 /**
- * [labelled]'s text of [block], with the range of each web link in it as the page placed it, so a link text that also
- * appears elsewhere links where it was written. Null when no link shows any of its text.
+ * What a reader sees of [element]: its text without the hidden source of note links and footnotes (`.wl-hidden`) and,
+ * with [skipNestedLists], without nested lists, with each web link in it where the page placed it. Display only;
+ * identities are block ids into canonical text.
  */
-private fun linkedText(block: Element, label: String): LinkedText? {
-    val fullText = StringBuilder()
+private fun shown(element: Element, skipNestedLists: Boolean = false): LinkedText {
+    val text = StringBuilder()
     val links = mutableListOf<WebLink>()
     fun visit(node: Node) {
         when {
-            node is TextNode -> fullText.append(node.wholeText)
-            node is Element && node.hasClass("wl-hidden") -> Unit
+            node is TextNode -> text.append(node.wholeText)
+            node is Element &&
+                (node.hasClass("wl-hidden") ||
+                    (skipNestedLists && node !== element && node.tagName() in setOf("ul", "ol"))) -> Unit
             node is Element -> {
-                val start = fullText.length
+                val start = text.length
                 node.childNodes().forEach(::visit)
                 val href = node.attr("href")
                 if (node.tagName() == "a" && (href.startsWith("https://") || href.startsWith("http://")))
-                    links += WebLink(href, start until fullText.length)
+                    links += WebLink(href, start until text.length)
             }
             else -> node.childNodes().forEach(::visit)
         }
     }
-    visit(block)
-    // As labelled: trim, remove the label, trim again.
-    var start = fullText.indexOfFirst { !it.isWhitespace() }.takeIf { it >= 0 } ?: fullText.length
-    if (fullText.startsWith(label, start)) start += label.length
-    while (start < fullText.length && fullText[start].isWhitespace()) start++
-    val end = maxOf(start, fullText.indexOfLast { !it.isWhitespace() } + 1)
-    // A link's spaces at the edge of the text are trimmed with it; the link keeps the rest.
-    val shownLinks = links.mapNotNull { link ->
-        val shown = maxOf(link.range.first, start) until minOf(link.range.last + 1, end)
-        if (shown.isEmpty()) null else link.copy(range = (shown.first - start)..(shown.last - start))
-    }
-    if (shownLinks.isEmpty()) return null
-    return LinkedText(
-        fullText.substring(start, end),
-        shownLinks,
-    )
-}
-
-/**
- * What a reader sees of [element]: its text without the hidden source of note links and footnotes (`.wl-hidden`) and,
- * with [skipNestedLists], without nested lists. Display only; identities are block ids into canonical text.
- */
-private fun shownText(element: Element, skipNestedLists: Boolean = false): String = buildString {
-    fun visit(node: Node) {
-        when {
-            node is TextNode -> append(node.wholeText)
-            node is Element &&
-                (node.hasClass("wl-hidden") ||
-                    (skipNestedLists && node !== element && node.tagName() in setOf("ul", "ol"))) -> Unit
-            else -> node.childNodes().forEach(::visit)
-        }
-    }
     visit(element)
+    return LinkedText(text.toString(), links).trimmed()
 }
-    .trim()
