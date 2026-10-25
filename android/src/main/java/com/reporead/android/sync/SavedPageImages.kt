@@ -118,7 +118,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
      * Deletes every saved image but those of [saved], the versions Room holds a page of: other notes' and other
      * versions'. Returns what could not be deleted ([deleteTree]).
      */
-    fun sweep(saved: List<SavedVersion>): List<File> = deleting {
+    fun deleteImagesExceptSavedPages(saved: List<SavedVersion>): List<File> = deleting {
         // Legacy pages have no provable image snapshot: their old blob-keyed cache is retired, not read as a fallback.
         val kept =
             saved

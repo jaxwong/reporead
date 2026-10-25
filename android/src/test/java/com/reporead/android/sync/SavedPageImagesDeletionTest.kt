@@ -95,7 +95,7 @@ class SavedPageImagesDeletionTest {
 
     @Test
     fun aFetchThatStartedBeforeADeletionDoesNotWriteItsImageBack() {
-        fetchAcross { it.sweep(emptyList()) }
+        fetchAcross { it.deleteImagesExceptSavedPages(emptyList()) }
         assertFalse(File(temporary.root, "images/1").exists())
     }
 
@@ -117,10 +117,16 @@ class SavedPageImagesDeletionTest {
         image(2, current)
         image(3, current)
         val images = images()
-        assertEquals(emptyList<File>(), images.sweep(listOf(saved(1, current), saved(2, current), saved(4, current))))
+        assertEquals(
+            emptyList<File>(),
+            images.deleteImagesExceptSavedPages(listOf(saved(1, current), saved(2, current), saved(4, current))),
+        )
         assertEquals(setOf("1/commit-$current", "2/commit-$current"), versionsLeft())
         assertFalse(File(temporary.root, "images/3").exists())
-        assertEquals(emptyList<File>(), images.sweep(listOf(saved(1, current), saved(2, current))))
+        assertEquals(
+            emptyList<File>(),
+            images.deleteImagesExceptSavedPages(listOf(saved(1, current), saved(2, current))),
+        )
         assertEquals(setOf("1/commit-$current", "2/commit-$current"), versionsLeft())
     }
 
@@ -128,9 +134,9 @@ class SavedPageImagesDeletionTest {
     fun sweepingWithNothingSavedDeletesEveryImage() {
         image(1, current)
         image(2, older)
-        assertEquals(emptyList<File>(), images().sweep(emptyList()))
+        assertEquals(emptyList<File>(), images().deleteImagesExceptSavedPages(emptyList()))
         assertEquals(emptySet<String>(), versionsLeft())
-        assertEquals(emptyList<File>(), images().sweep(emptyList()))
+        assertEquals(emptyList<File>(), images().deleteImagesExceptSavedPages(emptyList()))
     }
 
     @Test
@@ -138,7 +144,10 @@ class SavedPageImagesDeletionTest {
         val stuck = image(1, current)
         val other = image(2, current)
         cannotDeleteIn(stuck.parentFile!!)
-        assertEquals(listOf(stuck, stuck.parentFile, File(temporary.root, "images/1")), images().sweep(emptyList()))
+        assertEquals(
+            listOf(stuck, stuck.parentFile, File(temporary.root, "images/1")),
+            images().deleteImagesExceptSavedPages(emptyList()),
+        )
         assertFalse(other.exists())
     }
 
@@ -147,9 +156,9 @@ class SavedPageImagesDeletionTest {
         val stuck = image(1, current)
         cannotDeleteIn(stuck.parentFile!!)
         val images = images()
-        assertTrue(images.sweep(emptyList()).isNotEmpty())
+        assertTrue(images.deleteImagesExceptSavedPages(emptyList()).isNotEmpty())
         allowDeleting()
-        assertEquals(emptyList<File>(), images.sweep(emptyList()))
+        assertEquals(emptyList<File>(), images.deleteImagesExceptSavedPages(emptyList()))
         assertFalse(File(temporary.root, "images/1").exists())
     }
 
@@ -158,10 +167,10 @@ class SavedPageImagesDeletionTest {
         val kept = image(1, current)
         val stuck = image(1, older)
         cannotDeleteIn(stuck.parentFile!!)
-        assertEquals(listOf(stuck, stuck.parentFile), images().sweep(listOf(saved(1, current))))
+        assertEquals(listOf(stuck, stuck.parentFile), images().deleteImagesExceptSavedPages(listOf(saved(1, current))))
         assertTrue(kept.exists())
         allowDeleting()
-        assertEquals(emptyList<File>(), images().sweep(listOf(saved(1, current))))
+        assertEquals(emptyList<File>(), images().deleteImagesExceptSavedPages(listOf(saved(1, current))))
         assertTrue(kept.exists())
         assertFalse(stuck.parentFile!!.exists())
     }

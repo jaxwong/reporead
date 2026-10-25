@@ -115,7 +115,7 @@ interface RepoReadDao {
     @Query("SELECT * FROM saved_pages WHERE documentId = :documentId")
     suspend fun savedPage(documentId: Long): SavedPageEntity?
 
-    /** Every saved page's version: the only images worth keeping (SavedPageImages.sweep). */
+    /** Every saved page's version: the only images worth keeping (SavedPageImages.deleteImagesExceptSavedPages). */
     @Query("SELECT documentId, blobSha, path, renderFormat, snapshotCommitSha FROM saved_pages")
     suspend fun allSavedVersions(): List<SavedVersion>
 
