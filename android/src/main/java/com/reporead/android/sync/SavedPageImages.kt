@@ -41,7 +41,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
      * replaced or disconnected meanwhile. The server emits at most 64 image references; each distinct path is tried
      * once, sequentially. API failures propagate to PhoneSync, which owns their disposition for this run.
      */
-    internal suspend fun save(note: SavedPageEntity) {
+    internal suspend fun saveImagesToDisk(note: SavedPageEntity) {
         if (note.snapshotCommitSha == null) return
         val paths =
             Jsoup.parse(note.html)
@@ -52,7 +52,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
                 .distinct()
         for (path in paths) {
             currentCoroutineContext().ensureActive()
-            fetch(note.documentId, note.snapshotCommitSha, path)
+            loadOrDownloadAndCache(note.documentId, note.snapshotCommitSha, path)
         }
     }
 
@@ -60,15 +60,20 @@ class SavedPageImages(private val api: Api, filesDir: File) {
      * A repository image for the displayed note version: from the cache, else fetched through the backend with the
      * bearer token (blocking; call from a background thread). Null when it is neither cached nor fetchable.
      */
-    fun image(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? =
+    fun loadImageBytes(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? =
         try {
-            fetch(documentId, snapshotCommitSha, path)
+            loadOrDownloadAndCache(documentId, snapshotCommitSha, path)
         } catch (failure: ApiException) {
             DeviceLog.info("Image unavailable; documentId=$documentId code=${failure.code}")
             null
         }
 
-    private fun fetch(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? {
+    /**
+     * The image's bytes: from its saved file, else downloaded and saved for next time. [saveImagesToDisk] wants the
+     * file on disk, [loadImageBytes] the bytes. Null when no snapshot names the image (a legacy page) or its saved file
+     * cannot be read.
+     */
+    private fun loadOrDownloadAndCache(documentId: Long, snapshotCommitSha: String?, path: String): ByteArray? {
         // Upgraded pages retain their text, but cannot honestly identify any image until fetched again.
         if (snapshotCommitSha == null) return null
         val key = sha256(path)

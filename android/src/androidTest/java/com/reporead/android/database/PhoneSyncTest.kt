@@ -793,7 +793,7 @@ class PhoneSyncTest {
             )
         assertEquals(200, response.statusCode)
         assertEquals("TEST_ONLY_PNG", response.data.bufferedReader().use { it.readText() })
-        assertEquals("TEST_ONLY_PNG", offlineImages.image(1, sha, imagePath)!!.toString(Charsets.UTF_8))
+        assertEquals("TEST_ONLY_PNG", offlineImages.loadImageBytes(1, sha, imagePath)!!.toString(Charsets.UTF_8))
     }
 
     @Test
@@ -837,8 +837,11 @@ class PhoneSyncTest {
                 val sync = sync(server.url)
                 assertEquals(PhoneSync.SaveAllResult(1, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(listOf("GET /api/library", missing, "GET /api/documents/2/content"), server.requests)
-                assertEquals("TEST_ONLY_OK", sync.images.image(1, sha, "ok.png")!!.toString(Charsets.UTF_8))
-                assertEquals("TEST_ONLY_RECOVERED", sync.images.image(1, sha, "missing.png")!!.toString(Charsets.UTF_8))
+                assertEquals("TEST_ONLY_OK", sync.images.loadImageBytes(1, sha, "ok.png")!!.toString(Charsets.UTF_8))
+                assertEquals(
+                    "TEST_ONLY_RECOVERED",
+                    sync.images.loadImageBytes(1, sha, "missing.png")!!.toString(Charsets.UTF_8),
+                )
                 assertEquals(PhoneSync.SaveAllResult(0, 2, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(
                     listOf("GET /api/library", missing, "GET /api/documents/2/content", "GET /api/library"),
@@ -937,7 +940,10 @@ class PhoneSyncTest {
                     assertEquals(StoredSession.Absent, sessions.read())
                     assertEquals(listOf("GET /api/library", first, refused), server.requests)
                     for (id in 1L..3L) assertEquals(html, dao.savedPage(id)!!.html)
-                    assertEquals("TEST_ONLY_FIRST", sync.images.image(1, sha, "a.png")!!.toString(Charsets.UTF_8))
+                    assertEquals(
+                        "TEST_ONLY_FIRST",
+                        sync.images.loadImageBytes(1, sha, "a.png")!!.toString(Charsets.UTF_8),
+                    )
                 }
         } finally {
             check(context.deleteSharedPreferences(prefs))
@@ -1033,7 +1039,7 @@ class PhoneSyncTest {
             assertEquals(PhoneSync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
             assertEquals(listOf("GET /api/library", second), server.requests)
             assertFalse("The next run's library refresh sweeps the replaced snapshot", replaced.exists())
-            assertEquals("TEST_ONLY_FIRST", sync.images.image(1, sha, "first.png")!!.toString(Charsets.UTF_8))
+            assertEquals("TEST_ONLY_FIRST", sync.images.loadImageBytes(1, sha, "first.png")!!.toString(Charsets.UTF_8))
         }
     }
 

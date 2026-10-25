@@ -101,7 +101,7 @@ internal fun readerResource(
             when {
                 type == null -> null
                 path.startsWith(IMAGE_PREFIX) ->
-                    images.image(note.documentId, note.snapshotCommitSha, path.removePrefix(IMAGE_PREFIX))
+                    images.loadImageBytes(note.documentId, note.snapshotCommitSha, path.removePrefix(IMAGE_PREFIX))
                 else -> null
             }
         if (type != null && bytes != null) {
