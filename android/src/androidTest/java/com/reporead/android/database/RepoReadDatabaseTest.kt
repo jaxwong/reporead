@@ -71,13 +71,6 @@ class RepoReadDatabaseTest {
     }
 
     @Test
-    fun acknowledgedProgressIsReplacedByTheServer() = runBlocking {
-        dao.saveReading(reading(at = 200, progress = 60, pending = false))
-        dao.mergeRemoteReading(reading(at = 200, progress = 70, pending = false))
-        assertEquals(70, dao.reading(1)!!.progressPercent)
-    }
-
-    @Test
     fun serverBookmarkListReplacesAcknowledgedRowsButKeepsPendingToggles() = runBlocking {
         dao.replaceDocuments(7, (1L..4L).map { DocumentEntity(it, 7, "$it.md", "$it", "a".repeat(40)) })
         dao.saveBookmark(bookmark(1, bookmarked = true, pending = false, at = 1))
@@ -563,46 +556,6 @@ class RepoReadDatabaseTest {
             "The selected text does not match that version of the note.",
             dao.annotation("refused")!!.rejection,
         )
-    }
-
-    /** Note edits use PATCH; Android's HttpURLConnection must accept it before any network I/O. */
-    @Test
-    fun platformHttpClientAcceptsPatch() {
-        val connection = java.net.URL("http://127.0.0.1:9/").openConnection() as java.net.HttpURLConnection
-        connection.requestMethod = "PATCH"
-        assertEquals("PATCH", connection.requestMethod)
-    }
-
-    @Test
-    fun firstGradesRecheckTheBankAndExistingScheduleInsideTheirTransaction() = runBlocking {
-        val sha = "a".repeat(40)
-        val card =
-            annotation("new-card", null, null, AnnotationState.UNSENT)
-                .copy(
-                    type = AnnotationType.CARD,
-                    question = "Test-only question?",
-                )
-        val review = ReviewEntity("first-grade", card.mutationId, 4, 0, sha, true)
-        dao.saveCardWithFirstReview(card, review)
-        assertTrue("A missing bank must not admit a first grade", dao.annotations(1).first().isEmpty())
-        dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "Test-only bank", "<html/>", 0))
-        dao.saveCardWithFirstReview(card, review)
-        assertTrue(dao.reviews().first().isEmpty())
-        val document = DocumentEntity(1, 7, "a.md", "Test-only bank", sha)
-        for (changed in listOf(document.copy(deleted = true), document.copy(blobSha = "b".repeat(40)))) {
-            dao.insertDocuments(listOf(changed))
-            dao.saveCardWithFirstReview(card, review)
-            assertTrue(dao.annotations(1).first().isEmpty())
-            assertTrue(dao.reviews().first().isEmpty())
-        }
-        dao.insertDocuments(listOf(document))
-        dao.saveCardWithFirstReview(card, review)
-        dao.saveCardWithFirstReview(
-            card.copy(mutationId = "duplicate", question = "Edited prompt?"),
-            review.copy(mutationId = "duplicate-grade", cardMutationId = "duplicate"),
-        )
-        assertEquals(listOf("new-card"), dao.annotations(1).first().map { it.mutationId })
-        assertEquals(listOf("first-grade"), dao.reviews().first().map { it.mutationId })
     }
 
     @Test

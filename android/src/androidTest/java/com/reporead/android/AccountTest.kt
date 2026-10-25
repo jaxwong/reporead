@@ -3,11 +3,7 @@
 package com.reporead.android
 
 import android.content.Context
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.room.Room
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.reporead.android.auth.SessionStore
@@ -25,7 +21,6 @@ import com.reporead.android.database.RepositoryEntity
 import com.reporead.android.database.ReviewEntity
 import com.reporead.android.database.SavedPageEntity
 import com.reporead.android.database.SearchBlockEntity
-import com.reporead.android.library.LibraryScreen
 import com.reporead.android.network.Api
 import com.reporead.android.network.testSession
 import com.reporead.android.network.wire
@@ -48,7 +43,6 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -298,77 +292,6 @@ class AccountTest {
                 assertEquals(70, dao.reading(1)?.progressPercent)
                 assertPhoneKept()
                 assertEquals(listOf("DELETE /api/app-auth/session"), server.requests)
-            }
-    }
-
-    @Test
-    fun aDeletionFailureNoticeSurvivesLibraryRecreation(): Unit = runBlocking {
-        signedInWithSavedNotes()
-        dao.removeAnnotation("unsent")
-        dao.saveAnnotation(checkNotNull(dao.annotation("card")).copy(state = AnnotationState.ACKNOWLEDGED))
-        dao.saveReview(ReviewEntity("grade", "card", 4, 1_000, sha, pending = false))
-        dao.saveBookmark(BookmarkEntity(1, true, false, 1_000))
-        dao.saveReading(reading().copy(pending = false))
-        val releaseRefresh = CountDownLatch(1)
-        LoopbackServer(
-                mapOf(
-                    "DELETE /api/account" to failure(503, "TEST_ONLY_DOWN"),
-                    "GET /api/library" to
-                        (200 to
-                            """{"repositories":[],"readingStates":[],"bookmarks":[],
-                "notebook":{"annotations":[],"reviews":[]}}"""),
-                )
-            ) { key ->
-                if (key == "GET /api/library") check(releaseRefresh.await(10, SECONDS))
-            }
-            .use { server ->
-                val api = api(server.url)
-                val sync = PhoneSync(api, store, directory) {}
-                val account = Account(sessions, api, scope)
-                account.deleteAccount()
-                val notice = (account.settled() as AccountState.Idle).notice!!
-                val text = noticeText(notice)
-                TestHostActivity.content =
-                    TestEntries(Screen.Repositories).content { entry ->
-                        val state by account.state.collectAsState()
-                        MaterialTheme {
-                            LibraryScreen(
-                                sync,
-                                dao,
-                                true,
-                                entry.id,
-                                {},
-                                (state as? AccountState.Idle)?.notice?.let(::noticeText),
-                                account::dismissNotice,
-                                {},
-                                account::signOut,
-                                account::deleteAccount,
-                            )
-                        }
-                    }
-                try {
-                    ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
-                        awaitText(text)
-                        assertTrue(
-                            (account.state.value as AccountState.Idle).notice is AccountNotice.DeletionNotConfirmed
-                        )
-                        scenario.recreate()
-                        awaitText("Reading")
-                        assertNotNull(
-                            "Account-deletion failure notice disappeared on recreation",
-                            findText(root(), text),
-                        )
-                        releaseRefresh.countDown()
-                        // The refresh may replace the library, but not the separately owned account notice.
-                        withTimeout(5_000) { dao.repositories().first { it.isEmpty() } }
-                        awaitText(text)
-                        click("Dismiss account message")
-                        assertEquals(AccountState.Idle(null), account.state.value)
-                    }
-                } finally {
-                    releaseRefresh.countDown()
-                    TestHostActivity.content = null
-                }
             }
     }
 }

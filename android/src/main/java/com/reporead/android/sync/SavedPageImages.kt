@@ -148,7 +148,7 @@ class SavedPageImages(private val api: Api, filesDir: File) {
  * deletions follow ones that cannot be undone (the server's, Room's), so the caller reports what is left instead of
  * stopping.
  */
-internal fun deleteTree(path: File): List<File> {
+private fun deleteTree(path: File): List<File> {
     // Its result only says whether everything went; what is left is read back below.
     path.deleteRecursively()
     return path.walkBottomUp().filter { it.exists() }.toList()

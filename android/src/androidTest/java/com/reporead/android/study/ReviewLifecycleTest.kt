@@ -1,5 +1,6 @@
 package com.reporead.android.study
 
+import android.graphics.Rect
 import androidx.compose.material3.MaterialTheme
 import androidx.room.Room
 import androidx.test.core.app.ActivityScenario
@@ -13,6 +14,7 @@ import com.reporead.android.auth.StoredSession
 import com.reporead.android.awaitText
 import com.reporead.android.awaitTextStarting
 import com.reporead.android.click
+import com.reporead.android.control
 import com.reporead.android.database.AnnotationEntity
 import com.reporead.android.database.AnnotationState
 import com.reporead.android.database.AnnotationType
@@ -25,6 +27,7 @@ import com.reporead.android.network.Api
 import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.sync.PhoneSync
+import com.reporead.android.tap
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -99,13 +102,11 @@ class ReviewLifecycleTest {
             }
     }
 
-    /** A card made from bank question [i] in version [madeIn], with the prompt it was asked with then. */
-    private suspend fun card(
-        i: Int,
-        documentId: Long = 1,
-        madeIn: String = sha,
-        state: AnnotationState = AnnotationState.ACKNOWLEDGED,
-    ) {
+    /**
+     * A card made from bank question [i] in version [sha], with the prompt it was asked with then, which is not the
+     * bank's prompt now.
+     */
+    private suspend fun card(i: Int, documentId: Long = 1, state: AnnotationState = AnnotationState.ACKNOWLEDGED) {
         val line = canonicalLine(i)
         store
             .dao()
@@ -114,7 +115,7 @@ class ReviewLifecycleTest {
                     "card$i",
                     if (state == AnnotationState.UNSENT) null else i.toLong(),
                     documentId,
-                    madeIn,
+                    sha,
                     "a$i",
                     0,
                     line.length,
@@ -132,57 +133,24 @@ class ReviewLifecycleTest {
     @Test
     fun aBankCardAsksItsCurrentQuestionAndOpensItsLinkedSectionInTheNote() =
         runBlocking<Unit> {
-            val dao = store.dao()
-            val line = "Canonical answer: Test-only core"
-            val short = "Test-only review short answer."
-            val edited =
-                testPage(
-                    sha,
-                    """<h3 data-block-id="b1" data-anchor-text="Current test-only bank prompt?">Current test-only bank prompt?</h3>""" +
-                        """<p data-block-id="e1" data-anchor-text="Test-only review evidence.">Test-only review evidence.</p>""" +
-                        labelled("t1", "Interviewer is testing:", "Test-only recall.") +
-                        labelled("c1", "A complete answer should:") +
-                        """<ul><li data-block-id="i1" data-anchor-text="Test-only review point">Test-only review point</li></ul>""" +
-                        labelled("s1", "Short answer:", short) +
-                        """<p data-block-id="b2" data-anchor-text="$line"><strong>Canonical answer:</strong> <a href="/note-link?path=test-only%2Fcore.md&amp;heading=answer">Test-only core</a></p>""",
-                )
-            dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, bankPath, "Test-only review", edited, 0))
-            dao.saveAnnotation(
-                AnnotationEntity(
-                    "bank-card",
-                    1,
-                    1,
-                    sha,
-                    "b2",
-                    0,
-                    line.length,
-                    line,
-                    null,
-                    1,
-                    0,
-                    state = AnnotationState.ACKNOWLEDGED,
-                    type = AnnotationType.CARD,
-                    question = "Old test-only bank prompt?",
-                )
-            )
+            card(1)
             val pushed = mutableListOf<Screen>()
             showReview(push = { pushed += it })
             ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
-                awaitText("Current test-only bank prompt?")
-                awaitText("Test-only review evidence.")
-                assertNull(findText(root(), "Old test-only bank prompt?"))
-                for (text in
-                    listOf(short, "Test-only review point", "Test-only core", "Good", "Open in note")) assertNull(
+                val short = "Test-only short answer 1."
+                awaitText("Test-only question 1?")
+                assertNull(findText(root(), "Saved test-only prompt 1?"))
+                for (text in listOf(short, "Test-only point 1", "Test-only core 1", "Good", "Open in note")) assertNull(
                     "No answer in accessibility before reveal: $text",
                     findText(root(), text),
                 )
                 click("Show answer")
                 awaitText(short)
-                awaitText("Test-only review point")
+                awaitText("Test-only point 1")
                 awaitText("Good")
                 scenario.recreate()
                 awaitText(short)
-                click("Test-only core")
+                click("Test-only core 1")
                 assertEquals(listOf(Screen.Reader(2, "Test-only core", OpenAt.Heading("answer"))), pushed)
             }
         }
@@ -212,6 +180,29 @@ class ReviewLifecycleTest {
                 assertEquals(10, dao.reviews().first().size)
                 assertEquals(10, dao.pendingReviews().map { it.cardMutationId }.distinct().size)
                 assertTrue(dao.pendingReviews().all { it.grade == 4 && it.blobSha == sha })
+            }
+        }
+
+    /**
+     * Only the screen stops a second tap in the same frame: each tap would record its own grade, and a card accepts any
+     * number of grades.
+     */
+    @Test
+    fun doubleTappingAGradeSavesOneGrade() =
+        runBlocking<Unit> {
+            val dao = store.dao()
+            card(1)
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
+                click("Show answer")
+                val bounds = Rect().also { control("Good").getBoundsInScreen(it) }
+                // Accessibility clicks wait for idle and can target a replaced node, missing this same-frame race.
+                scenario.onActivity { activity -> repeat(2) { tap(activity.window.decorView, bounds) } }
+                awaitText("Session complete: 1 card reviewed.")
+                // A second tap's grade would be written just after the first, so one grade must stay one.
+                repeat(20) {
+                    assertEquals(listOf("card1" to 4), dao.pendingReviews().map { it.cardMutationId to it.grade })
+                    delay(50)
+                }
             }
         }
 

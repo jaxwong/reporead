@@ -1,18 +1,11 @@
 package com.reporead.android.reader
 
 import android.view.View
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.ByteArrayInputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import org.json.JSONTokener
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -25,60 +18,40 @@ import org.junit.runner.RunWith
 class ReaderStudyModeDeviceTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private lateinit var view: WebView
-    private val rendering = MainScope()
 
     @After
     fun close() {
-        rendering.cancel()
         if (::view.isInitialized) instrumentation.runOnMainSync { view.destroy() }
     }
 
     private fun block(id: Int, tag: String, text: String) =
         """<$tag data-block-id="b$id" data-anchor-text="$text">$text</$tag>"""
 
+    /**
+     * Shows [body] in the reader's isolated page, with its resources and wait for rendering, and lays out its study.
+     */
     private fun load(body: String) {
-        val html = testPage("a".repeat(40), body)
-        val ready = CountDownLatch(1)
-        var state: String? = null
+        val page = testSavedPage(body)
+        val finished = CountDownLatch(1)
+        var rendered = false
         instrumentation.runOnMainSync {
             val context = instrumentation.targetContext
-            val assets = readerAssets(context)
             view =
-                WebView(context).apply {
-                    isolateReaderPage()
+                IsolatedPage(context).apply {
                     measure(
                         View.MeasureSpec.makeMeasureSpec(400, View.MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY),
                     )
                     layout(0, 0, 400, 800)
-                    webViewClient =
-                        object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
-
-                            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                                assets.shouldInterceptRequest(request.url)
-                                    ?: WebResourceResponse(
-                                        "text/plain",
-                                        "UTF-8",
-                                        404,
-                                        "Unavailable",
-                                        emptyMap(),
-                                        ByteArrayInputStream("Unavailable in study fixture".toByteArray()),
-                                    )
-
-                            override fun onPageFinished(view: WebView, url: String) {
-                                rendering.launch {
-                                    state = awaitRendered(view)
-                                    ready.countDown()
-                                }
-                            }
-                        }
-                    loadDataWithBaseURL("$ASSET_ORIGIN/", html, "text/html", "UTF-8", null)
+                    show(noImages(context), page, "Test-only study page", null, onFailed = finished::countDown) {
+                        rendered = true
+                        finished.countDown()
+                    }
                 }
         }
-        assertTrue("Study fixture did not finish within 25 seconds", ready.await(25, TimeUnit.SECONDS))
-        assertEquals("ready", state)
-        checkScript("window.reporead.configureStudy(${analyzeStudyMode(html).json()}); return true;")
+        assertTrue("Study fixture did not finish within 25 seconds", finished.await(25, TimeUnit.SECONDS))
+        assertTrue("Study fixture did not render", rendered)
+        checkScript("window.reporead.configureStudy(${analyzeStudyMode(page.html).json()}); return true;")
     }
 
     private fun checkScript(script: String) {

@@ -11,6 +11,7 @@ import com.reporead.android.OpenAt
 import com.reporead.android.Screen
 import com.reporead.android.TestEntries
 import com.reporead.android.TestHostActivity
+import com.reporead.android.awaitHighlightInView
 import com.reporead.android.awaitText
 import com.reporead.android.click
 import com.reporead.android.control
@@ -134,6 +135,27 @@ class ReaderLifecycleTest {
     /** Opens [screen] in a new entry in place of the reader shown. */
     private fun open(screen: Screen.Reader) = entries.replaceTop(screen, "test-only-${UUID.randomUUID()}")
 
+    /**
+     * [open]s [screen] and returns the new entry's page once it is on screen. Until then the previous page is still
+     * there, at its own place, so reading the page or its texts earlier can read the previous one.
+     */
+    private fun openInNewPage(screen: Screen.Reader): WebView = runBlocking {
+        var previous: WebView? = null
+        scenario.onActivity {
+            previous = findWebView(it.window.decorView)
+            open(screen)
+        }
+        withTimeout(10_000) {
+            while (true) {
+                var current: WebView? = null
+                scenario.onActivity { current = findWebView(it.window.decorView) }
+                if (current != null && current !== previous) return@withTimeout checkNotNull(current)
+                delay(20)
+            }
+            error("Unreachable")
+        }
+    }
+
     @After
     fun close() = runBlocking {
         if (readerReady) {
@@ -207,7 +229,7 @@ class ReaderLifecycleTest {
         scenario.onActivity {
             open(Screen.Reader(1, title, OpenAt.Search(Passage(sha, "b21", 10, 22, text))))
         }
-        val shown = awaitHighlightInView(SEARCH_TARGET_KEY)
+        val shown = awaitHighlightInView(scenario, SEARCH_TARGET_KEY).topBlock
         awaitSaved(shown)
         evaluate("window.reporead.showBlock('b30'); return {};")
         awaitSaved(30)
@@ -221,7 +243,7 @@ class ReaderLifecycleTest {
         click("Find in note")
         type("paragraph 21.")
         awaitText("1 of 20")
-        awaitHighlightInView(SEARCH_TARGET_KEY)
+        awaitHighlightInView(scenario, SEARCH_TARGET_KEY)
         click("Next match")
         awaitText("2 of 20")
         click("Previous match")
@@ -243,28 +265,31 @@ class ReaderLifecycleTest {
         click("Close find")
     }
 
+    /**
+     * A target this version does not have opens the note where it was last read, as an ordinary open does, and says
+     * why. It never jumps elsewhere (a bank warning's block id from another version can be reused in this one), nor to
+     * the top, which the save after opening would make the reader's place.
+     */
     @Test
-    fun aWarningFromAnotherVersionDoesNotJumpToAReusedBlockId() {
+    fun aTargetNotInThisVersionKeepsTheSavedPositionAndSaysWhy() {
         evaluate("window.reporead.showBlock('b12'); return {};")
         awaitSaved(12)
-        scenario.onActivity {
-            open(Screen.Reader(1, title, OpenAt.Block("b".repeat(40), "b20")))
+        val notInVersion = "That location is not in this version of the note. Open it again from its current source."
+        // Neighbouring rows give different reasons, so a row can't pass on the previous page's text.
+        val targets =
+            listOf(
+                OpenAt.Block("b".repeat(40), "b20") to notInVersion,
+                OpenAt.Heading("Test-only heading that is gone") to
+                    "No heading “Test-only heading that is gone” in this note.",
+                OpenAt.Block(sha, "gone") to notInVersion,
+            )
+        for ((target, reason) in targets) {
+            openInNewPage(Screen.Reader(1, title, target))
+            awaitText(reason)
+            awaitReader(12)
+            awaitSaved(12)
+            assertSavedStays(12)
         }
-        awaitText("That location is not in this version of the note. Open it again from its current source.")
-        awaitReader(12)
-        awaitSaved(12)
-        assertSavedStays(12)
-    }
-
-    @Test
-    fun aWarningWhoseBlockIsMissingKeepsTheSavedPositionAndExplainsWhy() {
-        evaluate("window.reporead.showBlock('b12'); return {};")
-        awaitSaved(12)
-        scenario.onActivity { open(Screen.Reader(1, title, OpenAt.Block(sha, "gone"))) }
-        awaitText("That location is not in this version of the note. Open it again from its current source.")
-        awaitReader(12)
-        awaitSaved(12)
-        assertSavedStays(12)
     }
 
     @Test
@@ -295,7 +320,7 @@ class ReaderLifecycleTest {
         scenario.onActivity {
             open(Screen.Reader(1, title, OpenAt.Highlight("test-only-highlight")))
         }
-        val shown = awaitHighlightInView("test-only-highlight")
+        val shown = awaitHighlightInView(scenario, "test-only-highlight").topBlock
         assertTrue("Opened with block $shown at the top, not at the passage in block 50", shown in 13..50)
         awaitSaved(shown)
         scenario.recreate()
@@ -326,34 +351,6 @@ class ReaderLifecycleTest {
         )
         awaitReader(6)
         assertEquals("", evaluate("return {hash: location.hash};").getString("hash"))
-    }
-
-    /**
-     * A link to a heading that is gone opens the note where it was last read, as an ordinary open does, instead of at
-     * the top, which the save after opening would have made the reader's place.
-     */
-    @Test
-    fun aLinkToAMissingHeadingOpensWhereTheNoteWasLastRead() {
-        evaluate("window.reporead.showBlock('b12'); return {};")
-        awaitSaved(12)
-        var previous: WebView? = null
-        scenario.onActivity {
-            previous = findWebView(it.window.decorView)
-            open(Screen.Reader(1, title, OpenAt.Heading("Test-only heading that is gone")))
-        }
-        // The previous page is still at block 12 until it is released, so wait for the new one before reading it.
-        runBlocking {
-            withTimeout(10_000) {
-                while (true) {
-                    var shown: WebView? = null
-                    scenario.onActivity { shown = findWebView(it.window.decorView) }
-                    if (shown != null && shown !== previous) break
-                    delay(20)
-                }
-            }
-        }
-        awaitReader(12)
-        awaitSaved(12)
     }
 
     /** The page is redrawn when what it draws changes, not on every write to the annotations table. */
@@ -530,22 +527,7 @@ class ReaderLifecycleTest {
         awaitSaved(12)
         try {
             for (failed in listOf(true, false)) {
-                var previous: WebView? = null
-                scenario.onActivity {
-                    previous = findWebView(it.window.decorView)
-                    open(Screen.Reader(2, "Test-only unready"))
-                }
-                val page = runBlocking {
-                    withTimeout(10_000) {
-                        while (true) {
-                            var current: WebView? = null
-                            scenario.onActivity { current = findWebView(it.window.decorView) }
-                            if (current != null && current !== previous) return@withTimeout checkNotNull(current)
-                            delay(20)
-                        }
-                        error("Unreachable")
-                    }
-                }
+                val page = openInNewPage(Screen.Reader(2, "Test-only unready"))
                 scenario.onActivity { assertEquals("Loading page must not flash its top", 0f, page.alpha) }
                 awaitText("Opening note…")
                 awaitText("Test-only unready")
@@ -640,29 +622,6 @@ class ReaderLifecycleTest {
             delay(100)
         }
         throw AssertionError("Reader did not restore block=$block visibly; visible=$visible last=$last")
-    }
-
-    /** The block at the top once the highlight [key] is drawn and within the screen. */
-    private fun awaitHighlightInView(key: String): Int = runBlocking {
-        var last = JSONObject()
-        repeat(100) {
-            last =
-                evaluate(
-                    """
-                    if (!window.reporead || document.body.dataset.state !== 'ready') return {};
-                    const mark = document.querySelector('#note mark[data-key="$key"]');
-                    if (!mark) return {};
-                    const rect = mark.getBoundingClientRect();
-                    return {inView: rect.top >= 0 && rect.bottom <= window.innerHeight,
-                        block: window.reporead.position().anchor.blockIndex};
-                    """
-                        .trimIndent(),
-                    allowLoading = true,
-                )
-            if (last.optBoolean("inView")) return@runBlocking last.getInt("block")
-            delay(100)
-        }
-        throw AssertionError("Highlight $key never came into view; last=$last")
     }
 
     private fun evaluate(script: String, allowLoading: Boolean = false): JSONObject {

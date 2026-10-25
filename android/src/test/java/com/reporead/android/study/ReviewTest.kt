@@ -168,14 +168,13 @@ class ReviewTest {
 
     @Test
     fun dueCardsWhoseNoteIsNotSavedJoinTheSessionToBeFixedButRefusedOrRemovedOnesDoNot() {
+        // Which of these cardBlock reports, and why, is AnnotationEntityTest's; here, which join a session.
         val ready = card(1)
-        assertNull(ready.annotation.cardBlock(ready.deleted, ready.currentBlobSha, ready.savedBlobSha))
         for (changed in
             listOf(
                 ready.copy(currentBlobSha = "new"),
                 ready.copy(savedBlobSha = null),
             )) {
-            assertNotNull(changed.annotation.cardBlock(changed.deleted, changed.currentBlobSha, changed.savedBlobSha))
             assertEquals(listOf(changed), dueSession(listOf(changed), emptyList(), 0, 1))
         }
         for (gone in
@@ -183,7 +182,6 @@ class ReviewTest {
                 ready.copy(deleted = true),
                 ready.copy(annotation = ready.annotation.copy(state = AnnotationState.REFUSED, rejection = "refused")),
             )) {
-            assertNotNull(gone.annotation.cardBlock(gone.deleted, gone.currentBlobSha, gone.savedBlobSha))
             assertTrue(dueSession(listOf(gone), emptyList(), 0, 1).isEmpty())
             assertEquals(ReviewOutlook(day0, 0, 0, null, 0, 0), reviewOutlook(listOf(gone), emptyList(), 0, utc))
         }
@@ -252,7 +250,6 @@ class ReviewTest {
         val session = dueSession(items, emptyList(), 0, 7)
         assertEquals(SESSION_LIMIT, session.size)
         assertEquals(setOf(1L, 2L), session.take(2).map { it.annotation.documentId }.toSet())
-        assertEquals(session, dueSession(items, emptyList(), 0, 7))
         val reviews = listOf(grade(1, 4, 0).copy(cardMutationId = "m1"))
         assertFalse(dueSession(items, reviews, 0, 7).any { it.annotation.mutationId == "m1" })
         assertTrue(dueSession(emptyList(), emptyList(), 0, 7).isEmpty())

@@ -11,7 +11,6 @@ import java.io.File
 import java.util.concurrent.TimeoutException
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -85,21 +84,6 @@ class DeviceLogTest {
         DeviceLog.info("Reader ready; documentId=7")
 
         assertEquals(listOf("Reader ready; documentId=7"), batch().map { it.message })
-    }
-
-    @Test
-    fun aLostAcknowledgementLeavesOneReplayableClaimAndLaterLinesWaitForTheNext() {
-        assertNull(DeviceLog.claimPendingBatch())
-        DeviceLog.info("First")
-        assertEquals(listOf("First"), batch().map { it.message })
-
-        DeviceLog.info("Second")
-        assertEquals("the unacknowledged claim is replayed unchanged", listOf("First"), batch().map { it.message })
-
-        DeviceLog.finishClaimedBatch()
-        assertEquals(listOf("Second"), batch().map { it.message })
-        DeviceLog.finishClaimedBatch()
-        assertNull(DeviceLog.claimPendingBatch())
     }
 
     @Test

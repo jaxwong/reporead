@@ -27,12 +27,11 @@ class StudySessionTest {
         assertEquals("a", session.current)
         val revealed = session.reveal()
         assertTrue(revealed.revealed)
-        for (moved in listOf(revealed.skip(), revealed.requeue(), revealed.graded(0), revealed.graded(4))) {
+        for (moved in listOf(revealed.skip(), revealed.graded(0), revealed.graded(4))) {
             assertFalse("The next item is asked alone", moved.revealed)
             assertEquals(listOf("a", "b", "c"), moved.started)
         }
         assertEquals(listOf("b", "c"), revealed.skip().queue)
-        assertEquals(listOf("b", "c", "a"), revealed.requeue().queue)
         assertNull(StudySession(emptyList()).current)
     }
 

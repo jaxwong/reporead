@@ -104,7 +104,7 @@ private fun entry(screen: Screen) = Entry(UUID.randomUUID().toString(), screen)
 internal val BackStackSerializer = NavBackStackSerializer(Entry.serializer())
 
 /** What an account operation reported, in the words of the screen it ends on. */
-internal fun noticeText(notice: AccountNotice): String =
+private fun noticeText(notice: AccountNotice): String =
     when (notice) {
         AccountNotice.AccountDeleted ->
             "Your RepoRead account was deleted. To check that RepoRead's GitHub authorization is gone, or to uninstall the App, see GitHub's Settings → Applications."
