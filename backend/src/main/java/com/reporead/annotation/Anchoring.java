@@ -141,7 +141,7 @@ final class Anchoring {
             if (same.size() == 1)
                 unchanged = candidate(passage, same.getFirst(), passage.startOffset(), passage.endOffset());
         }
-        boolean decided = position != null
+        boolean isDecided = position != null
                 || unchanged != null
                 || exact.stream().anyMatch(candidate -> candidate.context() == 1.0);
         // Unsearched (bounded) look-alikes are ambiguous, so they offer no fuzzy candidate.
@@ -150,7 +150,7 @@ final class Anchoring {
                 position,
                 unchanged,
                 List.copyOf(exact),
-                decided ? List.of() : fuzzyCandidates(passage, blocks).orElse(List.of()));
+                isDecided ? List.of() : fuzzyCandidates(passage, blocks).orElse(List.of()));
     }
 
     record Found(Method method, Candidate candidate) {}
@@ -170,7 +170,7 @@ final class Anchoring {
         if (evidence.position() != null && rival < 1.0)
             return Optional.of(new Found(Method.POSITION, evidence.position()));
         double lookAlike = from.rivalQuote();
-        boolean uniqueQuote = from.quoteOccurrences() == 1;
+        boolean hasUniqueQuote = from.quoteOccurrences() == 1;
         var exact = evidence.exact();
         var full =
                 exact.stream().filter(candidate -> candidate.context() == 1.0).toList();
@@ -179,7 +179,7 @@ final class Anchoring {
         var supported = exact.stream()
                 .filter(candidate -> (candidate.context() >= thresholds.quoteContext() && candidate.context() > rival)
                         || (exact.size() == 1
-                                && uniqueQuote
+                                && hasUniqueQuote
                                 && from.passage().exactText().length() >= thresholds.uniqueQuoteChars()))
                 .toList();
         if (!supported.isEmpty()) return single(supported).map(found -> new Found(Method.QUOTE, found));

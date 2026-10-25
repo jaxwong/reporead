@@ -22,7 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class AccountDeletion {
     private static final Logger LOG = LoggerFactory.getLogger(AccountDeletion.class);
     private final RepositoryConnections connections;
-    private final ConnectionDeletion data;
+    private final ConnectionDeletion connectionDeletion;
     private final Annotations annotations;
     private final AppSessions sessions;
     private final GitHubTokenLifecycle credentials;
@@ -30,13 +30,13 @@ public class AccountDeletion {
 
     public AccountDeletion(
             RepositoryConnections connections,
-            ConnectionDeletion data,
+            ConnectionDeletion connectionDeletion,
             Annotations annotations,
             AppSessions sessions,
             GitHubTokenLifecycle credentials,
             TransactionTemplate transaction) {
         this.connections = connections;
-        this.data = data;
+        this.connectionDeletion = connectionDeletion;
         this.annotations = annotations;
         this.sessions = sessions;
         this.credentials = credentials;
@@ -67,7 +67,7 @@ public class AccountDeletion {
             int cards = 0;
             for (var connection : connections.list(user.id())) {
                 connections.lockForSync(user.id(), connection.id());
-                var removed = data.delete(connection.id());
+                var removed = connectionDeletion.delete(connection.id());
                 repositories++;
                 reading += removed.readingStates();
                 bookmarks += removed.bookmarks();

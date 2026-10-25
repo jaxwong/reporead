@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -26,6 +27,9 @@ import org.springframework.web.client.RestTemplate;
 @Configuration
 public class GitHubHttpConfiguration {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubHttpConfiguration.class);
+    public static final String API_ORIGIN = "https://api.github.com";
+    public static final MediaType JSON = MediaType.parseMediaType("application/vnd.github+json");
+    public static final MediaType RAW = MediaType.parseMediaType("application/vnd.github.raw+json");
     public static final String GITHUB_REQUESTS = "reporead.github.requests";
     /** Ceiling for OAuth, metadata, and raw note responses. */
     public static final int MAX_RESPONSE_BYTES = 1_048_576;
@@ -73,11 +77,11 @@ public class GitHubHttpConfiguration {
     }
 
     /** Counts and logs a GitHub request that got no usable answer: unreachable, timed out, or too large. */
-    private static IOException failed(IOException error, MeterRegistry meters) {
-        meters.counter(GITHUB_REQUESTS, "outcome", error instanceof ResponseTooLarge ? "too_large" : "failed")
+    private static IOException failed(IOException failure, MeterRegistry meters) {
+        meters.counter(GITHUB_REQUESTS, "outcome", failure instanceof ResponseTooLarge ? "too_large" : "failed")
                 .increment();
-        LOG.warn("GitHub request failed; failureType={}", error.getClass().getSimpleName());
-        return error;
+        LOG.warn("GitHub request failed; failureType={}", failure.getClass().getSimpleName());
+        return failure;
     }
 
     public static final class ResponseTooLarge extends IOException {

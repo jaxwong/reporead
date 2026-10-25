@@ -48,13 +48,13 @@ public class Reviews {
     }
 
     /**
-     * Records a grade of the card {@code cardId} once per client {@code mutation}: a replay returns the stored review,
-     * however the note changed since; the same id with other content is 409 MUTATION_ID_REUSED. The phone decides
-     * whether a card can be graded in a version, since only it reads the bank question its Canonical line asks
+     * Records a grade of the card {@code cardId} once per client {@code reviewMutationId}: a replay returns the stored
+     * review, however the note changed since; the same id with other content is 409 MUTATION_ID_REUSED. The phone
+     * decides whether a card can be graded in a version, since only it reads the bank question its Canonical line asks
      * (ADR-13); {@code blobSha} records the version answered. Holds the card's connection lock while it writes, so a
      * refresh or disconnect waits for it; a card that is not this user's, or was disconnected meanwhile, is 404.
      */
-    Review grade(long userId, long cardId, UUID mutation, int grade, Instant reviewedAt, String blobSha) {
+    Review grade(long userId, long cardId, UUID reviewMutationId, int grade, Instant reviewedAt, String blobSha) {
         return transaction.execute(tx -> {
             annotations.lockCard(userId, cardId);
             Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
@@ -62,9 +62,9 @@ public class Reviews {
                     reviewedAt.isBefore(Instant.EPOCH) ? Instant.EPOCH : reviewedAt.isAfter(now) ? now : reviewedAt;
             db.sql("""
                     INSERT INTO review_log(user_id, mutation_id, annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at)
-                    VALUES (:userId, :mutation, :id, :grade, :at, :sha, :clientAt) ON CONFLICT DO NOTHING""")
+                    VALUES (:userId, :mutationId, :id, :grade, :at, :sha, :clientAt) ON CONFLICT DO NOTHING""")
                     .param("userId", userId)
-                    .param("mutation", mutation)
+                    .param("mutationId", reviewMutationId)
                     .param("id", cardId)
                     .param("grade", grade)
                     .param("at", Timestamp.from(storedAt))
@@ -72,9 +72,9 @@ public class Reviews {
                     .param("sha", blobSha)
                     .update();
             var stored = db.sql(
-                            "SELECT annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at FROM review_log WHERE user_id = :userId AND mutation_id = :mutation")
+                            "SELECT annotation_id, grade, reviewed_at, blob_sha, client_reviewed_at FROM review_log WHERE user_id = :userId AND mutation_id = :mutationId")
                     .param("userId", userId)
-                    .param("mutation", mutation)
+                    .param("mutationId", reviewMutationId)
                     .query(Stored.class)
                     .single();
             // Before V15 the accepted client timestamp was stored unchanged.
@@ -86,9 +86,9 @@ public class Reviews {
                     || !stored.blobSha().equals(blobSha)) {
                 throw new ApiFailure(Code.MUTATION_ID_REUSED, "This mutationId belongs to a different review.");
             }
-            return db.sql(SELECT + " AND r.mutation_id = :mutation")
+            return db.sql(SELECT + " AND r.mutation_id = :mutationId")
                     .param("userId", userId)
-                    .param("mutation", mutation)
+                    .param("mutationId", reviewMutationId)
                     .query(Review.class)
                     .single();
         });

@@ -99,30 +99,30 @@ public class RepositoryConnections {
     List<Available> available(AppUser user) {
         String token = credentials.githubUserToken(user.githubUserId());
         var connected = connected(user.id());
-        var result = new ArrayList<Available>();
+        var availableRepositories = new ArrayList<Available>();
         var seen = new HashSet<Long>();
         for (long installationId : github.installations(token)) {
             for (var repository : github.repositories(token, installationId)) {
-                if (!seen.add(repository.id())) {
+                if (!seen.add(repository.githubRepositoryId())) {
                     throw new ApiFailure(
                             Code.GITHUB_INVALID_RESPONSE, "GitHub listed one repository in two installations.");
                 }
-                var connection = connected.get(repository.id());
-                result.add(new Available(
-                        repository.id(),
+                var connection = connected.get(repository.githubRepositoryId());
+                availableRepositories.add(new Available(
+                        repository.githubRepositoryId(),
                         installationId,
                         repository.fullName(),
                         repository.privateRepository(),
                         repository.defaultBranch(),
-                        connection == null ? null : connection.id(),
+                        connection == null ? null : connection.connectionId(),
                         connection != null && !connection.namesMatch(repository)));
             }
         }
-        return List.copyOf(result);
+        return List.copyOf(availableRepositories);
     }
 
     /** A connection's id and the names GitHub gave when it was last connected. */
-    private record Saved(long id, String owner, String name, String defaultBranch) {
+    private record Saved(long connectionId, String owner, String name, String defaultBranch) {
         boolean namesMatch(GitHubApi.Repository repository) {
             return owner.equals(repository.owner())
                     && name.equals(repository.name())
@@ -160,7 +160,7 @@ public class RepositoryConnections {
     Connection connect(AppUser user, long githubRepositoryId, long installationId) {
         String token = credentials.githubUserToken(user.githubUserId());
         var repository = github.repositories(token, installationId).stream()
-                .filter(candidate -> candidate.id() == githubRepositoryId)
+                .filter(candidate -> candidate.githubRepositoryId() == githubRepositoryId)
                 .findFirst()
                 .orElseThrow(() -> new ApiFailure(
                         Code.REPOSITORY_NOT_AUTHORIZED,
@@ -170,20 +170,20 @@ public class RepositoryConnections {
             if (!sessions.lockUserForWrite(userId)) {
                 throw new ApiFailure(Code.SIGN_IN_REQUIRED, "This RepoRead account was deleted; sign in again.");
             }
-            long id = db.sql("""
+            long connectionId = db.sql("""
                     INSERT INTO repository_connections (user_id, github_repository_id, owner, name, default_branch)
                     VALUES (:userId, :githubRepositoryId, :owner, :name, :defaultBranch)
                     ON CONFLICT (user_id, github_repository_id) DO UPDATE
                     SET owner = excluded.owner, name = excluded.name, default_branch = excluded.default_branch
                     RETURNING id""")
                     .param("userId", userId)
-                    .param("githubRepositoryId", repository.id())
+                    .param("githubRepositoryId", repository.githubRepositoryId())
                     .param("owner", repository.owner())
                     .param("name", repository.name())
                     .param("defaultBranch", repository.defaultBranch())
                     .query(Long.class)
                     .single();
-            return find(userId, id).orElseThrow();
+            return find(userId, connectionId).orElseThrow();
         });
     }
 

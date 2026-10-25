@@ -294,7 +294,9 @@ public class RepositorySnapshotRefresh {
             if (snapshotMarkdownFiles.size() == MAX_DOCUMENTS) {
                 throw new ApiFailure(
                         Code.DOCUMENT_LIMIT,
-                        "This repository has more than 5000 Markdown files; no documents were changed.");
+                        "This repository has more than "
+                                + MAX_DOCUMENTS
+                                + " Markdown files; no documents were changed.");
             }
             snapshotMarkdownFiles.add(new Documents.SourceFile(entry.path(), entry.sha()));
         }

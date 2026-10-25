@@ -40,18 +40,18 @@ class ApiErrors {
         MissingServletRequestParameterException.class,
         MethodArgumentTypeMismatchException.class
     })
-    ResponseEntity<Body> unreadable(Exception error, HttpServletRequest request) throws Exception {
-        if (!(error instanceof HttpMessageNotReadableException
-                || error instanceof MissingServletRequestParameterException
-                || error instanceof MethodArgumentTypeMismatchException)) throw error;
+    ResponseEntity<Body> unreadable(Exception failure, HttpServletRequest request) throws Exception {
+        if (!(failure instanceof HttpMessageNotReadableException
+                || failure instanceof MissingServletRequestParameterException
+                || failure instanceof MethodArgumentTypeMismatchException)) throw failure;
         LOG.warn(
                 "API request unreadable; method={} path={} error={}",
                 request.getMethod(),
                 request.getRequestURI(),
-                error.getClass().getSimpleName());
-        String message = error instanceof MissingServletRequestParameterException missing
+                failure.getClass().getSimpleName());
+        String message = failure instanceof MissingServletRequestParameterException missing
                 ? "Missing request parameter " + missing.getParameterName() + "."
-                : error instanceof MethodArgumentTypeMismatchException mismatch
+                : failure instanceof MethodArgumentTypeMismatchException mismatch
                         ? "Request value " + mismatch.getName() + " has the wrong type."
                         : "The request body is not valid JSON for this route.";
         return ResponseEntity.status(ApiFailure.Code.INVALID_REQUEST.status)

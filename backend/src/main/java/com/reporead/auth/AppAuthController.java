@@ -32,7 +32,7 @@ import org.springframework.web.servlet.view.RedirectView;
  */
 @RestController
 public class AppAuthController {
-    public static final String GITHUB_CALLBACK_PATH = "/login/oauth2/code/github";
+    public static final String GITHUB_CALLBACK_PATH = "/login/oauth2/code/" + GitHubBrowserSignIn.REGISTRATION;
     public static final String SIGNED_IN_PATH = "/app/signed-in";
 
     private static final Logger LOG = LoggerFactory.getLogger(AppAuthController.class);
@@ -58,11 +58,12 @@ public class AppAuthController {
         }
         try {
             PendingAppSignIn.start(request, codeChallenge);
-        } catch (TooManyActiveSessionsException full) {
-            LOG.warn("Sign-in refused: too many sign-ins in progress; limit={}", full.getMaxActiveSessions());
+        } catch (TooManyActiveSessionsException capacityFailure) {
+            LOG.warn(
+                    "Sign-in refused: too many sign-ins in progress; limit={}", capacityFailure.getMaxActiveSessions());
             throw new ApiFailure(Code.SIGN_IN_BUSY, "Too many sign-ins are in progress; try again in a few minutes.");
         }
-        return new RedirectView("/oauth2/authorization/github");
+        return new RedirectView(GitHubBrowserSignIn.AUTHORIZATION_PATH);
     }
 
     /** Owns the PKCE handoff request shape, not session issuance policy. */

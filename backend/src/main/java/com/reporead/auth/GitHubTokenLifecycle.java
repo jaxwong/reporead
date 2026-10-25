@@ -4,6 +4,7 @@ package com.reporead.auth;
 
 import com.reporead.ApiFailure;
 import com.reporead.ApiFailure.Code;
+import com.reporead.github.GitHubHttpConfiguration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -41,7 +42,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class GitHubTokenLifecycle {
     private static final Logger LOG = LoggerFactory.getLogger(GitHubTokenLifecycle.class);
-    private static final MediaType GITHUB_JSON = MediaType.parseMediaType("application/vnd.github+json");
     /** GitHub's answer, and OAuth's, when the refresh token itself is no longer valid. */
     private static final Set<String> REFUSED_REFRESH_TOKEN = Set.of("bad_refresh_token", "invalid_grant");
 
@@ -127,7 +127,7 @@ public class GitHubTokenLifecycle {
         });
         // Replaces Spring's default, which removes the stored token on some refusals: currentToken alone decides what
         // a failed renewal means, and removes the token itself when GitHub refused it.
-        manager.setAuthorizationFailureHandler((error, principal, attributes) -> {});
+        manager.setAuthorizationFailureHandler((failure, principal, attributes) -> {});
         this.manager = manager;
     }
 
@@ -217,13 +217,14 @@ public class GitHubTokenLifecycle {
      */
     private void revoke(long githubUserId, String token) {
         var app = registrations.findByRegistrationId(GitHubBrowserSignIn.REGISTRATION);
-        var uri = UriComponentsBuilder.fromUriString("https://api.github.com/applications/{clientId}/grant")
+        var uri = UriComponentsBuilder.fromUriString(
+                        GitHubHttpConfiguration.API_ORIGIN + "/applications/{clientId}/grant")
                 .encode()
                 .buildAndExpand(app.getClientId())
                 .toUri();
         var request = RequestEntity.method(HttpMethod.DELETE, uri)
                 .headers(headers -> headers.setBasicAuth(app.getClientId(), app.getClientSecret()))
-                .accept(GITHUB_JSON)
+                .accept(GitHubHttpConfiguration.JSON)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(json.writeValueAsBytes(Map.of("access_token", token)));
         try {

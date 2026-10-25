@@ -66,17 +66,17 @@ public class LibrarySnapshotReader {
      * {@link #MAX_RESPONSE_BYTES} is refused whole (422 LIBRARY_TOO_LARGE) before any of it is sent.
      */
     byte[] answer(long userId) {
-        var snapshot = read(userId);
-        byte[] body = json.writeValueAsBytes(snapshot);
+        var library = read(userId);
+        byte[] body = json.writeValueAsBytes(library);
         LOG.info(
                 "Library read; userId={} bytes={} repositories={} readingStates={} bookmarks={} annotations={} reviews={}",
                 userId,
                 body.length,
-                snapshot.repositories().size(),
-                snapshot.readingStates().size(),
-                snapshot.bookmarks().size(),
-                snapshot.notebook().annotations().size(),
-                snapshot.notebook().reviews().size());
+                library.repositories().size(),
+                library.readingStates().size(),
+                library.bookmarks().size(),
+                library.notebook().annotations().size(),
+                library.notebook().reviews().size());
         if (body.length > MAX_RESPONSE_BYTES) {
             throw new ApiFailure(
                     Code.LIBRARY_TOO_LARGE,

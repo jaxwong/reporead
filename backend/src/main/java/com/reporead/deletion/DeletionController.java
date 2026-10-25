@@ -17,24 +17,24 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public class DeletionController {
-    private final ConnectionDeletion data;
+    private final ConnectionDeletion connectionDeletion;
     private final AccountDeletion accounts;
 
-    public DeletionController(ConnectionDeletion data, AccountDeletion accounts) {
-        this.data = data;
+    public DeletionController(ConnectionDeletion connectionDeletion, AccountDeletion accounts) {
+        this.connectionDeletion = connectionDeletion;
         this.accounts = accounts;
     }
 
     /** What disconnecting this repository would delete, for the confirmation. */
     @GetMapping("/api/repositories/{id}/stored-data")
     ConnectionDeletion.Counts storedData(@AuthenticationPrincipal AppUser user, @PathVariable("id") long connectionId) {
-        return data.count(user.id(), connectionId);
+        return connectionDeletion.count(user.id(), connectionId);
     }
 
     @DeleteMapping("/api/repositories/{id}")
     ConnectionDeletion.Disconnected disconnect(
             @AuthenticationPrincipal AppUser user, @PathVariable("id") long connectionId) {
-        return data.disconnect(user.id(), connectionId);
+        return connectionDeletion.disconnect(user.id(), connectionId);
     }
 
     @DeleteMapping("/api/account")
