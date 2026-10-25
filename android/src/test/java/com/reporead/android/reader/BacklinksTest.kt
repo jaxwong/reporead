@@ -30,10 +30,14 @@ class BacklinksTest {
                 """<a href="https://example.com/note-link?target=x">y</a>"""
         // The server encodes per RFC 3986 (a space is %20), so "+" is a literal plus.
         assertEquals(
-            listOf("T1. It's Your Life" to null, null to "core/backend engineering/01.md", "a+b" to null),
+            listOf(
+                NoteLinkTarget("T1. It's Your Life", null),
+                NoteLinkTarget(null, "core/backend engineering/01.md"),
+                NoteLinkTarget("a+b", null),
+            ),
             noteLinks(html),
         )
-        assertEquals(emptyList<Pair<String?, String?>>(), noteLinks("<p>No links</p>"))
+        assertEquals(emptyList<NoteLinkTarget>(), noteLinks("<p>No links</p>"))
     }
 
     /** The exact href MarkdownRendererTest.aPlusInALinkNameStaysLiteral pins for [[C++ templates#A+B]]. */

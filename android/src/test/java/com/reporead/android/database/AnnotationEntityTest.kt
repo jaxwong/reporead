@@ -46,8 +46,8 @@ class AnnotationEntityTest {
         val highlight = card.copy(annotation = card.annotation.copy(type = AnnotationType.HIGHLIGHT))
         assertTrue(reviewable(card))
         for (item in listOf(refused, removed, highlight)) assertFalse(reviewable(item))
-        assertEquals(emptySet<Pair<Long, String>>(), scheduledLines(emptyList()))
-        assertEquals(emptySet<Pair<Long, String>>(), scheduledLines(listOf(refused, removed, highlight)))
+        assertEquals(emptySet<ScheduledLine>(), scheduledLines(emptyList()))
+        assertEquals(emptySet<ScheduledLine>(), scheduledLines(listOf(refused, removed, highlight)))
         val editedPrompt = card.copy(annotation = card.annotation.copy(question = "Test-only edited prompt?"))
         val elsewhere = card.copy(annotation = card.annotation.copy(documentId = 8))
         val movedLine = "Canonical answer: Test-only moved"
@@ -60,7 +60,7 @@ class AnnotationEntityTest {
                     )
             )
         assertEquals(
-            setOf(7L to line, 8L to line, 7L to movedLine),
+            setOf(ScheduledLine(7, line), ScheduledLine(8, line), ScheduledLine(7, movedLine)),
             scheduledLines(listOf(card, editedPrompt, elsewhere, moved, refused, removed, highlight)),
         )
         // Needing an answer check blocks grading, not membership of the review schedule.

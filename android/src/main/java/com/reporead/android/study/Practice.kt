@@ -39,6 +39,7 @@ import com.reporead.android.database.NotebookItem
 import com.reporead.android.database.Passage
 import com.reporead.android.database.PracticePage
 import com.reporead.android.database.RepoReadDao
+import com.reporead.android.database.ScheduledLine
 import com.reporead.android.database.scheduledLines
 import com.reporead.android.logging.DeviceLog
 import com.reporead.android.sync.PhoneSync
@@ -103,7 +104,7 @@ internal fun readBanks(pages: List<PracticePage>): Banks {
 /** Question keys already on this phone's review schedule, matched by [scheduledLines]. */
 internal fun scheduledQuestions(questions: List<PracticeQuestion>, cards: List<NotebookItem>): Set<String> {
     val made = scheduledLines(cards)
-    return questions.filter { (it.documentId to it.question.answer.text) in made }.map { it.key }.toSet()
+    return questions.filter { ScheduledLine(it.documentId, it.question.answer.text) in made }.map { it.key }.toSet()
 }
 
 internal fun topicName(topic: String?) =

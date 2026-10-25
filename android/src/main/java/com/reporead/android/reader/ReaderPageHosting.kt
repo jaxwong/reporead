@@ -87,7 +87,7 @@ internal fun readerAssets(context: Context): WebViewAssetLoader =
 internal fun readerResource(
     assets: WebViewAssetLoader,
     images: SavedPageImages,
-    note: SavedPageEntity,
+    savedPage: SavedPageEntity,
     url: Uri,
 ): WebResourceResponse {
     val path = url.path.orEmpty()
@@ -101,7 +101,11 @@ internal fun readerResource(
             when {
                 type == null -> null
                 path.startsWith(IMAGE_PREFIX) ->
-                    images.loadImageBytes(note.documentId, note.snapshotCommitSha, path.removePrefix(IMAGE_PREFIX))
+                    images.loadImageBytes(
+                        savedPage.documentId,
+                        savedPage.snapshotCommitSha,
+                        path.removePrefix(IMAGE_PREFIX),
+                    )
                 else -> null
             }
         if (type != null && bytes != null) {

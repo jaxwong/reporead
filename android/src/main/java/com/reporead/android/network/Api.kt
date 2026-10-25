@@ -177,7 +177,7 @@ class Api(
                 "*/*",
                 setOf(200),
             )
-            .second
+            .body
 
     private fun query(value: String) = URLEncoder.encode(value, Charsets.UTF_8)
 
@@ -191,16 +191,19 @@ class Api(
         crossinline responseMatchesRequest: (T) -> Boolean = { true },
     ): T =
         withContext(Dispatchers.IO) {
-            val (status, bytes) = execute(method, path, requestBody, maxBytes, "application/json", expectedStatuses)
-            val response = decodeResponse<T>(bytes.toString(Charsets.UTF_8), status)
-            if (!responseMatchesRequest(response)) throw invalidResponse(status)
-            response
+            val response = execute(method, path, requestBody, maxBytes, "application/json", expectedStatuses)
+            val answer = decodeResponse<T>(response.body.toString(Charsets.UTF_8), response.status)
+            if (!responseMatchesRequest(answer)) throw invalidResponse(response.status)
+            answer
         }
 
     private suspend fun noContent(method: String, path: String, requestBody: String? = null): Unit =
         withContext(Dispatchers.IO) {
             execute(method, path, requestBody, MAX_JSON_BYTES, "application/json", setOf(204))
         }
+
+    /** A backend answer within a route's expected statuses: its [status] and bounded [body]. */
+    private class Response(val status: Int, val body: ByteArray)
 
     /** The sole HTTP boundary: one attempt, token-aware 401 handling and no durable partial response. */
     private fun execute(
@@ -210,7 +213,7 @@ class Api(
         maxBytes: Int,
         accept: String,
         expectedStatuses: Set<Int>,
-    ): Pair<Int, ByteArray> {
+    ): Response {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         var status = 0
         var requestId: String? = null
@@ -233,9 +236,11 @@ class Api(
             requestId = connection.getHeaderField("X-Request-Id")
             if (status in 200..299) {
                 if (status !in expectedStatuses) throw invalidResponse(status)
-                return status to
+                return Response(
+                    status,
                     if (status == 204) byteArrayOf()
-                    else connection.inputStream.use { readBounded(it, maxBytes, status) }
+                    else connection.inputStream.use { readBounded(it, maxBytes, status) },
+                )
             }
             if (status == 401) onUnauthorized(token)
             val errorResponse =

@@ -124,9 +124,14 @@ data class NotebookItem(
 internal fun reviewable(item: NotebookItem) =
     item.annotation.type == AnnotationType.CARD && item.annotation.state != AnnotationState.REFUSED && !item.deleted
 
-/** Scheduled question identity is the bank document and drawn Canonical line, never the saved prompt or version. */
-internal fun scheduledLines(cards: List<NotebookItem>): Set<Pair<Long, String>> =
-    cards.filter(::reviewable).map { it.annotation.documentId to it.annotation.drawn.exactText }.toSet()
+/**
+ * A scheduled question's identity: its bank document and its drawn Canonical line, never the saved prompt or version.
+ */
+internal data class ScheduledLine(val documentId: Long, val exactText: String)
+
+/** The questions on the review schedule, by [ScheduledLine]. */
+internal fun scheduledLines(cards: List<NotebookItem>): Set<ScheduledLine> =
+    cards.filter(::reviewable).map { ScheduledLine(it.annotation.documentId, it.annotation.drawn.exactText) }.toSet()
 
 /**
  * The highlight among [rows] drawn exactly on [passage], if any; a phrase has at most one, whose note holds everything

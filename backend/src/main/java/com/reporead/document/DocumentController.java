@@ -13,10 +13,10 @@ import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,19 +30,18 @@ public class DocumentController {
     private final Documents documents;
     private final DocumentVersions documentVersions;
     private final Attachments attachments;
+    /** The content and its blocks from one database snapshot (TransactionConfiguration.snapshotRead). */
     private final TransactionTemplate snapshot;
 
     public DocumentController(
             Documents documents,
             DocumentVersions documentVersions,
             Attachments attachments,
-            TransactionTemplate transaction) {
+            @Qualifier("snapshotRead") TransactionTemplate snapshotRead) {
         this.documents = documents;
         this.documentVersions = documentVersions;
         this.attachments = attachments;
-        this.snapshot = new TransactionTemplate(transaction.getTransactionManager());
-        snapshot.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
-        snapshot.setReadOnly(true);
+        this.snapshot = snapshotRead;
     }
 
     /** One canonical reader block sent with its identity, so a local search result can open the exact match. */
