@@ -2,7 +2,7 @@
 
 How RepoRead is built today: the parts, who owns what, and how data moves between them. The *why* behind each decision is in the [ADRs](adrs.md); the exact HTTP contract, limits and error codes are in the [backend README](../backend/README.md); phone behaviour is in the [Android README](../android/README.md). The rules every change keeps are in [invariants](invariants.md). This document links to them instead of repeating them.
 
-As built on `main` at `b148d9d`, 2026-10-22. This describes source behavior, not the hosted or installed revision.
+As built on `main` at `aeedb2c`, 2026-10-24. This describes source behavior, not the hosted or installed revision.
 
 ## 1. The system in one picture
 
@@ -143,9 +143,7 @@ flowchart TB
     sync --> github
     annotation --> document
     annotation --> repository
-    reading --> document
     reading --> repository
-    document --> repository
     document --> auth
     document --> github
     repository --> auth
