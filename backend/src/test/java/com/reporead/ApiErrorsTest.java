@@ -16,12 +16,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -39,6 +44,25 @@ class ApiErrorsTest {
         TestEnvironment.register(properties);
         // On a random port the loopback form of the public URL cannot name it; any HTTPS origin can.
         properties.add("reporead.public-url", () -> "https://reporead.test");
+    }
+
+    /**
+     * Test-only: a route failing with a server error caused by a read failure, as a GitHub answer the server could not
+     * read would be. Spring registers a component nested in a test configuration as part of it, so only this class's
+     * context has the route.
+     */
+    @TestConfiguration
+    static class FailingRoute {
+        @RestController
+        static class Failing {
+            @GetMapping("/api/test-only/unreadable-cause")
+            String fail() {
+                throw new IllegalStateException(
+                        "test-only server failure",
+                        new HttpMessageNotReadableException(
+                                "test-only unreadable answer", new MockHttpInputMessage(new byte[0])));
+            }
+        }
     }
 
     @LocalServerPort
@@ -153,6 +177,14 @@ class ApiErrorsTest {
                 send("PUT", "/api/documents/1/reading-state", "application/json", "{", true), 400, "INVALID_REQUEST");
         assertCode(send("DELETE", "/api/annotations/1?expectedVersion=one", null, null, true), 400, "INVALID_REQUEST");
         assertCode(send("PUT", "/api/documents/abc/bookmark", null, null, true), 400, "INVALID_REQUEST");
+    }
+
+    /** Spring also matches a handler on a cause, but a server failure caused by a read failure is not the client's. */
+    @Test
+    void aServerFailureCausedByAReadFailureIsNotRepoReadsAnswer() throws Exception {
+        var answer = send("GET", "/api/test-only/unreadable-cause", null, null, true);
+        assertEquals(500, answer.status(), answer.body().toString());
+        assertFalse(answer.body().has("code"), "no RepoRead code: " + answer.body());
     }
 
     private static void assertCode(Answer answer, int status, String code) {

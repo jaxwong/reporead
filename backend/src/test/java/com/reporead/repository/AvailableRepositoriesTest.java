@@ -279,7 +279,17 @@ class AvailableRepositoriesTest extends SharedSpringTest {
     }
 
     @Test
-    void duplicateRepositoryIdsAndOversizedResponsesAreRejected() throws Exception {
+    void duplicateIdsAndOversizedResponsesAreRejected() throws Exception {
+        // A repeated installation is refused before any of its repositories is listed.
+        expect(
+                INSTALLATIONS,
+                TOKEN,
+                withSuccess(
+                        "{\"total_count\":2,\"installations\":[{\"id\":7},{\"id\":7}]}", MediaType.APPLICATION_JSON));
+        available(alice)
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("GITHUB_INVALID_RESPONSE"));
+        next();
         expectListing(
                 TOKEN,
                 withSuccess(

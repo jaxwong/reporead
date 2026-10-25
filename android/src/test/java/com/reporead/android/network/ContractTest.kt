@@ -92,8 +92,11 @@ class ContractTest {
         broken<DocumentControllerContent>(wire(testContent().copy(blocks = listOf(block.copy(id = "")))))
         broken<DocumentControllerContent>(wire(testContent().copy(blocks = listOf(block, block))))
         broken<AppSessionsIssuedSession>(wire(testSession(accessToken = "")))
-        // Rules reach into what an answer holds: one bad reading state breaks the whole library.
+        // Rules reach into what an answer holds: one bad reading state or notebook card breaks the whole library.
         broken<LibrarySnapshot>(wire(testLibrary(readingStates = listOf(testReading().copy(progressPercent = -1)))))
+        broken<LibrarySnapshot>(
+            wire(testLibrary(annotations = listOf(testHighlight(), testCard().copy(question = ""))))
+        )
     }
 
     @Test

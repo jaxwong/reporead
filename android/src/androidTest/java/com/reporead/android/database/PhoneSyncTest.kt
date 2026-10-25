@@ -22,6 +22,7 @@ import com.reporead.android.network.testLibrary
 import com.reporead.android.network.testReading
 import com.reporead.android.network.testReview
 import com.reporead.android.network.wire
+import com.reporead.android.network.wire.AnnotationControllerCreateRequest
 import com.reporead.android.network.wire.ReviewControllerGradeRequest
 import com.reporead.android.network.wireJson
 import com.reporead.android.reader.readerAssets
@@ -366,6 +367,93 @@ class PhoneSyncTest {
                     server.requests,
                 )
                 assertNull(dao.annotation("deleted"))
+            }
+    }
+
+    /**
+     * A refusal settles only its own item and the run goes on: a refused creation keeps the server's reason, and its
+     * card's grade is refused with it; a creation already deleted, or refused while being deleted, is removed; a
+     * refused deletion shows the highlight again unless the server no longer has it; a refused grade keeps its reason.
+     * Nothing is left to send, and deleting a refused creation or one the server no longer has removes it.
+     */
+    @Test
+    fun eachRefusalSettlesOnlyItsOwnItemAndTheRunGoesOn() = runBlocking {
+        fun row(mutationId: String, state: AnnotationState, serverId: Long? = null, question: String? = null) =
+            AnnotationEntity(
+                mutationId,
+                serverId,
+                1,
+                sha,
+                "b1",
+                0,
+                4,
+                "text",
+                null,
+                1,
+                0,
+                state = state,
+                type = if (question == null) AnnotationType.HIGHLIGHT else AnnotationType.CARD,
+                question = question,
+            )
+        dao.saveAnnotation(row("refused-card", AnnotationState.UNSENT, question = "Test-only question?"))
+        dao.saveReview(ReviewEntity("grade-of-refused-card", "refused-card", 4, 1, sha, pending = true))
+        dao.saveAnnotation(row("deleted-elsewhere", AnnotationState.UNSENT))
+        dao.saveAnnotation(row("refused-while-deleting", AnnotationState.DELETING))
+        dao.saveAnnotation(row("changed-elsewhere", AnnotationState.DELETING, serverId = 21))
+        dao.saveAnnotation(row("gone-from-server", AnnotationState.DELETING, serverId = 22))
+        dao.saveAnnotation(row("card", AnnotationState.ACKNOWLEDGED, serverId = 10, question = "Test-only question?"))
+        dao.saveReview(ReviewEntity("refused-grade", "card", 4, 2, sha, pending = true))
+        val creationRefusals =
+            mapOf(
+                "refused-card" to failure(422, "INVALID_ANCHOR"),
+                "deleted-elsewhere" to failure(410, "ANNOTATION_DELETED"),
+                "refused-while-deleting" to failure(404, "NOT_FOUND"),
+            )
+        LoopbackServer.answering(
+                mapOf(
+                    "DELETE /api/annotations/21?expectedVersion=1" to failure(409, "ANNOTATION_CONFLICT"),
+                    "DELETE /api/annotations/22?expectedVersion=1" to failure(404, "NOT_FOUND"),
+                    "POST /api/annotations/10/reviews" to failure(400, "INVALID_REVIEW"),
+                    "DELETE /api/annotations/10?expectedVersion=1" to failure(404, "NOT_FOUND"),
+                )
+            ) { route, body ->
+                if (route != "POST /api/documents/1/annotations") null
+                else creationRefusals[wireJson.decodeFromString<AnnotationControllerCreateRequest>(body).mutationId]
+            }
+            .use { server ->
+                val sync = sync(server.url)
+                assertNull(sync.sendPendingChanges()!!.notSent)
+                assertEquals(AnnotationState.REFUSED, dao.annotation("refused-card")?.state)
+                assertEquals("Test-only INVALID_ANCHOR", dao.annotation("refused-card")?.rejection)
+                assertNull(dao.annotation("deleted-elsewhere"))
+                assertNull(dao.annotation("refused-while-deleting"))
+                assertEquals(AnnotationState.ACKNOWLEDGED, dao.annotation("changed-elsewhere")?.state)
+                assertNull(dao.annotation("gone-from-server"))
+                assertEquals(
+                    mapOf(
+                        "grade-of-refused-card" to "Card creation was refused: Test-only INVALID_ANCHOR",
+                        "refused-grade" to "Test-only INVALID_REVIEW",
+                    ),
+                    dao.reviews().first().associate { it.mutationId to it.rejection },
+                )
+                assertNull(sync.sendPendingChanges())
+                sync.deleteAnnotation(dao.annotation("refused-card")!!)
+                sync.deleteAnnotation(dao.annotation("card")!!)
+                assertNull(dao.annotation("refused-card"))
+                assertNull(dao.annotation("card"))
+                // One request per item: none for the refused card's grade or deletion, and nothing sent twice.
+                assertEquals(
+                    listOf(
+                        "DELETE /api/annotations/10?expectedVersion=1",
+                        "DELETE /api/annotations/21?expectedVersion=1",
+                        "DELETE /api/annotations/22?expectedVersion=1",
+                        "POST /api/annotations/10/reviews",
+                        "POST /api/documents/1/annotations",
+                        "POST /api/documents/1/annotations",
+                        "POST /api/documents/1/annotations",
+                    ),
+                    server.requests.sorted(),
+                )
             }
     }
 
