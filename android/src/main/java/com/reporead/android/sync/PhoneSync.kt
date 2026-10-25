@@ -105,18 +105,19 @@ class PhoneSync(
     /** Saved notes' images; deleted here whenever their notes go. */
     val images = SavedPageImages(api, filesDir)
 
-    /** The [paths] a deletion [after] something left, logged; a later sweep deletes them again. */
-    private fun logged(after: String, paths: List<File>): List<File> {
-        if (paths.isNotEmpty()) DeviceLog.warn("Files left on the phone; after=$after count=${paths.size} paths=$paths")
-        return paths
-    }
-
     /**
      * Deletes the images of every version Room holds no page of: forgotten notes' and replaced versions'. Derived from
      * Room each time, so nothing remembers what to delete. Run wherever a saved page may have gone or been replaced:
-     * after a page is saved, after the server's lists replace the saved ones, after a disconnect and at start.
+     * after a page is saved, after the server's lists replace the saved ones, after a disconnect and at start. Files
+     * that could not be deleted are logged, not thrown, because these deletions follow ones that cannot be undone; a
+     * later sweep deletes them again.
      */
-    private suspend fun sweepImages(): List<File> = logged("sweeping images", images.sweep(dao.allSavedVersions()))
+    private suspend fun sweepImages() {
+        val leftover = images.sweep(dao.allSavedVersions())
+        if (leftover.isNotEmpty()) {
+            DeviceLog.warn("Files left on the phone; after=sweeping images count=${leftover.size} paths=$leftover")
+        }
+    }
 
     /**
      * Loads the server's whole library in one request, no GitHub call (GET /api/library): the repositories with every
