@@ -247,7 +247,7 @@ class CommittedMutationTest {
     private fun grade() = ReviewEntity("test-only-grade", TEST_CARD_MUTATION, 4, 2_000, testSha, pending = true)
 
     /** A library load, which holds the lock for as long as the server holds its answer. */
-    private fun CoroutineScope.holdTheLock(sync: PhoneSync) = async(Dispatchers.IO) { sync.refreshLibrary() }
+    private fun CoroutineScope.holdTheLock(sync: PhoneSync) = async(Dispatchers.IO) { sync.loadLibrary() }
 
     @Test
     fun localWritesWaitingForTheLockCommitOnceAfterTheirScreensLeft() = runBlocking {
