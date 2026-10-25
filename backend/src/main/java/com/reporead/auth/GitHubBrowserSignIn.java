@@ -36,7 +36,6 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
-import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
@@ -99,9 +98,9 @@ public class GitHubBrowserSignIn {
             AllowedUsers allowed,
             RepoReadProperties properties)
             throws Exception {
-        var pkce = new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization");
-        pkce.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
-        var resolver = startedByTheApp(pkce);
+        // An authorization-code registration requires a proof key by default, so the resolver adds PKCE (S256) itself.
+        var resolver =
+                startedByTheApp(new DefaultOAuth2AuthorizationRequestResolver(registrations, "/oauth2/authorization"));
 
         // Admission must precede token exchange, not just token storage: deleting a grant invalidates newly issued
         // tokens too. The browser's user is not known yet, so GitHubTokenLifecycle's one process gate is used.
