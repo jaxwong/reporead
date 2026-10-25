@@ -88,6 +88,10 @@ class PhoneSync(
 ) {
     private val dao = store.dao()
 
+    /**
+     * A function named `…Locked` runs only while this is held (Android's convention): its caller is inside [locked] or
+     * another `…Locked` function.
+     */
     private val onePhoneOperationAtATime = Mutex()
 
     /** Orders local writes and server answers for the process's one local copy. */
@@ -111,7 +115,7 @@ class PhoneSync(
      * Room each time, so nothing remembers what to delete. Run wherever a saved page may have gone or been replaced:
      * after a page is saved, after the server's lists replace the saved ones, after a disconnect and at start. Files
      * that could not be deleted are logged, not thrown, because these deletions follow ones that cannot be undone; a
-     * later sweep deletes them again. Its caller holds the lock; [sweepImages] takes it.
+     * later sweep deletes them again. [sweepImages] takes the lock.
      */
     private suspend fun sweepImagesLocked() {
         val leftover = images.deleteImagesExceptSavedPages(dao.allSavedVersions())
@@ -126,8 +130,7 @@ class PhoneSync(
      * read from one database snapshot (ADR-08). It replaces the acknowledged rows, never pending work, in one Room
      * transaction; a failed request or an answer that breaks the contract writes nothing. After the commit it sweeps
      * the images of the notes it forgot — in a repository no longer listed (disconnected on another device, or here
-     * with the answer lost), or referred to by nothing ([sweepImagesLocked]). Its caller holds the lock ([locked]), as
-     * the `Locked` suffix says in Android's convention; [loadLibrary] takes it.
+     * with the answer lost), or referred to by nothing ([sweepImagesLocked]). [loadLibrary] takes the lock.
      */
     private suspend fun loadLibraryLocked() {
         val snapshot = api.fetchLibrarySnapshot()
@@ -218,7 +221,7 @@ class PhoneSync(
         if (savedPage != null && isUpToDate(savedPage, listedDocument, repositoryCommitSha))
             return@locked Opened(savedPage, null)
         try {
-            Opened(fetchAndSavePage(documentId).also { sweepImagesLocked() }, null)
+            Opened(fetchAndSavePageLocked(documentId).also { sweepImagesLocked() }, null)
         } catch (failure: ApiException) {
             if (savedPage == null) throw failure
             val savedPageIsCurrent = isSameVersion(savedPage, listedDocument, repositoryCommitSha)
@@ -233,7 +236,7 @@ class PhoneSync(
      * Fetches and saves the note's current version (one GitHub call on the server); the copy is saved whole or not at
      * all.
      */
-    private suspend fun fetchAndSavePage(documentId: Long): SavedPageEntity {
+    private suspend fun fetchAndSavePageLocked(documentId: Long): SavedPageEntity {
         val content = api.fetchDocumentContent(documentId)
         val savedPage =
             SavedPageEntity(
@@ -289,7 +292,7 @@ class PhoneSync(
                         images.saveImagesToDisk(savedPage)
                         alreadySaved++
                     } else {
-                        images.saveImagesToDisk(fetchAndSavePage(document.id))
+                        images.saveImagesToDisk(fetchAndSavePageLocked(document.id))
                         fetched++
                     }
                 }
@@ -333,7 +336,7 @@ class PhoneSync(
      * lost, or another device): that load has already removed this phone's copies.
      */
     suspend fun sendPendingChangesAndPreviewDisconnect(repositoryId: Long): DisconnectPreview? = locked {
-        val pendingChanges = sendPendingChanges().also { loadLibraryLocked() }
+        val pendingChanges = sendPendingChangesLocked().also { loadLibraryLocked() }
         val deletionCounts =
             try {
                 api.repositoryDeletionCounts(repositoryId)
@@ -397,11 +400,11 @@ class PhoneSync(
     }
 
     /**
-     * The Library's send-and-load operation: sends what waits ([sendPendingChanges]), then loads the server's library
-     * ([loadLibraryLocked]).
+     * The Library's send-and-load operation: sends what waits ([sendPendingChangesLocked]), then loads the server's
+     * library ([loadLibraryLocked]).
      */
     suspend fun sendPendingChangesAndLoadLibrary(): PendingChangesResult = locked {
-        sendPendingChanges().also { loadLibraryLocked() }
+        sendPendingChangesLocked().also { loadLibraryLocked() }
     }
 
     /**
@@ -409,7 +412,7 @@ class PhoneSync(
      * answer, so the lists are left to the screens.
      */
     suspend fun sendPendingChangesIfAny(): PendingChangesResult? = locked {
-        if (dao.unsentChangeCount().first() == 0 && dao.pendingReading().isEmpty()) null else sendPendingChanges()
+        if (dao.unsentChangeCount().first() == 0 && dao.pendingReading().isEmpty()) null else sendPendingChangesLocked()
     }
 
     /**
@@ -417,7 +420,7 @@ class PhoneSync(
      * access to it, fails they wait, and the database-only work still runs (ADR-03). A refused item is marked and the
      * run goes on; any other failure ends the run with unacknowledged changes still pending.
      */
-    private suspend fun sendPendingChanges(): PendingChangesResult {
+    private suspend fun sendPendingChangesLocked(): PendingChangesResult {
         val annotationSendFailure =
             try {
                 sendAnnotationsLocked()
@@ -426,7 +429,7 @@ class PhoneSync(
                 if (failure.unreachable) throw failure
                 failure
             }
-        sendReviews()
+        sendReviewsLocked()
         val refusedBookmarks = mutableListOf<RefusedChange>()
         for (readingState in dao.pendingReading()) {
             val request =
@@ -546,15 +549,14 @@ class PhoneSync(
      */
     suspend fun sendAnnotations() = locked { sendAnnotationsLocked() }
 
-    /** [sendAnnotations] for a caller that holds the lock. */
     private suspend fun sendAnnotationsLocked() {
         for (annotation in dao.waitingAnnotations()) {
             val isDeleting = annotation.state == AnnotationState.DELETING
             check(annotation.serverId == null || isDeleting) { "Unsent ${annotation.mutationId} has a server id" }
             // A deletion whose creation the server has not acknowledged replays the creation first, to learn its id.
             val serverBackedAnnotation =
-                if (annotation.serverId != null) annotation else sendCreation(annotation, isDeleting) ?: continue
-            if (isDeleting) sendDeletion(serverBackedAnnotation)
+                if (annotation.serverId != null) annotation else sendCreationLocked(annotation, isDeleting) ?: continue
+            if (isDeleting) sendDeletionLocked(serverBackedAnnotation)
         }
     }
 
@@ -563,7 +565,7 @@ class PhoneSync(
      * item: it is then removed (deleted already, or being [isDeleting]) or kept as refused. Any other failure stops the
      * run.
      */
-    private suspend fun sendCreation(annotation: AnnotationEntity, isDeleting: Boolean): AnnotationEntity? {
+    private suspend fun sendCreationLocked(annotation: AnnotationEntity, isDeleting: Boolean): AnnotationEntity? {
         val request =
             AnnotationControllerCreateRequest(
                 mutationId = annotation.mutationId,
@@ -608,7 +610,7 @@ class PhoneSync(
      * Deletes on the server a creation the user deleted before it was acknowledged; throws a failure that is not this
      * item's.
      */
-    private suspend fun sendDeletion(annotation: AnnotationEntity) {
+    private suspend fun sendDeletionLocked(annotation: AnnotationEntity) {
         val annotationId = checkNotNull(annotation.serverId) { "Deleting ${annotation.mutationId} needs its server id" }
         try {
             api.deleteAnnotation(annotationId, annotation.version)
@@ -705,7 +707,7 @@ class PhoneSync(
         }
     }
 
-    private suspend fun sendReviews() {
+    private suspend fun sendReviewsLocked() {
         for (review in dao.pendingReviews()) {
             val card =
                 checkNotNull(dao.annotation(review.cardMutationId)) {
