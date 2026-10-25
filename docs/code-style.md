@@ -31,6 +31,11 @@ rendered page. UI text may still say “note” when that is the user's concept.
   the domain role they represent. Do not call a decoded object `json`.
 - Booleans begin with `is`, `has`, `can`, `should`, `was` or `will`, except domain words whose boolean meaning is already explicit,
   such as `deleted`, `pending` and `bookmarked`.
+- A field holding an entity is named for the entity and its role (`annotationToReattach`), not for the activity it takes
+  part in (`reattaching`), which reads as a flag; the flag is `isReattaching`.
+- Functions are verbs (`analyzeStudyMode`). A type is named for what it holds, not for the one screen mode that first
+  used it (`OpenedReaderPage`, not `StudyPage`), and `Config` is for settings someone chose, not for the result of
+  analysing input (`StudyModeAnalysis`).
 - Use `_state` for a private mutable state holder exposed as `state`. Name a captured value `stateSnapshot`, not
   `current` or `now`.
 - Framework-owned types say what role they implement: `Controller`, `Filter`, `Worker`, `Configuration`, `Database` and
