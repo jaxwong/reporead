@@ -113,7 +113,7 @@ class PhoneSync(
      * later sweep deletes them again.
      */
     private suspend fun sweepImages() {
-        val leftover = images.sweep(dao.allSavedVersions())
+        val leftover = images.deleteImagesExceptSavedPages(dao.allSavedVersions())
         if (leftover.isNotEmpty()) {
             DeviceLog.warn("Files left on the phone; after=sweeping images count=${leftover.size} paths=$leftover")
         }
