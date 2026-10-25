@@ -3,6 +3,7 @@
 package com.reporead.android.sync
 
 import android.content.Context
+import android.database.sqlite.SQLiteFullException
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -17,8 +18,10 @@ import androidx.work.WorkerParameters
 import androidx.work.await
 import androidx.work.workDataOf
 import com.reporead.android.RepoReadApplication
+import com.reporead.android.logging.DeviceLog
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
+import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -70,8 +73,8 @@ class SaveAllNotesWorker(context: Context, params: WorkerParameters) : Coroutine
 /**
  * One Save all run ([PhoneSync.saveAllNotes]), reporting its progress through [report]. A run Android stops part-way
  * (after about 10 minutes, or when the network goes) is started again by WorkManager, and each run fetches only the
- * notes not yet saved. Failures are tried again as the background sync's are; the last says how far it got. [attempt]
- * counts from 0.
+ * notes not yet saved. Failures are tried again as the background sync's are; the last says how far it got. A write the
+ * phone's storage refuses ends the run at once, saying so. [attempt] counts from 0.
  */
 internal suspend fun saveAllInBackground(
     sync: PhoneSync,
@@ -93,6 +96,14 @@ internal suspend fun saveAllInBackground(
             val reason = failure.describe()
             val boundedReason = if (reason.length > MAX_REASON_UNITS) reason.take(MAX_REASON_UNITS) + "…" else reason
             return Result.failure(workDataOf(DONE to done, TOTAL_NOTES to totalNotes, REASON to boundedReason))
+        } catch (failure: Exception) {
+            // Api turns network I/O into ApiException, so an IOException here is an image file's write.
+            if (failure !is SQLiteFullException && failure !is IOException) throw failure
+            DeviceLog.warn(
+                "Saving all notes stopped; storage write failed repositoryId=$repositoryId done=$done",
+                failure,
+            )
+            return Result.failure(workDataOf(DONE to done, TOTAL_NOTES to totalNotes, REASON to STORAGE_FAILED))
         }
     return Result.success(
         workDataOf(
@@ -102,6 +113,9 @@ internal suspend fun saveAllInBackground(
         )
     )
 }
+
+/** A saved page (Room) or image file that could not be written; not retried, since a full disk stays full. */
+private const val STORAGE_FAILED = "RepoRead couldn't write to this phone's storage; it may be full."
 
 /** What Save all of one repository is doing, or did last; WorkManager owns the run, and this only reads it. */
 sealed interface SavingNotes {
@@ -115,8 +129,8 @@ sealed interface SavingNotes {
     data class Saved(val fetched: Int, val alreadySaved: Int, val cannotShow: Int) : SavingNotes
 
     /**
-     * Ended after [done] of [totalNotes], those kept; [reason] is null when the run failed in RepoRead itself (a bug,
-     * or a full disk), not in a call to its server.
+     * Ended after [done] of [totalNotes], those kept; [reason] says why (its server's answer, or the phone's storage),
+     * and is null when the run failed in RepoRead itself (a bug).
      */
     data class Stopped(val done: Int, val totalNotes: Int, val reason: String?) : SavingNotes
 }

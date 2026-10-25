@@ -905,6 +905,72 @@ class PhoneSyncTest {
         }
     }
 
+    /** No later write may grow the database, as when the phone's storage is full. */
+    private fun fillDatabase() {
+        val database = store.openHelper.writableDatabase
+        val pages =
+            database.query("PRAGMA page_count").use {
+                check(it.moveToFirst())
+                it.getLong(0)
+            }
+        database.query("PRAGMA max_page_count = $pages").use { check(it.moveToFirst()) }
+    }
+
+    private val storageFailed = "RepoRead couldn't write to this phone's storage; it may be full."
+
+    @Test
+    fun aFullDatabaseStopsSaveAllWithThatReasonAndKeepsWhatWasSaved() = runBlocking {
+        val large = "x".repeat(256 * 1024)
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(repository(7, "${document(1)},${document(2)}")),
+                    "GET /api/documents/1/content" to content(1),
+                    "GET /api/documents/2/content" to
+                        (200 to content(2).second.replace("<main id=note></main>", "<main id=note>$large</main>")),
+                )
+            )
+            .use { server ->
+                val result =
+                    saveAllInBackground(sync(server.url), 7, 0) { data ->
+                        if (shown(WorkInfo.State.RUNNING, progress = data) == SavingNotes.Running(1, 2)) fillDatabase()
+                    }
+                assertTrue("A full disk must stop the run, not retry it: $result", result is Result.Failure)
+                assertEquals(
+                    SavingNotes.Stopped(1, 2, storageFailed),
+                    shown(WorkInfo.State.FAILED, output = (result as Result.Failure).outputData),
+                )
+                assertEquals("n1", dao.savedPage(1)!!.title)
+                assertNull(dao.savedPage(2))
+            }
+    }
+
+    @Test
+    fun anImageThatCannotBeWrittenStopsSaveAllWithThatReason() = runBlocking {
+        val html = """<main id="note"><img src="/repo-image/a.png"></main>"""
+        dao.saveNoteWithoutSearch(SavedPageEntity(2, sha, "n2.md", "n2", html, 0, BuildConfig.RENDER_FORMAT, sha))
+        // The version's folder cannot be created: a file has its name, so nothing can be written in it.
+        File(directory, "images/2").mkdirs()
+        File(directory, "images/2/commit-$sha").writeText("test-only, not a folder")
+        val image = "GET /api/documents/2/image?commitSha=$sha&path=a.png"
+        LoopbackServer(
+                mapOf(
+                    "GET /api/library" to library(repository(7, "${document(1)},${document(2)}")),
+                    "GET /api/documents/1/content" to content(1),
+                    image to (200 to "TEST_ONLY_PNG"),
+                )
+            )
+            .use { server ->
+                val result = saveAllInBackground(sync(server.url), 7, 0) {}
+                assertTrue("A failed image write must stop the run, not retry it: $result", result is Result.Failure)
+                assertEquals(
+                    SavingNotes.Stopped(1, 2, storageFailed),
+                    shown(WorkInfo.State.FAILED, output = (result as Result.Failure).outputData),
+                )
+                assertEquals(listOf("GET /api/library", "GET /api/documents/1/content", image), server.requests)
+                assertEquals(html, dao.savedPage(2)!!.html)
+            }
+    }
+
     @Test
     fun anImage401EndsTheSessionAndStopsWithoutRequestingLaterImages() = runBlocking {
         val html = """<main id="note"><img src="/repo-image/a.png"></main>"""
