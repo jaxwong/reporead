@@ -101,6 +101,16 @@ val renderFormat =
         }
         .get()
 
+// The renderer owns the image path prefix and the blocked-image class its pages carry; the app reads them from its lines.
+val rendererSource =
+    providers.fileContents(rootProject.layout.projectDirectory.file("backend/src/main/java/com/reporead/document/MarkdownRenderer.java"))
+        .asText
+        .get()
+
+fun rendererString(name: String): String =
+    Regex("""public static final String $name = ("[^"]+");""").find(rendererSource)?.groupValues?.get(1)
+        ?: error("MarkdownRenderer.java has no line `public static final String $name = \"<text>\";`")
+
 // The server owns the request body cap (RequestBodyLimit.MAX_BYTES); the app's log store is sized from that line.
 val requestMaxBytes =
     providers.fileContents(rootProject.layout.projectDirectory.file("backend/src/main/java/com/reporead/RequestBodyLimit.java"))
@@ -149,6 +159,8 @@ android {
         buildConfigField("int", "RENDER_FORMAT", renderFormat)
         buildConfigField("int", "REQUEST_MAX_BYTES", requestMaxBytes)
         buildConfigField("int", "IMAGE_MAX_RESPONSE_BYTES", imageMaxResponseBytes)
+        buildConfigField("String", "IMAGE_PREFIX", rendererString("IMAGE_PREFIX"))
+        buildConfigField("String", "IMAGE_BLOCKED_CLASS", rendererString("IMAGE_BLOCKED_CLASS"))
     }
 
     signingConfigs {

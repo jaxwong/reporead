@@ -71,7 +71,7 @@ public class AppAuthController {
 
     @PostMapping("/api/app-auth/token")
     AppSessions.IssuedSession token(@RequestBody TokenRequest body) {
-        var issued = credentials.changing(
+        var issued = credentials.admit(
                 () -> sessions.exchange(body.code(), body.codeVerifier())
                         .orElseThrow(
                                 () -> new ApiFailure(

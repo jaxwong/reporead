@@ -119,7 +119,7 @@ public class GitHubBrowserSignIn {
                             HttpServletRequest request, HttpServletResponse response, FilterChain chain)
                             throws ServletException, IOException {
                         try {
-                            credentials.changing(() -> {
+                            credentials.admit(() -> {
                                 chain.doFilter(request, response);
                                 return null;
                             });

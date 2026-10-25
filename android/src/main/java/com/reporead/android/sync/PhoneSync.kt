@@ -193,7 +193,9 @@ class PhoneSync(
         listedDocument: DocumentEntity?,
         repositoryCommitSha: String?,
     ): Boolean {
-        val needsSnapshot = savedPage.html.contains(IMAGE_PREFIX) || savedPage.html.contains("image-blocked")
+        val needsSnapshot =
+            savedPage.html.contains(BuildConfig.IMAGE_PREFIX) ||
+                savedPage.html.contains(BuildConfig.IMAGE_BLOCKED_CLASS)
         return listedDocument != null &&
             !listedDocument.deleted &&
             savedPage.blobSha == listedDocument.blobSha &&

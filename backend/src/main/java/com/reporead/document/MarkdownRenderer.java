@@ -62,6 +62,11 @@ public final class MarkdownRenderer {
     /** Same-origin path that the Android reader serves from its cache or the authenticated image endpoint. */
     public static final String IMAGE_PREFIX = "/repo-image/";
     /**
+     * The class of a label standing where an image could not be resolved; the app reads it to know a page needs its
+     * snapshot.
+     */
+    public static final String IMAGE_BLOCKED_CLASS = "image-blocked";
+    /**
      * Same-origin path the reader app intercepts to open another note: {@code target} (an Obsidian link name) or
      * {@code path} (a repository path from a relative Markdown link), and an optional {@code heading}.
      */
@@ -450,7 +455,7 @@ public final class MarkdownRenderer {
         var embed = new Element("span").addClass("embed").appendChild(hidden(wikilink.source()));
         if (!isWithinImageLimit) {
             return embed.appendChild(new Element("span")
-                    .addClass("image-blocked")
+                    .addClass(IMAGE_BLOCKED_CLASS)
                     .attr("data-label", "[Image limit reached: " + wikilink.name() + "]"));
         }
         var image = new Element("img")
@@ -584,7 +589,7 @@ public final class MarkdownRenderer {
     }
 
     private static Element blockedImage(String reason, String alt) {
-        return new Element("span").addClass("image-blocked").text("[" + reason + ": " + alt + "]");
+        return new Element("span").addClass(IMAGE_BLOCKED_CLASS).text("[" + reason + ": " + alt + "]");
     }
 
     /**

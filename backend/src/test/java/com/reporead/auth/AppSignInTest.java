@@ -61,7 +61,7 @@ class AppSignInTest extends SharedSpringTest {
         var started = new CountDownLatch(1);
         var changed = new AtomicBoolean();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var stale = credentials.changing(() -> {
+            var stale = credentials.admit(() -> {
                 var request = executor.submit(() -> {
                     started.countDown();
                     return credentials.withSession(old, user, () -> {
