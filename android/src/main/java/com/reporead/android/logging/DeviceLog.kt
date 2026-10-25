@@ -19,7 +19,7 @@ private const val SENDING = "sending.jsonl"
  * One upload carries a whole batch, so the store is at most half the server's request body cap
  * (RequestBodyLimit.MAX_BYTES): the lines plus the request's commas and fields always fit.
  */
-private val STORE_MAX_BYTES = BuildConfig.REQUEST_MAX_BYTES / 2
+private const val STORE_MAX_BYTES = BuildConfig.REQUEST_MAX_BYTES / 2
 
 /** Even escaped at 6 JSON bytes a unit, one line fits in what trimming keeps, so the newest line is never dropped. */
 internal const val MAX_LINE_CHARS = 8_000
