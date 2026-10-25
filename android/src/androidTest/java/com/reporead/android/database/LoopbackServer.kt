@@ -13,7 +13,8 @@ import kotlin.concurrent.thread
  * request line and body. [answering] also answers routes [routes] lacks from their request, for answers that must echo
  * it; [closeWithoutAnswering] records one route before its connection closes with no answer. Any other route is
  * answered 500 and recorded, so it fails the test visibly. [beforeAnswer] runs on the server thread after recording a
- * request, so a test can hold one open.
+ * request, so a test can hold one open. A throw on the server thread, such as a hook's failed check, closes that
+ * connection unanswered and is rethrown by [close], so it fails the test instead of ending the whole test process.
  */
 internal class LoopbackServer
 private constructor(
@@ -40,6 +41,8 @@ private constructor(
     val url = "http://127.0.0.1:${socket.localPort}"
     val requests: MutableList<String> = Collections.synchronizedList(mutableListOf())
     val bodies: MutableList<String> = Collections.synchronizedList(mutableListOf())
+    /** The server thread's first failure, later ones suppressed in it; Android would end the process on any of them. */
+    @Volatile private var serverFailure: Throwable? = null
     private val worker =
         thread(isDaemon = true, name = "test-only-loopback") {
             while (true) {
@@ -49,7 +52,12 @@ private constructor(
                     } catch (closed: SocketException) {
                         break
                     }
-                client.use(::serve)
+                try {
+                    client.use(::serve)
+                } catch (failure: Throwable) {
+                    val first = serverFailure
+                    if (first == null) serverFailure = failure else first.addSuppressed(failure)
+                }
             }
         }
 
@@ -97,5 +105,6 @@ private constructor(
     override fun close() {
         socket.close()
         worker.join(5_000)
+        serverFailure?.let { throw AssertionError("Test-only loopback server failed while serving", it) }
     }
 }

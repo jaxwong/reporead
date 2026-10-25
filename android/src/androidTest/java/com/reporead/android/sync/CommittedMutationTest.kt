@@ -35,9 +35,11 @@ import com.reporead.android.network.testSha
 import com.reporead.android.network.testSynced
 import com.reporead.android.network.wire
 import java.io.File
+import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -66,8 +68,15 @@ class CommittedMutationTest {
     private lateinit var store: RepoReadDatabase
     private lateinit var dao: RepoReadDao
     private lateinit var directory: File
+    /** What screen jobs threw. In a viewModelScope it would crash the app; here [close] fails the test with it. */
+    private val screenFailures: MutableList<Throwable> = Collections.synchronizedList(mutableListOf())
     /** Stands for a screen's viewModelScope: cancelling a job is that screen leaving. */
-    private val screens = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val screens =
+        CoroutineScope(
+            SupervisorJob() +
+                Dispatchers.Default +
+                CoroutineExceptionHandler { _, failure -> screenFailures += failure }
+        )
 
     @Before
     fun open() = runBlocking {
@@ -97,6 +106,8 @@ class CommittedMutationTest {
         screens.cancel()
         store.close()
         check(directory.deleteRecursively())
+        if (screenFailures.isNotEmpty())
+            throw AssertionError("Test-only screen jobs failed: $screenFailures", screenFailures.first())
     }
 
     private fun sync(server: LoopbackServer) =
