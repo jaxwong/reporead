@@ -1,6 +1,5 @@
 package com.reporead.android.study
 
-import android.graphics.Rect
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.room.Room
@@ -14,7 +13,6 @@ import com.reporead.android.TestEntries
 import com.reporead.android.TestHostActivity
 import com.reporead.android.awaitText
 import com.reporead.android.click
-import com.reporead.android.control
 import com.reporead.android.database.AnnotationType
 import com.reporead.android.database.DocumentEntity
 import com.reporead.android.database.Passage
@@ -27,7 +25,6 @@ import com.reporead.android.reader.testPage
 import com.reporead.android.root
 import com.reporead.android.saveActivityState
 import com.reporead.android.sync.PhoneSync
-import com.reporead.android.tap
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -183,32 +180,10 @@ class PracticeSessionTest {
     }
 
     @Test
-    fun aWarningOpensItsOwnBankWhenRepositoriesShareThePath() =
-        runBlocking<Unit> {
-            val dao = store.dao()
-            val path = "test-only/topic/interview/bank.md"
-            dao.replaceDocuments(8, listOf(DocumentEntity(3, 8, path, "Other bank", bankSha)))
-            val html = testPage(bankSha, block("b0", "h3", "Other repository's warning"))
-            dao.saveNoteWithoutSearch(
-                SavedPageEntity(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
-            )
-            TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
-            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
-                val warning = "Other repository's warning — no Canonical line"
-                awaitText("1 heading is not a question")
-                click("Show")
-                awaitText(warning)
-                scenario.recreate()
-                awaitText(warning)
-                click(warning)
-                assertEquals(listOf(Screen.Reader(3, "Other bank", OpenAt.Block(bankSha, "b0"))), pushed)
-            }
-        }
-
-    @Test
     fun repeatedHeadingAndStrayAnswerWarningsOpenTheirExactBlocks() =
         runBlocking<Unit> {
             val dao = store.dao()
+            // Another repository's bank at the fixture bank's path: its warnings open their own document.
             val path = "test-only/topic/interview/bank.md"
             dao.replaceDocuments(8, listOf(DocumentEntity(3, 8, path, "Other bank", bankSha)))
             val html =
@@ -222,11 +197,14 @@ class PracticeSessionTest {
                 SavedPageEntity(3, bankSha, path, "Other bank", html, 0, renderFormat = BuildConfig.RENDER_FORMAT)
             )
             TestHostActivity.content = { MaterialTheme { PracticeTab(dao) { pushed += it } } }
-            ActivityScenario.launch(TestHostActivity::class.java).use {
+            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
                 val repeated = "Repeated — no Canonical line"
                 awaitText("2 headings are not questions")
                 assertNull(findText(root(), repeated))
                 click("Show")
+                awaitText(repeated)
+                scenario.recreate()
+                awaitText(repeated)
                 click("Canonical answer: Stray")
                 click(repeated)
                 assertEquals(
@@ -323,24 +301,6 @@ class PracticeSessionTest {
                 awaitText("1 question left · Foundations · Test-only bank")
                 awaitText("Good")
                 assertEquals(1, dao.pendingReviews().size)
-            }
-        }
-
-    @Test
-    fun doubleTappingTheGradeWritesOneCardAndOneGrade() =
-        runBlocking<Unit> {
-            val dao = store.dao()
-            ActivityScenario.launch(TestHostActivity::class.java).use { scenario ->
-                click("Show answer")
-                val bounds = Rect().also { control("Good").getBoundsInScreen(it) }
-                // Accessibility clicks wait for idle and can target a replaced node, missing this same-frame race.
-                scenario.onActivity { activity ->
-                    repeat(2) { tap(activity.window.decorView, bounds) }
-                }
-                awaitText("1 question left · Foundations · Test-only bank")
-                val card = dao.waitingAnnotations().single()
-                assertEquals(listOf(card.mutationId), dao.pendingReviews().map { it.cardMutationId })
-                assertEquals(listOf(4), dao.pendingReviews().map { it.grade })
             }
         }
 

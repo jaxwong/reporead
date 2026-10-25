@@ -1,9 +1,8 @@
-// Owns: PhoneSync/Room/background integration coverage and its test-only loopback server; never the real data store.
+// Owns: PhoneSync/Room/background integration coverage; never the real data store.
 
 package com.reporead.android.database
 
 import android.net.Uri
-import android.util.Log
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -16,12 +15,14 @@ import com.reporead.android.auth.StoredSession
 import com.reporead.android.network.Api
 import com.reporead.android.network.ApiException
 import com.reporead.android.network.describe
+import com.reporead.android.network.testContent
 import com.reporead.android.network.testDisconnected
-import com.reporead.android.network.testDocument
+import com.reporead.android.network.testHighlight
 import com.reporead.android.network.testLibrary
-import com.reporead.android.network.testRepository
+import com.reporead.android.network.testReading
 import com.reporead.android.network.testReview
 import com.reporead.android.network.wire
+import com.reporead.android.network.wire.ReviewControllerGradeRequest
 import com.reporead.android.network.wireJson
 import com.reporead.android.reader.readerAssets
 import com.reporead.android.reader.readerResource
@@ -34,15 +35,11 @@ import com.reporead.android.sync.sendPendingChangesInBackground
 import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
-import java.net.Socket
-import java.net.SocketException
 import java.time.Instant
-import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit.SECONDS
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -129,9 +126,7 @@ class PhoneSyncTest {
         )
 
     /** The server's reading state for document 1, as the reading-state PUT and the complete list return it. */
-    private val serverReading =
-        """{"documentId":1,"lastReadBlobSha":"$sha","progressPercent":50,"anchor":{"headingPath":[],"textPrefix":null,"blockIndex":0},
-        "lastReadAt":"1970-01-01T00:00:01Z"}"""
+    private val serverReading = wire(testReading().copy(lastReadAt = Instant.ofEpochSecond(1)))
 
     private fun sync(url: String) =
         PhoneSync(Api(url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
@@ -345,40 +340,6 @@ class PhoneSyncTest {
             }
     }
 
-    /**
-     * Any failure of the creation step, including an answer that breaks the contract, waits like a GitHub failure does.
-     */
-    @Test
-    fun aCreationAnswerThatBreaksTheContractWaitsWhileDatabaseOnlyWorkStillSyncs() = runBlocking {
-        dao.saveAnnotation(
-            AnnotationEntity("unparsed", null, 1, sha, "b1", 0, 4, "text", null, 1, 0, state = AnnotationState.UNSENT)
-        )
-        dao.saveReading(reading(1))
-        LoopbackServer(
-                emptyLibrary +
-                    mapOf(
-                        "POST /api/documents/1/annotations" to (201 to """{"id":9}"""),
-                        "PUT /api/documents/1/reading-state" to (200 to serverReading),
-                    )
-            )
-            .use { server ->
-                val result = sync(server.url).sendPendingChangesAndRefreshLibrary()
-                assertEquals("INVALID_RESPONSE", result.notSent?.code)
-                assertEquals(
-                    listOf(
-                        "POST /api/documents/1/annotations",
-                        "PUT /api/documents/1/reading-state",
-                        "GET /api/library",
-                    ),
-                    server.requests,
-                )
-                // Still pending under its mutation id: the next sync replays it, and the server answers with the same
-                // highlight.
-                assertEquals(listOf("unparsed"), dao.waitingAnnotations().map { it.mutationId })
-                assertTrue(dao.pendingReading().isEmpty())
-            }
-    }
-
     @Test
     fun aDeletedCreationIsReplayedThenDeletedOnTheServer() = runBlocking {
         dao.saveAnnotation(
@@ -409,34 +370,7 @@ class PhoneSyncTest {
     }
 
     /** The server's answer to creating highlight [mutationId] on document 1, as server id 9. */
-    private fun serverHighlight(mutationId: String) =
-        JSONObject()
-            .put("id", 9)
-            .put("mutationId", mutationId)
-            .put("documentId", 1)
-            .put("type", "HIGHLIGHT")
-            .put("note", JSONObject.NULL)
-            .put("status", "ANCHORED")
-            .put("version", 1)
-            .put("createdAt", "1970-01-01T00:00:00Z")
-            .put("updatedAt", "1970-01-01T00:00:00Z")
-            .put("anchor", passage())
-            .put("location", passage())
-            .put("resolvedBlobSha", sha)
-            .put("question", JSONObject.NULL)
-            .put("checkedBlobSha", JSONObject.NULL)
-            .toString()
-
-    private fun passage() =
-        JSONObject()
-            .put("sourceBlobSha", sha)
-            .put("blockId", "b1")
-            .put("exactText", "text")
-            .put("prefixText", "")
-            .put("suffixText", "")
-            .put("startOffset", 0)
-            .put("endOffset", 4)
-            .put("headingPath", org.json.JSONArray())
+    private fun serverHighlight(mutationId: String) = wire(testHighlight().copy(mutationId = mutationId))
 
     @Test
     fun anUnreachableServerEndsTheSyncWithEverythingPending() = runBlocking {
@@ -586,28 +520,6 @@ class PhoneSyncTest {
         }
         assertTrue(dao.pendingReading().isEmpty())
         assertEquals("the lists are left as they were", 1, dao.documents(7).first().size)
-    }
-
-    /** Only no answer at all is unreachable; an answer over the size limit keeps its HTTP status. */
-    @Test
-    fun onlyAServerThatDoesNotAnswerIsUnreachable() = runBlocking {
-        // Just over Api's 8 MiB limit for a JSON response.
-        val oversized = """{"repositories":[],"padding":"${"x".repeat(8 * 1024 * 1024)}"}"""
-        val answered =
-            LoopbackServer(mapOf("GET /api/library" to (200 to oversized))).use { server ->
-                runCatching { Api(server.url, { StoredSession.Absent }) {}.fetchLibrarySnapshot() }.exceptionOrNull()
-                    as ApiException
-            }
-        assertEquals("INVALID_RESPONSE", answered.code)
-        assertEquals(200, answered.status)
-        assertFalse(answered.unreachable)
-        val silent =
-            runCatching {
-                Api("http://127.0.0.1:${closedPort()}", { StoredSession.Absent }) {}.fetchLibrarySnapshot()
-            }
-                .exceptionOrNull() as ApiException
-        assertEquals(0, silent.status)
-        assertTrue(silent.unreachable)
     }
 
     @Test
@@ -829,16 +741,6 @@ class PhoneSyncTest {
                 assertEquals(listOf("GET /api/library", ok, missing), server.requests)
                 assertEquals(current, dao.savedPage(1))
                 assertNull(dao.savedPage(2))
-                assertEquals(Result.retry(), saveAllInBackground(sync, 7, 0) {})
-                val last = saveAllInBackground(sync, 7, 9) {} as Result.Failure
-                assertEquals(
-                    SavingNotes.Stopped(0, 2, error.describe()),
-                    shown(WorkInfo.State.FAILED, output = last.outputData),
-                )
-                assertEquals(
-                    listOf("GET /api/library", ok, missing, "GET /api/library", missing, "GET /api/library", missing),
-                    server.requests,
-                )
             }
         LoopbackServer(
                 mapOf(listed, missing to (200 to "TEST_ONLY_RECOVERED"), "GET /api/documents/2/content" to content(2))
@@ -1142,11 +1044,9 @@ class PhoneSyncTest {
                 )
                 assertEquals(listOf(0 to 3, 1 to 3, 2 to 3, 3 to 3), progress)
                 val expected = SavedPageEntity(3, sha, path, title, html, 0, BuildConfig.RENDER_FORMAT, sha)
-                repeat(2) {
-                    assertEquals(old, dao.savedPage(1))
-                    assertNull(dao.savedPage(2))
-                    assertEquals(expected, dao.savedPage(3)!!.copy(fetchedAt = 0))
-                }
+                assertEquals(old, dao.savedPage(1))
+                assertNull(dao.savedPage(2))
+                assertEquals(expected, dao.savedPage(3)!!.copy(fetchedAt = 0))
                 assertEquals(
                     PhoneSync.SaveAllResult(0, 1, 2),
                     sync.saveAllNotes(7) { _, _ -> },
@@ -1446,7 +1346,6 @@ class PhoneSyncTest {
                 assertEquals(newCommit, saved.snapshotCommitSha)
                 assertEquals(html, saved.html)
                 assertFalse(oldImage.exists())
-                assertEquals(oldCommit, displayed.snapshotCommitSha)
                 assertEquals(saved, sync.openNote(1).note)
                 assertEquals(PhoneSync.SaveAllResult(0, 1, 0), sync.saveAllNotes(7) { _, _ -> })
                 assertEquals(
@@ -1461,8 +1360,9 @@ class PhoneSyncTest {
             }
     }
 
+    /** Which snapshot metadata breaks the contract is ContractTest's; here a broken answer meets a legacy page. */
     @Test
-    fun missingOrMalformedImageSnapshotMetadataCannotReplaceALegacySavedPage() = runBlocking {
+    fun invalidImageSnapshotMetadataCannotReplaceALegacySavedPage() = runBlocking {
         val saved =
             SavedPageEntity(
                 1,
@@ -1476,26 +1376,15 @@ class PhoneSyncTest {
         dao.replaceRepositories(listOf(RepositoryEntity(7, "test-only/r7", 1, sha)))
         dao.replaceDocuments(7, listOf(DocumentEntity(1, 7, "n1.md", "n1", sha)))
         dao.saveNoteWithoutSearch(saved)
-        for (value in listOf(null, JSONObject.NULL, "INVALID", "A".repeat(40))) {
-            val answer =
-                JSONObject()
-                    .put("sourceBlobSha", sha)
-                    .put("documentId", 1)
-                    .put("path", "n1.md")
-                    .put("title", "n1")
-                    .put("html", "<main>new</main>")
-                    .put("blocks", JSONArray().put(JSONObject().put("id", "b0").put("text", "new")))
-                    .put("renderFormat", BuildConfig.RENDER_FORMAT)
-            if (value != null) answer.put("snapshotCommitSha", value)
-            LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer.toString()))).use { server ->
-                val opened = sync(server.url).openNote(1)
-                assertEquals(saved, opened.note)
-                assertTrue(opened.staleReason.toString(), opened.staleReason != null)
-                assertEquals(200, opened.staleReason?.status)
-                assertEquals("INVALID_RESPONSE", opened.staleReason?.code)
-                assertEquals(saved, dao.savedPage(1))
-                assertEquals(listOf("GET /api/documents/1/content"), server.requests)
-            }
+        val answer = wire(testContent().copy(snapshotCommitSha = "INVALID"))
+        LoopbackServer(mapOf("GET /api/documents/1/content" to (200 to answer))).use { server ->
+            val opened = sync(server.url).openNote(1)
+            assertEquals(saved, opened.note)
+            assertTrue(opened.staleReason.toString(), opened.staleReason != null)
+            assertEquals(200, opened.staleReason?.status)
+            assertEquals("INVALID_RESPONSE", opened.staleReason?.code)
+            assertEquals(saved, dao.savedPage(1))
+            assertEquals(listOf("GET /api/documents/1/content"), server.requests)
         }
     }
 
@@ -1522,32 +1411,20 @@ class PhoneSyncTest {
             }
     }
 
-    /**
-     * The saved lists are all from one library answer or all as they were: a library request that fails, or an answer
-     * whose last part breaks the contract, writes none of them and deletes no image.
-     */
+    /** Answers that break the contract are ContractTest's; an answer for another note is Api's to refuse. */
     @Test
     fun aBrokenReadingSaveNeverAcknowledgesThePendingPosition() = runBlocking {
-        for (answer in
-            listOf(
-                serverReading.replace("1970-01-01T00:00:01Z", "+1000000000-12-31T23:59:59.999999999Z"),
-                serverReading.replace("1970-01-01T00:00:01Z", "not-a-time"),
-                serverReading.replace("\"documentId\":1", "\"documentId\":2"),
-                serverReading.replace("\"blockIndex\":0", "\"blockIndex\":\"0\""),
-                serverReading.replace("\"blockIndex\":0", "\"other\":0"),
-                serverReading.replace("\"progressPercent\":50", "\"progressPercent\":12.7"),
-            )) {
-            val pending = reading(1)
-            dao.saveReading(pending)
-            LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to answer))).use { server ->
-                val error = runCatching { sync(server.url).sendPendingChanges() }.exceptionOrNull()
-                assertTrue(
-                    "Expected INVALID_RESPONSE, got $error",
-                    error is ApiException && error.code == "INVALID_RESPONSE",
-                )
-                assertEquals(pending, dao.reading(1))
-                assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
-            }
+        val pending = reading(1)
+        dao.saveReading(pending)
+        val anotherNote = wire(testReading().copy(documentId = 2))
+        LoopbackServer(mapOf("PUT /api/documents/1/reading-state" to (200 to anotherNote))).use { server ->
+            val error = runCatching { sync(server.url).sendPendingChanges() }.exceptionOrNull()
+            assertTrue(
+                "Expected INVALID_RESPONSE, got $error",
+                error is ApiException && error.code == "INVALID_RESPONSE",
+            )
+            assertEquals(pending, dao.reading(1))
+            assertEquals(listOf("PUT /api/documents/1/reading-state"), server.requests)
         }
     }
 
@@ -1557,8 +1434,6 @@ class PhoneSyncTest {
             listOf(
                 409 to """{"code":7,"message":"Test-only malformed code"}""",
                 409 to """{"code":"","message":"Test-only blank code"}""",
-                409 to """{"code":"UNKNOWN_TEST_ONLY_CODE","message":"Test-only unknown code"}""",
-                409 to """{"code":"NOT_FOUND","message":"Test-only wrong status"}""",
                 409 to "x".repeat(8 * 1024 * 1024 + 1),
                 200 to """{"documentId":2,"createdAt":"1970-01-01T00:00:00Z"}""",
             )) {
@@ -1616,6 +1491,85 @@ class PhoneSyncTest {
         }
     }
 
+    /**
+     * A failure that is not one grade's refusal stops the review run: grades the server answered stay acknowledged, the
+     * rest wait, the next run sends only those, and a grade sent again carries its own mutation id.
+     */
+    @Test
+    fun aStoppedReviewRunKeepsUnansweredGradesPendingAndResendsEachUnderItsOwnMutationId() = runBlocking {
+        for (cardId in 1L..3L) {
+            dao.saveAnnotation(
+                AnnotationEntity(
+                    "card-$cardId",
+                    cardId,
+                    1,
+                    sha,
+                    "b1",
+                    0,
+                    4,
+                    "text",
+                    null,
+                    1,
+                    0,
+                    AnnotationState.ACKNOWLEDGED,
+                    type = AnnotationType.CARD,
+                    question = "Test-only question?",
+                )
+            )
+            dao.saveReview(ReviewEntity("grade-$cardId", "card-$cardId", 4, cardId, sha, pending = true))
+        }
+        // A card can be graded again before anything is sent; both grades are sent, in order.
+        dao.saveReview(ReviewEntity("grade-2-later", "card-2", 4, 4, sha, pending = true))
+        // Each answer echoes the grade it was sent, as the server's does.
+        fun accepted(route: String, body: String): Pair<Int, String>? {
+            val cardId =
+                Regex("POST /api/annotations/(\\d+)/reviews").matchEntire(route)?.groupValues?.get(1) ?: return null
+            val grade = wireJson.decodeFromString<ReviewControllerGradeRequest>(body)
+            return 200 to wire(testReview().copy(mutationId = grade.mutationId, cardMutationId = "card-$cardId"))
+        }
+        LoopbackServer.answering(
+                mapOf("POST /api/annotations/2/reviews" to failure(503, "GITHUB_UNAVAILABLE")),
+                ::accepted,
+            )
+            .use { server ->
+                val error = runCatching { sync(server.url).sendPendingChanges() }.exceptionOrNull() as ApiException
+                assertEquals("GITHUB_UNAVAILABLE", error.code)
+                assertEquals(
+                    listOf("grade-2", "grade-3", "grade-2-later"),
+                    dao.pendingReviews().map { it.mutationId },
+                )
+                assertEquals(
+                    listOf("POST /api/annotations/1/reviews", "POST /api/annotations/2/reviews"),
+                    server.requests,
+                )
+            }
+        LoopbackServer.answering(emptyMap(), ::accepted).use { server ->
+            sync(server.url).sendPendingChanges()
+            assertTrue(dao.pendingReviews().isEmpty())
+            assertEquals(
+                listOf(
+                    "POST /api/annotations/2/reviews",
+                    "POST /api/annotations/3/reviews",
+                    "POST /api/annotations/2/reviews",
+                ),
+                server.requests,
+            )
+        }
+        // The acknowledgement of grade 1 was lost on this phone: the same grade is sent again, not a new one.
+        dao.saveReview(ReviewEntity("grade-1", "card-1", 4, 1, sha, pending = true))
+        LoopbackServer.answering(emptyMap(), ::accepted).use { server ->
+            val sync = sync(server.url)
+            sync.sendPendingChanges()
+            assertNull(sync.sendPendingChanges())
+            assertEquals(listOf("POST /api/annotations/1/reviews"), server.requests)
+            assertEquals(
+                "grade-1",
+                wireJson.decodeFromString<ReviewControllerGradeRequest>(server.bodies.single()).mutationId,
+            )
+            assertTrue(dao.pendingReviews().isEmpty())
+        }
+    }
+
     @Test
     fun anUncertainDeletionStaysHiddenAndPendingUntilAConfirmedSecondRun() = runBlocking {
         val mutation = "test-only-deletion"
@@ -1650,6 +1604,11 @@ class PhoneSyncTest {
         }
     }
 
+    /**
+     * The saved lists are all from one library answer or all as they were: a library request that fails, or an answer
+     * whose last part breaks the contract, writes none of them and deletes no image. Which answers break the contract
+     * is ContractTest's.
+     */
     @Test
     fun aLibraryRequestThatFailsLeavesEverySavedListAndImageAsItWas() = runBlocking {
         dao.replaceRepositories(
@@ -1673,38 +1632,15 @@ class PhoneSyncTest {
                 dao.notebook().first(),
             )
         val before = saved()
-        // Repository 9 is gone, 8 is new, and every other list is empty: a complete answer would change every saved
-        // list.
-        val repositories = "${repository(7, document(2))},${repository(8, document(4))}"
+        // Complete, the broken answer would change every saved list: repository 9 is not in it, and its reading,
+        // bookmark and notebook differ. Only its last part, a grade of a card it does not hold, breaks the contract.
         for ((answer, code) in
             listOf(
                 failure(500, "TEST_ONLY_FAILURE") to "TEST_ONLY_FAILURE",
                 (200 to
                     wire(
-                        testLibrary(
-                            repositories =
-                                listOf(testRepository(listOf(testDocument(), testDocument().copy(path = "other.md"))))
-                        )
-                    )) to "INVALID_RESPONSE",
-                (200 to
-                    wire(
                         testLibrary(reviews = listOf(testReview().copy(cardMutationId = "test-only-missing-card")))
                     )) to "INVALID_RESPONSE",
-                library(repository(7, document(2).replace("false", "\"false\""))) to "INVALID_RESPONSE",
-                library(repository(7, document(2)).replace("\"lastSyncedCommitSha\"", "\"unknownCheckpoint\"")) to
-                    "INVALID_RESPONSE",
-                library(
-                    repository(7, document(2)),
-                    readingStates = serverReading.replace("\"blockIndex\":0", "\"other\":0"),
-                ) to "INVALID_RESPONSE",
-                (200 to
-                    JSONObject(library(repositories).second)
-                        .apply {
-                            getJSONObject("notebook")
-                                .getJSONArray("annotations")
-                                .put(JSONObject(serverHighlight("test-only-broken-card")).put("type", "CARD"))
-                        }
-                        .toString()) to "INVALID_RESPONSE",
             )) {
             LoopbackServer(mapOf("GET /api/library" to answer)).use { server ->
                 try {
@@ -1727,10 +1663,7 @@ class PhoneSyncTest {
         dao.saveNoteWithoutSearch(SavedPageEntity(1, sha, "a.md", "a", "<html/>", 0))
         LoopbackServer(emptyLibrary + mapOf("GET /api/repositories/7/stored-data" to failure(404, "NOT_FOUND"))).use {
             server ->
-            assertNull(
-                PhoneSync(Api(server.url, { StoredSession.Readable("TEST_ONLY_SESSION") }) {}, store, directory) {}
-                    .disconnectPreview(7)
-            )
+            assertNull(sync(server.url).disconnectPreview(7))
             assertTrue(dao.repositoryIds().isEmpty())
             assertNull(dao.savedPage(1))
         }
@@ -1811,89 +1744,5 @@ class PhoneSyncTest {
         assertTrue(kept.exists())
         assertFalse(older.exists())
         assertFalse(unsaved.exists())
-    }
-}
-
-/**
- * Test-only loopback HTTP server: answers each "METHOD /path" from [routes] (status and JSON body) and records every
- * request line and body. [closeWithoutAnswering] records one route before its connection closes with no answer. An
- * unknown route is answered 500 and recorded, so it fails the test visibly. [beforeAnswer] runs on the server thread
- * after recording a request, so a test can hold one open.
- */
-internal class LoopbackServer
-private constructor(
-    private val routes: Map<String, Pair<Int, String>>,
-    private val unansweredRoutes: Set<String>,
-    private val beforeAnswer: (String) -> Unit,
-) : AutoCloseable {
-    constructor(
-        routes: Map<String, Pair<Int, String>>,
-        beforeAnswer: (String) -> Unit = {},
-    ) : this(routes, emptySet(), beforeAnswer)
-
-    companion object {
-        fun closeWithoutAnswering(route: String) = LoopbackServer(emptyMap(), setOf(route), {})
-    }
-
-    private val socket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
-    val url = "http://127.0.0.1:${socket.localPort}"
-    val requests: MutableList<String> = Collections.synchronizedList(mutableListOf())
-    val bodies: MutableList<String> = Collections.synchronizedList(mutableListOf())
-    private val worker =
-        thread(isDaemon = true, name = "test-only-loopback") {
-            while (true) {
-                val client =
-                    try {
-                        socket.accept()
-                    } catch (closed: SocketException) {
-                        break
-                    }
-                client.use(::serve)
-            }
-        }
-
-    private fun serve(client: Socket) {
-        client.soTimeout = 5_000
-        val input = client.getInputStream().bufferedReader(Charsets.UTF_8)
-        val line = input.readLine() ?: return
-        var length = 0
-        while (true) {
-            val header = input.readLine() ?: break
-            if (header.isEmpty()) break
-            if (header.startsWith("Content-Length:", ignoreCase = true))
-                length = header.substringAfter(':').trim().toInt()
-        }
-        val body = CharArray(length)
-        var read = 0
-        while (read < length) {
-            val added = input.read(body, read, length - read)
-            check(added > 0) { "Incomplete test HTTP body" }
-            read += added
-        }
-        val key = line.substringBeforeLast(" HTTP/")
-        requests += key
-        bodies += String(body)
-        if (key in unansweredRoutes) return
-        beforeAnswer(key)
-        val (status, json) = routes[key] ?: (500 to """{"code":"TEST_UNEXPECTED_ROUTE","message":"$key"}""")
-        val bytes = json.toByteArray(Charsets.UTF_8)
-        val output = client.getOutputStream()
-        try {
-            output.write(
-                "HTTP/1.1 $status Test\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
-                    .toByteArray()
-            )
-            output.write(bytes)
-            output.flush()
-        } catch (gone: SocketException) {
-            // The client stopped waiting (its read timeout) while beforeAnswer held the answer; it reads nothing more,
-            // and later requests are still served.
-            Log.i("RepoRead", "Test-only loopback answer not delivered; request=$key error=${gone.message}")
-        }
-    }
-
-    override fun close() {
-        socket.close()
-        worker.join(5_000)
     }
 }

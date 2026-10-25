@@ -54,7 +54,7 @@ internal data class StudySession(
     fun skip() = copy(queue = queue.drop(1), revealed = false)
 
     /** This item goes to the back, still to be answered: it was missed. */
-    fun requeue() = copy(queue = queue.drop(1) + queue.take(1), revealed = false)
+    private fun requeue() = copy(queue = queue.drop(1) + queue.take(1), revealed = false)
 
     /**
      * After grading this item: Again, a miss, sends it to the back, to be answered again until it is answered right;

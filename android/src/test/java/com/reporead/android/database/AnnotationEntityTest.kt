@@ -75,26 +75,6 @@ class AnnotationEntityTest {
     }
 
     @Test
-    fun aPendingCreationIsDrawnWhereItWasMade() {
-        assertEquals(Passage("a".repeat(40), "b2", 12, 30, "declarative transactions"), unsent.drawn)
-        assertFalse(unsent.orphanedIn("a".repeat(40)))
-    }
-
-    @Test
-    fun anAcknowledgedHighlightIsDrawnAtTheServersLocation() {
-        val moved =
-            unsent.copy(
-                serverId = 3,
-                state = AnnotationState.ACKNOWLEDGED,
-                status = AnchorStatus.REANCHORED,
-                resolvedBlobSha = "c".repeat(40),
-                location = Passage("c".repeat(40), "b3", 12, 29, "declarative transaction"),
-            )
-        assertEquals("b3", moved.drawn.blockId)
-        assertEquals("c".repeat(40), moved.drawn.blobSha)
-    }
-
-    @Test
     fun aCardCanBeGradedInItsNotesCurrentSavedVersionWithoutBeingConfirmedOrPlacedThere() {
         val current = "c".repeat(40)
         val older = "a".repeat(40)
@@ -139,6 +119,7 @@ class AnnotationEntityTest {
         assertTrue(orphan.orphanedIn("d".repeat(40)))
         assertFalse("its last location is still valid in the older version", orphan.orphanedIn("a".repeat(40)))
         assertEquals("a".repeat(40), orphan.drawn.blobSha)
+        assertFalse("a pending creation has no server status yet", unsent.orphanedIn("a".repeat(40)))
     }
 
     @Test

@@ -6,10 +6,6 @@ import android.webkit.ValueCallback
 import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.reporead.android.BuildConfig
-import com.reporead.android.database.SavedPageEntity
-import com.reporead.android.network.Api
-import com.reporead.android.sync.SavedPageImages
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -26,22 +22,6 @@ class IsolatedPageTest {
     @Test
     fun aReleasedPageCannotReportALateScriptResult() {
         val context = instrumentation.targetContext
-        val sha = "a".repeat(40)
-        val note =
-            SavedPageEntity(
-                1,
-                sha,
-                "test-only/page.md",
-                "Test-only page",
-                testPage(sha, "<p>Test-only late-result page</p>"),
-                0,
-                renderFormat = BuildConfig.RENDER_FORMAT,
-            )
-        val images =
-            SavedPageImages(
-                Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {},
-                File(context.cacheDir, "isolated-page-test"),
-            )
         val waiting = CountDownLatch(1)
         lateinit var lateResult: () -> Unit
         lateinit var page: WebView
@@ -62,8 +42,8 @@ class IsolatedPageTest {
                     }
                     .apply {
                         show(
-                            images,
-                            note,
+                            noImages(context),
+                            testSavedPage("<p>Test-only late-result page</p>"),
                             "Test-only late result",
                             "window.testLateResult = true",
                             {
@@ -120,23 +100,6 @@ class IsolatedPageTest {
      */
     private fun shown(body: String, script: String): String {
         val context = instrumentation.targetContext
-        val sha = "a".repeat(40)
-        val html = testPage(sha, body)
-        val note =
-            SavedPageEntity(
-                1,
-                sha,
-                "test-only/page.md",
-                "Test-only page",
-                html,
-                0,
-                renderFormat = BuildConfig.RENDER_FORMAT,
-            )
-        val images =
-            SavedPageImages(
-                Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {},
-                File(context.cacheDir, "isolated-page-test"),
-            )
         val shown = CountDownLatch(1)
         lateinit var page: WebView
         instrumentation.runOnMainSync {
@@ -145,8 +108,8 @@ class IsolatedPageTest {
                     alpha = 0.4f
                     layout(0, 0, 400, 800)
                     show(
-                        images,
-                        note,
+                        noImages(context),
+                        testSavedPage(body),
                         "Test-only page",
                         null,
                         { error("The page did not render") },
@@ -182,20 +145,6 @@ class IsolatedPageTest {
     @Test
     fun aPageWhoseRendererStopsIsReportedAsFailed() {
         val context = instrumentation.targetContext
-        val sha = "a".repeat(40)
-        val html = testPage(sha, """<p data-block-id="b0" data-anchor-text="Test-only page">Test-only page</p>""")
-        val note =
-            SavedPageEntity(
-                1,
-                sha,
-                "test-only/page.md",
-                "Test-only page",
-                html,
-                0,
-                renderFormat = BuildConfig.RENDER_FORMAT,
-            )
-        val api = Api("http://127.0.0.1:1", { error("The isolated page must not call the network") }) {}
-        val images = SavedPageImages(api, File(context.cacheDir, "isolated-page-test"))
         val shown = CountDownLatch(1)
         val failed = CountDownLatch(1)
         lateinit var page: WebView
@@ -203,8 +152,8 @@ class IsolatedPageTest {
             page =
                 IsolatedPage(context).apply {
                     show(
-                        images,
-                        note,
+                        noImages(context),
+                        testSavedPage("""<p data-block-id="b0" data-anchor-text="Test-only page">Test-only page</p>"""),
                         "Test-only page",
                         null,
                         { failed.countDown() },

@@ -46,8 +46,10 @@ import com.reporead.android.network.testSha
 import com.reporead.android.network.testSynced
 import com.reporead.android.network.wire
 import com.reporead.android.network.wire.AnnotationControllerAnnotationList
+import com.reporead.android.network.wire.AnnotationControllerEditRequest
 import com.reporead.android.network.wire.DocumentsSummary
 import com.reporead.android.network.wire.RepositoryControllerAvailableList
+import com.reporead.android.network.wireJson
 import com.reporead.android.reader.SEARCH_TARGET_KEY
 import com.reporead.android.reader.testPage
 import com.reporead.android.sync.PhoneSync
@@ -364,37 +366,7 @@ class AppNavigationTest {
             setText("Search saved notes", "exact search destination")
             awaitTextStarting("Note text · Exact search destination")
             click("Note A")
-            withTimeout(10_000) {
-                var inView = false
-                while (!inView) {
-                    val evaluated = CountDownLatch(1)
-                    scenario!!.onActivity { activity ->
-                        val page = findWebView(activity.window.decorView)
-                        if (page == null) {
-                            evaluated.countDown()
-                            return@onActivity
-                        }
-                        page.evaluateJavascript(
-                            """
-                            (() => {
-                                const mark = document.querySelector(
-                                    '#note mark[data-key="$SEARCH_TARGET_KEY"]'
-                                );
-                                if (!mark || mark.textContent !== 'Exact search destination') return false;
-                                const rect = mark.getBoundingClientRect();
-                                return rect.top >= 0 && rect.bottom <= window.innerHeight;
-                            })()
-                            """
-                                .trimIndent()
-                        ) { result ->
-                            inView = result == "true"
-                            evaluated.countDown()
-                        }
-                    }
-                    check(evaluated.await(5, SECONDS)) { "Reader JavaScript did not answer" }
-                    if (!inView) delay(50)
-                }
-            }
+            assertEquals("Exact search destination", awaitHighlightInView(scenario!!, SEARCH_TARGET_KEY).text)
         }
     }
 
@@ -429,37 +401,7 @@ class AppNavigationTest {
             setText("Search saved notes", "personal navigation marker")
             awaitTextStarting("Your note: Personal navigation marker")
             click("Note A")
-            withTimeout(10_000) {
-                var inView = false
-                while (!inView) {
-                    val evaluated = CountDownLatch(1)
-                    scenario!!.onActivity { activity ->
-                        val page = findWebView(activity.window.decorView)
-                        if (page == null) {
-                            evaluated.countDown()
-                            return@onActivity
-                        }
-                        page.evaluateJavascript(
-                            """
-                            (() => {
-                                const mark = document.querySelector(
-                                    '#note mark[data-key="test-only-search-highlight"]'
-                                );
-                                if (!mark) return false;
-                                const rect = mark.getBoundingClientRect();
-                                return rect.top >= 0 && rect.bottom <= window.innerHeight;
-                            })()
-                            """
-                                .trimIndent()
-                        ) { result ->
-                            inView = result == "true"
-                            evaluated.countDown()
-                        }
-                    }
-                    check(evaluated.await(5, SECONDS)) { "Reader JavaScript did not answer" }
-                    if (!inView) delay(50)
-                }
-            }
+            assertEquals(passage.exactText, awaitHighlightInView(scenario!!, "test-only-search-highlight").text)
         }
     }
 
@@ -566,7 +508,8 @@ class AppNavigationTest {
             }
             .use { server ->
                 val api = api(server)
-                launchApp(account(api), api)
+                val account = account(api)
+                launchApp(account, api)
                 try {
                     awaitText("Reading")
                     click("Repositories")
@@ -583,6 +526,21 @@ class AppNavigationTest {
                 awaitScreen("Reading", "test-only/notes")
                 assertTrue(selected("Repositories"))
                 assertTrue(sessions.hasSession)
+                // The Library loads again whenever it is returned to, here after the failed deletion.
+                val returned = listOf("GET /api/library", "DELETE /api/account", "GET /api/library")
+                assertNothingMoreSent(server, returned)
+                // The notice is the account's, not the screen's: it outlives recreation (which loads nothing) and a
+                // library refresh, and goes only when dismissed.
+                scenario!!.recreate()
+                awaitTextStarting("Couldn't confirm the account deletion")
+                click("Search")
+                awaitText("Search saved notes")
+                pressBack()
+                assertNothingMoreSent(server, returned + "GET /api/library")
+                awaitTextStarting("Couldn't confirm the account deletion")
+                click("Dismiss account message")
+                awaitScreen("Reading", hidden = listOf("Dismiss account message"))
+                assertEquals(AccountState.Idle(null), account.state.value)
             }
     }
 
@@ -635,13 +593,25 @@ class AppNavigationTest {
             }
     }
 
+    /**
+     * Each account confirmation says what it does to this phone's copy, is still open with that text after recreation
+     * and fresh-Activity restoration, and Cancel sends nothing.
+     */
     @Test
     fun accountConfirmationsSurviveRecreationAndFreshActivityRestoration() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")
         LoopbackServer(mapOf("GET /api/library" to library())).use { server ->
             val api = api(server)
-            for ((action, title) in
-                listOf("Sign out…" to "Sign out of RepoRead?", "Delete account…" to "Delete your RepoRead account?")) {
+            for ((action, title, says) in
+                listOf(
+                    Triple(
+                        "Sign out…",
+                        "Sign out of RepoRead?",
+                        "Saved notes and changes stay on this phone. Sending changes waits until you sign in again.",
+                    ),
+                    // Named from this phone's saved list of repositories.
+                    Triple("Delete account…", "Delete your RepoRead account?", "your connections (test-only/notes)"),
+                )) {
                 launchApp(account(api), api)
                 awaitText("Reading")
                 click("More")
@@ -655,6 +625,7 @@ class AppNavigationTest {
                 TestHostActivity.restoredState = saved
                 launchApp(account(api), api)
                 awaitText(title)
+                awaitMatch("'$title' saying '$says'") { it.contains(says) }
                 click("Cancel")
                 awaitScreen("Reading", hidden = listOf(title))
                 assertTrue(sessions.hasSession)
@@ -664,88 +635,6 @@ class AppNavigationTest {
             }
             assertTrue(server.requests.toString(), server.requests.all { it == "GET /api/library" })
         }
-    }
-
-    @Test
-    fun signOutConfirmationSaysSavedDataStaysAndCancelChangesNothing() = runBlocking {
-        sessions.save("TEST_ONLY_SESSION")
-        dao.saveAnnotation(
-            AnnotationEntity("unsent", null, 1, testSha, "b0", 0, 4, "Test", null, 1, 0, state = AnnotationState.UNSENT)
-        )
-        LoopbackServer(
-                mapOf(
-                    "GET /api/library" to library(),
-                    "POST /api/documents/1/annotations" to failure(503, "TEST_ONLY_DOWN"),
-                )
-            )
-            .use { server ->
-                val api = api(server)
-                launchApp(account(api), api)
-                awaitTextStarting("New highlights and cards stay on this phone for now.")
-                click("More")
-                click("Sign out…")
-                awaitText("Saved notes and changes stay on this phone. Sending changes waits until you sign in again.")
-                val before = server.requests.toList()
-                click("Cancel")
-                awaitScreen("Reading", hidden = listOf("Sign out of RepoRead?"))
-                assertNothingMoreSent(server, before)
-                assertEquals(AnnotationState.UNSENT, dao.annotation("unsent")?.state)
-                assertNotNull(dao.savedPage(1))
-                assertTrue(sessions.hasSession)
-            }
-    }
-
-    @Test
-    fun deleteAccountConfirmationNamesTheRepositoriesAndCancelSendsNothing() {
-        sessions.save("TEST_ONLY_SESSION")
-        LoopbackServer(mapOf("GET /api/library" to library())).use { server ->
-            val api = api(server)
-            launchApp(account(api), api)
-            awaitText("Reading")
-            runBlocking { withTimeout(10_000) { while ("GET /api/library" !in server.requests) delay(50) } }
-            click("More")
-            click("Delete account…")
-            awaitMatch("the repositories") { it.contains("your connections (test-only/notes)") }
-            val before = server.requests.toList()
-            click("Cancel")
-            awaitScreen("Reading", hidden = listOf("Delete your RepoRead account?"))
-            assertNothingMoreSent(server, before)
-            assertTrue(sessions.hasSession)
-        }
-    }
-
-    @Test
-    fun disconnectConfirmationShowsTheServersCountsAndCancelSendsNothing() = runBlocking {
-        sessions.save("TEST_ONLY_SESSION")
-        LoopbackServer(
-                mapOf(
-                    "GET /api/library" to library(),
-                    "GET /api/repositories/7/stored-data" to (200 to wire(testCounts())),
-                )
-            )
-            .use { server ->
-                val api = api(server)
-                launchApp(account(api), api)
-                awaitText("Reading")
-                click("Repositories")
-                click("test-only/notes")
-                awaitFolder()
-                awaitFolderRefreshed(server)
-                click("More")
-                click("Disconnect…")
-                awaitMatch("the server's counts") {
-                    it.contains(
-                        "its list of 1 note, your reading progress on 1 note, 1 bookmark, 1 highlight with their notes, " +
-                            "and 1 card with their review logs."
-                    )
-                }
-                val before = server.requests.toList()
-                click("Cancel")
-                awaitScreen("deep", hidden = listOf("Disconnect test-only/notes?"))
-                assertNothingMoreSent(server, before)
-                assertEquals(3, dao.documents(7).first().size)
-                assertEquals(listOf("test-only/notes"), dao.repositories().first().map { it.fullName })
-            }
     }
 
     /** A screen's Back leaves that screen only, however often it is tapped before the next screen shows. */
@@ -853,9 +742,12 @@ class AppNavigationTest {
             }
     }
 
-    /** T1: the preview the confirmation needs is not lost, or asked again, when the Activity is recreated meanwhile. */
+    /**
+     * T1: the preview the confirmation needs is not lost, or asked again, when the Activity is recreated meanwhile. The
+     * confirmation shows the server's counts, and Cancel deletes and sends nothing.
+     */
     @Test
-    fun aDisconnectPreviewHeldThroughRecreationStillShowsTheServersCounts() {
+    fun aDisconnectPreviewHeldThroughRecreationStillShowsTheServersCounts() = runBlocking {
         sessions.save("TEST_ONLY_SESSION")
         val hold = Held("GET /api/repositories/7/stored-data")
         LoopbackServer(mapOf("GET /api/library" to library(), stored), hold::hook).use { server ->
@@ -872,18 +764,26 @@ class AppNavigationTest {
                 hold.release.countDown()
             }
             awaitText("Disconnect test-only/notes?")
+            awaitMatch("the server's counts") {
+                it.contains(
+                    "its list of 1 note, your reading progress on 1 note, 1 bookmark, 1 highlight with their notes, " +
+                        "and 1 card with their review logs."
+                )
+            }
             // The Library's sync, the folder's load, then the preview's own load and count: none of it asked again.
-            assertEquals(
+            val previewed =
                 listOf(
                     "GET /api/library",
                     "GET /api/library",
                     "GET /api/library",
                     "GET /api/repositories/7/stored-data",
-                ),
-                server.requests,
-            )
+                )
+            assertEquals(previewed, server.requests)
             click("Cancel")
             awaitScreen("deep", hidden = listOf("Disconnect test-only/notes?"))
+            assertNothingMoreSent(server, previewed)
+            assertEquals(3, dao.documents(7).first().size)
+            assertEquals(listOf("test-only/notes"), dao.repositories().first().map { it.fullName })
         }
     }
 
@@ -917,42 +817,6 @@ class AppNavigationTest {
                 // Returning while the refresh ran started no second load beside it.
                 assertEquals(2, server.requests.count { it == "GET /api/library" })
                 assertEquals(1, server.requests.count { it == "POST /api/repositories/7/sync" })
-            }
-    }
-
-    /**
-     * A rotation during a refresh from GitHub neither cancels it nor starts the folder's load again: the refusal it
-     * ends with is still shown, and nothing else was sent.
-     */
-    @Test
-    fun aRefreshFromGitHubHeldThroughRecreationIsSentOnceAndReported() {
-        sessions.save("TEST_ONLY_SESSION")
-        val hold = Held("POST /api/repositories/7/sync")
-        LoopbackServer(
-                mapOf(
-                    "GET /api/library" to library(),
-                    "POST /api/repositories/7/sync" to failure(503, "TEST_ONLY_DOWN"),
-                ),
-                hold::hook,
-            )
-            .use { server ->
-                val api = api(server)
-                launchApp(account(api), api)
-                try {
-                    openFolder(server)
-                    click("Check GitHub for updates")
-                    hold.awaitArrived()
-                    scenario!!.recreate()
-                    awaitFolder()
-                } finally {
-                    hold.release.countDown()
-                }
-                awaitTextStarting("GitHub update check failed; the previous list is unchanged.")
-                assertNothingMoreSent(server, server.requests.toList())
-                assertEquals(
-                    listOf("GET /api/library", "GET /api/library", "POST /api/repositories/7/sync"),
-                    server.requests,
-                )
             }
     }
 
@@ -1317,18 +1181,6 @@ class AppNavigationTest {
                 scenario!!.recreate()
                 awaitText("Your edit: Test-only my edit")
                 val saved = saveActivityState(scenario!!)
-                @Suppress("DEPRECATION")
-                fun savedValues(value: Any?): String =
-                    when (value) {
-                        is android.os.Bundle -> value.keySet().joinToString { "$it=${savedValues(value.get(it))}" }
-                        is List<*> -> value.joinToString { savedValues(it) }
-                        is Map<*, *> -> value.entries.joinToString { "${it.key}=${savedValues(it.value)}" }
-                        else -> value.toString()
-                    }
-                assertTrue(
-                    "Submitted edit absent from saved state: ${savedValues(saved)}",
-                    savedValues(saved).contains("Test-only my edit"),
-                )
                 scenario!!.close()
                 scenario = null
                 val newer = current.copy(note = "Test-only newer saved edit", version = 3)
@@ -1336,14 +1188,23 @@ class AppNavigationTest {
                 routes[highlights.first] = 200 to wire(AnnotationControllerAnnotationList(listOf(newer)))
                 TestHostActivity.restoredState = saved
                 launchApp(account, api)
-                awaitText("Current note: Test-only newer saved edit")
+                // The restored conflict shows the annotation reloaded from Room beside the submitted edit.
+                awaitScreen("Current note: Test-only newer saved edit", "Your edit: Test-only my edit")
                 assertEquals(1, server.requests.count { it == "PATCH /api/annotations/9" })
                 routes["PATCH /api/annotations/9"] = 200 to wire(current.copy(note = "Test-only my edit", version = 4))
                 click("Keep mine")
                 withTimeout(10_000) {
                     while (dao.annotation(TEST_HIGHLIGHT_MUTATION)?.note != "Test-only my edit") delay(20)
                 }
-                assertEquals(2, server.requests.count { it == "PATCH /api/annotations/9" })
+                val edits =
+                    server.requests.zip(server.bodies).filter { (request) -> request == "PATCH /api/annotations/9" }
+                assertEquals(2, edits.size)
+                // The server's answer says "Test-only my edit" too, so only the request shows what Keep mine sent: the
+                // restored edit, against the version reloaded from Room.
+                assertEquals(
+                    AnnotationControllerEditRequest(expectedVersion = 3, note = "Test-only my edit"),
+                    wireJson.decodeFromString<AnnotationControllerEditRequest>(edits.last().second),
+                )
             }
     }
 

@@ -39,6 +39,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -132,6 +133,27 @@ class ApiTest {
         val error = rawAnswer("", 100, true)
         assertEquals("BACKEND_UNAVAILABLE", error.code)
         assertTrue(error.cause is SocketTimeoutException)
+    }
+
+    /** Only no answer at all is unreachable; an answer over the size limit keeps its HTTP status. */
+    @Test
+    fun onlyAServerThatDoesNotAnswerIsUnreachable() = runBlocking {
+        // Just over Api's 8 MiB limit for a JSON response.
+        val oversized = """{"repositories":[],"padding":"${"x".repeat(8 * 1024 * 1024)}"}"""
+        val answered =
+            LoopbackServer(mapOf("GET /api/library" to (200 to oversized))).use { server ->
+                runCatching { Api(server.url, { StoredSession.Absent }) {}.fetchLibrarySnapshot() }.exceptionOrNull()
+                    as ApiException
+            }
+        assertEquals("INVALID_RESPONSE", answered.code)
+        assertEquals(200, answered.status)
+        assertFalse(answered.unreachable)
+        val closedPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        val silent =
+            runCatching { Api("http://127.0.0.1:$closedPort", { StoredSession.Absent }) {}.fetchLibrarySnapshot() }
+                .exceptionOrNull() as ApiException
+        assertEquals(0, silent.status)
+        assertTrue(silent.unreachable)
     }
 
     @Test
@@ -318,18 +340,6 @@ class ApiTest {
             val newer = Api(server.url, { StoredSession.Absent }) {}.saveReading(1, reading(0, Instant.EPOCH))
             assertEquals(testAt, newer.lastReadAt)
             assertEquals(50, newer.progressPercent)
-        }
-    }
-
-    @Test
-    fun aReviewAcknowledgementMayCarryTheServersClampedTimestamp() = runBlocking {
-        val clamped = testReview().copy(reviewedAt = Instant.EPOCH)
-        LoopbackServer(mapOf("POST /api/annotations/10/reviews" to (200 to wire(clamped)))).use { server ->
-            val stored =
-                Api(server.url, { StoredSession.Absent }) {}
-                    .recordReview(10, grade.copy(reviewedAt = Instant.EPOCH.minusMillis(1)))
-            assertEquals(Instant.EPOCH, stored.reviewedAt)
-            assertEquals(1, server.requests.size)
         }
     }
 

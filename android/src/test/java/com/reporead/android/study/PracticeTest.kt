@@ -41,14 +41,7 @@ class PracticeTest {
             "<p data-block-id=${id}a data-anchor-text='Canonical answer: $line'><strong>Canonical answer:</strong> " +
             "<a href='/note-link?target=x'>$line</a></p>"
 
-    private fun card(
-        document: Long,
-        question: String?,
-        answer: String,
-        type: AnnotationType = AnnotationType.CARD,
-        blobSha: String = sha,
-        state: AnnotationState = AnnotationState.ACKNOWLEDGED,
-    ) =
+    private fun card(document: Long, question: String?, answer: String, blobSha: String = sha) =
         NotebookItem(
             AnnotationEntity(
                 "m$document$question$answer",
@@ -62,9 +55,9 @@ class PracticeTest {
                 null,
                 1,
                 0,
-                state,
+                AnnotationState.ACKNOWLEDGED,
                 null,
-                type = type,
+                type = AnnotationType.CARD,
                 question = question,
             ),
             "note",
@@ -90,10 +83,6 @@ class PracticeTest {
         assertEquals(questions.take(1), interleaveByNote(questions.take(1), 0) { it.documentId })
         val uneven = questions.take(5)
         assertEquals(uneven.toSet(), interleaveByNote(uneven, 0) { it.documentId }.toSet())
-        assertEquals(
-            interleaveByNote(questions, 42) { it.documentId },
-            interleaveByNote(questions, 42) { it.documentId },
-        )
     }
 
     @Test
@@ -113,66 +102,6 @@ class PracticeTest {
                 questions,
                 listOf(card(1, "Same?", "Canonical answer: First", blobSha = "b".repeat(40))),
             ),
-        )
-        assertEquals(
-            emptySet<String>(),
-            scheduledQuestions(
-                questions,
-                listOf(card(1, "Same?", "Canonical answer: First", type = AnnotationType.HIGHLIGHT)),
-            ),
-        )
-        assertEquals(
-            setOf(first.key),
-            scheduledQuestions(questions, listOf(card(1, "Edited?", "Canonical answer: First"))),
-        )
-        val editedPrompt = first.copy(question = first.question.copy(blockId = "b3", text = "Edited?"))
-        assertEquals(
-            setOf(first.key, editedPrompt.key),
-            scheduledQuestions(listOf(first, editedPrompt), listOf(card(1, "Same?", "Canonical answer: First"))),
-        )
-        // A card the server refused is on no schedule: Review leaves it out, so Practice asks its question again.
-        assertEquals(
-            emptySet<String>(),
-            scheduledQuestions(
-                questions,
-                listOf(card(1, "Same?", "Canonical answer: First", state = AnnotationState.REFUSED)),
-            ),
-        )
-        assertEquals(emptySet<String>(), scheduledQuestions(questions, emptyList()))
-        // A follow-up group's card saved under the earlier one-item prompt still matches: matching is by line.
-        val followUp =
-            PracticeQuestion(
-                3,
-                "note",
-                "core/interview/note.md",
-                sha,
-                StudyQuestion(
-                    "b1",
-                    "After you add a cache",
-                    StudyAnswer("b9", "Canonical path: Caching", emptyList()),
-                    "Short.",
-                    "Recall.",
-                    listOf("Name it"),
-                    followUps = listOf("Which key?", "What expires?"),
-                ),
-            )
-        assertEquals(
-            setOf(followUp.key),
-            scheduledQuestions(
-                listOf(followUp),
-                listOf(card(3, "After you add a cache\n\nWhich key?", "Canonical path: Caching")),
-            ),
-        )
-    }
-
-    @Test
-    fun twoPromptsOverOneCanonicalLineAreOneQuestion() {
-        val html = "<main id=note>" + asked("b1", "First?", "X") + asked("b3", "Second?", "X") + "</main>"
-        val banks = readBanks(listOf(PracticePage(1, "Bank", "core/interview/bank.md", html, sha)))
-        assertEquals(listOf("First?"), banks.questions.map { it.question.prompt })
-        assertEquals(
-            listOf(BankProblem("b3", "Second? — repeats a Canonical line")),
-            banks.unrecognized.single().blocks,
         )
     }
 

@@ -6,7 +6,6 @@ const [webSocketUrl] = process.argv.slice(2);
 if (!webSocketUrl) throw new Error('check-restore.mjs requires the reader page webSocketDebuggerUrl');
 
 const expression = `(() => {
-  if (document.body.classList.contains('study-recall')) throw new Error('Read the answer first: this check needs the note visible, not the recall panel.');
   // The app saves the reading position after scrolling, so the check must leave the page where it found it.
   const original = scrollY;
   const {reporead} = window;

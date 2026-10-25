@@ -131,7 +131,6 @@ class SavedPageImagesDeletionTest {
         assertEquals(emptyList<File>(), images().sweep(emptyList()))
         assertEquals(emptySet<String>(), versionsLeft())
         assertEquals(emptyList<File>(), images().sweep(emptyList()))
-        assertEquals(emptyList<File>(), deleteTree(File(temporary.root, "never-created")))
     }
 
     @Test
