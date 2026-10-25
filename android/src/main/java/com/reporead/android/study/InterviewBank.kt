@@ -102,10 +102,9 @@ internal fun isInterviewBank(path: String): Boolean = interviewTopic(path) != nu
 /**
  * Reads the note's top-level blocks as the renderer wrote them. Each H3 of a bank (its section runs to the next H1–H3)
  * is a question when it follows the question shape, its heading without a leading "N. "; one that does not, a Canonical
- * line under no H3, and a repeated Canonical line are warnings.
+ * line under no H3, and a repeated Canonical line are warnings. Which notes are banks is [isInterviewBank]'s to say.
  */
-internal fun parseInterviewBank(html: String, path: String): InterviewBank {
-    if (!isInterviewBank(path)) return InterviewBank(emptyList(), emptyList())
+internal fun parseInterviewBank(html: String): InterviewBank {
     val bankDocument = Jsoup.parse(html).getElementById("note") ?: return InterviewBank(emptyList(), emptyList())
     val questions = mutableListOf<StudyQuestion>()
     val unrecognized = mutableListOf<BankProblem>()
