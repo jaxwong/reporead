@@ -126,9 +126,10 @@ class PhoneSync(
      * read from one database snapshot (ADR-08). It replaces the acknowledged rows, never pending work, in one Room
      * transaction; a failed request or an answer that breaks the contract writes nothing. After the commit it sweeps
      * the images of the notes it forgot — in a repository no longer listed (disconnected on another device, or here
-     * with the answer lost), or referred to by nothing ([sweepImages]).
+     * with the answer lost), or referred to by nothing ([sweepImages]). Its caller holds the lock ([locked]), as the
+     * `Locked` suffix says in Android's convention; [loadLibrary] takes it.
      */
-    private suspend fun loadLibrary() {
+    private suspend fun loadLibraryLocked() {
         val snapshot = api.fetchLibrarySnapshot()
         val repositoriesWithDocuments =
             snapshot.repositories.associate { repository ->
@@ -160,12 +161,12 @@ class PhoneSync(
     }
 
     /** Reloads the server's whole library (one request, no GitHub call); pending changes wait for a send. */
-    suspend fun refreshLibrary() = locked { loadLibrary() }
+    suspend fun loadLibrary() = locked { loadLibraryLocked() }
 
     /** Asks the backend to reconcile with GitHub, then reloads the now-current library. */
     suspend fun refreshRepositoryFromGitHub(repositoryId: Long) = committed {
         api.refreshRepositorySnapshot(repositoryId)
-        loadLibrary()
+        loadLibraryLocked()
     }
 
     /**
@@ -175,7 +176,7 @@ class PhoneSync(
      */
     suspend fun connect(githubRepositoryId: Long, installationId: Long): RepositoryConnectionsConnection = committed {
         api.connectRepository(githubRepositoryId, RepositoryControllerConnectRequest(installationId = installationId))
-            .also { loadLibrary() }
+            .also { loadLibraryLocked() }
     }
 
     /** Owns an open operation's saved page and optional fetch failure; the reader words the stale-copy notice. */
@@ -185,7 +186,7 @@ class PhoneSync(
      * The saved copy matches a listed note's blob and path. Only repository images and blocked embeds also need the
      * same known snapshot: their contents or resolution may change without a Markdown edit.
      */
-    private fun sameVersion(
+    private fun isSameVersion(
         savedPage: SavedPageEntity,
         listedDocument: DocumentEntity?,
         repositoryCommitSha: String?,
@@ -200,27 +201,27 @@ class PhoneSync(
     }
 
     /** The saved copy can be shown without a network call: the current version, in the page format this app needs. */
-    private fun upToDate(savedPage: SavedPageEntity, listedDocument: DocumentEntity?, repositoryCommitSha: String?) =
-        sameVersion(savedPage, listedDocument, repositoryCommitSha) &&
+    private fun isUpToDate(savedPage: SavedPageEntity, listedDocument: DocumentEntity?, repositoryCommitSha: String?) =
+        isSameVersion(savedPage, listedDocument, repositoryCommitSha) &&
             savedPage.renderFormat >= BuildConfig.RENDER_FORMAT
 
     /**
-     * An [upToDate] cached copy opens without a network call. Otherwise the current version is fetched; if that fails,
-     * an older cached copy is shown with the reason, and a missing cache is the failure itself. A current copy saved in
-     * an older page format (without search blocks, note links, embeds, or later presentation fixes) is fetched once
-     * more; if that fails it is still the current version, so it opens without a warning.
+     * An [isUpToDate] cached copy opens without a network call. Otherwise the current version is fetched; if that
+     * fails, an older cached copy is shown with the reason, and a missing cache is the failure itself. A current copy
+     * saved in an older page format (without search blocks, note links, embeds, or later presentation fixes) is fetched
+     * once more; if that fails it is still the current version, so it opens without a warning.
      */
     suspend fun openNote(documentId: Long): Opened = locked {
         val savedPage = dao.savedPage(documentId)
         val listedDocument = dao.document(documentId)
         val repositoryCommitSha = listedDocument?.let { dao.repositoryCommitSha(it.repositoryId) }
-        if (savedPage != null && upToDate(savedPage, listedDocument, repositoryCommitSha))
+        if (savedPage != null && isUpToDate(savedPage, listedDocument, repositoryCommitSha))
             return@locked Opened(savedPage, null)
         try {
             Opened(fetchSavedPage(documentId).also { sweepImages() }, null)
         } catch (failure: ApiException) {
             if (savedPage == null) throw failure
-            val savedPageIsCurrent = sameVersion(savedPage, listedDocument, repositoryCommitSha)
+            val savedPageIsCurrent = isSameVersion(savedPage, listedDocument, repositoryCommitSha)
             DeviceLog.info(
                 "Showing cached note; documentId=$documentId code=${failure.code} current=$savedPageIsCurrent"
             )
@@ -260,10 +261,10 @@ class PhoneSync(
     data class SaveAllResult(val fetched: Int, val alreadySaved: Int, val cannotShow: Int)
 
     /**
-     * Saves every note of [repositoryId] on the phone: reloads the library from the server ([refreshLibrary]), then
-     * fetches each note whose saved copy is not [upToDate], one at a time. A permanent content/image refusal skips the
-     * rest of that page and counts it once; any other API failure ends the run for the worker to retry or report. Each
-     * page, including an already-current copy, saves its missing images before reporting progress. Saved text and
+     * Saves every note of [repositoryId] on the phone: reloads the library from the server ([loadLibrary]), then
+     * fetches each note whose saved copy is not [isUpToDate], one at a time. A permanent content/image refusal skips
+     * the rest of that page and counts it once; any other API failure ends the run for the worker to retry or report.
+     * Each page, including an already-current copy, saves its missing images before reporting progress. Saved text and
      * complete images survive failures and cancellation; another run checks the rest. At most one library call, one
      * content call per outdated note and 64 image calls per saved page (the server's reference limit). Run only by Save
      * all's background work (SaveAllNotesWorker.kt).
@@ -272,7 +273,7 @@ class PhoneSync(
         repositoryId: Long,
         onProgress: suspend (done: Int, totalNotes: Int) -> Unit,
     ): SaveAllResult {
-        refreshLibrary()
+        loadLibrary()
         val listedDocuments = dao.listedDocuments(repositoryId)
         val repositoryCommitSha = dao.repositoryCommitSha(repositoryId)
         DeviceLog.info("Saving all notes; repositoryId=$repositoryId documents=${listedDocuments.size}")
@@ -284,7 +285,7 @@ class PhoneSync(
             try {
                 locked {
                     val savedPage = dao.savedPage(document.id)
-                    if (savedPage != null && upToDate(savedPage, document, repositoryCommitSha)) {
+                    if (savedPage != null && isUpToDate(savedPage, document, repositoryCommitSha)) {
                         images.saveImagesToDisk(savedPage)
                         alreadySaved++
                     } else {
@@ -332,14 +333,14 @@ class PhoneSync(
      * phone's copies are then removed by reloading the server's library.
      */
     suspend fun disconnectPreview(repositoryId: Long): DisconnectPreview? = locked {
-        val pendingChanges = sendPendingChanges().also { loadLibrary() }
+        val pendingChanges = sendPendingChanges().also { loadLibraryLocked() }
         val deletionCounts =
             try {
                 api.repositoryDeletionCounts(repositoryId)
             } catch (failure: ApiException) {
                 if (failure.status != 404 || failure.code != "NOT_FOUND") throw failure
                 DeviceLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
-                loadLibrary()
+                loadLibraryLocked()
                 return@locked null
             }
         DisconnectPreview(deletionCounts, dao.unsentInRepository(repositoryId), pendingChanges.notSent)
@@ -362,7 +363,7 @@ class PhoneSync(
             }
         if (disconnectResponse == null) {
             DeviceLog.info("Repository already disconnected on the server; repositoryId=$repositoryId")
-            loadLibrary()
+            loadLibraryLocked()
         } else {
             val documentIds = disconnectResponse.documentIds
             dao.forgetRepository(repositoryId, documentIds)
@@ -398,10 +399,10 @@ class PhoneSync(
 
     /**
      * The Library's send-and-load operation: sends what waits ([sendPendingChanges]), then loads the server's library
-     * ([loadLibrary]).
+     * ([loadLibraryLocked]).
      */
     suspend fun sendPendingChangesAndLoadLibrary(): PendingChangesResult = locked {
-        sendPendingChanges().also { loadLibrary() }
+        sendPendingChanges().also { loadLibraryLocked() }
     }
 
     /**

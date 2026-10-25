@@ -89,9 +89,9 @@ private enum class LibraryTab(val label: String, val icon: Int) {
 }
 
 /**
- * The Library's send-and-load operation, kept by its back-stack entry ([entryId]): a rotation neither stops nor
- * repeats it, and what it reported stays shown. Leaving the Library cancels an operation still running; sent changes
- * commit what the server answered (PhoneSync).
+ * The Library's send-and-load operation, kept by its back-stack entry ([entryId]): a rotation neither stops nor repeats
+ * it, and what it reported stays shown. Leaving the Library cancels an operation still running; sent changes commit
+ * what the server answered (PhoneSync).
  */
 internal class LibraryViewModel(private val sync: PhoneSync, private val entryId: String) : ViewModel() {
     data class State(

@@ -180,7 +180,7 @@ internal class FolderViewModel(
             }
         shownSignedIn = signedIn
         left = false
-        if (reason != null) refresh(reason, "Showing saved data.") { sync.refreshLibrary() }
+        if (reason != null) refresh(reason, "Showing saved data.") { sync.loadLibrary() }
     }
 
     /** The screen left composition for another reason than a configuration change. */
