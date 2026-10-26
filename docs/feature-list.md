@@ -273,6 +273,10 @@ A second reading of the branch, before the freeze, found the fixes themselves ha
 
 Two more of its leftovers followed, by user request. `GitHubTokenLifecycle`'s gate is `admit` (it was `changing`) and account deletion under it is `deleteAccount` (it was `deletingAccount`), since functions are verbs. The renderer's image path prefix and its blocked-image class, which the app had copied by hand (`/repo-image/`, `image-blocked`), are read from `MarkdownRenderer`'s own lines at build time like the other server values (`BuildConfig.IMAGE_PREFIX`, `IMAGE_BLOCKED_CLASS`); the renderer itself now names the class once. The reader's own stylesheet and script keep the class name as the page's display contract.
 
+## Code highlighting for `http` and `properties` (2026-10-26)
+
+`http` fences in a real note showed plain on the phone: highlight.js's common set, which the reader bundled, leaves out `http` and `properties`. Both are now registered on their own, not the full set (ADR-04). Verified with the built `reader.js` in headless Chrome: both blocks highlighted and the page reached `ready`, so canonical text was unchanged.
+
 ## Naming and ownership (2026-10-21 to 2026-10-22)
 
 Merged in [PR #95](https://github.com/jaxwong/reporead/pull/95), [PR #99](https://github.com/jaxwong/reporead/pull/99), [PR #100](https://github.com/jaxwong/reporead/pull/100) and [PR #103](https://github.com/jaxwong/reporead/pull/103): one [naming guide](code-style.md), Android packages named for their owners (`network`, `logging`, `database`), the device-log flow named alike on the phone and the server, and "sync" split into delivering pending changes and refreshing a repository snapshot. The PRs changed no route, JSON field, table or column; the one approved behaviour change, request targets keeping their query in the server's log, is in ADR-21.
@@ -292,6 +296,7 @@ Covered by automated tests only, or not at all:
 - Sign-ins surviving a deploy, and GitHub revocation on the last sign-out, with the real phone and hosted backend.
 - Natural next-day Practice/Review cadence and two weeks of voluntary sessions. PR5 verified one real Practice grade and one Review grade, using the clock-ahead check to make the otherwise-not-yet-due card selectable; the completion-counter clock-rollback defect was fixed in the 2026-10-25 test audit.
 - A WebView renderer that stops for real: tested with `chrome://crash` only.
+- `http` and `properties` highlighting in the phone's WebView (2026-10-26): checked in headless Chrome only.
 - Account operations survive screen recreation in the application scope. Their network/failure paths use isolated loopback fixtures, not live account deletion; an actual OS process kill during an account operation remains unverified.
 - Audit PR2 retires pending-removal, Retry, ownerless-sign-in and retired-copy tests with those paths. Normal startup/disconnect image sweep coverage remains in `PhoneSyncTest`; account preservation and retained navigation are checked with isolated data. No live phone copy is deleted.
 - Reading the stored session (2026-10-18, ADR-22): unit tests cover the stored-text checks, which Keystore exceptions delete it, and an unreadable one failing the request unsent; reading Keystore's transient and system-error marks from the exception is untested, since no test can build a `KeyStoreException` (its constructor is not public); the exceptions were read in Android's sources, not provoked: historical device-suite evidence is in git, but none of its tests makes the Keystore fail.
