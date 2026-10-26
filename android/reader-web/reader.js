@@ -1,5 +1,11 @@
 import hljs from 'highlight.js/lib/common';
+import http from 'highlight.js/lib/languages/http';
+import properties from 'highlight.js/lib/languages/properties';
 import './reader.css';
+
+// Fence languages the notes use that the common set leaves out; the full set is too large for every page (ADR-04).
+hljs.registerLanguage('http', http);
+hljs.registerLanguage('properties', properties);
 
 const blocks = [...document.querySelectorAll('#note [data-block-id]')];
 const status = {diagrams: 0, diagramErrors: 0};
