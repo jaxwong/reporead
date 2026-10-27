@@ -584,8 +584,8 @@ class AnchorMeasurement {
                 }
             }
         }
-        // For each number of wrong attachments, the most permissive-in-recall grid point (ties: strictest thresholds
-        // first).
+        // For each number of wrong attachments, the most permissive-in-recall grid point (ties: the first in grid
+        // order, so the lowest thresholds).
         var frontier = new TreeMap<Integer, Point>();
         for (var point : points) {
             var best = frontier.get(point.wrong());
@@ -600,7 +600,7 @@ class AnchorMeasurement {
                         entry.getValue().attached(),
                         entry.getValue().shouldAttach(),
                         entry.getValue().thresholds())));
-        report.append("Zero-wrong grid points with recall within 0.5% of the best, strictest first:\n");
+        report.append("Zero-wrong grid points with recall within 0.5% of the best, lowest thresholds first:\n");
         var zero = points.stream().filter(point -> point.wrong() == 0).toList();
         int bestZero = zero.stream().mapToInt(Point::attached).max().orElse(0);
         zero.stream()
