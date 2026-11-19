@@ -394,6 +394,16 @@ window.reporead.reveal = key => {
 };
 
 /*
+ * Tapping a highlight opens it in the app's highlights panel, through a same-origin navigation the app intercepts
+ * (/highlight, as /copy-code). A tap on a link inside a highlight follows the link instead.
+ */
+document.addEventListener('click', event => {
+  const mark = event.target.closest?.('#note mark[data-key]');
+  if (!mark || event.target.closest('a')) return;
+  location.assign(`/highlight?key=${encodeURIComponent(mark.dataset.key)}`);
+});
+
+/*
  * Tapping a footnote number shows its definition in a sheet at the bottom, without scrolling away from the passage.
  * The sheet is outside #note, so nothing in it is a block: it cannot be highlighted or become the reading position.
  */

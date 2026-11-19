@@ -376,6 +376,8 @@ fun ReaderScreen(
     val bookmark by dao.bookmark(screen.documentId).collectAsStateWithLifecycle(null)
     val annotations by dao.annotations(screen.documentId).collectAsStateWithLifecycle(emptyList())
     var notesOpen by rememberSaveable(screen.documentId) { mutableStateOf(false) }
+    // The highlight tapped in the page, until the highlights panel has scrolled to it.
+    var tappedHighlight by rememberSaveable(screen.documentId) { mutableStateOf<String?>(null) }
     var overlay by rememberSaveable(screen.documentId) { mutableStateOf<ReaderOverlay?>(null) }
     var findOpen by rememberSaveable(screen.documentId) { mutableStateOf(false) }
     var findQuery by
@@ -446,6 +448,10 @@ fun ReaderScreen(
                     isReattaching = { state.annotationToReattach != null },
                     onMessage = model::showMessage,
                     onSelection = ::useSelection,
+                    onHighlightTap = { key ->
+                        notesOpen = true
+                        tappedHighlight = key
+                    },
                 )
             }
         }
@@ -529,6 +535,8 @@ fun ReaderScreen(
             state = state,
             session = session,
             notesOpen = notesOpen,
+            tappedHighlight = tappedHighlight,
+            onScrolledToHighlight = { tappedHighlight = null },
             annotations = annotations,
             dao = dao,
             model = model,

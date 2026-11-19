@@ -13,8 +13,8 @@
   --surface-strong: #eaeef2;
   --link: #0969da;
   --error: #b42318;
-  --mark: #fff1a8;
-  --mark-revealed: #ffd54a;
+  --mark: #ccebc8;
+  --mark-revealed: #94d68f;
   --code-keyword: #cf222e;
   --code-title: #8250df;
   --code-constant: #0550ae;
@@ -34,8 +34,8 @@
     --surface-strong: #2b313a;
     --link: #79b8ff;
     --error: #ff8f85;
-    --mark: rgba(242, 196, 64, 0.32);
-    --mark-revealed: rgba(242, 196, 64, 0.6);
+    --mark: rgba(110, 192, 116, 0.3);
+    --mark-revealed: rgba(110, 192, 116, 0.6);
     --code-keyword: #ff8b80;
     --code-title: #d2a8ff;
     --code-constant: #79c0ff;

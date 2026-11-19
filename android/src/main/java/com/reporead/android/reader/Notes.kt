@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -13,6 +14,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -64,6 +66,9 @@ internal fun NotesPanel(
     notShown: Set<String>,
     pageReady: Boolean,
     dao: RepoReadDao,
+    /** The key of a highlight to scroll the list to, once; [onScrolledTo] clears it. */
+    scrollTo: String?,
+    onScrolledTo: () -> Unit,
     onReveal: (AnnotationEntity) -> Unit,
     onReattach: (AnnotationEntity) -> Unit,
     onEdit: (AnnotationEntity) -> Unit,
@@ -97,13 +102,21 @@ internal fun NotesPanel(
         }
     val document = listing?.document
     val backlinks = listing?.backlinks
+    val listState = rememberLazyListState()
+    LaunchedEffect(scrollTo) {
+        if (scrollTo == null) return@LaunchedEffect
+        // A highlight deleted since the page drew it is not in the list; the panel then stays where it is.
+        val index = annotations.indexOfFirst { it.mutationId == scrollTo }
+        if (index >= 0) listState.animateScrollToItem(index)
+        onScrolledTo()
+    }
 
     Column(modifier) {
         HorizontalDivider()
         if (annotations.isEmpty()) {
             Text("No highlights yet. Select text and choose Highlight or Add note.", Modifier.padding(16.dp))
         }
-        LazyColumn {
+        LazyColumn(state = listState) {
             items(annotations, key = { it.mutationId }) { annotation ->
                 AnnotationItem(
                     annotation,
