@@ -273,6 +273,10 @@ A second reading of the branch, before the freeze, found the fixes themselves ha
 
 Two more of its leftovers followed, by user request. `GitHubTokenLifecycle`'s gate is `admit` (it was `changing`) and account deletion under it is `deleteAccount` (it was `deletingAccount`), since functions are verbs. The renderer's image path prefix and its blocked-image class, which the app had copied by hand (`/repo-image/`, `image-blocked`), are read from `MarkdownRenderer`'s own lines at build time like the other server values (`BuildConfig.IMAGE_PREFIX`, `IMAGE_BLOCKED_CLASS`); the renderer itself now names the class once. The reader's own stylesheet and script keep the class name as the page's display contract.
 
+## Green highlights; tap a highlight to open it (2026-11-19)
+
+Highlights were yellow, which the user found glaring; they are now a soft green in the light and dark palettes, and Show flashes a deeper green (ADR-17). Tapping a highlight or card in the reader opens the highlights panel scrolled to its entry, where Edit note and Delete are; before, a tap on a highlight did nothing. The page reports the tap as a same-origin `/highlight` navigation the app intercepts, as Copy does, so the page still cannot call native code. A link inside a highlight follows the link, and the search occurrence, drawn as a highlight, opens nothing. Verified: `:app:spotlessCheck :app:testDebugUnitTest :app:assembleDebug :app:lintDebug` pass; on the Pixel the user saw the green highlight and a tap opened the panel at it, so the WebView reports the page's navigation as a user gesture. No device test covers the tap.
+
 ## Code highlighting for `http` and `properties` (2026-10-26)
 
 `http` fences in a real note showed plain on the phone: highlight.js's common set, which the reader bundled, leaves out `http` and `properties`. Both are now registered on their own, not the full set (ADR-04). Verified with the built `reader.js` in headless Chrome: both blocks highlighted and the page reached `ready`, so canonical text was unchanged.
