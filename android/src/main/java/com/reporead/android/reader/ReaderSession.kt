@@ -39,6 +39,8 @@ import org.json.JSONObject
 
 /** The reader page's Copy link on a code block (reader.js addCodeTools); the text is then read with codeText(). */
 private const val COPY_CODE = "/copy-code"
+/** A tapped highlight in the reader page (reader.js), with its key. */
+private const val HIGHLIGHT_TAP = "/highlight"
 private const val SAVE_AFTER_SCROLL_MS = 700L
 private const val SECTION_AFTER_SCROLL_MS = 150L
 /** How far one swipe must scroll before the bars hide or come back, so small jitters do nothing. */
@@ -86,6 +88,8 @@ internal class ReaderSession(
     private val onMessage: (String) -> Unit,
     /** The selection when a selection action is chosen, and that action. */
     private val onSelection: (Selection, SelectionAction) -> Unit,
+    /** A highlight or card tapped in the page, by its key (the annotation's mutation id). */
+    private val onHighlightTap: (key: String) -> Unit,
 ) {
     /** The page's headings once it has opened; null before, if it did not render, and after it is gone ([opened]). */
     var outline by mutableStateOf<List<OutlineEntry>?>(null)
@@ -212,6 +216,8 @@ internal class ReaderSession(
             when (url.path) {
                 NOTE_LINK_PATH -> openNoteLink(url)
                 COPY_CODE -> url.getQueryParameter("block")?.let { appScope.launch { copyCode(it) } }
+                // The search occurrence is drawn as a highlight too, but it is not one.
+                HIGHLIGHT_TAP -> url.getQueryParameter("key")?.takeIf { it != SEARCH_TARGET_KEY }?.let(onHighlightTap)
             }
         } else if (url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto") {
             try {
